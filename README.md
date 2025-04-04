@@ -1,5 +1,7 @@
 # 麦麦！MaiCore-MaiMBot (编辑中)
 
+## 新版0.6.0部署前先阅读：https://docs.mai-mai.org/manual/usage/mmc_q_a
+
 <div align="center">
 
 ![Python Version](https://img.shields.io/badge/Python-3.9+-blue)
@@ -65,7 +67,8 @@
 - [📚 核心Wiki文档](https://docs.mai-mai.org) - 项目最全面的文档中心，你可以了解麦麦有关的一切
 
 ### 最新版本部署教程(MaiCore版本)
-- [🚀 最新版本部署教程](https://docs.mai-mai.org/manual/deployment/refactor_deploy.html) - 基于MaiCore的新版本部署方式（与旧版本不兼容）
+- [🚀 最新版本部署教程](https://docs.mai-mai.org/manual/deployment/mmc_deploy.html) - 基于MaiCore的新版本部署方式（与旧版本不兼容）
+
 
 ## 🎯 功能介绍
 
