@@ -300,7 +300,7 @@ class RelationshipManager:
         level_num = self.calculate_level_num(old_value + value)
         relationship_level = ["厌恶", "冷漠", "一般", "友好", "喜欢", "暧昧"]
         logger.info(
-            f"用户: {chat_stream.user_info.user_nickname}"
+            f"用户: {chat_stream.user_info.user_nickname}, "
             f"当前关系: {relationship_level[level_num]}, "
             f"关系值: {old_value:.2f}, "
             f"当前立场情感: {stance}-{label}, "
