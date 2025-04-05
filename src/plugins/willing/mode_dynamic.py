@@ -200,8 +200,8 @@ class DynamicWillingManager(BaseWillingManager):
             self._ensure_chat_initialized(chat_id)
             current_willing = self.chat_reply_willing.get(chat_id, 0)
 
-            # 回复后减少回复意愿
-            self.chat_reply_willing[chat_id] = max(0.0, current_willing - 0.3)
+            # 思考时降低一大截意愿，避免扎堆回复
+            self.chat_reply_willing[chat_id] = max(0.0, current_willing - 0.8) # 思考时降低意愿
 
             # 标记为对话上下文中
             self.chat_conversation_context[chat_id] = True
