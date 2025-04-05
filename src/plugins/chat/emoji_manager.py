@@ -316,6 +316,9 @@ class EmojiManager:
 
                 if global_config.EMOJI_CHECK:
                     check = await self._check_emoji(image_base64, image_format)
+                    if check is None: # 如果检查失败，则跳过
+                        logger.warning(f"[跳过] 表情包: {filename}")
+                        continue
                     if "是" not in check:
                         os.remove(image_path)
                         logger.info(f"[过滤] 表情包描述: {description}")
@@ -325,6 +328,9 @@ class EmojiManager:
 
                 if description is not None:
                     embedding = await get_embedding(description, request_type="emoji")
+                    if embedding is None: # 如果embedding失败，则跳过
+                        logger.warning(f"[跳过] 表情包: {filename}")
+                        continue
                     # 准备数据库记录
                     emoji_record = {
                         "filename": filename,
