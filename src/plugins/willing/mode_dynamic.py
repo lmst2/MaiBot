@@ -193,8 +193,8 @@ class DynamicWillingManager(BaseWillingManager):
             self._ensure_chat_initialized(chat_id)
             current_willing = self.chat_reply_willing.get(chat_id, 0)
 
-            # 回复后减少回复意愿
-            self.chat_reply_willing[chat_id] = max(0.0, current_willing - 0.3)
+            # 思考时降低一大截意愿，避免扎堆回复
+            self.chat_reply_willing[chat_id] = max(0.0, current_willing - 0.8) # 思考时降低意愿
 
             # 标记为对话上下文中
             self.chat_conversation_context[chat_id] = True
@@ -237,3 +237,25 @@ class DynamicWillingManager(BaseWillingManager):
     
     async def set_variable_parameters(self, parameters):
         return await super().set_variable_parameters(parameters)
+    
+    def change_reply_willing_after_sent(self, chat_stream: ChatStream):
+        """发送消息后提高聊天流的回复意愿"""
+        stream = chat_stream
+        if stream:
+            chat_id = stream.stream_id
+            self._ensure_chat_initialized(chat_id)
+            current_willing = self.chat_reply_willing.get(chat_id, 0)
+
+            # 思考完成后恢复意愿，但是总体还是减少0.3， 因为已经回复了
+            self.chat_reply_willing[chat_id] = max(0.0, current_willing + 0.5)
+
+
+    async def ensure_started(self):
+        """确保所有任务已启动"""
+        if not self._started:
+            if self._decay_task is None:
+                self._decay_task = asyncio.create_task(self._decay_reply_willing())
+            if self._mode_switch_task is None:
+                self._mode_switch_task = asyncio.create_task(self._mode_switch_check())
+            self._started = True
+

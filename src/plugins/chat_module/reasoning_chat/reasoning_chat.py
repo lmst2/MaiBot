@@ -100,6 +100,7 @@ class ReasoningChat:
                 first_bot_msg = bot_message
             message_set.add_message(bot_message)
         message_manager.add_message(message_set)
+        willing_manager.change_reply_willing_after_sent(chat)
 
         return first_bot_msg
 
