@@ -215,9 +215,8 @@ class MessageServer(BaseMessageHandler):
             try:
                 async with session.post(url, json=data, headers={"Content-Type": "application/json"}) as response:
                     return await response.json()
-            except Exception:
-                # logger.error(f"发送消息失败: {str(e)}")
-                pass
+            except Exception as e:
+                raise e
 
 
 class BaseMessageAPI:
