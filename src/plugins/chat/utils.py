@@ -66,7 +66,7 @@ def is_mentioned_bot_in_message(message: MessageRecv) -> tuple[bool, float]:
             )
 
     # 判断是否被@
-    if re.search(f"@[\s\S]*?（id:{global_config.BOT_QQ}）", message.processed_plain_text):
+    if re.search(f"@[\s\S]*?\(id:{global_config.BOT_QQ}\)", message.processed_plain_text):
         is_at = True
         is_mentioned = True
 
