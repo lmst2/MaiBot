@@ -326,7 +326,6 @@ class ThinkFlowChat:
                     timer2 = time.time()
                     timing_results["发送消息"] = timer2 - timer1
                 except Exception as e:
-                    traceback.print_exc()
                     logger.error(f"心流发送消息失败: {e}")
                 
                 

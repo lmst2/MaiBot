@@ -80,7 +80,7 @@ class ChattingObservation(Observation):
         #     print(f"更新聊天总结：{self.observe_info}11111111111111")
         #     self.summary_count += 1
         updated_observe_info = await self.update_talking_summary(new_messages_str)
-        print(f"更新聊天总结：{updated_observe_info}11111111111111")
+        print(f"更新聊天总结：{updated_observe_info}")
         self.observe_info = updated_observe_info
 
         return updated_observe_info
