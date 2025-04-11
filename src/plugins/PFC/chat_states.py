@@ -98,7 +98,7 @@ class NotificationManager:
             notification_type: 要处理的通知类型
             handler: 处理器实例
         """
-        print(1145145511114445551111444)
+        # print(1145145511114445551111444)
         if target not in self._handlers:
             # print("没11有target")
             self._handlers[target] = {}
