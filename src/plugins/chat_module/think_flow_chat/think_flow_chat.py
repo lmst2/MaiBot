@@ -107,7 +107,7 @@ class ThinkFlowChat:
             # print(f"thinking_start_time:{bot_message.thinking_start_time}")
             message_set.add_message(bot_message)
         message_manager.add_message(message_set)
-        willing_manager.change_reply_willing_after_sent(chat)
+        willing_manager.change_reply_willing_after_sent(message.message_info.message_id)
         return first_bot_msg
 
     async def _handle_emoji(self, message, chat, response):

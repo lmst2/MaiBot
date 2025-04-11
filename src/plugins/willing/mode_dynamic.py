@@ -3,6 +3,7 @@ import random
 import time
 from typing import Dict
 from .willing_manager import BaseWillingManager
+from src.plugins.chat.chat_stream import ChatStream
 
 
 class DynamicWillingManager(BaseWillingManager):
@@ -226,6 +227,18 @@ class DynamicWillingManager(BaseWillingManager):
 
             self.chat_reply_willing[chat_id] = min(2.0, current_willing + willing_increase)
 
+    def change_reply_willing_after_sent(self, message_id):
+        """发送消息后提高聊天流的回复意愿"""
+        stream = self.ongoing_messages[message_id].chat
+        if stream:
+            chat_id = stream.stream_id
+            self._ensure_chat_initialized(chat_id)
+            current_willing = self.chat_reply_willing.get(chat_id, 0)
+
+            # 思考完成后恢复意愿，但是总体还是减少0.4， 因为已经回复了
+            self.chat_reply_willing[chat_id] = max(0.0, current_willing + 0.4)
+    
+    
     async def bombing_buffer_message_handle(self, message_id):
         return await super().bombing_buffer_message_handle(message_id)
     
@@ -258,4 +271,5 @@ class DynamicWillingManager(BaseWillingManager):
             if self._mode_switch_task is None:
                 self._mode_switch_task = asyncio.create_task(self._mode_switch_check())
             self._started = True
+
 
