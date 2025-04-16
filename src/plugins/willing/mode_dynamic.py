@@ -167,6 +167,10 @@ class DynamicWillingManager(BaseWillingManager):
             # 低回复周期：需要最少15句才有30%的概率会回一句
             base_probability = 0.30 if msg_count >= 15 else 0.03 * min(msg_count, 10)
 
+        # 防止因为回复盖率比较低，但是群里又聊得火热，导致回复意愿累积突破一定值之后爆发式回复
+        if current_willing > 2:
+            current_willing = 2
+
         # 考虑回复意愿的影响
         reply_probability = base_probability * current_willing * self.global_config.response_willing_amplifier
 
@@ -229,6 +233,18 @@ class DynamicWillingManager(BaseWillingManager):
 
             self.chat_reply_willing[chat_id] = min(2.0, current_willing + willing_increase)
 
+
+    def change_reply_willing_after_sent(self, message_id):
+        """发送消息后提高聊天流的回复意愿"""
+        stream = self.ongoing_messages[message_id].chat
+        if stream:
+            chat_id = stream.stream_id
+            self._ensure_chat_initialized(chat_id)
+            current_willing = self.chat_reply_willing.get(chat_id, 0)
+
+            # 思考完成后恢复意愿，但是总体还是减少0.4， 因为已经回复了
+            self.chat_reply_willing[chat_id] = max(0.0, current_willing + 0.4)
+        
     async def bombing_buffer_message_handle(self, message_id):
         return await super().bombing_buffer_message_handle(message_id)
 
