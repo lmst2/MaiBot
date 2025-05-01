@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 import time
 import platform
-import traceback
 from dotenv import load_dotenv
 from src.common.logger_manager import get_logger
 
@@ -262,9 +261,8 @@ if __name__ == "__main__":
                 loop.close()
             # 计算程序运行时间
             runtime = time.time() - start_time
-            if runtime < 100: # 正常情况下程序初始化用不了100秒，如果没有100秒就退出了，说明是内部故障，退出。。。
+            if runtime < 100:  # 正常情况下程序初始化用不了100秒，如果没有100秒就退出了，说明是内部故障，退出。。。
                 logger.error(f"程序运行时间: {runtime:.2f} 秒,小于100秒，可能是内部故障，退出。。。")
                 break
             continue
     sys.exit(1)
-            

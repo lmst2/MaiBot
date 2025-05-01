@@ -201,7 +201,7 @@ class DynamicWillingManager(BaseWillingManager):
             current_willing = self.chat_reply_willing.get(chat_id, 0)
 
             # 思考时降低一大截意愿，避免扎堆回复
-            self.chat_reply_willing[chat_id] = max(0.0, current_willing - 1.8) # 思考时降低意愿
+            self.chat_reply_willing[chat_id] = max(0.0, current_willing - 1.8)  # 思考时降低意愿
 
             # 标记为对话上下文中
             self.chat_conversation_context[chat_id] = True
@@ -243,7 +243,7 @@ class DynamicWillingManager(BaseWillingManager):
 
             # 思考完成后恢复意愿，但是总体还是减少0.4， 因为已经回复了
             self.chat_reply_willing[chat_id] = max(0.0, current_willing + 0.4)
-        
+
     async def bombing_buffer_message_handle(self, message_id):
         return await super().bombing_buffer_message_handle(message_id)
 

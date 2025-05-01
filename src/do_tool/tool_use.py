@@ -1,4 +1,3 @@
-from src.plugins.chat.utils import get_recent_group_detailed_plain_text
 from src.plugins.models.utils_model import LLMRequest
 from src.config.config import global_config
 import json
