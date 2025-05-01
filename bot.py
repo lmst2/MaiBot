@@ -223,28 +223,48 @@ def raw_main():
 
 
 if __name__ == "__main__":
-    try:
-        # 获取MainSystem实例
-        main_system = raw_main()
-
-        # 创建事件循环
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
+    while True:
         try:
-            # 执行初始化和任务调度
-            loop.run_until_complete(main_system.initialize())
-            loop.run_until_complete(main_system.schedule_tasks())
-        except KeyboardInterrupt:
-            # loop.run_until_complete(global_api.stop())
-            logger.warning("收到中断信号，正在优雅关闭...")
-            loop.run_until_complete(graceful_shutdown())
-        finally:
-            loop.close()
+            # 获取程序启动时间
+            start_time = time.time()
+            # 获取MainSystem实例
+            main_system = raw_main()
 
-    except Exception as e:
-        logger.error(f"主程序异常: {str(e)} {str(traceback.format_exc())}")
-        if loop and not loop.is_closed():
-            loop.run_until_complete(graceful_shutdown())
-            loop.close()
-        sys.exit(1)
+            # 创建事件循环
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            try:
+                # 执行初始化和任务调度
+                loop.run_until_complete(main_system.initialize())
+                loop.run_until_complete(main_system.schedule_tasks())
+            except KeyboardInterrupt:
+                # loop.run_until_complete(global_api.stop())
+                logger.warning("收到中断信号，正在优雅关闭...")
+                loop.run_until_complete(graceful_shutdown())
+                loop.close()
+                break
+            except Exception as e:
+                logger.error(f"主程序异常: {str(e)}")
+                # some extra error handling
+                if hasattr(e, "args") and e.args:
+                    logger.error(f"异常参数: {e.args}")
+                if hasattr(e, "__traceback__"):
+                    logger.error(f"异常追踪: {e.__traceback__}")
+            finally:
+                if loop and not loop.is_closed():
+                    loop.run_until_complete(graceful_shutdown())
+                    loop.close()
+        except Exception as e:
+            logger.error(f"主程序异常退出: {str(e)}, 重新启动中。。。")
+            if loop and not loop.is_closed():
+                loop.run_until_complete(graceful_shutdown())
+                loop.close()
+            # 计算程序运行时间
+            runtime = time.time() - start_time
+            if runtime < 100: # 正常情况下程序初始化用不了100秒，如果没有100秒就退出了，说明是内部故障，退出。。。
+                logger.error(f"程序运行时间: {runtime:.2f} 秒,小于100秒，可能是内部故障，退出。。。")
+                break
+            continue
+    sys.exit(1)
+            

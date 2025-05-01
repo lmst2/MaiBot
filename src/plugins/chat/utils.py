@@ -65,7 +65,7 @@ def is_mentioned_bot_in_message(message: MessageRecv) -> tuple[bool, float]:
             )
 
     # 判断是否被@
-    if re.search(f"@[\s\S]*?（id:{global_config.BOT_QQ}）", message.processed_plain_text):
+    if re.search(fr"@[\s\S]*?（id:{global_config.BOT_QQ}）", message.processed_plain_text):
         is_at = True
         is_mentioned = True
 
@@ -553,8 +553,7 @@ def protect_kaomoji(sentence):
         r"[^()\[\]（）【】]*?"  # 非括号字符（惰性匹配）
         r"[^一-龥a-zA-Z0-9\s]"  # 非中文、非英文、非数字、非空格字符（必须包含至少一个）
         r"[^()\[\]（）【】]*?"  # 非括号字符（惰性匹配）
-        r"[)\]）】"  # 右括号
-        r"]"
+        r"[\)\]）】]"  # 右括号
         r")"
         r"|"
         r"([▼▽・ᴥω･﹏^><≧≦￣｀´∀ヮДд︿﹀へ｡ﾟ╥╯╰︶︹•⁄]{2,15})"
