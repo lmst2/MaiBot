@@ -50,6 +50,7 @@ class DynamicWillingManager(BaseWillingManager):
                 is_high_mode = self.chat_high_willing_mode.get(chat_id, False)
 
                 # 获取当前模式的持续时间
+                duration = 0
                 if is_high_mode:
                     duration = self.chat_high_willing_duration.get(chat_id, 180)  # 默认3分钟
                 else:
@@ -153,6 +154,8 @@ class DynamicWillingManager(BaseWillingManager):
             )
 
         # 根据当前模式计算回复概率
+        base_probability = 0.0
+
         if in_conversation_context:
             # 在对话上下文中，降低基础回复概率
             base_probability = 0.5 if is_high_mode else 0.25
@@ -198,7 +201,7 @@ class DynamicWillingManager(BaseWillingManager):
             current_willing = self.chat_reply_willing.get(chat_id, 0)
 
             # 思考时降低一大截意愿，避免扎堆回复
-            self.chat_reply_willing[chat_id] = max(0.0, current_willing - 0.8) # 思考时降低意愿
+            self.chat_reply_willing[chat_id] = max(0.0, current_willing - 1.8) # 思考时降低意愿
 
             # 标记为对话上下文中
             self.chat_conversation_context[chat_id] = True
