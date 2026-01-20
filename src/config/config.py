@@ -173,17 +173,17 @@ class ConfigManager:
     def initialize(self):
         logger.info(f"MaiCore当前版本: {MMC_VERSION}")
         logger.info("正在品鉴配置文件...")
-        self.global_config: Config = self._load_global_config()
-        self.model_config: ModelConfig = self._load_model_config()
+        self.global_config: Config = self.load_global_config()
+        self.model_config: ModelConfig = self.load_model_config()
         logger.info("非常的新鲜，非常的美味！")
 
-    def _load_global_config(self) -> Config:
+    def load_global_config(self) -> Config:
         config, updated = load_config_from_file(Config, self.bot_config_path, CONFIG_VERSION)
         if updated:
             sys.exit(0)  # 先直接退出
         return config
 
-    def _load_model_config(self) -> ModelConfig:
+    def load_model_config(self) -> ModelConfig:
         config, updated = load_config_from_file(ModelConfig, self.model_config_path, MODEL_CONFIG_VERSION, True)
         if updated:
             sys.exit(0)  # 先直接退出
