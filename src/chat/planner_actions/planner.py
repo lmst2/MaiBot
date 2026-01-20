@@ -13,7 +13,8 @@ from src.config.config import global_config, model_config
 from src.common.logger import get_logger
 from src.chat.logger.plan_reply_logger import PlanReplyLogger
 from src.common.data_models.info_data_model import ActionPlannerInfo
-from src.chat.utils.prompt_builder import Prompt, global_prompt_manager
+# from src.chat.utils.prompt_builder import Prompt, global_prompt_manager
+from src.prompt.prompt_manager import prompt_manager
 from src.chat.utils.chat_message_builder import (
     build_readable_messages_with_id,
     get_raw_msg_before_timestamp_with_chat,
@@ -34,69 +35,6 @@ if TYPE_CHECKING:
 logger = get_logger("planner")
 
 install(extra_lines=3)
-
-
-def init_prompt():
-    Prompt(
-        """
-{time_block}
-{name_block}
-{chat_context_description}，以下是具体的聊天内容
-**聊天内容**
-{chat_content_block}
-
-**可选的action**
-reply
-动作描述：
-1.你可以选择呼叫了你的名字，但是你没有做出回应的消息进行回复
-2.你可以自然的顺着正在进行的聊天内容进行回复或自然的提出一个问题
-3.最好一次对一个话题进行回复，免得啰嗦或者回复内容太乱。
-4.不要选择回复你自己发送的消息
-5.不要单独对表情包进行回复
-6.将上下文中所有含义不明的，疑似黑话的，缩写词均写入unknown_words中
-{reply_action_example}
-
-no_reply
-动作描述：
-保持沉默，不回复直到有新消息
-控制聊天频率，不要太过频繁的发言
-{{"action":"no_reply"}}
-
-{action_options_text}
-
-**你之前的action执行和思考记录**
-{actions_before_now_block}
-
-请选择**可选的**且符合使用条件的action，并说明触发action的消息id(消息id格式:m+数字)
-先输出你的简短的选择思考理由，再输出你选择的action，理由不要分点，精简。
-**动作选择要求**
-请你根据聊天内容,用户的最新消息和以下标准选择合适的动作:
-{plan_style}
-{moderation_prompt}
-
-target_message_id为必填，表示触发消息的id
-请选择所有符合使用要求的action，每个动作最多选择一次，但是可以选择多个动作；
-动作用json格式输出，用```json包裹，如果输出多个json，每个json都要单独一行放在同一个```json代码块内:
-**示例**
-// 理由文本（简短）
-```json
-{{"action":"动作名", "target_message_id":"m123", .....}}
-{{"action":"动作名", "target_message_id":"m456", .....}}
-```""",
-        "planner_prompt",
-    )
-
-    Prompt(
-        """
-{action_name}
-动作描述：{action_description}
-使用条件{parallel_text}：
-{action_require}
-{{"action":"{action_name}",{action_parameters}, "target_message_id":"消息id(m+数字)"}}
-""",
-        "action_prompt",
-    )
-
 
 class ActionPlanner:
     def __init__(self, chat_id: str, action_manager: ActionManager):
@@ -663,19 +601,31 @@ class ActionPlanner:
                     reply_action_example += ', "quote":"如果需要引用该message，设置为true"'
                 reply_action_example += "}"
 
-            planner_prompt_template = await global_prompt_manager.get_prompt_async("planner_prompt")
-            prompt = planner_prompt_template.format(
-                time_block=time_block,
-                chat_context_description=chat_context_description,
-                chat_content_block=chat_content_block,
-                actions_before_now_block=actions_before_now_block,
-                action_options_text=action_options_block,
-                moderation_prompt=moderation_prompt_block,
-                name_block=name_block,
-                interest=interest,
-                plan_style=global_config.personality.plan_style,
-                reply_action_example=reply_action_example,
-            )
+            # planner_prompt_template = await global_prompt_manager.get_prompt_async("planner_prompt")
+            # prompt = planner_prompt_template.format(
+            #     time_block=time_block,
+            #     chat_context_description=chat_context_description,
+            #     chat_content_block=chat_content_block,
+            #     actions_before_now_block=actions_before_now_block,
+            #     action_options_text=action_options_block,
+            #     moderation_prompt=moderation_prompt_block,
+            #     name_block=name_block,
+            #     interest=interest,
+            #     plan_style=global_config.personality.plan_style,
+            #     reply_action_example=reply_action_example,
+            # )
+            planner_prompt_template = prompt_manager.get_prompt("planner_prompt")
+            planner_prompt_template.add_context("time_block", time_block)
+            planner_prompt_template.add_context("chat_context_description", chat_context_description)
+            planner_prompt_template.add_context("chat_content_block", chat_content_block)
+            planner_prompt_template.add_context("actions_before_now_block", actions_before_now_block)
+            planner_prompt_template.add_context("action_options_text", action_options_block)
+            planner_prompt_template.add_context("moderation_prompt", moderation_prompt_block)
+            planner_prompt_template.add_context("name_block", name_block)
+            planner_prompt_template.add_context("interest", interest)
+            planner_prompt_template.add_context("plan_style", global_config.personality.plan_style)
+            planner_prompt_template.add_context("reply_action_example", reply_action_example)
+            prompt = await prompt_manager.render_prompt(planner_prompt_template)
 
             return prompt, message_id_list
         except Exception as e:
@@ -759,16 +709,23 @@ class ActionPlanner:
                 parallel_text = ""
 
             # 获取动作提示模板并填充
-            using_action_prompt = await global_prompt_manager.get_prompt_async("action_prompt")
-            using_action_prompt = using_action_prompt.format(
-                action_name=action_name,
-                action_description=action_info.description,
-                action_parameters=param_text,
-                action_require=require_text,
-                parallel_text=parallel_text,
-            )
+            # using_action_prompt = await global_prompt_manager.get_prompt_async("action_prompt")
+            # using_action_prompt = using_action_prompt.format(
+            #     action_name=action_name,
+            #     action_description=action_info.description,
+            #     action_parameters=param_text,
+            #     action_require=require_text,
+            #     parallel_text=parallel_text,
+            # )
+            using_action_prompt = prompt_manager.get_prompt("action_prompt")
+            using_action_prompt.add_context("action_name", action_name)
+            using_action_prompt.add_context("action_description", action_info.description)
+            using_action_prompt.add_context("action_parameters", param_text)
+            using_action_prompt.add_context("action_require", require_text)
+            using_action_prompt.add_context("parallel_text", parallel_text)
+            using_action_rendered_prompt = await prompt_manager.render_prompt(using_action_prompt)
 
-            action_options_block += using_action_prompt
+            action_options_block += using_action_rendered_prompt
 
         return action_options_block
 
@@ -994,6 +951,3 @@ class ActionPlanner:
                         logger.debug(f"处理不完整的JSON代码块时出错: {e}")
 
         return json_objects, reasoning_content
-
-
-init_prompt()

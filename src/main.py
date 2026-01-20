@@ -26,6 +26,8 @@ from src.common.message import get_global_api
 from src.dream.dream_agent import start_dream_scheduler
 from src.bw_learner.expression_auto_check_task import ExpressionAutoCheckTask
 
+from src.prompt.prompt_manager import prompt_manager
+
 # 插件系统现在使用统一的插件加载器
 
 install(extra_lines=3)
@@ -119,6 +121,8 @@ class MainSystem:
         # 将bot.py中的chat_bot.message_process消息处理函数注册到api.py的消息处理基类中
         self.app.register_message_handler(chat_bot.message_process)
         self.app.register_custom_message_handler("message_id_echo", chat_bot.echo_message_process)
+        
+        prompt_manager.load_prompts()
 
         # 触发 ON_START 事件
         from src.plugin_system.core.events_manager import events_manager

@@ -17,6 +17,7 @@ from src.chat.message_receive.chat_stream import ChatStream
 from src.chat.message_receive.uni_message_sender import UniversalMessageSender
 from src.chat.utils.timer_calculator import Timer  # <--- Import Timer
 from src.chat.utils.utils import get_chat_type_and_target_info, is_bot_self
+from src.prompt.prompt_manager import prompt_manager
 from src.chat.utils.prompt_builder import global_prompt_manager
 from src.chat.utils.chat_message_builder import (
     build_readable_messages,
@@ -33,14 +34,12 @@ from src.plugin_system.apis import llm_api
 
 from src.chat.logger.plan_reply_logger import PlanReplyLogger
 from src.chat.replyer.prompt.lpmm_prompt import init_lpmm_prompt
-from src.chat.replyer.prompt.replyer_prompt import init_replyer_prompt
 from src.chat.replyer.prompt.rewrite_prompt import init_rewrite_prompt
 from src.memory_system.memory_retrieval import init_memory_retrieval_prompt, build_memory_retrieval_prompt
 from src.bw_learner.jargon_explainer import explain_jargon_in_context, retrieve_concepts_with_jargon
 from src.chat.utils.common_utils import TempMethodsExpression
 
 init_lpmm_prompt()
-init_replyer_prompt()
 init_rewrite_prompt()
 init_memory_retrieval_prompt()
 
@@ -947,6 +946,7 @@ class DefaultReplyer:
         else:
             reply_target_block = ""
 
+        dialogue_prompt: str = ""
         if message_list_before_now_long:
             latest_msgs = message_list_before_now_long[-int(global_config.chat.max_context_size) :]
             dialogue_prompt = build_readable_messages(
@@ -980,33 +980,55 @@ class DefaultReplyer:
                 # 兜底：即使 multiple_reply_style 配置异常也不影响正常回复
                 reply_style = global_config.personality.reply_style
 
-        return (
-            await global_prompt_manager.format_prompt(
-                prompt_name,
-                expression_habits_block=expression_habits_block,
-                tool_info_block=tool_info,
-                bot_name=global_config.bot.nickname,
-                knowledge_prompt=prompt_info,
-                # relation_info_block=relation_info,
-                extra_info_block=extra_info_block,
-                jargon_explanation=jargon_explanation,
-                identity=personality_prompt,
-                action_descriptions=actions_info,
-                sender_name=sender,
-                dialogue_prompt=dialogue_prompt,
-                time_block=time_block,
-                reply_target_block=reply_target_block,
-                reply_style=reply_style,
-                keywords_reaction_prompt=keywords_reaction_prompt,
-                moderation_prompt=moderation_prompt_block,
-                memory_retrieval=memory_retrieval,
-                chat_prompt=chat_prompt_block,
-                planner_reasoning=planner_reasoning,
-            ),
-            selected_expressions,
-            timing_logs,
-            almost_zero_str,
-        )
+        # return (
+        #     await global_prompt_manager.format_prompt(
+        #         prompt_name,
+        #         expression_habits_block=expression_habits_block,
+        #         tool_info_block=tool_info,
+        #         bot_name=global_config.bot.nickname,
+        #         knowledge_prompt=prompt_info,
+        #         # relation_info_block=relation_info,
+        #         extra_info_block=extra_info_block,
+        #         jargon_explanation=jargon_explanation,
+        #         identity=personality_prompt,
+        #         action_descriptions=actions_info,
+        #         sender_name=sender,
+        #         dialogue_prompt=dialogue_prompt,
+        #         time_block=time_block,
+        #         reply_target_block=reply_target_block,
+        #         reply_style=reply_style,
+        #         keywords_reaction_prompt=keywords_reaction_prompt,
+        #         moderation_prompt=moderation_prompt_block,
+        #         memory_retrieval=memory_retrieval,
+        #         chat_prompt=chat_prompt_block,
+        #         planner_reasoning=planner_reasoning,
+        #     ),
+        #     selected_expressions,
+        #     timing_logs,
+        #     almost_zero_str,
+        # )
+        prompt = prompt_manager.get_prompt(prompt_name)
+        prompt.add_context("expression_habits_block", expression_habits_block)
+        prompt.add_context("tool_info_block", tool_info)
+        prompt.add_context("bot_name", global_config.bot.nickname)
+        prompt.add_context("knowledge_prompt", prompt_info)
+        # prompt.add_context("relation_info_block", relation_info)
+        prompt.add_context("extra_info_block", extra_info_block)
+        prompt.add_context("jargon_explanation", jargon_explanation)
+        prompt.add_context("identity", personality_prompt)
+        prompt.add_context("action_descriptions", actions_info)
+        prompt.add_context("sender_name", sender)
+        prompt.add_context("dialogue_prompt", dialogue_prompt)
+        prompt.add_context("time_block", time_block)
+        prompt.add_context("reply_target_block", reply_target_block)
+        prompt.add_context("reply_style", reply_style)
+        prompt.add_context("keywords_reaction_prompt", keywords_reaction_prompt)
+        prompt.add_context("moderation_prompt", moderation_prompt_block)
+        prompt.add_context("memory_retrieval", memory_retrieval)
+        prompt.add_context("chat_prompt", chat_prompt_block)
+        prompt.add_context("planner_reasoning", planner_reasoning)
+        formatted_prompt = await prompt_manager.render_prompt(prompt)
+        return (formatted_prompt, selected_expressions, timing_logs, almost_zero_str)
 
     async def build_prompt_rewrite_context(
         self,
