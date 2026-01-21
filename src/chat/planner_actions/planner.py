@@ -13,7 +13,6 @@ from src.config.config import global_config, model_config
 from src.common.logger import get_logger
 from src.chat.logger.plan_reply_logger import PlanReplyLogger
 from src.common.data_models.info_data_model import ActionPlannerInfo
-# from src.chat.utils.prompt_builder import Prompt, global_prompt_manager
 from src.prompt.prompt_manager import prompt_manager
 from src.chat.utils.chat_message_builder import (
     build_readable_messages_with_id,
@@ -601,19 +600,6 @@ class ActionPlanner:
                     reply_action_example += ', "quote":"如果需要引用该message，设置为true"'
                 reply_action_example += "}"
 
-            # planner_prompt_template = await global_prompt_manager.get_prompt_async("planner_prompt")
-            # prompt = planner_prompt_template.format(
-            #     time_block=time_block,
-            #     chat_context_description=chat_context_description,
-            #     chat_content_block=chat_content_block,
-            #     actions_before_now_block=actions_before_now_block,
-            #     action_options_text=action_options_block,
-            #     moderation_prompt=moderation_prompt_block,
-            #     name_block=name_block,
-            #     interest=interest,
-            #     plan_style=global_config.personality.plan_style,
-            #     reply_action_example=reply_action_example,
-            # )
             planner_prompt_template = prompt_manager.get_prompt("planner_prompt")
             planner_prompt_template.add_context("time_block", time_block)
             planner_prompt_template.add_context("chat_context_description", chat_context_description)
@@ -709,14 +695,6 @@ class ActionPlanner:
                 parallel_text = ""
 
             # 获取动作提示模板并填充
-            # using_action_prompt = await global_prompt_manager.get_prompt_async("action_prompt")
-            # using_action_prompt = using_action_prompt.format(
-            #     action_name=action_name,
-            #     action_description=action_info.description,
-            #     action_parameters=param_text,
-            #     action_require=require_text,
-            #     parallel_text=parallel_text,
-            # )
             using_action_prompt = prompt_manager.get_prompt("action_prompt")
             using_action_prompt.add_context("action_name", action_name)
             using_action_prompt.add_context("action_description", action_info.description)

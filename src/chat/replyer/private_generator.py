@@ -15,9 +15,8 @@ from src.llm_models.utils_model import LLMRequest
 from src.chat.message_receive.message import UserInfo, Seg, MessageRecv, MessageSending
 from src.chat.message_receive.chat_stream import ChatStream
 from src.chat.message_receive.uni_message_sender import UniversalMessageSender
-from src.chat.utils.timer_calculator import Timer  # <--- Import Timer
+from src.chat.utils.timer_calculator import Timer
 from src.chat.utils.utils import get_chat_type_and_target_info, is_bot_self
-from src.chat.utils.prompt_builder import global_prompt_manager
 from src.prompt.prompt_manager import prompt_manager
 from src.chat.utils.common_utils import TempMethodsExpression
 from src.chat.utils.chat_message_builder import (
@@ -27,21 +26,14 @@ from src.chat.utils.chat_message_builder import (
 )
 from src.bw_learner.expression_selector import expression_selector
 from src.plugin_system.apis.message_api import translate_pid_to_description
-
 # from src.memory_system.memory_activator import MemoryActivator
-
 from src.person_info.person_info import Person, is_person_known
 from src.plugin_system.base.component_types import ActionInfo, EventType
 from src.plugin_system.apis import llm_api
-
-from src.chat.replyer.prompt.lpmm_prompt import init_lpmm_prompt
-from src.chat.replyer.prompt.replyer_private_prompt import init_replyer_private_prompt
-from src.memory_system.memory_retrieval import init_memory_retrieval_prompt, build_memory_retrieval_prompt
+from src.memory_system.memory_retrieval import init_memory_retrieval_sys, build_memory_retrieval_prompt
 from src.bw_learner.jargon_explainer import explain_jargon_in_context
 
-init_lpmm_prompt()
-init_replyer_private_prompt()
-init_memory_retrieval_prompt()
+init_memory_retrieval_sys()
 
 
 logger = get_logger("replyer")
@@ -667,7 +659,7 @@ class PrivateReplyer:
             timestamp_mode="relative",
             read_mark=0.0,
             show_actions=True,
-            long_time_notice=True
+            long_time_notice=True,
         )
 
         message_list_before_short = get_raw_msg_before_timestamp_with_chat(
@@ -724,7 +716,12 @@ class PrivateReplyer:
             self._time_and_run_task(self.build_personality_prompt(), "personality_prompt"),
             self._time_and_run_task(
                 build_memory_retrieval_prompt(
-                    chat_talking_prompt_short, sender, target, self.chat_stream, think_level=1, unknown_words=unknown_words
+                    chat_talking_prompt_short,
+                    sender,
+                    target,
+                    self.chat_stream,
+                    think_level=1,
+                    unknown_words=unknown_words,
                 ),
                 "memory_retrieval",
             ),
@@ -800,7 +797,7 @@ class PrivateReplyer:
 
         # 根据配置构建最终的 reply_style：支持 multiple_reply_style 按概率随机替换
         reply_style = global_config.personality.reply_style
-        multi_styles =global_config.personality.multiple_reply_style
+        multi_styles = global_config.personality.multiple_reply_style
         multi_prob = global_config.personality.multiple_probability or 0.0
         if multi_styles and multi_prob > 0 and random.random() < multi_prob:
             try:
@@ -810,50 +807,33 @@ class PrivateReplyer:
                 reply_style = global_config.personality.reply_style
 
         # 使用统一的 is_bot_self 函数判断是否是机器人自己（支持多平台，包括 WebUI）
+        
         if is_bot_self(platform, user_id):
-            return await global_prompt_manager.format_prompt(
-                "private_replyer_self_prompt",
-                expression_habits_block=expression_habits_block,
-                tool_info_block=tool_info,
-                knowledge_prompt=prompt_info,
-                relation_info_block=relation_info,
-                extra_info_block=extra_info_block,
-                identity=personality_prompt,
-                action_descriptions=actions_info,
-                dialogue_prompt=dialogue_prompt,
-                jargon_explanation=jargon_explanation,
-                time_block=time_block,
-                target=target,
-                reason=reply_reason,
-                sender_name=sender,
-                reply_style=reply_style,
-                keywords_reaction_prompt=keywords_reaction_prompt,
-                moderation_prompt=moderation_prompt_block,
-                memory_retrieval=memory_retrieval,
-                chat_prompt=chat_prompt_block,
-            ), selected_expressions
+            prompt_template = prompt_manager.get_prompt("private_replyer_self_prompt")
+            prompt_template.add_context("target", target)
+            prompt_template.add_context("reason", reply_reason)
         else:
-            return await global_prompt_manager.format_prompt(
-                "private_replyer_prompt",
-                expression_habits_block=expression_habits_block,
-                tool_info_block=tool_info,
-                knowledge_prompt=prompt_info,
-                relation_info_block=relation_info,
-                extra_info_block=extra_info_block,
-                identity=personality_prompt,
-                action_descriptions=actions_info,
-                dialogue_prompt=dialogue_prompt,
-                jargon_explanation=jargon_explanation,
-                time_block=time_block,
-                reply_target_block=reply_target_block,
-                reply_style=reply_style,
-                keywords_reaction_prompt=keywords_reaction_prompt,
-                moderation_prompt=moderation_prompt_block,
-                sender_name=sender,
-                memory_retrieval=memory_retrieval,
-                chat_prompt=chat_prompt_block,
-                planner_reasoning=planner_reasoning,
-            ), selected_expressions
+            prompt_template = prompt_manager.get_prompt("private_replyer_prompt")
+            prompt_template.add_context("reply_target_block", reply_target_block)
+            prompt_template.add_context("planner_reasoning", planner_reasoning)
+        prompt_template.add_context("expression_habits_block", expression_habits_block)
+        prompt_template.add_context("tool_info_block", tool_info)
+        prompt_template.add_context("knowledge_prompt", prompt_info)
+        prompt_template.add_context("relation_info_block", relation_info)
+        prompt_template.add_context("extra_info_block", extra_info_block)
+        prompt_template.add_context("identity", personality_prompt)
+        prompt_template.add_context("action_descriptions", actions_info)
+        prompt_template.add_context("dialogue_prompt", dialogue_prompt)
+        prompt_template.add_context("jargon_explanation", jargon_explanation)
+        prompt_template.add_context("time_block", time_block)
+        prompt_template.add_context("sender_name", sender)
+        prompt_template.add_context("keywords_reaction_prompt", keywords_reaction_prompt)
+        prompt_template.add_context("reply_style", reply_style)
+        prompt_template.add_context("memory_retrieval", memory_retrieval)
+        prompt_template.add_context("chat_prompt", chat_prompt_block)
+        prompt_template.add_context("moderation_prompt", moderation_prompt_block)
+        prompt = await prompt_manager.render_prompt(prompt_template)
+        return prompt, selected_expressions
 
     async def build_prompt_rewrite_context(
         self,
@@ -943,22 +923,6 @@ class PrivateReplyer:
                 # 兜底：即使 multiple_reply_style 配置异常也不影响正常回复
                 reply_style = global_config.personality.reply_style
 
-        # return await global_prompt_manager.format_prompt(
-        #     template_name,
-        #     expression_habits_block=expression_habits_block,
-        #     # relation_info_block=relation_info,
-        #     chat_target=chat_target_1,
-        #     time_block=time_block,
-        #     chat_info=chat_talking_prompt_half,
-        #     identity=personality_prompt,
-        #     chat_target_2=chat_target_2,
-        #     reply_target_block=reply_target_block,
-        #     raw_reply=raw_reply,
-        #     reason=reason,
-        #     reply_style=reply_style,
-        #     keywords_reaction_prompt=keywords_reaction_prompt,
-        #     moderation_prompt=moderation_prompt_block,
-        # )
         prompt_template = prompt_manager.get_prompt("default_expressor_prompt")
         prompt_template.add_context("expression_habits_block", expression_habits_block)
         # prompt_template.add_context("relation_info_block", relation_info)
@@ -1046,18 +1010,14 @@ class PrivateReplyer:
             if global_config.lpmm_knowledge.lpmm_mode == "agent":
                 return ""
 
-            time_now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            prompt_template = prompt_manager.get_prompt("lpmm_get_knowledge_prompt")
+            prompt_template.add_context("bot_name", global_config.bot.nickname)
+            prompt_template.add_context("time_now", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
+            prompt_template.add_context("chat_history", message)
+            prompt_template.add_context("sender", sender)
+            prompt_template.add_context("target_message", target)
+            prompt = await prompt_manager.render_prompt(prompt_template)
 
-            bot_name = global_config.bot.nickname
-
-            prompt = await global_prompt_manager.format_prompt(
-                "lpmm_get_knowledge_prompt",
-                bot_name=bot_name,
-                time_now=time_now,
-                chat_history=message,
-                sender=sender,
-                target_message=target,
-            )
             _, _, _, _, tool_calls = await llm_api.generate_with_model_with_tools(
                 prompt,
                 model_config=model_config.model_task_config.tool_use,

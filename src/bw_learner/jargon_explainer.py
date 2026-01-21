@@ -200,11 +200,6 @@ class JargonExplainer:
         explanations_text = "\n".join(jargon_explanations)
 
         # 使用LLM概括黑话解释
-        # summarize_prompt = await global_prompt_manager.format_prompt(
-        #     "jargon_explainer_summarize_prompt",
-        #     chat_context=chat_context,
-        #     jargon_explanations=explanations_text,
-        # )
         prompt_of_summarize = prompt_manager.get_prompt("jargon_explainer_summarize_prompt")
         prompt_of_summarize.add_context("chat_context", lambda _: chat_context)
         prompt_of_summarize.add_context("jargon_explanations", lambda _: explanations_text)

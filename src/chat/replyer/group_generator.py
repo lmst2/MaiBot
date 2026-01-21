@@ -32,13 +32,11 @@ from src.plugin_system.base.component_types import ActionInfo, EventType
 from src.plugin_system.apis import llm_api
 
 from src.chat.logger.plan_reply_logger import PlanReplyLogger
-from src.chat.replyer.prompt.lpmm_prompt import init_lpmm_prompt
-from src.memory_system.memory_retrieval import init_memory_retrieval_prompt, build_memory_retrieval_prompt
+from src.memory_system.memory_retrieval import init_memory_retrieval_sys, build_memory_retrieval_prompt
 from src.bw_learner.jargon_explainer import explain_jargon_in_context, retrieve_concepts_with_jargon
 from src.chat.utils.common_utils import TempMethodsExpression
 
-init_lpmm_prompt()
-init_memory_retrieval_prompt()
+init_memory_retrieval_sys()
 
 
 logger = get_logger("replyer")
@@ -977,33 +975,6 @@ class DefaultReplyer:
                 # 兜底：即使 multiple_reply_style 配置异常也不影响正常回复
                 reply_style = global_config.personality.reply_style
 
-        # return (
-        #     await global_prompt_manager.format_prompt(
-        #         prompt_name,
-        #         expression_habits_block=expression_habits_block,
-        #         tool_info_block=tool_info,
-        #         bot_name=global_config.bot.nickname,
-        #         knowledge_prompt=prompt_info,
-        #         # relation_info_block=relation_info,
-        #         extra_info_block=extra_info_block,
-        #         jargon_explanation=jargon_explanation,
-        #         identity=personality_prompt,
-        #         action_descriptions=actions_info,
-        #         sender_name=sender,
-        #         dialogue_prompt=dialogue_prompt,
-        #         time_block=time_block,
-        #         reply_target_block=reply_target_block,
-        #         reply_style=reply_style,
-        #         keywords_reaction_prompt=keywords_reaction_prompt,
-        #         moderation_prompt=moderation_prompt_block,
-        #         memory_retrieval=memory_retrieval,
-        #         chat_prompt=chat_prompt_block,
-        #         planner_reasoning=planner_reasoning,
-        #     ),
-        #     selected_expressions,
-        #     timing_logs,
-        #     almost_zero_str,
-        # )
         prompt = prompt_manager.get_prompt(prompt_name)
         prompt.add_context("expression_habits_block", expression_habits_block)
         prompt.add_context("tool_info_block", tool_info)
@@ -1111,22 +1082,6 @@ class DefaultReplyer:
             except Exception:
                 reply_style = global_config.personality.reply_style
 
-        # return await global_prompt_manager.format_prompt(
-        #     template_name,
-        #     expression_habits_block=expression_habits_block,
-        #     # relation_info_block=relation_info,
-        #     chat_target=chat_target_1,
-        #     time_block=time_block,
-        #     chat_info=chat_talking_prompt_half,
-        #     identity=personality_prompt,
-        #     chat_target_2=chat_target_2,
-        #     reply_target_block=reply_target_block,
-        #     raw_reply=raw_reply,
-        #     reason=reason,
-        #     reply_style=reply_style,
-        #     keywords_reaction_prompt=keywords_reaction_prompt,
-        #     moderation_prompt=moderation_prompt_block,
-        # )
         prompt_template = prompt_manager.get_prompt("default_expressor_prompt")
         prompt_template.add_context("expression_habits_block", expression_habits_block)
         # prompt_template.add_context("relation_info_block", relation_info)
@@ -1220,14 +1175,6 @@ class DefaultReplyer:
             template_prompt.add_context("chat_history", message)
             template_prompt.add_context("sender", sender)
             template_prompt.add_context("target_message", target)
-            # prompt = await global_prompt_manager.format_prompt(
-            #     "lpmm_get_knowledge_prompt",
-            #     bot_name=bot_name,
-            #     time_now=time_now,
-            #     chat_history=message,
-            #     sender=sender,
-            #     target_message=target,
-            # )
             prompt = await prompt_manager.render_prompt(template_prompt)
             _, _, _, _, tool_calls = await llm_api.generate_with_model_with_tools(
                 prompt,

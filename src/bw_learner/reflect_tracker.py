@@ -3,7 +3,7 @@ from typing import Optional, Dict, TYPE_CHECKING
 from src.common.logger import get_logger
 from src.common.database.database_model import Expression
 from src.llm_models.utils_model import LLMRequest
-from src.chat.utils.prompt_builder import Prompt, global_prompt_manager
+from src.prompt.prompt_manager import prompt_manager
 from src.config.config import model_config
 from src.chat.message_receive.chat_stream import ChatStream
 from src.chat.utils.chat_message_builder import (
@@ -29,37 +29,6 @@ class ReflectTracker:
 
         # LLM for judging response
         self.judge_model = LLMRequest(model_set=model_config.model_task_config.tool_use, request_type="reflect.tracker")
-
-        self._init_prompts()
-
-    def _init_prompts(self):
-        judge_prompt = """
-你是一个表达反思助手。Bot之前询问了表达方式是否合适。
-你需要根据提供的上下文对话，判断是否对该表达方式做出了肯定或否定的评价。
-
-**询问内容**
-情景: {situation}
-风格: {style}
-
-**上下文对话**
-{context_block}
-
-**判断要求**
-1. 判断对话中是否包含对上述询问的回答。
-2. 如果是，判断是肯定（Approve）还是否定（Reject），或者是提供了修改意见。
-3. 如果不是回答，或者是无关内容，请返回 "Ignore"。
-4. 如果是否定并提供了修改意见，请提取修正后的情景和风格。
-
-请输出JSON格式：
-```json
-{{
-    "judgment": "Approve" | "Reject" | "Ignore",
-    "corrected_situation": "...", // 如果有修改意见，提取修正后的情景，否则留空
-    "corrected_style": "..." // 如果有修改意见，提取修正后的风格，否则留空
-}}
-```
-"""
-        Prompt(judge_prompt, "reflect_judge_prompt")
 
     async def trigger_tracker(self) -> bool:
         """
@@ -103,12 +72,11 @@ class ReflectTracker:
 
         # LLM Judge
         try:
-            prompt = await global_prompt_manager.format_prompt(
-                "reflect_judge_prompt",
-                situation=self.expression.situation,
-                style=self.expression.style,
-                context_block=context_block,
-            )
+            prompt_template = prompt_manager.get_prompt("reflect_judge_prompt")
+            prompt_template.add_context("situation", str(self.expression.situation))
+            prompt_template.add_context("style", str(self.expression.style))
+            prompt_template.add_context("context_block", context_block)
+            prompt = await prompt_manager.render_prompt(prompt_template)
 
             logger.info(f"ReflectTracker LLM Prompt: {prompt}")
 
@@ -134,14 +102,14 @@ class ReflectTracker:
             if judgment == "Approve":
                 self.expression.checked = True
                 self.expression.rejected = False
-                self.expression.modified_by = 'ai'  # 通过LLM判断也标记为ai
+                self.expression.modified_by = "ai"  # 通过LLM判断也标记为ai
                 self.expression.save()
                 logger.info(f"Expression {self.expression.id} approved by operator.")
                 return True
 
             elif judgment == "Reject":
                 self.expression.checked = True
-                self.expression.modified_by = 'ai'  # 通过LLM判断也标记为ai
+                self.expression.modified_by = "ai"  # 通过LLM判断也标记为ai
                 corrected_situation = json_obj.get("corrected_situation")
                 corrected_style = json_obj.get("corrected_style")
 
