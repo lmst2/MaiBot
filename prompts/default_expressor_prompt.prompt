@@ -1,15 +1,3 @@
-from src.chat.utils.prompt_builder import Prompt
-# from src.memory_system.memory_activator import MemoryActivator
-
-
-def init_rewrite_prompt():
-    Prompt("你正在qq群里聊天，下面是群里正在聊的内容:", "chat_target_group1")
-    Prompt("你正在和{sender_name}聊天，这是你们之前聊的内容：", "chat_target_private1")
-    Prompt("正在群里聊天", "chat_target_group2")
-    Prompt("和{sender_name}聊天", "chat_target_private2")
-
-    Prompt(
-        """
 {expression_habits_block}
 {chat_target}
 {chat_info}
@@ -26,6 +14,3 @@ def init_rewrite_prompt():
 {moderation_prompt}
 不要输出多余内容(包括冒号和引号，表情包，emoji,at或 @等 )，只输出一条回复就好。不要思考的太长。
 改写后的回复：
-""",
-        "default_expressor_prompt",
-    )

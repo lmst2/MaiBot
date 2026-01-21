@@ -18,6 +18,7 @@ from src.chat.message_receive.uni_message_sender import UniversalMessageSender
 from src.chat.utils.timer_calculator import Timer  # <--- Import Timer
 from src.chat.utils.utils import get_chat_type_and_target_info, is_bot_self
 from src.chat.utils.prompt_builder import global_prompt_manager
+from src.prompt.prompt_manager import prompt_manager
 from src.chat.utils.common_utils import TempMethodsExpression
 from src.chat.utils.chat_message_builder import (
     build_readable_messages,
@@ -35,13 +36,11 @@ from src.plugin_system.apis import llm_api
 
 from src.chat.replyer.prompt.lpmm_prompt import init_lpmm_prompt
 from src.chat.replyer.prompt.replyer_private_prompt import init_replyer_private_prompt
-from src.chat.replyer.prompt.rewrite_prompt import init_rewrite_prompt
 from src.memory_system.memory_retrieval import init_memory_retrieval_prompt, build_memory_retrieval_prompt
 from src.bw_learner.jargon_explainer import explain_jargon_in_context
 
 init_lpmm_prompt()
 init_replyer_private_prompt()
-init_rewrite_prompt()
 init_memory_retrieval_prompt()
 
 
@@ -801,11 +800,11 @@ class PrivateReplyer:
 
         # 根据配置构建最终的 reply_style：支持 multiple_reply_style 按概率随机替换
         reply_style = global_config.personality.reply_style
-        multi_styles = getattr(global_config.personality, "multiple_reply_style", None) or []
-        multi_prob = getattr(global_config.personality, "multiple_probability", 0.0) or 0.0
+        multi_styles =global_config.personality.multiple_reply_style
+        multi_prob = global_config.personality.multiple_probability or 0.0
         if multi_styles and multi_prob > 0 and random.random() < multi_prob:
             try:
-                reply_style = random.choice(list(multi_styles))
+                reply_style = random.choice(multi_styles)
             except Exception:
                 # 兜底：即使 multiple_reply_style 配置异常也不影响正常回复
                 reply_style = global_config.personality.reply_style
@@ -864,7 +863,6 @@ class PrivateReplyer:
     ) -> str:  # sourcery skip: merge-else-if-into-elif, remove-redundant-if
         chat_stream = self.chat_stream
         chat_id = chat_stream.stream_id
-        is_group_chat = bool(chat_stream.group_info)
 
         sender, target = self._parse_reply_target(reply_to)
         target = replace_user_references(target, chat_stream.platform, replace_bot_name=True)
@@ -927,10 +925,12 @@ class PrivateReplyer:
         chat_target_name = "对方"
         if self.chat_target_info:
             chat_target_name = self.chat_target_info.person_name or self.chat_target_info.user_nickname or "对方"
-        chat_target_1 = await global_prompt_manager.format_prompt("chat_target_private1", sender_name=chat_target_name)
-        chat_target_2 = await global_prompt_manager.format_prompt("chat_target_private2", sender_name=chat_target_name)
-
-        template_name = "default_expressor_prompt"
+        chat_target_1_template = prompt_manager.get_prompt("chat_target_private1")
+        chat_target_1_template.add_context("sender_name", chat_target_name)
+        chat_target_1 = await prompt_manager.render_prompt(chat_target_1_template)
+        chat_target_2_template = prompt_manager.get_prompt("chat_target_private2")
+        chat_target_2_template.add_context("sender_name", chat_target_name)
+        chat_target_2 = await prompt_manager.render_prompt(chat_target_2_template)
 
         # 根据配置构建最终的 reply_style：支持 multiple_reply_style 按概率随机替换
         reply_style = global_config.personality.reply_style
@@ -943,22 +943,37 @@ class PrivateReplyer:
                 # 兜底：即使 multiple_reply_style 配置异常也不影响正常回复
                 reply_style = global_config.personality.reply_style
 
-        return await global_prompt_manager.format_prompt(
-            template_name,
-            expression_habits_block=expression_habits_block,
-            # relation_info_block=relation_info,
-            chat_target=chat_target_1,
-            time_block=time_block,
-            chat_info=chat_talking_prompt_half,
-            identity=personality_prompt,
-            chat_target_2=chat_target_2,
-            reply_target_block=reply_target_block,
-            raw_reply=raw_reply,
-            reason=reason,
-            reply_style=reply_style,
-            keywords_reaction_prompt=keywords_reaction_prompt,
-            moderation_prompt=moderation_prompt_block,
-        )
+        # return await global_prompt_manager.format_prompt(
+        #     template_name,
+        #     expression_habits_block=expression_habits_block,
+        #     # relation_info_block=relation_info,
+        #     chat_target=chat_target_1,
+        #     time_block=time_block,
+        #     chat_info=chat_talking_prompt_half,
+        #     identity=personality_prompt,
+        #     chat_target_2=chat_target_2,
+        #     reply_target_block=reply_target_block,
+        #     raw_reply=raw_reply,
+        #     reason=reason,
+        #     reply_style=reply_style,
+        #     keywords_reaction_prompt=keywords_reaction_prompt,
+        #     moderation_prompt=moderation_prompt_block,
+        # )
+        prompt_template = prompt_manager.get_prompt("default_expressor_prompt")
+        prompt_template.add_context("expression_habits_block", expression_habits_block)
+        # prompt_template.add_context("relation_info_block", relation_info)
+        prompt_template.add_context("chat_target", chat_target_1)
+        prompt_template.add_context("time_block", time_block)
+        prompt_template.add_context("chat_info", chat_talking_prompt_half)
+        prompt_template.add_context("identity", personality_prompt)
+        prompt_template.add_context("chat_target_2", chat_target_2)
+        prompt_template.add_context("reply_target_block", reply_target_block)
+        prompt_template.add_context("raw_reply", raw_reply)
+        prompt_template.add_context("reason", reason)
+        prompt_template.add_context("reply_style", reply_style)
+        prompt_template.add_context("keywords_reaction_prompt", keywords_reaction_prompt)
+        prompt_template.add_context("moderation_prompt", moderation_prompt_block)
+        return await prompt_manager.render_prompt(prompt_template)
 
     async def _build_single_sending_message(
         self,
@@ -973,7 +988,7 @@ class PrivateReplyer:
         """构建单个发送消息"""
 
         bot_user_info = UserInfo(
-            user_id=global_config.bot.qq_account,
+            user_id=str(global_config.bot.qq_account),
             user_nickname=global_config.bot.nickname,
             platform=self.chat_stream.platform,
         )

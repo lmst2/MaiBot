@@ -18,7 +18,6 @@ from src.chat.message_receive.uni_message_sender import UniversalMessageSender
 from src.chat.utils.timer_calculator import Timer  # <--- Import Timer
 from src.chat.utils.utils import get_chat_type_and_target_info, is_bot_self
 from src.prompt.prompt_manager import prompt_manager
-from src.chat.utils.prompt_builder import global_prompt_manager
 from src.chat.utils.chat_message_builder import (
     build_readable_messages,
     get_raw_msg_before_timestamp_with_chat,
@@ -34,13 +33,11 @@ from src.plugin_system.apis import llm_api
 
 from src.chat.logger.plan_reply_logger import PlanReplyLogger
 from src.chat.replyer.prompt.lpmm_prompt import init_lpmm_prompt
-from src.chat.replyer.prompt.rewrite_prompt import init_rewrite_prompt
 from src.memory_system.memory_retrieval import init_memory_retrieval_prompt, build_memory_retrieval_prompt
 from src.bw_learner.jargon_explainer import explain_jargon_in_context, retrieve_concepts_with_jargon
 from src.chat.utils.common_utils import TempMethodsExpression
 
 init_lpmm_prompt()
-init_rewrite_prompt()
 init_memory_retrieval_prompt()
 
 
@@ -72,7 +69,7 @@ class DefaultReplyer:
         from_plugin: bool = True,
         stream_id: Optional[str] = None,
         reply_message: Optional[DatabaseMessages] = None,
-        reply_time_point: Optional[float] = time.time(),
+        reply_time_point: float = time.time(),
         think_level: int = 1,
         unknown_words: Optional[List[str]] = None,
         log_reply: bool = True,
@@ -619,7 +616,7 @@ class DefaultReplyer:
 
         # 默认 / context 模式：使用上下文自动匹配黑话
         try:
-            return await explain_jargon_in_context(chat_id, messages_short, chat_talking_prompt_short)
+            return await explain_jargon_in_context(chat_id, messages_short, chat_talking_prompt_short) or ""
         except Exception as e:
             logger.error(f"上下文黑话解释失败: {e}")
             return ""
@@ -762,7 +759,7 @@ class DefaultReplyer:
         available_actions: Optional[Dict[str, ActionInfo]] = None,
         chosen_actions: Optional[List[ActionPlannerInfo]] = None,
         enable_tool: bool = True,
-        reply_time_point: Optional[float] = time.time(),
+        reply_time_point: float = time.time(),
         think_level: int = 1,
         unknown_words: Optional[List[str]] = None,
     ) -> Tuple[str, List[int], List[str], str]:
@@ -1098,37 +1095,53 @@ class DefaultReplyer:
         else:
             reply_target_block = ""
 
-        chat_target_1 = await global_prompt_manager.get_prompt_async("chat_target_group1")
-        chat_target_2 = await global_prompt_manager.get_prompt_async("chat_target_group2")
+        chat_target_1_prompt = prompt_manager.get_prompt("chat_target_group1")
+        chat_target_1 = await prompt_manager.render_prompt(chat_target_1_prompt)
+        chat_target_2_prompt = prompt_manager.get_prompt("chat_target_group2")
+        chat_target_2 = await prompt_manager.render_prompt(chat_target_2_prompt)
 
-        template_name = "default_expressor_prompt"
 
         # 根据配置构建最终的 reply_style：支持 multiple_reply_style 按概率随机替换
         reply_style = global_config.personality.reply_style
-        multi_styles = getattr(global_config.personality, "multiple_reply_style", None) or []
-        multi_prob = getattr(global_config.personality, "multiple_probability", 0.0) or 0.0
+        multi_styles = global_config.personality.multiple_reply_style
+        multi_prob = global_config.personality.multiple_probability or 0.0
         if multi_styles and multi_prob > 0 and random.random() < multi_prob:
             try:
-                reply_style = random.choice(list(multi_styles))
+                reply_style = random.choice(multi_styles)
             except Exception:
                 reply_style = global_config.personality.reply_style
 
-        return await global_prompt_manager.format_prompt(
-            template_name,
-            expression_habits_block=expression_habits_block,
-            # relation_info_block=relation_info,
-            chat_target=chat_target_1,
-            time_block=time_block,
-            chat_info=chat_talking_prompt_half,
-            identity=personality_prompt,
-            chat_target_2=chat_target_2,
-            reply_target_block=reply_target_block,
-            raw_reply=raw_reply,
-            reason=reason,
-            reply_style=reply_style,
-            keywords_reaction_prompt=keywords_reaction_prompt,
-            moderation_prompt=moderation_prompt_block,
-        )
+        # return await global_prompt_manager.format_prompt(
+        #     template_name,
+        #     expression_habits_block=expression_habits_block,
+        #     # relation_info_block=relation_info,
+        #     chat_target=chat_target_1,
+        #     time_block=time_block,
+        #     chat_info=chat_talking_prompt_half,
+        #     identity=personality_prompt,
+        #     chat_target_2=chat_target_2,
+        #     reply_target_block=reply_target_block,
+        #     raw_reply=raw_reply,
+        #     reason=reason,
+        #     reply_style=reply_style,
+        #     keywords_reaction_prompt=keywords_reaction_prompt,
+        #     moderation_prompt=moderation_prompt_block,
+        # )
+        prompt_template = prompt_manager.get_prompt("default_expressor_prompt")
+        prompt_template.add_context("expression_habits_block", expression_habits_block)
+        # prompt_template.add_context("relation_info_block", relation_info)
+        prompt_template.add_context("chat_target", chat_target_1)
+        prompt_template.add_context("time_block", time_block)
+        prompt_template.add_context("chat_info", chat_talking_prompt_half)
+        prompt_template.add_context("identity", personality_prompt)
+        prompt_template.add_context("chat_target_2", chat_target_2)
+        prompt_template.add_context("reply_target_block", reply_target_block)
+        prompt_template.add_context("raw_reply", raw_reply)
+        prompt_template.add_context("reason", reason)
+        prompt_template.add_context("reply_style", reply_style)
+        prompt_template.add_context("keywords_reaction_prompt", keywords_reaction_prompt)
+        prompt_template.add_context("moderation_prompt", moderation_prompt_block)
+        return await prompt_manager.render_prompt(prompt_template)
 
     async def _build_single_sending_message(
         self,
@@ -1143,7 +1156,7 @@ class DefaultReplyer:
         """构建单个发送消息"""
 
         bot_user_info = UserInfo(
-            user_id=global_config.bot.qq_account,
+            user_id=str(global_config.bot.qq_account),
             user_nickname=global_config.bot.nickname,
             platform=self.chat_stream.platform,
         )
@@ -1201,18 +1214,21 @@ class DefaultReplyer:
             if global_config.lpmm_knowledge.lpmm_mode == "agent":
                 return ""
 
-            time_now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-
-            bot_name = global_config.bot.nickname
-
-            prompt = await global_prompt_manager.format_prompt(
-                "lpmm_get_knowledge_prompt",
-                bot_name=bot_name,
-                time_now=time_now,
-                chat_history=message,
-                sender=sender,
-                target_message=target,
-            )
+            template_prompt = prompt_manager.get_prompt("lpmm_get_knowledge_prompt")
+            template_prompt.add_context("bot_name", global_config.bot.nickname)
+            template_prompt.add_context("time_now", lambda _: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
+            template_prompt.add_context("chat_history", message)
+            template_prompt.add_context("sender", sender)
+            template_prompt.add_context("target_message", target)
+            # prompt = await global_prompt_manager.format_prompt(
+            #     "lpmm_get_knowledge_prompt",
+            #     bot_name=bot_name,
+            #     time_now=time_now,
+            #     chat_history=message,
+            #     sender=sender,
+            #     target_message=target,
+            # )
+            prompt = await prompt_manager.render_prompt(template_prompt)
             _, _, _, _, tool_calls = await llm_api.generate_with_model_with_tools(
                 prompt,
                 model_config=model_config.model_task_config.tool_use,
