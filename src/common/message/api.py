@@ -18,7 +18,7 @@ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
             version_int = [int(x) for x in maim_message_version.split(".")]
             version_compatible = version_int >= [0, 3, 3]
             # Check for API Server feature (>= 0.6.0)
-            has_api_server_feature = version_int >= [0, 6, 0]
+            has_api_server_feature = version_int >= [0, 6, 2]
         except (importlib.metadata.PackageNotFoundError, ValueError):
             version_compatible = False
             has_api_server_feature = False
@@ -75,6 +75,7 @@ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
                     ssl_enabled=use_wss,
                     ssl_certfile=maim_message_config.api_server_cert_file if use_wss else None,
                     ssl_keyfile=maim_message_config.api_server_key_file if use_wss else None,
+                    custom_logger=api_logger  # 传入自定义logger
                 )
 
                 # 2. Setup Auth Handler
@@ -99,32 +100,39 @@ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
                     global_api.platform_map = {}
 
                 async def bridge_message_handler(message: APIMessageBase, metadata: dict):
-                    # Bridge message to the main bot logic
-                    # We convert APIMessageBase to dict to be compatible with legacy handlers
-                    # that MainBot (ChatManager) expects.
-                    msg_dict = message.to_dict()
+                    # 使用 MessageConverter 转换 APIMessageBase 到 Legacy MessageBase
+                    # 接收场景：收到从 Adapter 转发的外部消息
+                    # sender_info 包含消息发送者信息，需要提取到 group_info/user_info
+                    from maim_message import MessageConverter
                     
-                    # Compatibility Layer: Flatten sender_info to top-level user_info/group_info
-                    # Legacy MessageBase expects message_info to have user_info and group_info directly.
+                    legacy_message = MessageConverter.from_api_receive(message)
+                    msg_dict = legacy_message.to_dict()
+                    
+                    # Compatibility Layer: Ensure format_info exists with defaults
+                    # MaiMBot's check_types() accesses format_info.accept_format without None check
                     if "message_info" in msg_dict:
                         msg_info = msg_dict["message_info"]
-                        sender_info = msg_info.get("sender_info")
-                        if sender_info:
-                            # If direct user_info/group_info are missing, populate them from sender_info
-                            if "user_info" not in msg_info and (ui := sender_info.get("user_info")):
-                                msg_info["user_info"] = ui
-                            
-                            if "group_info" not in msg_info and (gi := sender_info.get("group_info")):
-                                msg_info["group_info"] = gi
+                        
+                        if "format_info" not in msg_info or msg_info["format_info"] is None:
+                            msg_info["format_info"] = {
+                                "content_format": ["text", "image", "emoji", "voice"],
+                                "accept_format": [
+                                    "text", "image", "emoji", "reply", "voice", "command",
+                                    "voiceurl", "music", "videourl", "file", "imageurl", "forward", "video"
+                                ]
+                            }
                                 
-                        # Route Caching Logic: Simply map platform to API Key
+                        # Route Caching Logic: Map platform to API Key (or connection uuid as fallback)
                         # This allows us to send messages back to the correct API client for this platform
                         try:
-                            api_key = metadata.get("api_key")
-                            if api_key:
-                                platform = msg_info.get("platform")
-                                if platform:
-                                    global_api.platform_map[platform] = api_key
+                            # Get api_key from metadata, use uuid as fallback if api_key is empty
+                            api_key = metadata.get("api_key") or metadata.get("uuid") or "unknown"
+                            platform = msg_info.get("platform")
+                            api_logger.debug(f"Bridge received: api_key='{api_key}', platform='{platform}'")
+                            
+                            if platform:
+                                global_api.platform_map[platform] = api_key
+                                api_logger.info(f"Updated platform_map: {platform} -> {api_key}")
                         except Exception as e:
                             api_logger.warning(f"Failed to update platform map: {e}")
 
@@ -135,6 +143,27 @@ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
                     await global_api.process_message(msg_dict)
 
                 server_config.on_message = bridge_message_handler
+
+                # 3.5. Register custom message handlers (bridge to Legacy handlers)
+                # message_id_echo: handles message ID echo from adapters
+                # 兼容新旧两个版本的 maim_message:
+                # - 旧版: handler(payload)
+                # - 新版: handler(payload, metadata)
+                async def custom_message_id_echo_handler(payload: dict, metadata: dict = None):
+                    # Bridge to the Legacy custom handler registered in main.py
+                    try:
+                        # The Legacy handler expects the payload format directly
+                        if hasattr(global_api, '_custom_message_handlers'):
+                            handler = global_api._custom_message_handlers.get("message_id_echo")
+                            if handler:
+                                await handler(payload)
+                                api_logger.debug(f"Processed message_id_echo: {payload}")
+                            else:
+                                api_logger.debug(f"No handler for message_id_echo, payload: {payload}")
+                    except Exception as e:
+                        api_logger.warning(f"Failed to process message_id_echo: {e}")
+
+                server_config.register_custom_handler("message_id_echo", custom_message_id_echo_handler)
 
                 # 4. Initialize Server
                 extra_server = WebSocketServer(config=server_config)
@@ -169,3 +198,4 @@ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
                 get_logger("maim_message").debug(traceback.format_exc())
 
     return global_api
+

@@ -12,7 +12,7 @@ dependencies = [
     "google-genai>=1.39.1",
     "jieba>=0.42.1",
     "json-repair>=0.47.6",
-    "maim-message",
+    "maim-message>=0.6.2",
     "matplotlib>=3.10.3",
     "msgpack>=1.1.2",
     "numpy>=2.2.6",
