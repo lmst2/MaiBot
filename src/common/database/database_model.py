@@ -77,7 +77,7 @@ class ModelUsage(SQLModel, table=True):
     cost: float  # 本次请求的费用，单位元
 
 
-class Images(SQLModel, table=True):
+class Image(SQLModel, table=True):
     """用于同时存储表情包和图片的数据库模型。"""
 
     __tablename__ = "images"  # type: ignore
@@ -98,6 +98,7 @@ class Images(SQLModel, table=True):
 
     record_time: datetime = Field(default_factory=datetime.now, index=True)  # 记录时间（被创建的时间）
     register_time: Optional[datetime] = Field(default=None, nullable=True)  # 注册时间（被注册为可用表情包的时间）
+    last_used_time: Optional[datetime] = Field(default=None, nullable=True)  # 上次使用时间
 
     vlm_processed: bool = Field(default=False)  # 是否已经过VLM处理
 
