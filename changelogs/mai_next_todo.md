@@ -125,8 +125,28 @@ version 0.3.0 - 2026-01-11
 - [x] 使用C模块库提升相似度计算效率
 - [ ] 移除了定时表情包完整性检查，改为启动时检查（依然保留为独立方法，以防之后恢复定时检查系统） 
 
+## Prompt 管理系统
+- [ ] 官方Prompt全部独立
+- [x] 用户自定义Prompt系统
+    - [x] 用户可以创建，删除自己的Prompt
+    - [x] 用户可以覆盖官方Prompt
+- [x] Prompt构建系统
+- [x] Prompt文件交互
+    - [x] 读取Prompt文件
+        - [x] 读取官方Prompt文件
+        - [x] 读取用户Prompt文件
+        - [x] 用户Prompt覆盖官方Prompt
+    - [x] 保存Prompt文件
+- [x] Prompt管理方法
+    - [x] Prompt添加
+    - [x] Prompt删除
+        - [x] **只保存被标记为需要保存的Prompt，其他的Prompt文件全部删除**
+
 ## 一些细枝末节的东西
 - [ ] 将`stream_id`和`chat_id`统一命名为`session_id`
 - [ ] 映射表
     - [ ] `platform_group_user_session_id_map` `平台_群组_用户`-`会话ID` 映射表
 - [ ] 将大部分的数据模型均以`Mai`开头命名
+
+### 细节说明
+1. Prompt管理系统中保存用户自定义Prompt的时候会只保存被标记为需要保存的Prompt，其他的Prompt文件会全部删除，以防止用户删除Prompt后文件依然存在的问题。因此，如果想在运行时通过修改文件的方式来添加Prompt，需要确保通过对应方法标记该Prompt为需要保存，否则在下一次保存时会被删除。

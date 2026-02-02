@@ -14,7 +14,10 @@ _RIGHT_BRACE = "\ufdea"
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute().resolve()
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
+DATA_DIR = PROJECT_ROOT / "data"
+CUSTOM_PROMPTS_DIR = DATA_DIR / "custom_prompts"
 PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+CUSTOM_PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
 SUFFIX_PROMPT = ".prompt"
 
 
@@ -54,7 +57,6 @@ class Prompt:
 
 class PromptManager:
     def __init__(self) -> None:
-        PROMPTS_DIR.mkdir(parents=True, exist_ok=True)  # 确保提示词目录存在
         self.prompts: dict[str, Prompt] = {}
         """存储 Prompt 实例，禁止直接从外部访问，否则将引起不可知后果"""
         self._context_construct_functions: dict[str, tuple[Callable[[str], str | Coroutine[Any, Any, str]], str]] = {}
@@ -71,6 +73,22 @@ class PromptManager:
         self.prompts[prompt.prompt_name] = prompt
         if need_save:
             self._prompt_to_save.add(prompt.prompt_name)
+
+    def remove_prompt(self, prompt_name: str) -> None:
+        if prompt_name not in self.prompts:
+            raise KeyError(f"Prompt name '{prompt_name}' 不存在")
+        del self.prompts[prompt_name]
+        if prompt_name in self._prompt_to_save:
+            self._prompt_to_save.remove(prompt_name)
+
+    def replace_prompt(self, prompt: Prompt, need_save: bool = False) -> None:
+        if prompt.prompt_name not in self.prompts:
+            raise KeyError(f"Prompt name '{prompt.prompt_name}' 不存在，无法替换")
+        self.prompts[prompt.prompt_name] = prompt
+        if need_save:
+            self._prompt_to_save.add(prompt.prompt_name)
+        elif prompt.prompt_name in self._prompt_to_save:
+            self._prompt_to_save.remove(prompt.prompt_name)
 
     def add_context_construct_function(self, name: str, func: Callable[[str], str | Coroutine[Any, Any, str]]) -> None:
         if name in self._context_construct_functions or name in self.prompts:
@@ -159,9 +177,16 @@ class PromptManager:
         return rendered_template.replace(_LEFT_BRACE, "{").replace(_RIGHT_BRACE, "}")
 
     def save_prompts(self) -> None:
+        # 先清空自定义目录下的所有 Prompt 文件
+        for prompt_file in CUSTOM_PROMPTS_DIR.glob(f"*{SUFFIX_PROMPT}"):
+            try:
+                prompt_file.unlink()
+            except Exception as e:
+                logger.error(f"删除自定义 Prompt 文件 '{prompt_file}' 时出错，错误信息: {e}")
+                raise e
         for prompt_name in self._prompt_to_save:
             prompt = self.prompts[prompt_name]
-            file_path = PROMPTS_DIR / f"{prompt_name}{SUFFIX_PROMPT}"
+            file_path = CUSTOM_PROMPTS_DIR / f"{prompt_name}{SUFFIX_PROMPT}"
             try:
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(prompt.template)
@@ -172,11 +197,27 @@ class PromptManager:
     def load_prompts(self) -> None:
         for prompt_file in PROMPTS_DIR.glob(f"*{SUFFIX_PROMPT}"):
             try:
+                prompt_to_load = prompt_file
+                need_save = False
+                if (CUSTOM_PROMPTS_DIR / prompt_file.name).exists():
+                    # 优先加载自定义目录下的 Prompt 文件
+                    prompt_to_load = CUSTOM_PROMPTS_DIR / prompt_file.name
+                    need_save = True
+                with open(prompt_to_load, "r", encoding="utf-8") as f:
+                    template = f.read()
+                self.add_prompt(Prompt(prompt_name=prompt_to_load.stem, template=template), need_save=need_save)
+            except Exception as e:
+                logger.error(f"加载 Prompt 文件 '{prompt_file}' 时出错，错误信息: {e}")
+                raise e
+        for prompt_file in CUSTOM_PROMPTS_DIR.glob(f"*{SUFFIX_PROMPT}"):
+            if (PROMPTS_DIR / prompt_file.name).exists():
+                continue  # 已经加载过了，跳过
+            try:
                 with open(prompt_file, "r", encoding="utf-8") as f:
                     template = f.read()
                 self.add_prompt(Prompt(prompt_name=prompt_file.stem, template=template), need_save=True)
             except Exception as e:
-                logger.error(f"加载 Prompt 文件 '{prompt_file}' 时出错，错误信息: {e}")
+                logger.error(f"加载自定义 Prompt 文件 '{prompt_file}' 时出错，错误信息: {e}")
                 raise e
 
     async def _get_function_result(
