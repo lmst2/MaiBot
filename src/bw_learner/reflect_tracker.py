@@ -72,7 +72,7 @@ class ReflectTracker:
 
         # LLM Judge
         try:
-            prompt_template = prompt_manager.get_prompt("reflect_judge_prompt")
+            prompt_template = prompt_manager.get_prompt("reflect_judge")
             prompt_template.add_context("situation", str(self.expression.situation))
             prompt_template.add_context("style", str(self.expression.style))
             prompt_template.add_context("context_block", context_block)

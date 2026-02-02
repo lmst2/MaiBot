@@ -809,11 +809,11 @@ class PrivateReplyer:
         # 使用统一的 is_bot_self 函数判断是否是机器人自己（支持多平台，包括 WebUI）
         
         if is_bot_self(platform, user_id):
-            prompt_template = prompt_manager.get_prompt("private_replyer_self_prompt")
+            prompt_template = prompt_manager.get_prompt("private_replyer_self")
             prompt_template.add_context("target", target)
             prompt_template.add_context("reason", reply_reason)
         else:
-            prompt_template = prompt_manager.get_prompt("private_replyer_prompt")
+            prompt_template = prompt_manager.get_prompt("private_replyer")
             prompt_template.add_context("reply_target_block", reply_target_block)
             prompt_template.add_context("planner_reasoning", planner_reasoning)
         prompt_template.add_context("expression_habits_block", expression_habits_block)
@@ -923,7 +923,7 @@ class PrivateReplyer:
                 # 兜底：即使 multiple_reply_style 配置异常也不影响正常回复
                 reply_style = global_config.personality.reply_style
 
-        prompt_template = prompt_manager.get_prompt("default_expressor_prompt")
+        prompt_template = prompt_manager.get_prompt("default_expressor")
         prompt_template.add_context("expression_habits_block", expression_habits_block)
         # prompt_template.add_context("relation_info_block", relation_info)
         prompt_template.add_context("chat_target", chat_target_1)
@@ -1010,7 +1010,7 @@ class PrivateReplyer:
             if global_config.lpmm_knowledge.lpmm_mode == "agent":
                 return ""
 
-            prompt_template = prompt_manager.get_prompt("lpmm_get_knowledge_prompt")
+            prompt_template = prompt_manager.get_prompt("lpmm_get_knowledge")
             prompt_template.add_context("bot_name", global_config.bot.nickname)
             prompt_template.add_context("time_now", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
             prompt_template.add_context("chat_history", message)

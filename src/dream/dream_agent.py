@@ -224,7 +224,7 @@ async def run_dream_agent_once(
     tool_registry = get_dream_tool_registry()
     tool_defs = tool_registry.get_tool_definitions()
 
-    head_prompt_template = prompt_manager.get_prompt("dream_react_head_prompt")
+    head_prompt_template = prompt_manager.get_prompt("dream_react_head")
     head_prompt_template.add_context("bot_name", global_config.bot.nickname)
     head_prompt_template.add_context("time_now", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
     head_prompt_template.add_context("chat_id", chat_id)

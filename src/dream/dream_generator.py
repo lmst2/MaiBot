@@ -143,7 +143,7 @@ async def generate_dream_summary(
         dream_styles_text = "\n".join([f"{i + 1}. {style}" for i, style in enumerate(selected_styles)])
 
         # 使用 Prompt 管理器格式化梦境生成 prompt
-        dream_prompt_template = prompt_manager.get_prompt("dream_summary_prompt")
+        dream_prompt_template = prompt_manager.get_prompt("dream_summary")
         dream_prompt_template.add_context("chat_id", chat_id)
         dream_prompt_template.add_context("total_iterations", str(total_iterations))
         dream_prompt_template.add_context("time_cost", str(time_cost))

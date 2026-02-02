@@ -600,7 +600,7 @@ class ActionPlanner:
                     reply_action_example += ', "quote":"如果需要引用该message，设置为true"'
                 reply_action_example += "}"
 
-            planner_prompt_template = prompt_manager.get_prompt("planner_prompt")
+            planner_prompt_template = prompt_manager.get_prompt("planner")
             planner_prompt_template.add_context("time_block", time_block)
             planner_prompt_template.add_context("chat_context_description", chat_context_description)
             planner_prompt_template.add_context("chat_content_block", chat_content_block)
@@ -695,7 +695,7 @@ class ActionPlanner:
                 parallel_text = ""
 
             # 获取动作提示模板并填充
-            using_action_prompt = prompt_manager.get_prompt("action_prompt")
+            using_action_prompt = prompt_manager.get_prompt("action")
             using_action_prompt.add_context("action_name", action_name)
             using_action_prompt.add_context("action_description", action_info.description)
             using_action_prompt.add_context("action_parameters", param_text)

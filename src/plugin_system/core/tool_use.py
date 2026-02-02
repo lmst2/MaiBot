@@ -80,7 +80,7 @@ class ToolExecutor:
                 return [], [], ""
 
         # 构建工具调用提示词
-        prompt_template = prompt_manager.get_prompt("tool_executor_prompt")
+        prompt_template = prompt_manager.get_prompt("tool_executor")
         prompt_template.add_context("target_message", target_message)
         prompt_template.add_context("chat_history", chat_history)
         prompt_template.add_context("sender", sender)

@@ -658,7 +658,7 @@ class ChatHistorySummarizer:
         history_topics_block = "\n".join(f"- {t}" for t in existing_topics) if existing_topics else "（当前无历史话题）"
         messages_block = "\n".join(numbered_lines)
 
-        prompt_template = prompt_manager.get_prompt("hippo_topic_analysis_prompt")
+        prompt_template = prompt_manager.get_prompt("hippo_topic_analysis")
         prompt_template.add_context("history_topics_block", history_topics_block)
         prompt_template.add_context("messages_block", messages_block)
         prompt = await prompt_manager.render_prompt(prompt_template)
@@ -814,7 +814,7 @@ class ChatHistorySummarizer:
         Returns:
             tuple[bool, List[str], str]: (是否成功, 关键词列表, 概括)
         """
-        prompt_template = prompt_manager.get_prompt("hippo_topic_summary_prompt")
+        prompt_template = prompt_manager.get_prompt("hippo_topic_summary")
         prompt_template.add_context("topic", topic)
         prompt_template.add_context("original_text", original_text)
         prompt = await prompt_manager.render_prompt(prompt_template)

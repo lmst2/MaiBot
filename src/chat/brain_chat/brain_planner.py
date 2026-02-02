@@ -200,7 +200,7 @@ class BrainPlanner:
 
         prompt_build_start = time.perf_counter()
         # 构建包含所有动作的提示词：使用统一的 ReAct Prompt
-        prompt_key = "brain_planner_prompt_react"
+        prompt_key = "brain_planner"
         # 这里不记录日志，避免重复打印，由调用方按需控制 log_prompt
         prompt, message_id_list = await self.build_planner_prompt(
             chat_target_info=chat_target_info,
@@ -254,7 +254,7 @@ class BrainPlanner:
         message_id_list: List[Tuple[str, "DatabaseMessages"]],
         chat_content_block: str = "",
         interest: str = "",
-        prompt_key: str = "brain_planner_prompt_react",
+        prompt_key: str = "brain_planner",
     ) -> tuple[str, List[Tuple[str, "DatabaseMessages"]]]:
         """构建 Planner LLM 的提示词 (获取模板并填充数据)"""
         try:
@@ -381,7 +381,7 @@ class BrainPlanner:
             require_text = require_text.rstrip("\n")
 
             # 获取动作提示模板并填充
-            using_action_prompt_template = prompt_manager.get_prompt("brain_action_prompt")
+            using_action_prompt_template = prompt_manager.get_prompt("brain_action")
             using_action_prompt_template.add_context("action_name", action_name)
             using_action_prompt_template.add_context("action_description", action_info.description)
             using_action_prompt_template.add_context("action_parameters", param_text)

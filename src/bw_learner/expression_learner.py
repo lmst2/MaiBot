@@ -68,7 +68,7 @@ class ExpressionLearner:
         # 学习用（开启行编号，便于溯源）
         random_msg_str: str = await build_anonymous_messages(random_msg, show_ids=True)
 
-        prompt_template = prompt_manager.get_prompt("learn_style_prompt")
+        prompt_template = prompt_manager.get_prompt("learn_style")
         prompt_template.add_context("bot_name", global_config.bot.nickname)
         prompt_template.add_context("chat_str", random_msg_str)
 

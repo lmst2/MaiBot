@@ -378,7 +378,7 @@ class ExpressionSelector:
                 reply_reason_block = ""
 
             # 3. 构建prompt（只包含情境，不包含完整的表达方式）
-            prompt_template = prompt_manager.get_prompt("expression_evaluation_prompt")
+            prompt_template = prompt_manager.get_prompt("expression_evaluation")
             prompt_template.add_context("bot_name", global_config.bot.nickname)
             prompt_template.add_context("chat_observe_info", chat_context)
             prompt_template.add_context("all_situations", all_situations_str)

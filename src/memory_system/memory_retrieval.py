@@ -662,7 +662,7 @@ async def _react_agent_solve_question(
             return None
 
         # 执行最终评估
-        evaluation_prompt_template = prompt_manager.get_prompt("memory_retrieval_react_final_prompt")
+        evaluation_prompt_template = prompt_manager.get_prompt("memory_retrieval_react_final")
         evaluation_prompt_template.add_context("bot_name", bot_name)
         evaluation_prompt_template.add_context("time_now", time_now)
         evaluation_prompt_template.add_context("chat_history", chat_history)

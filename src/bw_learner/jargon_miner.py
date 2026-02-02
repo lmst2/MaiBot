@@ -193,7 +193,7 @@ class JargonMiner:
                     "- 请参考上一次推断的含义，结合新的上下文信息，给出更准确或更新的推断结果"
                 )
 
-            prompt1_template = prompt_manager.get_prompt("jargon_inference_with_context_prompt")
+            prompt1_template = prompt_manager.get_prompt("jargon_inference_with_context")
             prompt1_template.add_context("bot_name", global_config.bot.nickname)
             prompt1_template.add_context("content", str(content))
             prompt1_template.add_context("raw_content_list", raw_content_text)
@@ -233,7 +233,7 @@ class JargonMiner:
                 return
 
             # 步骤2: 仅基于content推断
-            prompt2_template = prompt_manager.get_prompt("jargon_inference_content_only_prompt")
+            prompt2_template = prompt_manager.get_prompt("jargon_inference_content_only")
             prompt2_template.add_context("content", str(content))
             prompt2 = await prompt_manager.render_prompt(prompt2_template)
 
@@ -275,7 +275,7 @@ class JargonMiner:
                 logger.debug(f"jargon {content} 推断1结果: {response1}")
 
             # 步骤3: 比较两个推断结果
-            prompt3_template = prompt_manager.get_prompt("jargon_compare_inference_prompt")
+            prompt3_template = prompt_manager.get_prompt("jargon_compare_inference")
             prompt3_template.add_context("inference1", json.dumps(inference1, ensure_ascii=False))
             prompt3_template.add_context("inference2", json.dumps(inference2, ensure_ascii=False))
             prompt3 = await prompt_manager.render_prompt(prompt3_template)

@@ -960,9 +960,9 @@ class DefaultReplyer:
         # think_level=0: 轻量回复（简短平淡）
         # think_level=1: 中等回复（日常口语化）
         if think_level == 0:
-            prompt_name = "replyer_prompt_0"
+            prompt_name = "replyer_light"
         else:  # think_level == 1 或默认
-            prompt_name = "replyer_prompt"
+            prompt_name = "replyer"
 
         # 根据配置构建最终的 reply_style：支持 multiple_reply_style 按概率随机替换
         reply_style = global_config.personality.reply_style
@@ -1082,7 +1082,7 @@ class DefaultReplyer:
             except Exception:
                 reply_style = global_config.personality.reply_style
 
-        prompt_template = prompt_manager.get_prompt("default_expressor_prompt")
+        prompt_template = prompt_manager.get_prompt("default_expressor")
         prompt_template.add_context("expression_habits_block", expression_habits_block)
         # prompt_template.add_context("relation_info_block", relation_info)
         prompt_template.add_context("chat_target", chat_target_1)
@@ -1169,7 +1169,7 @@ class DefaultReplyer:
             if global_config.lpmm_knowledge.lpmm_mode == "agent":
                 return ""
 
-            template_prompt = prompt_manager.get_prompt("lpmm_get_knowledge_prompt")
+            template_prompt = prompt_manager.get_prompt("lpmm_get_knowledge")
             template_prompt.add_context("bot_name", global_config.bot.nickname)
             template_prompt.add_context("time_now", lambda _: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
             template_prompt.add_context("chat_history", message)
