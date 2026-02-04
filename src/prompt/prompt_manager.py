@@ -67,6 +67,15 @@ class PromptManager:
         """需要保存的 Prompt 名称集合"""
 
     def add_prompt(self, prompt: Prompt, need_save: bool = False) -> None:
+        """
+        添加一个新的 Prompt 实例
+
+        Args:
+            prompt (Prompt): 要添加的 Prompt 实例
+            need_save (bool): 是否需要保存该 Prompt，默认为 False
+        Raises:
+            KeyError: 如果 Prompt 名称已存在则引发该异常
+        """
         if prompt.prompt_name in self.prompts or prompt.prompt_name in self._context_construct_functions:
             # 确保名称无冲突
             raise KeyError(f"Prompt name '{prompt.prompt_name}' 已存在")
@@ -75,6 +84,13 @@ class PromptManager:
             self._prompt_to_save.add(prompt.prompt_name)
 
     def remove_prompt(self, prompt_name: str) -> None:
+        """
+        移除一个已存在的 Prompt 实例
+        Args:
+            prompt_name (str): 要移除的 Prompt 名称
+        Raises:
+            KeyError: 如果 Prompt 名称不存在则引发该异常
+        """
         if prompt_name not in self.prompts:
             raise KeyError(f"Prompt name '{prompt_name}' 不存在")
         del self.prompts[prompt_name]
@@ -82,6 +98,14 @@ class PromptManager:
             self._prompt_to_save.remove(prompt_name)
 
     def replace_prompt(self, prompt: Prompt, need_save: bool = False) -> None:
+        """
+        替换一个已存在的 Prompt 实例
+        Args:
+            prompt (Prompt): 要替换的 Prompt 实例
+            need_save (bool): 是否需要保存该 Prompt，默认为 False
+        Raises:
+            KeyError: 如果 Prompt 名称不存在则引发该异常
+        """
         if prompt.prompt_name not in self.prompts:
             raise KeyError(f"Prompt name '{prompt.prompt_name}' 不存在，无法替换")
         self.prompts[prompt.prompt_name] = prompt
@@ -91,6 +115,15 @@ class PromptManager:
             self._prompt_to_save.remove(prompt.prompt_name)
 
     def add_context_construct_function(self, name: str, func: Callable[[str], str | Coroutine[Any, Any, str]]) -> None:
+        """
+        添加一个上下文构造函数
+        
+        Args:
+            name (str): 上下文名称
+            func (Callable[[str], str | Coroutine[Any, Any, str]]): 构造函数，接受 Prompt 名称作为参数，返回字符串或返回字符串的协程
+        Raises:
+            KeyError: 如果上下文名称已存在则引发该异常
+        """
         if name in self._context_construct_functions or name in self.prompts:
             raise KeyError(f"Construct function name '{name}' 已存在")
         # 获取调用栈
@@ -109,7 +142,16 @@ class PromptManager:
         self._context_construct_functions[name] = func, caller_module
 
     def get_prompt(self, prompt_name: str) -> Prompt:
-        """获取指定名称的 Prompt 实例的克隆"""
+        """
+        获取指定名称的 Prompt 实例的克隆
+        
+        Args:
+            prompt_name (str): 要获取的 Prompt 名称
+        Returns:
+            return (Prompt): 指定名称的 Prompt 实例的克隆
+        Raises:
+            KeyError: 如果 Prompt 名称不存在则引发该异常
+        """
         if prompt_name not in self.prompts:
             raise KeyError(f"Prompt name '{prompt_name}' 不存在")
         prompt = self.prompts[prompt_name].clone()
@@ -117,6 +159,16 @@ class PromptManager:
         return prompt
 
     async def render_prompt(self, prompt: Prompt) -> str:
+        """
+        渲染一个 Prompt 实例
+        
+        Args:
+            prompt (Prompt): 要渲染的 Prompt 实例
+        Returns:
+            return (str): 渲染后的字符串
+        Raises:
+            ValueError: 如果传入的 Prompt 实例不是通过 get_prompt 方法获取的克隆实例则引发该异常
+        """
         if not prompt._is_cloned:
             raise ValueError(
                 "只能渲染通过 PromptManager.get_prompt 方法获取的 Prompt 实例，你可能对原始实例进行了修改和渲染操作"
@@ -177,6 +229,11 @@ class PromptManager:
         return rendered_template.replace(_LEFT_BRACE, "{").replace(_RIGHT_BRACE, "}")
 
     def save_prompts(self) -> None:
+        """
+        保存需要保存的 Prompt 实例到自定义目录，将清空未注册的自定义 Prompt 文件
+        Raises:
+            Exception: 如果在保存过程中出现任何文件操作错误则引发该异常
+        """
         # 先清空自定义目录下的所有 Prompt 文件
         for prompt_file in CUSTOM_PROMPTS_DIR.glob(f"*{SUFFIX_PROMPT}"):
             try:
@@ -195,6 +252,11 @@ class PromptManager:
                 raise e
 
     def load_prompts(self) -> None:
+        """
+        加载全部 Prompt 实例，优先加载自定义目录下的文件，支持覆盖加载
+        Raises:
+            Exception: 如果在加载过程中出现任何文件操作错误则引发该异常
+        """
         for prompt_file in PROMPTS_DIR.glob(f"*{SUFFIX_PROMPT}"):
             try:
                 prompt_to_load = prompt_file
