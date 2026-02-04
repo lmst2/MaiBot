@@ -77,7 +77,7 @@ class ModelUsage(SQLModel, table=True):
     cost: float  # 本次请求的费用，单位元
 
 
-class Image(SQLModel, table=True):
+class Images(SQLModel, table=True):
     """用于同时存储表情包和图片的数据库模型。"""
 
     __tablename__ = "images"  # type: ignore
