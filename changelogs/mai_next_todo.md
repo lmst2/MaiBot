@@ -142,6 +142,18 @@ version 0.3.0 - 2026-01-11
     - [x] Prompt删除
         - [x] **只保存被标记为需要保存的Prompt，其他的Prompt文件全部删除**
 
+## LLM相关内容
+- [ ] 统一LLM调用接口
+    - [ ] 统一LLM调用返回格式为专有数据模型
+    - [ ] 取消所有__init__方法中对LLM Client的初始化，转而使用获取方式
+        - [ ] 统一使用`get_llm_client`方法获取LLM Client实例
+        - [ ] __init__方法中只保存配置信息
+- [ ] LLM Client管理器
+    - [ ] LLM Client单例/多例管理
+    - [ ] LLM Client缓存管理/生命周期管理
+    - [ ] LLM Client根据配置热重载
+
+
 ## 一些细枝末节的东西
 - [ ] 将`stream_id`和`chat_id`统一命名为`session_id`
 - [ ] 映射表
