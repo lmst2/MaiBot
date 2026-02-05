@@ -22,7 +22,7 @@ from rich.traceback import install
 from src.plugin_system.core.plugin_manager import plugin_manager
 
 # 导入消息API和traceback模块
-from src.common.message import get_global_api
+from src.common.message_server import get_global_api
 from src.dream.dream_agent import start_dream_scheduler
 from src.bw_learner.expression_auto_check_task import ExpressionAutoCheckTask
 

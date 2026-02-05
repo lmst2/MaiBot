@@ -4,7 +4,7 @@ import traceback
 from rich.traceback import install
 from maim_message import Seg
 
-from src.common.message.api import get_global_api
+from src.common.message_server.api import get_global_api
 from src.common.logger import get_logger
 from src.chat.message_receive.message import MessageSending
 from src.chat.message_receive.storage import MessageStorage
