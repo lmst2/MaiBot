@@ -15,7 +15,7 @@ class ImageType(str, Enum):
     IMAGE = "image"
 
 
-class MaiMessage(SQLModel, table=True):
+class Messages(SQLModel, table=True):
     __tablename__ = "mai_messages"  # type: ignore
     id: Optional[int] = Field(default=None, primary_key=True)  # 自增主键
 
