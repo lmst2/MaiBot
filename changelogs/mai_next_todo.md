@@ -7,7 +7,7 @@ version 0.3.0 - 2026-01-11
 - [x] 使用 python 方法作为配置项说明（提案）
     - [x] 取消`bot_config_template.toml`
     - [x] 取消`model_config_template.toml`
-    - [ ] 取消`template_env`
+    - [x] 取消`template_env`
 - [x] 配置类中的所有原子项目应该只包含以下类型: `str`, `int`, `float`, `bool`, `list`, `dict`, `set`
     - [x] 禁止使用 `Union` 类型
     - [x] 禁止使用`tuple`类型，使用嵌套`dataclass`替代

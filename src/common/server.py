@@ -1,9 +1,9 @@
+import asyncio
+
 from fastapi import FastAPI, APIRouter
+from rich.traceback import install
 from typing import Optional
 from uvicorn import Config, Server as UvicornServer
-import asyncio
-import os
-from rich.traceback import install
 
 install(extra_lines=3)
 
@@ -97,7 +97,11 @@ global_server = None
 
 def get_global_server() -> Server:
     """获取全局服务器实例"""
+    from src.config.config import global_config
+
     global global_server
     if global_server is None:
-        global_server = Server(host=os.environ["HOST"], port=int(os.environ["PORT"]))
+        global_server = Server(
+            host=global_config.maim_message.ws_server_host, port=global_config.maim_message.ws_server_port
+        )
     return global_server

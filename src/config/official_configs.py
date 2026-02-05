@@ -512,6 +512,11 @@ class ExperimentalConfig(ConfigBase):
 
 class MaimMessageConfig(ConfigBase):
     """maim_message配置类"""
+    ws_server_host: str = "127.0.0.1"
+    """旧版基于WS的服务器主机地址"""
+    
+    ws_server_port: int = 8080
+    """旧版基于WS的服务器端口号"""
 
     auth_token: list[str] = Field(default_factory=lambda: [])
     """认证令牌，用于旧版API验证，为空则不启用验证"""
