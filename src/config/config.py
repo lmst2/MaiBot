@@ -2,9 +2,12 @@ from pathlib import Path
 from typing import TypeVar
 from datetime import datetime
 from typing import Any
+import copy
 
 import tomlkit
 import sys
+
+from .legacy_migration import try_migrate_legacy_bot_config_dict
 
 from .official_configs import (
     BotConfig,
@@ -48,7 +51,7 @@ PROJECT_ROOT: Path = Path(__file__).parent.parent.parent.absolute().resolve()
 CONFIG_DIR: Path = PROJECT_ROOT / "config"
 BOT_CONFIG_PATH: Path = (CONFIG_DIR / "bot_config.toml").resolve().absolute()
 MODEL_CONFIG_PATH: Path = (CONFIG_DIR / "model_config.toml").resolve().absolute()
-MMC_VERSION: str = "0.13.0"
+MMC_VERSION: str = "1.0.0"
 CONFIG_VERSION: str = "8.0.0"
 MODEL_CONFIG_VERSION: str = "1.12.0"
 
@@ -216,9 +219,28 @@ def load_config_from_file(
     old_ver: str = config_data["inner"]["version"]  # type: ignore
     config_data.remove("inner")  # 移除 inner 部分，避免干扰后续处理
     config_data = config_data.unwrap()  # 转换为普通字典，方便后续处理
+    # 保留一份“干净”的原始数据副本，避免第一次 from_dict 过程中对 dict 的就地修改
+    original_data: dict[str, Any] = copy.deepcopy(config_data)
     try:
         updated: bool = False
-        target_config = config_class.from_dict(attribute_data, config_data)
+        try:
+            target_config = config_class.from_dict(attribute_data, config_data)
+        except TypeError as e:
+            # 可拔插的旧配置修复（仅针对 bot_config.toml 的已知结构变更）
+            if config_path.name == "bot_config.toml" and config_class.__name__ == "Config":
+                # 基于未被部分构造污染的 original_data 做迁移尝试
+                mig = try_migrate_legacy_bot_config_dict(original_data)
+                if mig.migrated:
+                    logger.warning(
+                        f"检测到旧版配置结构，已尝试自动修复: {mig.reason}。"
+                        f"建议稍后检查并保存生成的新配置文件。"
+                    )
+                    migrated_data = mig.data
+                    target_config = config_class.from_dict(attribute_data, migrated_data)
+                else:
+                    raise e
+            else:
+                raise e
         if compare_versions(old_ver, new_ver):
             output_config_changes(attribute_data, logger, old_ver, new_ver, config_path.name)
             write_config_to_file(target_config, config_path, new_ver, override_repr)

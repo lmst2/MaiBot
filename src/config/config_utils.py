@@ -1,5 +1,6 @@
 from pydantic.fields import FieldInfo
-from typing import Any, get_args, get_origin, TYPE_CHECKING, Literal, List, Set, Tuple, Dict
+from typing import Any, get_args, get_origin, TYPE_CHECKING, Literal, List, Set, Tuple, Dict, Union
+import types
 from tomlkit import items
 import tomlkit
 
@@ -66,7 +67,30 @@ def convert_field(config_item_name: str, config_item_info: FieldInfo, value: Any
     field_type_origin = get_origin(config_item_info.annotation)
     field_type_args = get_args(config_item_info.annotation)
 
-    if not field_type_origin:  # 基础类型int,bool等直接添加
+    # 处理 Optional[T] / Union[T, None] / PEP604 的 T | None
+    if field_type_origin in (Union, types.UnionType):
+        # 只处理 "某类型 + None" 的情况，等价于 Optional[T]
+        non_none_args = tuple(a for a in field_type_args if a is not type(None))
+        if len(non_none_args) == 1:
+            inner = non_none_args[0]
+            inner_origin = get_origin(inner)
+            inner_args = get_args(inner)
+            # Optional[基础类型] 直接按基础类型处理
+            if inner_origin is None and isinstance(inner, type) and inner in (int, float, str, bool):
+                return value
+            # Optional[Literal[...]] 的情况
+            if inner_origin is Literal:
+                if value not in inner_args:
+                    raise ValueError(f"Value {value} not in Literal options {inner_args} for {config_item_name}")
+                return value
+            # 其它 Optional[...]，后续按去掉 None 的泛型再走一遍逻辑
+            field_type_origin = inner_origin
+            field_type_args = inner_args
+        else:
+            # 复杂 Union 不支持写回，只能报错
+            raise TypeError(f"Unsupported Union type for {config_item_name}: {config_item_info.annotation}")
+
+    if not field_type_origin:  # 基础类型 int,bool,str,float 等直接添加
         return value
     elif field_type_origin in {list, set, List, Set}:
         toml_list = tomlkit.array()
