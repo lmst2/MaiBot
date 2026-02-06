@@ -38,6 +38,7 @@ queue_update.txt
 .env
 .env.*
 .cursor
+start_all.bat
 config/bot_config_dev.toml
 config/bot_config.toml
 config/bot_config.toml.bak
