@@ -10,6 +10,7 @@ import uuid
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends, Cookie, Header
 from pydantic import BaseModel
+from sqlalchemy import case, func as fn
 
 from src.common.logger import get_logger
 from src.common.database.database_model import Messages, PersonInfo
@@ -290,8 +291,6 @@ async def get_available_platforms(_auth: bool = Depends(require_auth)):
     从 PersonInfo 表中获取所有已知的平台
     """
     try:
-        from peewee import fn
-
         # 查询所有不同的平台
         platforms = (
             PersonInfo.select(PersonInfo.platform, fn.COUNT(PersonInfo.id).alias("count"))
@@ -337,9 +336,7 @@ async def get_persons_by_platform(
             )
 
         # 按最后交互时间排序，优先显示活跃用户
-        from peewee import Case
-
-        query = query.order_by(Case(None, [(PersonInfo.last_know.is_null(), 1)], 0), PersonInfo.last_know.desc())
+        query = query.order_by(case((PersonInfo.last_know.is_null(), 1), else_=0), PersonInfo.last_know.desc())
         query = query.limit(limit)
 
         result = []

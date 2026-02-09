@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends, Cookie, Header
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-from peewee import fn
+from sqlalchemy import func as fn
 
 from src.common.logger import get_logger
 from src.common.database.database_model import (
@@ -151,9 +151,7 @@ async def get_time_footprint(year: int = 2025) -> TimeFootprintData:
     try:
         # 1. 年度在线时长
         online_records = list(
-            OnlineTime.select().where(
-                (OnlineTime.start_timestamp >= start_dt) | (OnlineTime.end_timestamp <= end_dt)
-            )
+            OnlineTime.select().where((OnlineTime.start_timestamp >= start_dt) | (OnlineTime.end_timestamp <= end_dt))
         )
         total_seconds = 0
         for record in online_records:
@@ -235,10 +233,10 @@ async def get_time_footprint(year: int = 2025) -> TimeFootprintData:
 async def get_social_network(year: int = 2025) -> SocialNetworkData:
     """获取社交网络数据"""
     from src.config.config import global_config
-    
+
     data = SocialNetworkData()
     start_ts, end_ts = get_year_time_range(year)
-    
+
     # 获取 bot 自身的 QQ 账号，用于过滤
     bot_qq = str(global_config.bot.qq_account or "")
 
@@ -254,9 +252,7 @@ async def get_social_network(year: int = 2025) -> SocialNetworkData:
                 fn.COUNT(Messages.id).alias("count"),
             )
             .where(
-                (Messages.time >= start_ts)
-                & (Messages.time <= end_ts)
-                & (Messages.chat_info_group_id.is_null(False))
+                (Messages.time >= start_ts) & (Messages.time <= end_ts) & (Messages.chat_info_group_id.is_null(False))
             )
             .group_by(Messages.chat_info_group_id)
             .order_by(fn.COUNT(Messages.id).desc())
@@ -302,22 +298,14 @@ async def get_social_network(year: int = 2025) -> SocialNetworkData:
         # 4. 被@次数
         data.at_count = (
             Messages.select()
-            .where(
-                (Messages.time >= start_ts)
-                & (Messages.time <= end_ts)
-                & (Messages.is_at == True)
-            )
+            .where((Messages.time >= start_ts) & (Messages.time <= end_ts) & (Messages.is_at == True))
             .count()
         )
 
         # 5. 被提及次数
         data.mentioned_count = (
             Messages.select()
-            .where(
-                (Messages.time >= start_ts)
-                & (Messages.time <= end_ts)
-                & (Messages.is_mentioned == True)
-            )
+            .where((Messages.time >= start_ts) & (Messages.time <= end_ts) & (Messages.is_mentioned == True))
             .count()
         )
 
@@ -329,8 +317,7 @@ async def get_social_network(year: int = 2025) -> SocialNetworkData:
                 (ChatStreams.last_active_time - ChatStreams.create_time).alias("duration"),
             )
             .where(
-                (ChatStreams.user_id.is_null(False))
-                & (ChatStreams.user_id != bot_qq)  # 过滤 bot 自身
+                (ChatStreams.user_id.is_null(False)) & (ChatStreams.user_id != bot_qq)  # 过滤 bot 自身
             )
             .order_by((ChatStreams.last_active_time - ChatStreams.create_time).desc())
             .limit(1)
@@ -451,20 +438,21 @@ async def get_brain_power(year: int = 2025) -> BrainPowerData:
             .order_by(fn.COUNT(LLMUsage.id).desc())
             .limit(5)
         )
-        data.top_reply_models = [
-            {"model": row["model"], "count": row["count"]}
-            for row in reply_model_query.dicts()
-        ]
+        data.top_reply_models = [{"model": row["model"], "count": row["count"]} for row in reply_model_query.dicts()]
 
         # 6. 高冷指数 (沉默率) - 基于 ActionRecords
-        total_actions = ActionRecords.select().where(
-            (ActionRecords.time >= start_ts) & (ActionRecords.time <= end_ts)
-        ).count()
-        no_reply_count = ActionRecords.select().where(
-            (ActionRecords.time >= start_ts)
-            & (ActionRecords.time <= end_ts)
-            & (ActionRecords.action_name == "no_reply")
-        ).count()
+        total_actions = (
+            ActionRecords.select().where((ActionRecords.time >= start_ts) & (ActionRecords.time <= end_ts)).count()
+        )
+        no_reply_count = (
+            ActionRecords.select()
+            .where(
+                (ActionRecords.time >= start_ts)
+                & (ActionRecords.time <= end_ts)
+                & (ActionRecords.action_name == "no_reply")
+            )
+            .count()
+        )
         data.total_actions = total_actions
         data.no_reply_count = no_reply_count
         data.silence_rate = round(no_reply_count / total_actions * 100, 2) if total_actions > 0 else 0
@@ -473,11 +461,7 @@ async def get_brain_power(year: int = 2025) -> BrainPowerData:
         interest_query = Messages.select(
             fn.AVG(Messages.interest_value).alias("avg_interest"),
             fn.MAX(Messages.interest_value).alias("max_interest"),
-        ).where(
-            (Messages.time >= start_ts)
-            & (Messages.time <= end_ts)
-            & (Messages.interest_value.is_null(False))
-        )
+        ).where((Messages.time >= start_ts) & (Messages.time <= end_ts) & (Messages.interest_value.is_null(False)))
         interest_result = interest_query.dicts().get()
         data.avg_interest_value = round(float(interest_result.get("avg_interest") or 0), 2)
         data.max_interest_value = round(float(interest_result.get("max_interest") or 0), 2)
@@ -494,19 +478,14 @@ async def get_brain_power(year: int = 2025) -> BrainPowerData:
                 .first()
             )
             if max_interest_msg:
-                data.max_interest_time = datetime.fromtimestamp(max_interest_msg.time).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                )
+                data.max_interest_time = datetime.fromtimestamp(max_interest_msg.time).strftime("%Y-%m-%d %H:%M:%S")
 
         # 7. 思考深度 (基于 action_reasoning 长度)
-        reasoning_records = (
-            ActionRecords.select(ActionRecords.action_reasoning, ActionRecords.time)
-            .where(
-                (ActionRecords.time >= start_ts)
-                & (ActionRecords.time <= end_ts)
-                & (ActionRecords.action_reasoning.is_null(False))
-                & (ActionRecords.action_reasoning != "")
-            )
+        reasoning_records = ActionRecords.select(ActionRecords.action_reasoning, ActionRecords.time).where(
+            (ActionRecords.time >= start_ts)
+            & (ActionRecords.time <= end_ts)
+            & (ActionRecords.action_reasoning.is_null(False))
+            & (ActionRecords.action_reasoning != "")
         )
         reasoning_lengths = []
         max_len = 0
@@ -518,7 +497,7 @@ async def get_brain_power(year: int = 2025) -> BrainPowerData:
                 if length > max_len:
                     max_len = length
                     max_len_time = record.time
-        
+
         if reasoning_lengths:
             data.avg_reasoning_length = round(sum(reasoning_lengths) / len(reasoning_lengths), 1)
             data.max_reasoning_length = max_len
@@ -537,10 +516,10 @@ async def get_brain_power(year: int = 2025) -> BrainPowerData:
 async def get_expression_vibe(year: int = 2025) -> ExpressionVibeData:
     """获取个性与表达数据"""
     from src.config.config import global_config
-    
+
     data = ExpressionVibeData()
     start_ts, end_ts = get_year_time_range(year)
-    
+
     # 获取 bot 自身的 QQ 账号，用于筛选 bot 发送的消息
     bot_qq = str(global_config.bot.qq_account or "")
 
@@ -578,17 +557,13 @@ async def get_expression_vibe(year: int = 2025) -> ExpressionVibeData:
                 Expression.style,
                 fn.SUM(Expression.count).alias("total_count"),
             )
-            .where(
-                (Expression.last_active_time >= start_ts)
-                & (Expression.last_active_time <= end_ts)
-            )
+            .where((Expression.last_active_time >= start_ts) & (Expression.last_active_time <= end_ts))
             .group_by(Expression.style)
             .order_by(fn.SUM(Expression.count).desc())
             .limit(5)
         )
         data.top_expressions = [
-            {"style": row["style"], "count": row["total_count"]}
-            for row in expression_query.dicts()
+            {"style": row["style"], "count": row["total_count"]} for row in expression_query.dicts()
         ]
 
         # 3. 被拒绝的表达
@@ -616,18 +591,22 @@ async def get_expression_vibe(year: int = 2025) -> ExpressionVibeData:
         # 5. 表达总数
         data.total_expressions = (
             Expression.select()
-            .where(
-                (Expression.last_active_time >= start_ts)
-                & (Expression.last_active_time <= end_ts)
-            )
+            .where((Expression.last_active_time >= start_ts) & (Expression.last_active_time <= end_ts))
             .count()
         )
 
         # 6. 动作类型分布 (过滤无意义的动作)
         # 过滤掉: no_reply_until_call, make_question, no_action, wait, complete_talk, listening, block_and_ignore
         excluded_actions = [
-            "reply", "no_reply", "no_reply_until_call", "make_question", 
-            "no_action", "wait", "complete_talk", "listening", "block_and_ignore"
+            "reply",
+            "no_reply",
+            "no_reply_until_call",
+            "make_question",
+            "no_action",
+            "wait",
+            "complete_talk",
+            "listening",
+            "block_and_ignore",
         ]
         action_query = (
             ActionRecords.select(
@@ -643,38 +622,31 @@ async def get_expression_vibe(year: int = 2025) -> ExpressionVibeData:
             .order_by(fn.COUNT(ActionRecords.id).desc())
             .limit(10)
         )
-        data.action_types = [
-            {"action": row["action_name"], "count": row["count"]}
-            for row in action_query.dicts()
-        ]
+        data.action_types = [{"action": row["action_name"], "count": row["count"]} for row in action_query.dicts()]
 
         # 7. 处理的图片数量
         data.image_processed_count = (
             Messages.select()
-            .where(
-                (Messages.time >= start_ts)
-                & (Messages.time <= end_ts)
-                & (Messages.is_picid == True)
-            )
+            .where((Messages.time >= start_ts) & (Messages.time <= end_ts) & (Messages.is_picid == True))
             .count()
         )
 
         # 8. 深夜还在回复 (0-6点最晚的10条消息中随机抽取一条)
         import random
         import re
-        
+
         def clean_message_content(content: str) -> str:
             """清理消息内容，移除回复引用等标记"""
             if not content:
                 return ""
             # 移除 [回复<xxx:xxx> 的消息：...] 格式的引用
-            content = re.sub(r'\[回复<[^>]+>\s*的消息[：:][^\]]*\]', '', content)
+            content = re.sub(r"\[回复<[^>]+>\s*的消息[：:][^\]]*\]", "", content)
             # 移除 [图片] [表情] 等标记
-            content = re.sub(r'\[(图片|表情|语音|视频|文件)\]', '', content)
+            content = re.sub(r"\[(图片|表情|语音|视频|文件)\]", "", content)
             # 移除多余的空白
-            content = re.sub(r'\s+', ' ', content).strip()
+            content = re.sub(r"\s+", " ", content).strip()
             return content
-        
+
         # 使用 user_id 判断是否是 bot 发送的消息
         late_night_messages = list(
             Messages.select(
@@ -683,9 +655,7 @@ async def get_expression_vibe(year: int = 2025) -> ExpressionVibeData:
                 Messages.display_message,
             )
             .where(
-                (Messages.time >= start_ts)
-                & (Messages.time <= end_ts)
-                & (Messages.user_id == bot_qq)  # bot 发送的消息
+                (Messages.time >= start_ts) & (Messages.time <= end_ts) & (Messages.user_id == bot_qq)  # bot 发送的消息
             )
             .order_by(Messages.time.desc())
         )
@@ -699,16 +669,18 @@ async def get_expression_vibe(year: int = 2025) -> ExpressionVibeData:
                 cleaned_content = clean_message_content(raw_content)
                 # 只保留有意义的内容
                 if cleaned_content and len(cleaned_content) > 2:
-                    late_night_filtered.append({
-                        "time": msg.time,
-                        "hour": hour,
-                        "minute": msg_dt.minute,
-                        "content": cleaned_content,
-                        "datetime_str": msg_dt.strftime("%H:%M"),
-                    })
+                    late_night_filtered.append(
+                        {
+                            "time": msg.time,
+                            "hour": hour,
+                            "minute": msg_dt.minute,
+                            "content": cleaned_content,
+                            "datetime_str": msg_dt.strftime("%H:%M"),
+                        }
+                    )
             if len(late_night_filtered) >= 10:
                 break
-        
+
         if late_night_filtered:
             selected = random.choice(late_night_filtered)
             content = selected["content"][:50] + "..." if len(selected["content"]) > 50 else selected["content"]
@@ -720,18 +692,15 @@ async def get_expression_vibe(year: int = 2025) -> ExpressionVibeData:
         # 9. 最喜欢的回复（按 action_data 统计回复内容出现次数）
         from collections import Counter
         import json as json_lib
-        
-        reply_records = (
-            ActionRecords.select(ActionRecords.action_data)
-            .where(
-                (ActionRecords.time >= start_ts)
-                & (ActionRecords.time <= end_ts)
-                & (ActionRecords.action_name == "reply")
-                & (ActionRecords.action_data.is_null(False))
-                & (ActionRecords.action_data != "")
-            )
+
+        reply_records = ActionRecords.select(ActionRecords.action_data).where(
+            (ActionRecords.time >= start_ts)
+            & (ActionRecords.time <= end_ts)
+            & (ActionRecords.action_name == "reply")
+            & (ActionRecords.action_data.is_null(False))
+            & (ActionRecords.action_data != "")
         )
-        
+
         reply_contents = []
         for record in reply_records:
             try:
@@ -748,11 +717,12 @@ async def get_expression_vibe(year: int = 2025) -> ExpressionVibeData:
                             content = parsed
                     except (json_lib.JSONDecodeError, TypeError):
                         pass
-                    
+
                     # 如果 JSON 解析失败，尝试解析 Python 字典字符串格式
                     # 例如: "{'reply_text': '墨白灵不知道哦'}"
                     if content is None:
                         import ast
+
                         try:
                             parsed = ast.literal_eval(action_data)
                             if isinstance(parsed, dict):
@@ -762,13 +732,13 @@ async def get_expression_vibe(year: int = 2025) -> ExpressionVibeData:
                         except (ValueError, SyntaxError):
                             # 无法解析，使用原始字符串
                             content = action_data
-                    
+
                     # 只统计有意义的回复（长度大于2）
                     if content and len(content) > 2:
                         reply_contents.append(content)
             except Exception:
                 continue
-        
+
         if reply_contents:
             content_counter = Counter(reply_contents)
             most_common = content_counter.most_common(1)
@@ -817,20 +787,12 @@ async def get_achievements(year: int = 2025) -> AchievementData:
         ]
 
         # 3. 总消息数
-        data.total_messages = (
-            Messages.select()
-            .where((Messages.time >= start_ts) & (Messages.time <= end_ts))
-            .count()
-        )
+        data.total_messages = Messages.select().where((Messages.time >= start_ts) & (Messages.time <= end_ts)).count()
 
         # 4. 总回复数 (有 reply_to 的消息)
         data.total_replies = (
             Messages.select()
-            .where(
-                (Messages.time >= start_ts)
-                & (Messages.time <= end_ts)
-                & (Messages.reply_to.is_null(False))
-            )
+            .where((Messages.time >= start_ts) & (Messages.time <= end_ts) & (Messages.reply_to.is_null(False)))
             .count()
         )
 
@@ -856,9 +818,9 @@ async def get_full_annual_report(year: int = 2025, _auth: bool = Depends(require
     """
     try:
         from src.config.config import global_config
-        
+
         logger.info(f"开始生成 {year} 年度报告...")
-        
+
         # 获取 bot 名称
         bot_name = global_config.bot.nickname or "麦麦"
 

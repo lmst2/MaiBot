@@ -4,7 +4,7 @@ import json
 from typing import Optional, List, Annotated
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from peewee import fn
+from sqlalchemy import func as fn
 
 from src.common.logger import get_logger
 from src.common.database.database_model import Jargon, ChatStreams

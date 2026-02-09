@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends, Cookie, Header
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
-from peewee import fn
+from sqlalchemy import func as fn
 
 from src.common.logger import get_logger
 from src.common.database.database_model import LLMUsage, OnlineTime, Messages

@@ -1,7 +1,6 @@
 import traceback
 
 from typing import List, Any, Optional
-from peewee import Model  # 添加 Peewee Model 导入
 
 from src.config.config import global_config
 from src.common.data_models.database_data_model import DatabaseMessages
@@ -11,11 +10,15 @@ from src.common.logger import get_logger
 logger = get_logger(__name__)
 
 
-def _model_to_instance(model_instance: Model) -> DatabaseMessages:
+def _model_to_instance(model_instance: Any) -> DatabaseMessages:
     """
     将 Peewee 模型实例转换为字典。
     """
-    return DatabaseMessages(**model_instance.__data__)
+    if isinstance(model_instance, dict):
+        return DatabaseMessages(**model_instance)
+    if hasattr(model_instance, "model_dump"):
+        return DatabaseMessages(**model_instance.model_dump())
+    return DatabaseMessages(**model_instance.__dict__)
 
 
 def find_messages(
@@ -92,14 +95,17 @@ def find_messages(
         if limit > 0:
             if limit_mode == "earliest":
                 # 获取时间最早的 limit 条记录，已经是正序
-                query = query.order_by(Messages.time.asc()).limit(limit)
+                query = query.order_by("time").limit(limit)
                 peewee_results = list(query)
             else:  # 默认为 'latest'
                 # 获取时间最晚的 limit 条记录
-                query = query.order_by(Messages.time.desc()).limit(limit)
+                query = query.order_by("-time").limit(limit)
                 latest_results_peewee = list(query)
                 # 将结果按时间正序排列
-                peewee_results = sorted(latest_results_peewee, key=lambda msg: msg.time)
+                peewee_results = sorted(
+                    latest_results_peewee,
+                    key=lambda msg: msg.get("time", 0) if isinstance(msg, dict) else getattr(msg, "time", 0),
+                )
         else:
             # limit 为 0 时，应用传入的 sort 参数
             if sort:
@@ -108,9 +114,9 @@ def find_messages(
                     if hasattr(Messages, field_name):
                         field = getattr(Messages, field_name)
                         if direction == 1:  # ASC
-                            peewee_sort_terms.append(field.asc())
+                            peewee_sort_terms.append(field_name)
                         elif direction == -1:  # DESC
-                            peewee_sort_terms.append(field.desc())
+                            peewee_sort_terms.append(f"-{field_name}")
                         else:
                             logger.warning(f"字段 '{field_name}' 的排序方向 '{direction}' 无效。将跳过此排序条件。")
                     else:

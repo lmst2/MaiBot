@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException, Header, Query, Cookie
 from pydantic import BaseModel
 from typing import Optional, List, Dict
+from sqlalchemy import case
 from src.common.logger import get_logger
 from src.common.database.database_model import Expression, ChatStreams
 from src.webui.core import verify_auth_token_from_cookie_or_header
@@ -231,10 +232,8 @@ async def get_expression_list(
             query = query.where(Expression.chat_id == chat_id)
 
         # 排序：最后活跃时间倒序（NULL 值放在最后）
-        from peewee import Case
-
         query = query.order_by(
-            Case(None, [(Expression.last_active_time.is_null(), 1)], 0), Expression.last_active_time.desc()
+            case((Expression.last_active_time.is_null(), 1), else_=0), Expression.last_active_time.desc()
         )
 
         # 获取总数
@@ -641,9 +640,7 @@ async def get_review_list(
             query = query.where(Expression.chat_id == chat_id)
 
         # 排序：创建时间倒序
-        from peewee import Case
-
-        query = query.order_by(Case(None, [(Expression.create_date.is_null(), 1)], 0), Expression.create_date.desc())
+        query = query.order_by(case((Expression.create_date.is_null(), 1), else_=0), Expression.create_date.desc())
 
         total = query.count()
         offset = (page - 1) * page_size

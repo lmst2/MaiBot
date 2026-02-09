@@ -304,7 +304,7 @@ def load_log_config():  # sourcery skip: use-contextlib-suppress
             "websockets",
             "httpcore",
             "requests",
-            "peewee",
+            "sqlalchemy",
             "openai",
             "uvicorn",
             "jieba",
@@ -876,19 +876,19 @@ def initialize_logging(verbose: bool = True):
     """手动初始化日志系统，确保所有logger都使用正确的配置
 
     在应用程序的早期调用此函数，确保所有模块都使用统一的日志配置
-    
+
     Args:
         verbose: 是否输出详细的初始化信息。默认为 True。
                  在 Runner 进程中可以设置为 False 以避免重复的初始化日志。
     """
     global LOG_CONFIG, _logging_initialized
-    
+
     # 防止重复初始化（在同一进程内）
     if _logging_initialized:
         return
-    
+
     _logging_initialized = True
-    
+
     LOG_CONFIG = load_log_config()
     # print(LOG_CONFIG)
     configure_third_party_loggers()
@@ -941,16 +941,16 @@ def cleanup_old_logs():
 
 def start_log_cleanup_task(verbose: bool = True):
     """启动日志清理任务
-    
+
     Args:
         verbose: 是否输出启动信息。默认为 True。
     """
     global _cleanup_task_started
-    
+
     # 防止重复启动清理任务
     if _cleanup_task_started:
         return
-    
+
     _cleanup_task_started = True
 
     def cleanup_task():

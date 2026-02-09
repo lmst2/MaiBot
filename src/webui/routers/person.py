@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException, Header, Query, Cookie
 from pydantic import BaseModel
 from typing import Optional, List, Dict
+from sqlalchemy import case
 from src.common.logger import get_logger
 from src.common.database.database_model import PersonInfo
 from src.webui.core import verify_auth_token_from_cookie_or_header
@@ -176,9 +177,7 @@ async def get_person_list(
 
         # 排序：最后更新时间倒序（NULL 值放在最后）
         # Peewee 不支持 nulls_last，使用 CASE WHEN 来实现
-        from peewee import Case
-
-        query = query.order_by(Case(None, [(PersonInfo.last_know.is_null(), 1)], 0), PersonInfo.last_know.desc())
+        query = query.order_by(case((PersonInfo.last_know.is_null(), 1), else_=0), PersonInfo.last_know.desc())
 
         # 获取总数
         total = query.count()

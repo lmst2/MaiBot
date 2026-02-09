@@ -4,7 +4,7 @@ import random
 from collections import OrderedDict
 from typing import List, Dict, Optional, Callable
 from json_repair import repair_json
-from peewee import fn
+from sqlalchemy import func as fn
 
 from src.common.logger import get_logger
 from src.common.database.database_model import Jargon
