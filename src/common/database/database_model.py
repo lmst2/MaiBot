@@ -1,5 +1,5 @@
 from typing import Optional
-from sqlalchemy import Column, Float, Enum as SQLEnum
+from sqlalchemy import Column, Float, Enum as SQLEnum, DateTime
 from sqlmodel import SQLModel, Field, LargeBinary
 from enum import Enum
 from datetime import datetime
@@ -21,7 +21,7 @@ class Messages(SQLModel, table=True):
 
     # 消息元数据
     message_id: str = Field(index=True, max_length=255)  # 消息id
-    time: float = Field(sa_column=Column(Float))  # 消息时间，单位为秒
+    timestamp: datetime = Field(sa_column=Column(DateTime))  # 消息时间，单位为秒
     platform: str = Field(index=True, max_length=100)  # 顶层平台字段
     # 消息发送者信息
     user_id: str = Field(index=True, max_length=255)  # 发送者用户id
@@ -68,7 +68,7 @@ class ModelUsage(SQLModel, table=True):
     user_type: ModelUser = Field(sa_column=Column(SQLEnum(ModelUser)), default=ModelUser.SYSTEM)  # 模型使用者类型
     request_type: str = Field(max_length=50)  # 内部请求类型，记录哪种模块使用了此模型
     time_cost: float = Field(sa_column=Column(Float))  # 本次请求耗时，单位秒
-    timestamp: datetime = Field(default_factory=datetime.now, index=True)  # 请求时间戳
+    timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 请求时间戳
 
     # Token使用情况
     prompt_tokens: int  # 提示词令牌数
@@ -96,9 +96,9 @@ class Images(SQLModel, table=True):
     is_registered: bool = Field(default=False)  # 是否已经注册
     is_banned: bool = Field(default=False)  # 被手动禁用
 
-    record_time: datetime = Field(default_factory=datetime.now, index=True)  # 记录时间（被创建的时间）
-    register_time: Optional[datetime] = Field(default=None, nullable=True)  # 注册时间（被注册为可用表情包的时间）
-    last_used_time: Optional[datetime] = Field(default=None, nullable=True)  # 上次使用时间
+    record_time: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 记录时间（被创建的时间）
+    register_time: Optional[datetime] = Field(default=None, sa_column=Column(DateTime, nullable=True))  # 注册时间（被注册为可用表情包的时间）
+    last_used_time: Optional[datetime] = Field(default=None, sa_column=Column(DateTime, nullable=True))  # 上次使用时间
 
     vlm_processed: bool = Field(default=False)  # 是否已经过VLM处理
 
@@ -112,7 +112,7 @@ class ActionRecord(SQLModel, table=True):
 
     # 元信息
     action_id: str = Field(index=True, max_length=255)  # 动作ID
-    timestamp: datetime = Field(default_factory=datetime.now, index=True)  # 记录时间戳
+    timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 记录时间戳
     session_id: str = Field(index=True, max_length=255)  # 对应的 ChatSession session_id
 
     # 调用信息
@@ -132,7 +132,7 @@ class CommandRecord(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)  # 自增主键
 
     # 元信息
-    timestamp: datetime = Field(default_factory=datetime.now, index=True)  # 记录时间戳
+    timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 记录时间戳
     session_id: str = Field(index=True, max_length=255)  # 对应的 ChatSession session_id
 
     # 调用信息
@@ -150,10 +150,10 @@ class OnlineTime(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)  # 自增主键
 
-    timestamp: datetime = Field(default_factory=datetime.now, index=True)  # 时间戳
+    timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 时间戳
     duration_minutes: int = Field()  # 时长，单位秒
-    start_timestamp: datetime = Field(default_factory=datetime.now)  # 上线时间
-    end_timestamp: datetime = Field()  # 下线时间
+    start_timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime))  # 上线时间
+    end_timestamp: datetime = Field(sa_column=Column(DateTime))  # 下线时间
 
 
 class Expression(SQLModel, table=True):
@@ -171,8 +171,8 @@ class Expression(SQLModel, table=True):
 
     content_list: str  # 内容列表，JSON格式存储
     count: int = Field(default=0)  # 使用次数
-    last_active_time: datetime = Field(default_factory=datetime.now, index=True)  # 上次使用时间
-    create_time: datetime = Field(default_factory=datetime.now)  # 创建时间
+    last_active_time: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 上次使用时间
+    create_time: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime))  # 创建时间
     session_id: Optional[str] = Field(default=None, max_length=255, nullable=True)  # 会话ID，区分是否为全局表达方式
 
 
@@ -205,8 +205,8 @@ class ChatHistory(SQLModel, table=True):
 
     # 元信息
     session_id: str = Field(index=True, max_length=255)  # 聊天会话ID
-    start_timestamp: datetime = Field(index=True)  # 聊天开始时间
-    end_timestamp: datetime = Field(index=True)  # 聊天结束时间
+    start_timestamp: datetime = Field(sa_column=Column(DateTime, index=True))  # 聊天开始时间
+    end_timestamp: datetime = Field(sa_column=Column(DateTime, index=True))  # 聊天结束时间
     query_count: int = Field(default=0)  # 被检索次数
     query_forget_count: int = Field(default=0)  # 被遗忘检查的次数
 
@@ -232,8 +232,8 @@ class ThinkingQuestion(SQLModel, table=True):
     answer: Optional[str] = Field(default=None, nullable=True)  # 问题答案
 
     thinking_steps: Optional[str] = Field(default=None, nullable=True)  # 思考步骤，JSON格式存储
-    created_timestamp: datetime = Field(default_factory=datetime.now, index=True)  # 创建时间
-    updated_timestamp: datetime = Field(default_factory=datetime.now, index=True)  # 最后更新时间
+    created_timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 创建时间
+    updated_timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 最后更新时间
 
 
 class BinaryData(SQLModel, table=True):
@@ -272,8 +272,8 @@ class PersonInfo(SQLModel, table=True):
 
     # 认识次数和时间
     know_counts: int = Field(default=0)  # 认识次数
-    first_known_time: Optional[datetime] = Field(default=None, nullable=True)  # 首次认识时间
-    last_known_time: Optional[datetime] = Field(default=None, nullable=True)  # 最后认识时间
+    first_known_time: Optional[datetime] = Field(default=None, sa_column=Column(DateTime, nullable=True))  # 首次认识时间
+    last_known_time: Optional[datetime] = Field(default=None, sa_column=Column(DateTime, nullable=True))  # 最后认识时间
 
 
 class ChatSession(SQLModel, table=True):
@@ -285,13 +285,10 @@ class ChatSession(SQLModel, table=True):
 
     session_id: str = Field(unique=True, index=True, max_length=255)  # 聊天会话ID
 
-    created_timestamp: datetime = Field(default_factory=datetime.now, index=True)  # 创建时间
-    last_active_timestamp: datetime = Field(default_factory=datetime.now, index=True)  # 最后活跃时间
+    created_timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 创建时间
+    last_active_timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 最后活跃时间
 
     # 身份元数据
-    user_id: str = Field(index=True, max_length=255)  # 用户ID
-    user_nickname: str = Field(index=True, max_length=255)  # 用户昵称
-    user_cardname: Optional[str] = Field(default=None, max_length=255, nullable=True)  # 用户备注名
+    user_id: Optional[str] = Field(index=True, max_length=255, nullable=True)  # 用户ID
     group_id: Optional[str] = Field(index=True, default=None, max_length=255, nullable=True)  # 群组id
-    group_name: Optional[str] = Field(index=True, default=None, max_length=255, nullable=True)  # 群组名称
-    platform: str = Field(index=True, max_length=100)  # 用户平台
+    platform: str = Field(index=True, max_length=100)  # 会话所在平台
