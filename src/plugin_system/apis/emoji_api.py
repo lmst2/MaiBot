@@ -15,8 +15,9 @@ import uuid
 
 from typing import Optional, Tuple, List, Dict, Any
 from src.common.logger import get_logger
-from src.chat.emoji_system.emoji_manager import get_emoji_manager, EMOJI_DIR
+from src.chat.emoji_system.emoji_manager import emoji_manager, EMOJI_DIR
 from src.chat.utils.utils_image import image_path_to_base64, base64_to_image
+from src.config.config import global_config
 
 logger = get_logger("emoji_api")
 
@@ -46,14 +47,15 @@ async def get_by_description(description: str) -> Optional[Tuple[str, str, str]]
     try:
         logger.debug(f"[EmojiAPI] 根据描述获取表情包: {description}")
 
-        emoji_manager = get_emoji_manager()
-        emoji_result = await emoji_manager.get_emoji_for_text(description)
+        emoji_obj = await emoji_manager.get_emoji_for_emotion(description)
 
-        if not emoji_result:
+        if not emoji_obj:
             logger.warning(f"[EmojiAPI] 未找到匹配描述 '{description}' 的表情包")
             return None
 
-        emoji_path, emoji_description, matched_emotion = emoji_result
+        emoji_path = str(emoji_obj.full_path)
+        emoji_description = emoji_obj.description
+        matched_emotion = random.choice(emoji_obj.emotion) if emoji_obj.emotion else ""
         emoji_base64 = image_path_to_base64(emoji_path)
 
         if not emoji_base64:
@@ -90,8 +92,7 @@ async def get_random(count: Optional[int] = 1) -> List[Tuple[str, str, str]]:
         return []
 
     try:
-        emoji_manager = get_emoji_manager()
-        all_emojis = emoji_manager.emoji_objects
+        all_emojis = emoji_manager.emojis
 
         if not all_emojis:
             logger.warning("[EmojiAPI] 没有可用的表情包")
@@ -114,7 +115,7 @@ async def get_random(count: Optional[int] = 1) -> List[Tuple[str, str, str]]:
 
         results = []
         for selected_emoji in selected_emojis:
-            emoji_base64 = image_path_to_base64(selected_emoji.full_path)
+            emoji_base64 = image_path_to_base64(str(selected_emoji.full_path))
 
             if not emoji_base64:
                 logger.error(f"[EmojiAPI] 无法转换表情包为base64: {selected_emoji.full_path}")
@@ -123,7 +124,7 @@ async def get_random(count: Optional[int] = 1) -> List[Tuple[str, str, str]]:
             matched_emotion = random.choice(selected_emoji.emotion) if selected_emoji.emotion else "随机表情"
 
             # 记录使用次数
-            emoji_manager.record_usage(selected_emoji.hash)
+            emoji_manager.update_emoji_usage(selected_emoji)
             results.append((emoji_base64, selected_emoji.description, matched_emotion))
 
         if not results and count > 0:
@@ -158,8 +159,7 @@ async def get_by_emotion(emotion: str) -> Optional[Tuple[str, str, str]]:
     try:
         logger.info(f"[EmojiAPI] 根据情感获取表情包: {emotion}")
 
-        emoji_manager = get_emoji_manager()
-        all_emojis = emoji_manager.emoji_objects
+        all_emojis = emoji_manager.emojis
 
         # 筛选匹配情感的表情包
         matching_emojis = []
@@ -181,7 +181,7 @@ async def get_by_emotion(emotion: str) -> Optional[Tuple[str, str, str]]:
             return None
 
         # 记录使用次数
-        emoji_manager.record_usage(selected_emoji.hash)
+        emoji_manager.update_emoji_usage(selected_emoji)
 
         logger.info(f"[EmojiAPI] 成功获取情感表情包: {selected_emoji.description}")
         return emoji_base64, selected_emoji.description, emotion
@@ -203,8 +203,7 @@ def get_count() -> int:
         int: 当前可用的表情包数量
     """
     try:
-        emoji_manager = get_emoji_manager()
-        return emoji_manager.emoji_num
+        return len(emoji_manager.emojis)
     except Exception as e:
         logger.error(f"[EmojiAPI] 获取表情包数量失败: {e}")
         return 0
@@ -217,11 +216,10 @@ def get_info():
         dict: 包含表情包数量、最大数量、可用数量信息
     """
     try:
-        emoji_manager = get_emoji_manager()
         return {
-            "current_count": emoji_manager.emoji_num,
-            "max_count": emoji_manager.emoji_num_max,
-            "available_emojis": len([e for e in emoji_manager.emoji_objects if not e.is_deleted]),
+            "current_count": len(emoji_manager.emojis),
+            "max_count": global_config.emoji.max_reg_num,
+            "available_emojis": len([e for e in emoji_manager.emojis if not e.is_deleted]),
         }
     except Exception as e:
         logger.error(f"[EmojiAPI] 获取表情包信息失败: {e}")
@@ -235,10 +233,9 @@ def get_emotions() -> List[str]:
         list: 所有表情包的情感标签列表（去重）
     """
     try:
-        emoji_manager = get_emoji_manager()
         emotions = set()
 
-        for emoji_obj in emoji_manager.emoji_objects:
+        for emoji_obj in emoji_manager.emojis:
             if not emoji_obj.is_deleted and emoji_obj.emotion:
                 emotions.update(emoji_obj.emotion)
 
@@ -255,8 +252,7 @@ async def get_all() -> List[Tuple[str, str, str]]:
         List[Tuple[str, str, str]]: 包含(base64编码, 表情包描述, 随机情感标签)的元组列表
     """
     try:
-        emoji_manager = get_emoji_manager()
-        all_emojis = emoji_manager.emoji_objects
+        all_emojis = emoji_manager.emojis
 
         if not all_emojis:
             logger.warning("[EmojiAPI] 没有可用的表情包")
@@ -267,7 +263,7 @@ async def get_all() -> List[Tuple[str, str, str]]:
             if emoji_obj.is_deleted:
                 continue
 
-            emoji_base64 = image_path_to_base64(emoji_obj.full_path)
+            emoji_base64 = image_path_to_base64(str(emoji_obj.full_path))
 
             if not emoji_base64:
                 logger.error(f"[EmojiAPI] 无法转换表情包为base64: {emoji_obj.full_path}")
@@ -291,12 +287,11 @@ def get_descriptions() -> List[str]:
         list: 所有可用表情包的描述列表
     """
     try:
-        emoji_manager = get_emoji_manager()
         descriptions = []
 
         descriptions.extend(
             emoji_obj.description
-            for emoji_obj in emoji_manager.emoji_objects
+            for emoji_obj in emoji_manager.emojis
             if not emoji_obj.is_deleted and emoji_obj.description
         )
         return descriptions
@@ -341,14 +336,11 @@ async def register_emoji(image_base64: str, filename: Optional[str] = None) -> D
         logger.info(f"[EmojiAPI] 开始注册表情包，文件名: {filename or '自动生成'}")
 
         # 1. 获取emoji管理器并检查容量
-        emoji_manager = get_emoji_manager()
-        count_before = emoji_manager.emoji_num
-        max_count = emoji_manager.emoji_num_max
+        count_before = len(emoji_manager.emojis)
+        max_count = global_config.emoji.max_reg_num
 
         # 2. 检查是否可以注册（未达到上限或启用替换）
-        can_register = count_before < max_count or (
-            count_before >= max_count and emoji_manager.emoji_num_max_reach_deletion
-        )
+        can_register = count_before < max_count or (count_before >= max_count and global_config.emoji.do_replace)
 
         if not can_register:
             return {
@@ -474,7 +466,7 @@ async def register_emoji(image_base64: str, filename: Optional[str] = None) -> D
 
         # 8. 构建返回结果
         if register_success:
-            count_after = emoji_manager.emoji_num
+            count_after = len(emoji_manager.emojis)
             replaced = count_after <= count_before  # 如果数量没增加，说明是替换
 
             # 尝试获取新注册的表情包信息
@@ -483,10 +475,10 @@ async def register_emoji(image_base64: str, filename: Optional[str] = None) -> D
                 # 获取最新的表情包信息
                 try:
                     # 通过文件名查找新注册的表情包（注意：文件名在注册后可能已经改变）
-                    for emoji_obj in reversed(emoji_manager.emoji_objects):
+                    for emoji_obj in reversed(emoji_manager.emojis):
                         if not emoji_obj.is_deleted and (
-                            emoji_obj.filename == filename  # 直接匹配
-                            or (hasattr(emoji_obj, "full_path") and filename in emoji_obj.full_path)  # 路径包含匹配
+                            emoji_obj.file_name == filename
+                            or (hasattr(emoji_obj, "full_path") and filename in str(emoji_obj.full_path))
                         ):
                             new_emoji_info = emoji_obj
                             break
@@ -495,7 +487,7 @@ async def register_emoji(image_base64: str, filename: Optional[str] = None) -> D
 
             description = new_emoji_info.description if new_emoji_info else None
             emotions = new_emoji_info.emotion if new_emoji_info else None
-            emoji_hash = new_emoji_info.hash if new_emoji_info else None
+            emoji_hash = new_emoji_info.emoji_hash if new_emoji_info else None
 
             return {
                 "success": True,
@@ -560,12 +552,14 @@ async def delete_emoji(emoji_hash: str) -> Dict[str, Any]:
         logger.info(f"[EmojiAPI] 开始删除表情包，哈希值: {emoji_hash}")
 
         # 1. 获取emoji管理器和删除前的数量
-        emoji_manager = get_emoji_manager()
-        count_before = emoji_manager.emoji_num
+        count_before = len(emoji_manager.emojis)
 
         # 2. 获取被删除表情包的信息（用于返回结果）
+        deleted_emoji = None
         try:
-            deleted_emoji = await emoji_manager.get_emoji_from_manager(emoji_hash)
+            deleted_emoji = emoji_manager.get_emoji_by_hash(emoji_hash) or emoji_manager.get_emoji_by_hash_from_db(
+                emoji_hash
+            )
             description = deleted_emoji.description if deleted_emoji else None
             emotions = deleted_emoji.emotion if deleted_emoji else None
         except Exception as info_error:
@@ -574,10 +568,12 @@ async def delete_emoji(emoji_hash: str) -> Dict[str, Any]:
             emotions = None
 
         # 3. 执行删除操作
-        delete_success = await emoji_manager.delete_emoji(emoji_hash)
+        delete_success = False
+        if deleted_emoji:
+            delete_success = emoji_manager.delete_emoji(deleted_emoji)
 
         # 4. 获取删除后的数量
-        count_after = emoji_manager.emoji_num
+        count_after = len(emoji_manager.emojis)
 
         # 5. 构建返回结果
         if delete_success:
@@ -638,8 +634,7 @@ async def delete_emoji_by_description(description: str, exact_match: bool = Fals
     try:
         logger.info(f"[EmojiAPI] 根据描述删除表情包: {description} (精确匹配: {exact_match})")
 
-        emoji_manager = get_emoji_manager()
-        all_emojis = emoji_manager.emoji_objects
+        all_emojis = emoji_manager.emojis
 
         # 筛选匹配的表情包
         matching_emojis = []
@@ -669,12 +664,12 @@ async def delete_emoji_by_description(description: str, exact_match: bool = Fals
         deleted_hashes = []
         for emoji_obj in matching_emojis:
             try:
-                delete_success = await emoji_manager.delete_emoji(emoji_obj.hash)
+                delete_success = emoji_manager.delete_emoji(emoji_obj)
                 if delete_success:
                     deleted_count += 1
-                    deleted_hashes.append(emoji_obj.hash)
+                    deleted_hashes.append(emoji_obj.emoji_hash)
             except Exception as delete_error:
-                logger.error(f"[EmojiAPI] 删除表情包失败 (哈希: {emoji_obj.hash}): {delete_error}")
+                logger.error(f"[EmojiAPI] 删除表情包失败 (哈希: {emoji_obj.emoji_hash}): {delete_error}")
 
         # 构建返回结果
         if deleted_count > 0:

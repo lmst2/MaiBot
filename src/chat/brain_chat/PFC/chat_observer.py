@@ -1,8 +1,11 @@
 import time
 import asyncio
 import traceback
+from datetime import datetime
 from typing import Optional, Dict, Any, List
 from src.common.logger import get_logger
+from sqlmodel import select, col
+from src.common.database.database import get_db_session
 from src.common.database.database_model import Messages
 from maim_message import UserInfo
 from src.config.config import global_config
@@ -16,17 +19,18 @@ logger = get_logger("chat_observer")
 
 def _message_to_dict(message: Messages) -> Dict[str, Any]:
     """Convert Peewee Message model to dict for PFC compatibility
-    
+
     Args:
         message: Peewee Messages model instance
-        
+
     Returns:
         Dict[str, Any]: Message dictionary
     """
+    message_timestamp = message.timestamp.timestamp() if isinstance(message.timestamp, datetime) else message.timestamp
     return {
         "message_id": message.message_id,
-        "time": message.time,
-        "chat_id": message.chat_id,
+        "time": message_timestamp,
+        "chat_id": message.session_id,
         "user_id": message.user_id,
         "user_nickname": message.user_nickname,
         "processed_plain_text": message.processed_plain_text,
@@ -37,7 +41,7 @@ def _message_to_dict(message: Messages) -> Dict[str, Any]:
         "user_info": {
             "user_id": message.user_id,
             "user_nickname": message.user_nickname,
-        }
+        },
     }
 
 
@@ -109,10 +113,13 @@ class ChatObserver:
         """
         logger.debug(f"[私聊][{self.private_name}]检查距离上一次观察之后是否有了新消息: {self.last_check_time}")
 
-        new_message_exists = Messages.select().where(
-            (Messages.chat_id == self.stream_id) & 
-            (Messages.time > self.last_check_time)
-        ).exists()
+        last_check_time = self.last_check_time or 0.0
+        last_check_dt = datetime.fromtimestamp(last_check_time)
+        with get_db_session() as session:
+            statement = select(Messages).where(
+                (col(Messages.session_id) == self.stream_id) & (col(Messages.timestamp) > last_check_dt)
+            )
+            new_message_exists = session.exec(statement).first() is not None
 
         if new_message_exists:
             logger.debug(f"[私聊][{self.private_name}]发现新消息")
@@ -183,20 +190,21 @@ class ChatObserver:
         )
         return has_new
 
-
-
     async def _fetch_new_messages(self) -> List[Dict[str, Any]]:
         """获取新消息
 
         Returns:
             List[Dict[str, Any]]: 新消息列表
         """
-        query = Messages.select().where(
-            (Messages.chat_id == self.stream_id) & 
-            (Messages.time > self.last_message_time)
-        ).order_by(Messages.time.asc())
-
-        new_messages = [_message_to_dict(msg) for msg in query]
+        last_message_time = self.last_message_time or 0.0
+        last_message_dt = datetime.fromtimestamp(last_message_time)
+        with get_db_session() as session:
+            statement = (
+                select(Messages)
+                .where((col(Messages.session_id) == self.stream_id) & (col(Messages.timestamp) > last_message_dt))
+                .order_by(col(Messages.timestamp))
+            )
+            new_messages = [_message_to_dict(msg) for msg in session.exec(statement).all()]
 
         if new_messages:
             self.last_message_read = new_messages[-1]
@@ -215,13 +223,16 @@ class ChatObserver:
         Returns:
             List[Dict[str, Any]]: 最多5条消息
         """
-        query = Messages.select().where(
-            (Messages.chat_id == self.stream_id) & 
-            (Messages.time < time_point)
-        ).order_by(Messages.time.desc()).limit(5)
-
-        messages = list(query)
-        messages.reverse()  # 需要按时间正序排列
+        time_point_dt = datetime.fromtimestamp(time_point)
+        with get_db_session() as session:
+            statement = (
+                select(Messages)
+                .where((col(Messages.session_id) == self.stream_id) & (col(Messages.timestamp) < time_point_dt))
+                .order_by(col(Messages.timestamp))
+                .limit(5)
+            )
+            messages = list(session.exec(statement).all())
+        messages.reverse()
         new_messages = [_message_to_dict(msg) for msg in messages]
 
         if new_messages:

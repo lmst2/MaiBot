@@ -1,12 +1,15 @@
 import time
 import json
 import asyncio
-from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime
+from typing import List, Dict, Any, Optional, Tuple, Callable, cast
 from src.common.logger import get_logger
 from src.config.config import global_config, model_config
 from src.prompt.prompt_manager import prompt_manager
 from src.plugin_system.apis import llm_api
-from src.common.database.database_model import ThinkingBack
+from sqlmodel import select, col
+from src.common.database.database import get_db_session
+from src.common.database.database_model import ThinkingQuestion
 from src.memory_system.retrieval_tools import get_tool_registry, init_all_tools
 from src.llm_models.payload_content.message import MessageBuilder, RoleType, Message
 from src.chat.message_receive.chat_stream import get_chat_manager
@@ -29,13 +32,16 @@ def _cleanup_stale_not_found_thinking_back() -> None:
 
     threshold_time = now - THINKING_BACK_NOT_FOUND_RETENTION_SECONDS
     try:
-        deleted_rows = (
-            ThinkingBack.delete()
-            .where((ThinkingBack.found_answer == 0) & (ThinkingBack.update_time < threshold_time))
-            .execute()
-        )
-        if deleted_rows:
-            logger.info(f"清理过期的未找到答案thinking_back记录 {deleted_rows} 条")
+        with get_db_session() as session:
+            statement = select(ThinkingQuestion).where(
+                (ThinkingQuestion.found_answer == False)
+                & (ThinkingQuestion.updated_timestamp < datetime.fromtimestamp(threshold_time))
+            )
+            records = session.exec(statement).all()
+            for record in records:
+                session.delete(record)
+        if records:
+            logger.info(f"清理过期的未找到答案thinking_question记录 {len(records)} 条")
         _last_not_found_cleanup_ts = now
     except Exception as e:
         logger.error(f"清理未找到答案的thinking_back记录失败: {e}")
@@ -249,12 +255,12 @@ async def _react_agent_solve_question(
         # 后续迭代都复用第一次构建的head_prompt
         head_prompt = first_head_prompt
 
-        def message_factory(
+        def _build_messages(
             _client,
             *,
             _head_prompt: str = head_prompt,
             _conversation_messages: List[Message] = conversation_messages,
-        ) -> List[Message]:
+        ):
             messages: List[Message] = []
 
             system_builder = MessageBuilder()
@@ -266,6 +272,7 @@ async def _react_agent_solve_question(
 
             return messages
 
+        message_factory_fn: Callable[..., List[Message]] = _build_messages  # pyright: ignore[reportGeneralTypeIssues]
         (
             success,
             response,
@@ -273,7 +280,7 @@ async def _react_agent_solve_question(
             model_name,
             tool_calls,
         ) = await llm_api.generate_with_model_with_tools_by_message_factory(
-            message_factory,
+            message_factory_fn,  # type: ignore[arg-type]
             model_config=model_config.model_task_config.tool_use,
             tool_options=tool_definitions,
             request_type="memory.react",
@@ -304,7 +311,12 @@ async def _react_agent_solve_question(
             assistant_message = assistant_builder.build()
 
         # 记录思考步骤
-        step = {"iteration": iteration + 1, "thought": response, "actions": [], "observations": []}
+        step: Dict[str, Any] = {
+            "iteration": iteration + 1,
+            "thought": response,
+            "actions": [],
+            "observations": [],
+        }
 
         if assistant_message:
             conversation_messages.append(assistant_message)
@@ -417,20 +429,21 @@ async def _react_agent_solve_question(
                             "action_params": {"information": parsed_information or ""},
                         }
                     )
-                    if parsed_information and parsed_information.strip():
+                    parsed_info_text = parsed_information if isinstance(parsed_information, str) else ""
+                    if parsed_info_text.strip():
                         step["observations"] = [f"检测到return_information{format_type}调用，返回信息"]
                         thinking_steps.append(step)
                         logger.info(
-                            f"{react_log_prefix}第 {iteration + 1} 次迭代 通过return_information{format_type}返回信息: {parsed_information[:100]}..."
+                            f"{react_log_prefix}第 {iteration + 1} 次迭代 通过return_information{format_type}返回信息: {parsed_info_text[:100]}..."
                         )
 
                         _log_conversation_messages(
                             conversation_messages,
                             head_prompt=first_head_prompt,
-                            final_status=f"返回信息：{parsed_information}",
+                            final_status=f"返回信息：{parsed_info_text}",
                         )
 
-                        return True, parsed_information, thinking_steps, False
+                        return True, parsed_info_text, thinking_steps, False
                     else:
                         # 信息为空，直接退出查询
                         step["observations"] = [f"检测到return_information{format_type}调用，信息为空"]
@@ -776,15 +789,16 @@ def _get_recent_query_history(chat_id: str, time_window_seconds: float = 600.0) 
         current_time = time.time()
         start_time = current_time - time_window_seconds
 
-        # 查询最近时间窗口内的记录，按更新时间倒序
-        records = (
-            ThinkingBack.select()
-            .where((ThinkingBack.chat_id == chat_id) & (ThinkingBack.update_time >= start_time))
-            .order_by(ThinkingBack.update_time.desc())
-            .limit(5)  # 最多返回5条最近的记录
-        )
+        with get_db_session() as session:
+            statement = (
+                select(ThinkingQuestion)
+                .where(col(ThinkingQuestion.context) == chat_id)
+                .order_by(col(ThinkingQuestion.updated_timestamp).desc())
+                .limit(5)
+            )
+            records = session.exec(statement).all()
 
-        if not records.exists():
+        if not records:
             return ""
 
         history_lines = []
@@ -828,20 +842,19 @@ def _get_recent_found_answers(chat_id: str, time_window_seconds: float = 600.0) 
         start_time = current_time - time_window_seconds
 
         # 查询最近时间窗口内已找到答案的记录，按更新时间倒序
-        records = (
-            ThinkingBack.select()
-            .where(
-                (ThinkingBack.chat_id == chat_id)
-                & (ThinkingBack.update_time >= start_time)
-                & (ThinkingBack.found_answer == 1)
-                & (ThinkingBack.answer.is_null(False))
-                & (ThinkingBack.answer != "")
+        with get_db_session() as session:
+            statement = (
+                select(ThinkingQuestion)
+                .where(col(ThinkingQuestion.context) == chat_id)
+                .where(col(ThinkingQuestion.found_answer) == True)
+                .where(col(ThinkingQuestion.answer).is_not(None))
+                .where(col(ThinkingQuestion.answer) != "")
+                .order_by(col(ThinkingQuestion.updated_timestamp).desc())
+                .limit(3)
             )
-            .order_by(ThinkingBack.update_time.desc())
-            .limit(3)  # 最多返回5条最近的记录
-        )
+            records = session.exec(statement).all()
 
-        if not records.exists():
+        if not records:
             return []
 
         found_answers = []
@@ -873,36 +886,35 @@ def _store_thinking_back(
         now = time.time()
 
         # 先查询是否已存在相同chat_id和问题的记录
-        existing = (
-            ThinkingBack.select()
-            .where((ThinkingBack.chat_id == chat_id) & (ThinkingBack.question == question))
-            .order_by(ThinkingBack.update_time.desc())
-            .limit(1)
-        )
+        with get_db_session() as session:
+            statement = (
+                select(ThinkingQuestion)
+                .where(col(ThinkingQuestion.context) == chat_id)
+                .where(col(ThinkingQuestion.question) == question)
+                .order_by(col(ThinkingQuestion.updated_timestamp).desc())
+                .limit(1)
+            )
+            record = session.exec(statement).first()
+            if record:
+                record.context = context
+                record.found_answer = found_answer
+                record.answer = answer
+                record.thinking_steps = json.dumps(thinking_steps, ensure_ascii=False)
+                record.updated_timestamp = datetime.fromtimestamp(now)
+                session.add(record)
+                logger.info(f"已更新思考过程到数据库，问题: {question[:50]}...")
+                return
 
-        if existing.exists():
-            # 更新现有记录
-            record = existing.get()
-            record.context = context
-            record.found_answer = found_answer
-            record.answer = answer
-            record.thinking_steps = json.dumps(thinking_steps, ensure_ascii=False)
-            record.update_time = now
-            record.save()
-            logger.info(f"已更新思考过程到数据库，问题: {question[:50]}...")
-        else:
-            # 创建新记录
-            ThinkingBack.create(
-                chat_id=chat_id,
+            new_record = ThinkingQuestion(
                 question=question,
-                context=context,
+                context=chat_id,
                 found_answer=found_answer,
                 answer=answer,
                 thinking_steps=json.dumps(thinking_steps, ensure_ascii=False),
-                create_time=now,
-                update_time=now,
+                created_timestamp=datetime.fromtimestamp(now),
+                updated_timestamp=datetime.fromtimestamp(now),
             )
-            # logger.info(f"已创建思考过程到数据库，问题: {question[:50]}...")
+            session.add(new_record)
     except Exception as e:
         logger.error(f"存储思考过程失败: {e}")
 

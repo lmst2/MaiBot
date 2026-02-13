@@ -10,8 +10,10 @@
 
 import time
 from typing import List, Dict, Any, Tuple, Optional
+from sqlmodel import col, select
 from src.common.data_models.database_data_model import DatabaseMessages
-from src.common.database.database_model import Images
+from src.common.database.database import get_db_session
+from src.common.database.database_model import Images, ImageType
 from src.chat.utils.utils import is_bot_self
 from src.chat.utils.chat_message_builder import (
     get_raw_msg_by_timestamp,
@@ -516,7 +518,13 @@ def filter_mai_messages(messages: List[DatabaseMessages]) -> List[DatabaseMessag
 
 
 def translate_pid_to_description(pid: str) -> str:
-    image = Images.get_or_none(Images.image_id == pid)
+    with get_db_session() as session:
+        statement = (
+            select(Images).where((col(Images.id) == int(pid)) & (col(Images.image_type) == ImageType.IMAGE))
+            if pid.isdigit()
+            else None
+        )
+        image = session.exec(statement).first() if statement is not None else None
     description = ""
     if image and image.description and image.description.strip():
         description = image.description.strip()

@@ -1,11 +1,12 @@
 from rich.traceback import install
-from pathlib import Path
 from contextlib import contextmanager
-from sqlalchemy.orm import sessionmaker
+from pathlib import Path
+from typing import Generator, TYPE_CHECKING
+
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from sqlmodel import create_engine, Session
-from typing import TYPE_CHECKING, Generator
+from sqlalchemy.orm import sessionmaker
+from sqlmodel import SQLModel, Session, create_engine
 
 if TYPE_CHECKING:
     from sqlite3 import Connection as SQLite3Connection
@@ -53,6 +54,19 @@ SessionLocal = sessionmaker(
     class_=Session,
 )
 
+_db_initialized = False
+
+
+def initialize_database() -> None:
+    global _db_initialized
+    if _db_initialized:
+        return
+    _DB_DIR.mkdir(parents=True, exist_ok=True)
+    import src.common.database.database_model  # noqa: F401
+
+    SQLModel.metadata.create_all(engine)
+    _db_initialized = True
+
 
 @contextmanager
 def get_db_session(auto_commit: bool = True) -> Generator[Session, None, None]:
@@ -87,6 +101,7 @@ def get_db_session(auto_commit: bool = True) -> Generator[Session, None, None]:
         - auto_commit=True 时,成功执行完会自动提交
         - auto_commit=False 时,需要手动调用 session.commit()
     """
+    initialize_database()
     session = SessionLocal()
     try:
         yield session
@@ -120,6 +135,7 @@ def get_db() -> Generator[Session, None, None]:
     Yields:
         Session: SQLAlchemy 数据库会话
     """
+    initialize_database()
     session = SessionLocal()
     try:
         yield session

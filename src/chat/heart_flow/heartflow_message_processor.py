@@ -10,7 +10,9 @@ from src.chat.utils.utils import is_mentioned_bot_in_message
 from src.chat.utils.chat_message_builder import replace_user_references
 from src.common.logger import get_logger
 from src.person_info.person_info import Person
-from src.common.database.database_model import Images
+from sqlmodel import select, col
+from src.common.database.database import get_db_session
+from src.common.database.database_model import Images, ImageType
 
 if TYPE_CHECKING:
     pass
@@ -47,6 +49,12 @@ class HeartFCMessageReceiver:
             # 1. 消息解析与初始化
             userinfo = message.message_info.user_info
             chat = message.chat_stream
+            if userinfo is None or message.message_info.platform is None:
+                raise ValueError("message userinfo or platform is missing")
+            if userinfo.user_id is None or userinfo.user_nickname is None:
+                raise ValueError("message userinfo id or nickname is missing")
+            user_id = userinfo.user_id
+            nickname = userinfo.user_nickname
 
             # 2. 计算at信息
             is_mentioned, is_at, reply_probability_boost = is_mentioned_bot_in_message(message)
@@ -70,7 +78,15 @@ class HeartFCMessageReceiver:
             processed_text = message.processed_plain_text
             if picid_list:
                 for picid in picid_list:
-                    image = Images.get_or_none(Images.image_id == picid)
+                    with get_db_session() as session:
+                        statement = (
+                            select(Images).where(
+                                (col(Images.id) == int(picid)) & (col(Images.image_type) == ImageType.IMAGE)
+                            )
+                            if picid.isdigit()
+                            else None
+                        )
+                        image = session.exec(statement).first() if statement is not None else None
                     if image and image.description:
                         # 将[picid:xxxx]替换成图片描述
                         processed_text = processed_text.replace(f"[picid:{picid}]", f"[图片：{image.description}]")
@@ -80,26 +96,24 @@ class HeartFCMessageReceiver:
 
             # 应用用户引用格式替换，将回复<aaa:bbb>和@<aaa:bbb>格式转换为可读格式
             processed_plain_text = replace_user_references(
-                processed_text,
-                message.message_info.platform,  # type: ignore
-                replace_bot_name=True,
+                processed_text, message.message_info.platform, replace_bot_name=True
             )
             # if not processed_plain_text:
             # print(message)
 
-            logger.info(f"[{mes_name}]{userinfo.user_nickname}:{processed_plain_text}")  # type: ignore
+            logger.info(f"[{mes_name}]{userinfo.user_nickname}:{processed_plain_text}")
 
             # 如果是群聊，获取群号和群昵称
             group_id = None
             group_nick_name = None
             if chat.group_info:
-                group_id = chat.group_info.group_id  # type: ignore
-                group_nick_name = userinfo.user_cardname  # type: ignore
+                group_id = chat.group_info.group_id
+                group_nick_name = userinfo.user_cardname
 
             _ = Person.register_person(
-                platform=message.message_info.platform,  # type: ignore
-                user_id=message.message_info.user_info.user_id,  # type: ignore
-                nickname=userinfo.user_nickname,  # type: ignore
+                platform=message.message_info.platform,
+                user_id=user_id,
+                nickname=nickname,
                 group_id=group_id,
                 group_nick_name=group_nick_name,
             )

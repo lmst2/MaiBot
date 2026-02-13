@@ -1,36 +1,74 @@
-import re
-import json
-import traceback
-from typing import Union
+from datetime import datetime
+from collections.abc import Mapping
+from typing import cast
 
-from src.common.database.database_model import Messages, Images
+import json
+import re
+import traceback
+
+from sqlmodel import col, select
+from src.common.database.database import get_db_session
+from src.common.database.database_model import Images, ImageType, Messages
 from src.common.logger import get_logger
+from src.common.data_models.message_component_model import MessageSequence, TextComponent
+from src.common.utils.utils_message import MessageUtils
 from .chat_stream import ChatStream
-from .message import MessageSending, MessageRecv
+from .message import MessageRecv, MessageSending
 
 logger = get_logger("message_storage")
 
 
 class MessageStorage:
     @staticmethod
-    def _serialize_keywords(keywords) -> str:
+    def _coerce_str_list(value: object) -> list[str]:
+        if isinstance(value, list):
+            return [str(item) for item in value]
+        if isinstance(value, tuple):
+            return [str(item) for item in value]
+        if isinstance(value, set):
+            return [str(item) for item in value]
+        if isinstance(value, str):
+            return [value]
+        return []
+
+    @staticmethod
+    def _get_str(mapping: Mapping[str, object], key: str, default: str = "") -> str:
+        value = mapping.get(key)
+        if value is None:
+            return default
+        return str(value)
+
+    @staticmethod
+    def _get_optional_str(mapping: Mapping[str, object], key: str) -> str | None:
+        value = mapping.get(key)
+        if value is None:
+            return None
+        return str(value)
+
+    @staticmethod
+    def _serialize_keywords(keywords: list[str] | None) -> str:
         """将关键词列表序列化为JSON字符串"""
         if isinstance(keywords, list):
             return json.dumps(keywords, ensure_ascii=False)
         return "[]"
 
     @staticmethod
-    def _deserialize_keywords(keywords_str: str) -> list:
+    def _deserialize_keywords(keywords_str: str) -> list[str]:
         """将JSON字符串反序列化为关键词列表"""
         if not keywords_str:
             return []
         try:
-            return json.loads(keywords_str)
+            parsed = cast(object, json.loads(keywords_str))
         except (json.JSONDecodeError, TypeError):
             return []
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed]
+        if isinstance(parsed, str):
+            return [parsed]
+        return []
 
     @staticmethod
-    async def store_message(message: Union[MessageSending, MessageRecv], chat_stream: ChatStream) -> None:
+    async def store_message(message: MessageSending | MessageRecv, chat_stream: ChatStream) -> None:
         """存储消息到数据库"""
         try:
             # 通知消息不存储
@@ -66,7 +104,7 @@ class MessageStorage:
                 priority_mode = ""
                 priority_info = {}
                 is_emoji = False
-                is_picid = False
+                is_picture = False
                 is_notify = False
                 is_command = False
                 key_words = ""
@@ -83,66 +121,73 @@ class MessageStorage:
                 priority_mode = message.priority_mode
                 priority_info = message.priority_info
                 is_emoji = message.is_emoji
-                is_picid = message.is_picid
+                is_picture = message.is_picid
                 is_notify = message.is_notify
                 is_command = message.is_command
                 intercept_message_level = getattr(message, "intercept_message_level", 0)
                 # 序列化关键词列表为JSON字符串
-                key_words = MessageStorage._serialize_keywords(message.key_words)
-                key_words_lite = MessageStorage._serialize_keywords(message.key_words_lite)
+                key_words = MessageStorage._serialize_keywords(MessageStorage._coerce_str_list(message.key_words))
+                key_words_lite = MessageStorage._serialize_keywords(
+                    MessageStorage._coerce_str_list(message.key_words_lite)
+                )
                 selected_expressions = ""
 
-            chat_info_dict = chat_stream.to_dict()
-            user_info_dict = message.message_info.user_info.to_dict()  # type: ignore
+            chat_info_dict = cast(dict[str, object], chat_stream.to_dict())
+            if message.message_info.user_info is None:
+                raise ValueError("message.user_info is required")
+            user_info_dict = cast(dict[str, object], message.message_info.user_info.to_dict())
 
             # message_id 现在是 TextField，直接使用字符串值
-            msg_id = message.message_info.message_id
+            msg_id = message.message_info.message_id or ""
 
             # 安全地获取 group_info, 如果为 None 则视为空字典
-            group_info_from_chat = chat_info_dict.get("group_info") or {}
-            # 安全地获取 user_info, 如果为 None 则视为空字典 (以防万一)
-            user_info_from_chat = chat_info_dict.get("user_info") or {}
+            group_info_from_chat = cast(dict[str, object], chat_info_dict.get("group_info") or {})
 
-            Messages.create(
-                message_id=msg_id,
-                time=float(message.message_info.time),  # type: ignore
-                chat_id=chat_stream.stream_id,
-                # Flattened chat_info
+            additional_config: dict[str, object] = dict(message.message_info.additional_config or {})
+            additional_config.update(
+                {
+                    "interest_value": interest_value,
+                    "priority_mode": priority_mode,
+                    "priority_info": priority_info,
+                    "reply_probability_boost": reply_probability_boost,
+                    "intercept_message_level": intercept_message_level,
+                    "key_words": key_words,
+                    "key_words_lite": key_words_lite,
+                    "selected_expressions": selected_expressions,
+                    "is_picid": is_picture,
+                }
+            )
+            processed_text_for_raw = filtered_processed_plain_text or filtered_display_message or ""
+            raw_sequence = MessageSequence([TextComponent(processed_text_for_raw)] if processed_text_for_raw else [])
+            raw_content = MessageUtils.from_MaiSeq_to_db_record_msg(raw_sequence)
+
+            timestamp_value = message.message_info.time
+            if timestamp_value is None:
+                raise ValueError("message.message_info.time is required")
+            db_message = Messages(
+                message_id=str(msg_id),
+                timestamp=datetime.fromtimestamp(float(timestamp_value)),
+                platform=MessageStorage._get_str(chat_info_dict, "platform"),
+                user_id=MessageStorage._get_str(user_info_dict, "user_id"),
+                user_nickname=MessageStorage._get_str(user_info_dict, "user_nickname"),
+                user_cardname=MessageStorage._get_optional_str(user_info_dict, "user_cardname"),
+                group_id=MessageStorage._get_optional_str(group_info_from_chat, "group_id"),
+                group_name=MessageStorage._get_optional_str(group_info_from_chat, "group_name"),
+                is_mentioned=bool(is_mentioned),
+                is_at=bool(is_at),
+                session_id=chat_stream.stream_id,
                 reply_to=reply_to,
-                is_mentioned=is_mentioned,
-                is_at=is_at,
-                reply_probability_boost=reply_probability_boost,
-                chat_info_stream_id=chat_info_dict.get("stream_id"),
-                chat_info_platform=chat_info_dict.get("platform"),
-                chat_info_user_platform=user_info_from_chat.get("platform"),
-                chat_info_user_id=user_info_from_chat.get("user_id"),
-                chat_info_user_nickname=user_info_from_chat.get("user_nickname"),
-                chat_info_user_cardname=user_info_from_chat.get("user_cardname"),
-                chat_info_group_platform=group_info_from_chat.get("platform"),
-                chat_info_group_id=group_info_from_chat.get("group_id"),
-                chat_info_group_name=group_info_from_chat.get("group_name"),
-                chat_info_create_time=float(chat_info_dict.get("create_time", 0.0)),
-                chat_info_last_active_time=float(chat_info_dict.get("last_active_time", 0.0)),
-                # Flattened user_info (message sender)
-                user_platform=user_info_dict.get("platform"),
-                user_id=user_info_dict.get("user_id"),
-                user_nickname=user_info_dict.get("user_nickname"),
-                user_cardname=user_info_dict.get("user_cardname"),
-                # Text content
+                is_emoji=is_emoji,
+                is_picture=is_picture,
+                is_command=is_command,
+                is_notify=is_notify,
+                raw_content=raw_content,
                 processed_plain_text=filtered_processed_plain_text,
                 display_message=filtered_display_message,
-                interest_value=interest_value,
-                priority_mode=priority_mode,
-                priority_info=priority_info,
-                is_emoji=is_emoji,
-                is_picid=is_picid,
-                is_notify=is_notify,
-                is_command=is_command,
-                intercept_message_level=intercept_message_level,
-                key_words=key_words,
-                key_words_lite=key_words_lite,
-                selected_expressions=selected_expressions,
+                additional_config=json.dumps(additional_config, ensure_ascii=False),
             )
+            with get_db_session() as session:
+                session.add(db_message)
         except Exception:
             logger.exception("存储消息失败")
             logger.error(f"消息：{message}")
@@ -156,16 +201,21 @@ class MessageStorage:
             if not qq_message_id:
                 logger.info("消息不存在message_id，无法更新")
                 return False
-            if matched_message := (
-                Messages.select().where((Messages.message_id == mmc_message_id)).order_by(Messages.time.desc()).first()
-            ):
-                # 更新找到的消息记录
-                Messages.update(message_id=qq_message_id).where(Messages.id == matched_message.id).execute()  # type: ignore
-                logger.debug(f"更新消息ID成功: {matched_message.message_id} -> {qq_message_id}")
-                return True
-            else:
-                logger.debug("未找到匹配的消息")
-                return False
+            with get_db_session() as session:
+                statement = (
+                    select(Messages)
+                    .where(col(Messages.message_id) == mmc_message_id)
+                    .order_by(col(Messages.timestamp).desc())
+                    .limit(1)
+                )
+                matched_message = session.exec(statement).first()
+                if matched_message:
+                    matched_message.message_id = qq_message_id
+                    session.add(matched_message)
+                    logger.debug(f"更新消息ID成功: {matched_message.message_id} -> {qq_message_id}")
+                    return True
+            logger.debug("未找到匹配的消息")
+            return False
 
         except Exception as e:
             logger.error(f"更新消息ID失败: {e}")
@@ -182,13 +232,18 @@ class MessageStorage:
             logger.debug("文本中没有图片标记，直接返回原文本")
             return text
 
-        def replace_match(match):
+        def replace_match(match: re.Match[str]) -> str:
             description = match.group(1).strip()
             try:
-                image_record = (
-                    Images.select().where(Images.description == description).order_by(Images.timestamp.desc()).first()
-                )
-                return f"[picid:{image_record.image_id}]" if image_record else match.group(0)
+                with get_db_session() as session:
+                    statement = (
+                        select(Images)
+                        .where((col(Images.description) == description) & (col(Images.image_type) == ImageType.IMAGE))
+                        .order_by(col(Images.record_time).desc())
+                        .limit(1)
+                    )
+                    image_record = session.exec(statement).first()
+                return f"[picid:{image_record.id}]" if image_record else match.group(0)
             except Exception:
                 return match.group(0)
 

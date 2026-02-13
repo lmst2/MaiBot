@@ -7,7 +7,7 @@ from src.manager.async_task_manager import async_task_manager
 from src.chat.utils.statistic import OnlineTimeRecordTask, StatisticOutputTask
 
 # from src.chat.utils.token_statistics import TokenStatisticsTask
-from src.chat.emoji_system.emoji_manager import get_emoji_manager
+from src.chat.emoji_system.emoji_manager import emoji_manager
 from src.chat.message_receive.chat_stream import get_chat_manager
 from src.config.config import global_config
 from src.chat.message_receive.bot import chat_bot
@@ -107,7 +107,7 @@ class MainSystem:
         plugin_manager.load_all_plugins()
 
         # 初始化表情管理器
-        get_emoji_manager().initialize()
+        emoji_manager.load_emojis_from_db()
         logger.info("表情包管理器初始化成功")
 
         # 初始化聊天管理器
@@ -121,7 +121,7 @@ class MainSystem:
         # 将bot.py中的chat_bot.message_process消息处理函数注册到api.py的消息处理基类中
         self.app.register_message_handler(chat_bot.message_process)
         self.app.register_custom_message_handler("message_id_echo", chat_bot.echo_message_process)
-        
+
         prompt_manager.load_prompts()
 
         # 触发 ON_START 事件
@@ -141,7 +141,7 @@ class MainSystem:
         """调度定时任务"""
         try:
             tasks = [
-                get_emoji_manager().start_periodic_check_register(),
+                emoji_manager.periodic_emoji_maintenance(),
                 start_dream_scheduler(),
                 self.app.run(),
                 self.server.run(),
