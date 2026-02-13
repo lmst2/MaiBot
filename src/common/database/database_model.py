@@ -27,11 +27,9 @@ class Messages(SQLModel, table=True):
     user_id: str = Field(index=True, max_length=255)  # 发送者用户id
     user_nickname: str = Field(index=True, max_length=255)  # 发送者昵称
     user_cardname: Optional[str] = Field(default=None, max_length=255, nullable=True)  # 发送者备注名
-    user_platform: Optional[str] = Field(default=None, max_length=100, nullable=True)  # 发送者平台
     # 群聊信息（如果有）
     group_id: Optional[str] = Field(index=True, default=None, max_length=255, nullable=True)  # 群组id
     group_name: Optional[str] = Field(default=None, max_length=255, nullable=True)  # 群组名称
-    group_platform: Optional[str] = Field(default=None, max_length=100, nullable=True)  # 群组平台
     # 被提及/at字段
     is_mentioned: bool = Field(default=False)  # 被提及
     is_at: bool = Field(default=False)  # 被at
@@ -45,9 +43,9 @@ class Messages(SQLModel, table=True):
     is_notify: bool = Field(default=False)  # 是否为通知消息
 
     # 消息内容
-    raw_content: bytes = Field(sa_column=Column(LargeBinary))  # base64编码的原始消息内容
-    processed_plain_text: str = Field()  # 平面化处理后的纯文本消息
-    display_message: str  # 显示的消息内容（被放入Prompt）
+    raw_content: bytes = Field(sa_column=Column(LargeBinary))  # msgpack后的原始消息内容
+    processed_plain_text: Optional[str] = Field(default=None)  # 平面化处理后的纯文本消息
+    display_message: Optional[str] = Field(default=None)  # 显示的消息内容（被放入Prompt）
 
     # 其他配置
     additional_config: Optional[str] = Field(default=None)  # 额外配置，JSON格式存储

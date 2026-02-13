@@ -10,6 +10,6 @@ class MessageUtils:
         return MessageSequence.from_dict(unpacked_data)
 
     @staticmethod
-    async def from_MaiSeq_to_db_record_msg(msg: MessageSequence) -> bytes:
+    def from_MaiSeq_to_db_record_msg(msg: MessageSequence) -> bytes:
         dict_representation = msg.to_dict()
         return msgpack.packb(dict_representation)  # type: ignore
