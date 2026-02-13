@@ -12,7 +12,7 @@ from src.chat.message_receive.chat_stream import get_chat_manager
 from src.config.config import global_config
 from src.chat.message_receive.bot import chat_bot
 from src.common.logger import get_logger
-from src.common.server import get_global_server, Server
+from src.common.message_server.server import get_global_server, Server
 from src.chat.knowledge import lpmm_start_up
 from rich.traceback import install
 
