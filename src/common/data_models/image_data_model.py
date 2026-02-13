@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
 from PIL import Image as PILImage
@@ -12,6 +11,7 @@ import traceback
 
 from src.common.database.database_model import Images, ImageType
 from src.common.logger import get_logger
+from . import BaseDatabaseDataModel
 
 
 install(extra_lines=3)
@@ -19,20 +19,11 @@ install(extra_lines=3)
 logger = get_logger("emoji")
 
 
-class BaseImageDataModel(ABC):
-    @classmethod
-    @abstractmethod
-    def from_db_instance(cls, image: "Images"):
-        raise NotImplementedError
-
-    @abstractmethod
-    def to_db_instance(self) -> "Images":
-        raise NotImplementedError
-
+class BaseImageDataModel(BaseDatabaseDataModel[Images]):
     def read_image_bytes(self, path: Path) -> bytes:
         """
         同步读取图片文件的字节内容
-        
+
         Args:
             path (Path): 图片文件的完整路径
         Returns:
@@ -75,10 +66,6 @@ class BaseImageDataModel(ABC):
             raise e
 
 
-class ImageDataModel(BaseImageDataModel):
-    pass
-
-
 class MaiEmoji(BaseImageDataModel):
     def __init__(self, full_path: str | Path):
         if not full_path:
@@ -103,15 +90,15 @@ class MaiEmoji(BaseImageDataModel):
         self._format: str = ""  # 图片格式
 
     @classmethod
-    def from_db_instance(cls, image: Images):
-        obj = cls(image.full_path)
-        obj.emoji_hash = image.image_hash
-        obj.description = image.description
-        if image.emotion:
-            obj.emotion = image.emotion.split(",")
-        obj.query_count = image.query_count
-        obj.last_used_time = image.last_used_time
-        obj.register_time = image.register_time
+    def from_db_instance(cls, db_record: Images):
+        obj = cls(db_record.full_path)
+        obj.emoji_hash = db_record.image_hash
+        obj.description = db_record.description
+        if db_record.emotion:
+            obj.emotion = db_record.emotion.split(",")
+        obj.query_count = db_record.query_count
+        obj.last_used_time = db_record.last_used_time
+        obj.register_time = db_record.register_time
         return obj
 
     def to_db_instance(self) -> Images:
@@ -130,7 +117,7 @@ class MaiEmoji(BaseImageDataModel):
     async def calculate_hash_format(self) -> bool:
         """
         异步计算表情包的哈希值和格式
-        
+
         Returns:
             return (bool): 如果成功计算哈希值和格式则返回True，否则返回False
         """

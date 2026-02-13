@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from maim_message import MessageBase
 from typing import Optional
@@ -10,28 +9,7 @@ from src.common.database.database_model import Messages
 from src.common.data_models.message_component_model import MessageSequence
 from src.common.utils.utils_message import MessageUtils
 
-
-class BaseMAIMessageModel(ABC):
-    @classmethod
-    @abstractmethod
-    def from_db_instance(cls, message: "Messages"):
-        raise NotImplementedError
-
-    @abstractmethod
-    def to_db_instance(self) -> "Messages":
-        raise NotImplementedError
-
-    @abstractmethod
-    def from_maim_message(cls, message: MessageBase):
-        raise NotImplementedError
-
-    @abstractmethod
-    def to_maim_message(self) -> MessageBase:
-        raise NotImplementedError
-
-    @abstractmethod
-    def parse_message_segments(self):
-        raise NotImplementedError
+from . import BaseDatabaseDataModel
 
 
 @dataclass
@@ -54,7 +32,7 @@ class MessageInfo:
     additional_config: dict = field(default_factory=dict)
 
 
-class MaiMessage(BaseMAIMessageModel):
+class MaiMessage(BaseDatabaseDataModel[Messages]):
     def __init__(self, message_id: str, timestamp: datetime):
         self.message_id: str = message_id
         self.timestamp: datetime = timestamp  # 时间戳
@@ -78,31 +56,31 @@ class MaiMessage(BaseMAIMessageModel):
         self.raw_message: MessageSequence
 
     @classmethod
-    def from_db_instance(cls, message: "Messages") -> "MaiMessage":
-        obj = cls(message_id=message.message_id, timestamp=message.timestamp)
+    def from_db_instance(cls, db_record: "Messages") -> "MaiMessage":
+        obj = cls(message_id=db_record.message_id, timestamp=db_record.timestamp)
 
-        user_info = UserInfo(message.user_id, message.user_nickname, message.user_cardname)
-        if message.group_id and message.group_name:
-            group_info = GroupInfo(message.group_id, message.group_name)
+        user_info = UserInfo(db_record.user_id, db_record.user_nickname, db_record.user_cardname)
+        if db_record.group_id and db_record.group_name:
+            group_info = GroupInfo(db_record.group_id, db_record.group_name)
         else:
             group_info = None
         obj.message_info = MessageInfo(
             user_info=user_info,
             group_info=group_info,
-            additional_config=json.loads(message.additional_config) if message.additional_config else {},
+            additional_config=json.loads(db_record.additional_config) if db_record.additional_config else {},
         )
 
-        obj.is_mentioned = message.is_mentioned
-        obj.is_at = message.is_at
-        obj.is_emoji = message.is_emoji
-        obj.is_picture = message.is_picture
-        obj.is_command = message.is_command
-        obj.is_notify = message.is_notify
-        obj.reply_to = message.reply_to
-        obj.session_id = message.session_id
-        obj.processed_plain_text = message.processed_plain_text
-        obj.display_message = message.display_message
-        obj.raw_message = MessageUtils.from_db_record_msg_to_MaiSeq(message.raw_content)
+        obj.is_mentioned = db_record.is_mentioned
+        obj.is_at = db_record.is_at
+        obj.is_emoji = db_record.is_emoji
+        obj.is_picture = db_record.is_picture
+        obj.is_command = db_record.is_command
+        obj.is_notify = db_record.is_notify
+        obj.reply_to = db_record.reply_to
+        obj.session_id = db_record.session_id
+        obj.processed_plain_text = db_record.processed_plain_text
+        obj.display_message = db_record.display_message
+        obj.raw_message = MessageUtils.from_db_record_msg_to_MaiSeq(db_record.raw_content)
         return obj
 
     def to_db_instance(self) -> Messages:
@@ -131,3 +109,13 @@ class MaiMessage(BaseMAIMessageModel):
             display_message=self.display_message,
             additional_config=additional_config,
         )
+
+    @classmethod
+    def from_maim_message(cls, message: MessageBase) -> "MaiMessage":
+        raise NotImplementedError
+
+    def to_maim_message(self) -> MessageBase:
+        raise NotImplementedError
+
+    def parse_message_segments(self):
+        raise NotImplementedError
