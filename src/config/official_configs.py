@@ -654,3 +654,14 @@ class WebUIConfig(ConfigBase):
 
     enable_paragraph_content: bool = False
     """是否在知识图谱中加载段落完整内容（需要加载embedding store，会占用额外内存）"""
+
+class DatabaseConfig(ConfigBase):
+    """数据库配置类"""
+    
+    save_binary_data: bool = False
+    """
+    是否将消息中的二进制数据保存为独立文件
+    若启用，消息中的语音等二进制数据将会保存为独立文件，并在消息中以特殊标记替代。启用会导致数据文件夹体积增大，但可以实现二次识别等功能。
+    若禁用，则消息中的二进制将会在识别后删除，并在消息中使用识别结果替代，无法二次识别
+    该配置项仅影响新存储的消息，已有消息不会受到影响
+    """

@@ -1,0 +1,226 @@
+from abc import ABC, abstractmethod
+from copy import deepcopy
+from maim_message import Seg, UserInfo, MessageBase, BaseMessageInfo
+from typing import Optional, List, Union, Dict, Any
+
+import asyncio
+import hashlib
+import base64
+
+from src.common.logger import get_logger
+
+logger = get_logger("base_message_component_model")
+
+
+class BaseMessageComponentModel(ABC):
+    @abstractmethod
+    async def to_seg(self) -> Seg:
+        """将消息组件转换为 maim_message.Seg 对象"""
+        raise NotImplementedError
+
+    def clone(self):
+        return deepcopy(self)
+
+
+class ByteComponent:
+    def __init__(self, *, binary_hash: str, content: Optional[str] = None, binary_data: Optional[bytes] = None) -> None:
+        self.content: str = content if content is not None else ""
+        """处理后的内容"""
+        self.binary_data: bytes = binary_data if binary_data is not None else b""
+        """原始二进制数据"""
+        self.binary_hash: str = hashlib.sha256(self.binary_data).hexdigest() if self.binary_data else binary_hash
+        """二进制数据的 SHA256 哈希值，用于唯一标识该二进制数据"""
+
+
+class TextComponent(BaseMessageComponentModel):
+    def __init__(self, text: str):
+        self.text = text
+        assert isinstance(text, str), "TextComponent 的 text 必须是字符串类型"
+
+    async def to_seg(self) -> Seg:
+        return Seg(type="text", data=self.text)
+
+
+class ImageComponent(BaseMessageComponentModel, ByteComponent):
+    async def load_image_binary(self):
+        if not self.binary_data:
+            ...
+
+    async def to_seg(self) -> Seg:
+        if not self.binary_data:
+            await self.load_image_binary()
+        return Seg(type="image", data=base64.b64encode(self.binary_data).decode())
+
+
+class EmojiComponent(BaseMessageComponentModel, ByteComponent):
+    async def load_emoji_binary(self) -> None:
+        """
+        加载表情的二进制数据，如果 binary_data 为空，则通过 emoji_hash 从表情管理器加载
+
+        Raises:
+            ValueError: 如果 binary_data 为空且缺少 emoji_hash
+            ValueError: 如果无法通过 emoji_hash 加载表情二进制数据
+        """
+        if not self.binary_data:
+            from src.chat.emoji_system.emoji_manager import emoji_manager
+
+            if not (
+                emoji := emoji_manager.get_emoji_by_hash(self.binary_hash)
+                or emoji_manager.get_emoji_by_hash_from_db(self.binary_hash)
+            ):
+                raise ValueError(f"无法通过 emoji_hash 加载表情二进制数据: {self.binary_hash}")
+            try:
+                self.binary_data = await asyncio.to_thread(emoji.full_path.read_bytes)
+            except Exception as e:
+                raise ValueError(f"通过 emoji_hash 加载表情二进制数据时发生错误: {e}") from e
+
+    async def to_seg(self) -> Seg:
+        if not self.binary_data:
+            await self.load_emoji_binary()
+        return Seg(type="emoji", data=base64.b64encode(self.binary_data).decode())
+
+
+class VoiceComponent(BaseMessageComponentModel, ByteComponent):
+    async def load_voice_binary(self) -> None:
+        if not self.binary_data:
+            from src.common.utils.utils_file import FileUtils
+
+            try:
+                file_path = FileUtils.get_file_path_by_hash(self.binary_hash)
+                self.binary_data = await asyncio.to_thread(file_path.read_bytes)
+            except Exception as e:
+                raise ValueError(f"通过 voice_hash 加载语音二进制数据时发生错误: {e}") from e
+
+    async def to_seg(self) -> Seg:
+        if not self.binary_data:
+            await self.load_voice_binary()
+        return Seg(type="voice", data=base64.b64encode(self.binary_data).decode())
+
+
+class ForwardNodeComponent(BaseMessageComponentModel):
+    def __init__(self, forward_components: List["ForwardComponent"]):
+        self.forward_components = forward_components
+        assert isinstance(forward_components, list), "ForwardNodeComponent 的 forward_components 必须是列表类型"
+        assert all(isinstance(comp, ForwardComponent) for comp in forward_components), (
+            "ForwardNodeComponent 的 forward_components 列表中必须全部是 ForwardComponent 类型"
+        )
+        assert forward_components, "ForwardNodeComponent 的 forward_components 不能为空列表"
+
+    async def to_seg(self) -> "Seg":
+        resp: List[Dict[str, Any]] = []
+        for comp in self.forward_components:
+            data = await comp.to_seg()
+            sender_info = UserInfo(None, comp.user_id, comp.user_nickname, comp.user_cardname)
+            base_message_info = BaseMessageInfo(user_info=sender_info)
+            base_message = MessageBase(base_message_info, data)
+            resp.append(base_message.to_dict())
+        return Seg(type="forward", data=resp)  # type: ignore
+
+
+class DictComponent:
+    def __init__(self, data: Dict[str, Any]):
+        self.data = data
+        assert isinstance(data, dict), "DictComponent 的 data 必须是字典类型"
+
+
+StandardMessageComponents = Union[
+    TextComponent,
+    ImageComponent,
+    EmojiComponent,
+    VoiceComponent,
+    ForwardNodeComponent,
+    DictComponent,
+]
+
+
+class ForwardComponent(BaseMessageComponentModel):
+    def __init__(
+        self,
+        user_nickname: str,
+        content: List[StandardMessageComponents],
+        user_id: Optional[str] = None,
+        user_cardname: Optional[str] = None,
+    ):
+        self.user_nickname: str = user_nickname
+        self.content: List[StandardMessageComponents] = content
+        self.user_id: Optional[str] = user_id
+        self.user_cardname: Optional[str] = user_cardname
+        assert self.content, "ForwardComponent 的 content 不能为空"
+
+    async def to_seg(self) -> "Seg":
+        return Seg(
+            type="seglist", data=[await comp.to_seg() for comp in self.content if not isinstance(comp, DictComponent)]
+        )
+
+
+class MessageSequence:
+    def __init__(self, components: List[StandardMessageComponents]):
+        self.components: List[StandardMessageComponents] = components
+
+    def to_dict(self) -> List[Dict[str, Any]]:
+        return [self._item_2_dict(comp) for comp in self.components]
+
+    def _item_2_dict(self, item: StandardMessageComponents) -> Dict[str, Any]:
+        if isinstance(item, TextComponent):
+            return {"type": "text", "data": item.text}
+        elif isinstance(item, ImageComponent):
+            if not item.content:
+                raise RuntimeError("ImageComponent content 未初始化")
+            return {"type": "image", "data": item.content, "hash": item.binary_hash}
+        elif isinstance(item, EmojiComponent):
+            if not item.content:
+                raise RuntimeError("EmojiComponent content 未初始化")
+            return {"type": "emoji", "data": item.content, "hash": item.binary_hash}
+        elif isinstance(item, VoiceComponent):
+            if not item.content:
+                raise RuntimeError("VoiceComponent content 未初始化")
+            return {"type": "voice", "data": item.content, "hash": item.binary_hash}
+        elif isinstance(item, ForwardNodeComponent):
+            return {
+                "type": "forward",
+                "data": [
+                    {
+                        "user_id": comp.user_id,
+                        "user_nickname": comp.user_nickname,
+                        "user_cardname": comp.user_cardname,
+                        "content": [self._item_2_dict(c) for c in comp.content],
+                    }
+                    for comp in item.forward_components
+                ],
+            }
+        else:
+            logger.warning(f"Unofficial component type: {type(item)}, defaulting to DictComponent")
+            return {"type": "dict", "data": item.data}
+
+    @classmethod
+    def from_dict(cls, data: List[Dict[str, Any]]) -> "MessageSequence":
+        components: List[StandardMessageComponents] = []
+        components.extend(cls._dict_2_item(item) for item in data)
+        return cls(components=components)
+
+    @classmethod
+    def _dict_2_item(cls, item: Dict[str, Any]) -> StandardMessageComponents:
+        item_type = item.get("type")
+        if item_type == "text":
+            return TextComponent(text=item["data"])
+        elif item_type == "image":
+            return ImageComponent(binary_hash=item["hash"], content=item["data"])
+        elif item_type == "emoji":
+            return EmojiComponent(binary_hash=item["hash"], content=item["data"])
+        elif item_type == "voice":
+            return VoiceComponent(binary_hash=item["hash"], content=item["data"])
+        elif item_type == "forward":
+            forward_components = []
+            for fc in item["data"]:
+                content = [cls._dict_2_item(c) for c in fc["content"]]
+                forward_component = ForwardComponent(
+                    user_nickname=fc["user_nickname"],
+                    user_id=fc.get("user_id"),
+                    user_cardname=fc.get("user_cardname"),
+                    content=content,
+                )
+                forward_components.append(forward_component)
+            return ForwardNodeComponent(forward_components=forward_components)
+        else:
+            logger.warning(f"Unofficial component type in dict: {item_type}, defaulting to DictComponent")
+            return DictComponent(data=item.get("data") or {})

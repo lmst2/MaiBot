@@ -106,7 +106,7 @@ def _install_stub_modules(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def execute(self, _statement):
+        def exec(self, _statement):
             class _Result:
                 def scalars(self):
                     return self
@@ -231,8 +231,8 @@ def _install_stub_modules(monkeypatch):
 
 def import_emoji_manager_new(monkeypatch):
     _install_stub_modules(monkeypatch)
-    file_path = Path(__file__).resolve().parents[2] / "src" / "chat" / "emoji_system" / "emoji_manager_new.py"
-    spec = importlib.util.spec_from_file_location("emoji_manager_new", file_path)
+    file_path = Path(__file__).resolve().parents[2] / "src" / "chat" / "emoji_system" / "emoji_manager.py"
+    spec = importlib.util.spec_from_file_location("emoji_manager", file_path)
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, "emoji_manager_new", module)
     spec.loader.exec_module(module)
@@ -446,7 +446,7 @@ def test_load_emojis_from_db_empty(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def execute(self, _statement):
+        def exec(self, _statement):
             return _Result()
 
     def _get_db_session():
@@ -487,7 +487,7 @@ def test_load_emojis_from_db_partial_bad_records(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def execute(self, _statement):
+        def exec(self, _statement):
             return _Result()
 
     def _get_db_session():
@@ -524,7 +524,7 @@ def test_load_emojis_from_db_execute_error(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def execute(self, _statement):
+        def exec(self, _statement):
             raise RuntimeError("execute failed")
 
     def _get_db_session():
@@ -581,7 +581,7 @@ def test_load_emojis_from_db_scalars_all_error(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def execute(self, _statement):
+        def exec(self, _statement):
             return _Result()
 
     def _get_db_session():
@@ -799,6 +799,8 @@ def test_delete_emoji_file_missing_and_db_record_missing(monkeypatch):
     class _Select:
         def filter_by(self, **_kwargs):
             return self
+        def limit(self, _num):
+            return self
 
     def _select(_model):
         return _Select()
@@ -817,7 +819,7 @@ def test_delete_emoji_file_missing_and_db_record_missing(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def execute(self, _statement):
+        def exec(self, _statement):
             return _Result()
 
     def _get_db_session():
@@ -887,6 +889,9 @@ def test_delete_emoji_db_error_file_still_exists(monkeypatch):
     class _Select:
         def filter_by(self, **_kwargs):
             return self
+        
+        def limit(self, _num):
+            return self
 
     def _select(_model):
         return _Select()
@@ -898,7 +903,7 @@ def test_delete_emoji_db_error_file_still_exists(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def execute(self, _statement):
+        def exec(self, _statement):
             raise RuntimeError("db delete failed")
 
     def _get_db_session():
@@ -942,6 +947,8 @@ def test_delete_emoji_success(monkeypatch):
     class _Select:
         def filter_by(self, **_kwargs):
             return self
+        def limit(self, _num):
+            return self
 
     def _select(_model):
         return _Select()
@@ -966,7 +973,7 @@ def test_delete_emoji_success(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def execute(self, _statement):
+        def exec(self, _statement):
             return _Result()
 
         def delete(self, _record):
@@ -998,6 +1005,8 @@ def test_update_emoji_usage_success(monkeypatch):
     class _Select:
         def filter_by(self, **_kwargs):
             return self
+        def limit(self, _num):
+            return self
 
     def _select(_model):
         return _Select()
@@ -1021,7 +1030,7 @@ def test_update_emoji_usage_success(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def execute(self, _statement):
+        def exec(self, _statement):
             return _Result()
 
         def add(self, _record):
@@ -1051,6 +1060,9 @@ def test_update_emoji_usage_missing_record(monkeypatch):
         def filter_by(self, **_kwargs):
             return self
 
+        def limit(self, _num):
+            return self
+
     def _select(_model):
         return _Select()
 
@@ -1068,7 +1080,7 @@ def test_update_emoji_usage_missing_record(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def execute(self, _statement):
+        def exec(self, _statement):
             return _Result()
 
     def _get_db_session():
@@ -1094,6 +1106,8 @@ def test_update_emoji_usage_execute_error(monkeypatch):
     class _Select:
         def filter_by(self, **_kwargs):
             return self
+        def limit(self, _num):
+            return self
 
     def _select(_model):
         return _Select()
@@ -1105,7 +1119,7 @@ def test_update_emoji_usage_execute_error(monkeypatch):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def execute(self, _statement):
+        def exec(self, _statement):
             raise RuntimeError("execute failed")
 
     def _get_db_session():

@@ -206,8 +206,6 @@ class WebSocketLogHandler(logging.Handler):
             # 如果是 JSON 格式(文件格式化器),解析它
             message = formatted_msg
             try:
-                import json
-
                 log_dict = json.loads(formatted_msg)
                 message = log_dict.get("event", formatted_msg)
             except (json.JSONDecodeError, ValueError):

@@ -62,7 +62,7 @@ class EmojiManager:
         try:
             with get_db_session() as session:
                 statement = select(Images)
-                results = session.execute(statement).scalars().all()
+                results = session.exec(statement).all()
                 for record in results:
                     try:
                         emoji = MaiEmoji.from_db_instance(record)
@@ -144,8 +144,8 @@ class EmojiManager:
         # 删除数据库记录
         try:
             with get_db_session() as session:
-                statement = select(Images).filter_by(image_hash=emoji.emoji_hash, image_type=ImageType.EMOJI)
-                if image_record := session.execute(statement).scalars().first():
+                statement = select(Images).filter_by(image_hash=emoji.emoji_hash, image_type=ImageType.EMOJI).limit(1)
+                if image_record := session.exec(statement).first():
                     session.delete(image_record)
                     logger.info(f"[删除表情包] 成功删除数据库中的表情包记录: {emoji.emoji_hash}")
                 else:
@@ -170,8 +170,8 @@ class EmojiManager:
         """
         try:
             with get_db_session() as session:
-                statement = select(Images).filter_by(image_hash=emoji.emoji_hash, image_type=ImageType.EMOJI)
-                if image_record := session.execute(statement).scalars().first():
+                statement = select(Images).filter_by(image_hash=emoji.emoji_hash, image_type=ImageType.EMOJI).limit(1)
+                if image_record := session.exec(statement).first():
                     image_record.query_count += 1
                     image_record.last_used_time = datetime.now()
                     session.add(image_record)

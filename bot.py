@@ -1,4 +1,4 @@
-# raise RuntimeError("System Not Ready")
+raise RuntimeError("System Not Ready")
 import asyncio
 import hashlib
 import os

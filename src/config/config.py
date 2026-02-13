@@ -31,6 +31,7 @@ from .official_configs import (
     DebugConfig,
     DreamConfig,
     WebUIConfig,
+    DatabaseConfig,
 )
 from .model_configs import ModelInfo, ModelTaskConfig, APIProvider
 from .config_base import ConfigBase, Field, AttributeData
@@ -125,6 +126,9 @@ class Config(ConfigBase):
 
     webui: WebUIConfig = Field(default_factory=WebUIConfig)
     """WebUI配置类"""
+    
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    """数据库配置类"""
 
 
 class ModelConfig(ConfigBase):
