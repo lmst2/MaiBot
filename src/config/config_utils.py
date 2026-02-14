@@ -7,7 +7,7 @@ import tomlkit
 from .config_base import ConfigBase
 
 if TYPE_CHECKING:
-    from .config import AttributeData
+    from .config_base import AttributeData
 
 
 def recursive_parse_item_to_table(

@@ -9,7 +9,7 @@ from src.chat.utils.statistic import OnlineTimeRecordTask, StatisticOutputTask
 # from src.chat.utils.token_statistics import TokenStatisticsTask
 from src.chat.emoji_system.emoji_manager import emoji_manager
 from src.chat.message_receive.chat_stream import get_chat_manager
-from src.config.config import global_config
+from src.config.config import config_manager, global_config
 from src.chat.message_receive.bot import chat_bot
 from src.common.logger import get_logger
 from src.common.message_server.server import get_global_server, Server
@@ -83,6 +83,8 @@ class MainSystem:
     async def _init_components(self):
         """初始化其他组件"""
         init_start_time = time.time()
+
+        await config_manager.start_file_watcher()
 
         # 添加在线时间统计任务
         await async_task_manager.add_task(OnlineTimeRecordTask())
@@ -168,10 +170,13 @@ class MainSystem:
 async def main():
     """主函数"""
     system = MainSystem()
-    await asyncio.gather(
-        system.initialize(),
-        system.schedule_tasks(),
-    )
+    try:
+        await asyncio.gather(
+            system.initialize(),
+            system.schedule_tasks(),
+        )
+    finally:
+        await config_manager.stop_file_watcher()
 
 
 if __name__ == "__main__":

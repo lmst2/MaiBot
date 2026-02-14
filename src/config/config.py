@@ -1,7 +1,7 @@
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, Callable, Mapping, Sequence, TypeVar
 from datetime import datetime
-from typing import Any
+import asyncio
 import copy
 
 import tomlkit
@@ -38,6 +38,7 @@ from .config_base import ConfigBase, Field, AttributeData
 from .config_utils import recursive_parse_item_to_table, output_config_changes, compare_versions
 
 from src.common.logger import get_logger
+from src.config.file_watcher import FileChange, FileWatcher
 
 """
 如果你想要修改配置文件，请递增version的值
@@ -126,7 +127,7 @@ class Config(ConfigBase):
 
     webui: WebUIConfig = Field(default_factory=WebUIConfig)
     """WebUI配置类"""
-    
+
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     """数据库配置类"""
 
@@ -176,12 +177,17 @@ class ConfigManager:
         self.bot_config_path: Path = BOT_CONFIG_PATH
         self.model_config_path: Path = MODEL_CONFIG_PATH
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        self.global_config: Config | None = None
+        self.model_config: ModelConfig | None = None
+        self._reload_lock: asyncio.Lock = asyncio.Lock()
+        self._reload_callbacks: list[Callable[[], object]] = []
+        self._file_watcher: FileWatcher | None = None
 
     def initialize(self):
         logger.info(f"MaiCore当前版本: {MMC_VERSION}")
         logger.info("正在品鉴配置文件...")
-        self.global_config: Config = self.load_global_config()
-        self.model_config: ModelConfig = self.load_model_config()
+        self.global_config = self.load_global_config()
+        self.model_config = self.load_model_config()
         logger.info("非常的新鲜，非常的美味！")
 
     def load_global_config(self) -> Config:
@@ -197,10 +203,73 @@ class ConfigManager:
         return config
 
     def get_global_config(self) -> Config:
+        if self.global_config is None:
+            raise RuntimeError("global_config 未初始化")
         return self.global_config
 
     def get_model_config(self) -> ModelConfig:
+        if self.model_config is None:
+            raise RuntimeError("model_config 未初始化")
         return self.model_config
+
+    def register_reload_callback(self, callback: Callable[[], object]) -> None:
+        self._reload_callbacks.append(callback)
+
+    async def reload_config(self) -> bool:
+        async with self._reload_lock:
+            try:
+                global_config_new, global_updated = load_config_from_file(
+                    Config,
+                    self.bot_config_path,
+                    CONFIG_VERSION,
+                )
+                model_config_new, model_updated = load_config_from_file(
+                    ModelConfig,
+                    self.model_config_path,
+                    MODEL_CONFIG_VERSION,
+                    True,
+                )
+            except Exception as exc:
+                logger.error(f"配置重载失败: {exc}")
+                return False
+
+            if global_updated or model_updated:
+                logger.warning("检测到配置版本更新，热重载仅更新内存数据")
+
+            self.global_config = global_config_new
+            self.model_config = model_config_new
+            global global_config, model_config
+            global_config = global_config_new
+            model_config = model_config_new
+            logger.info("配置热重载完成")
+
+            for callback in list(self._reload_callbacks):
+                try:
+                    result = callback()
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception as exc:
+                    logger.warning(f"配置重载回调执行失败: {exc}")
+            return True
+
+    async def start_file_watcher(self) -> None:
+        if self._file_watcher is not None and self._file_watcher.running:
+            return
+        self._file_watcher = FileWatcher(paths=[self.bot_config_path, self.model_config_path])
+        await self._file_watcher.start(self._handle_file_changes)
+        logger.info("配置文件监视器已启动")
+
+    async def stop_file_watcher(self) -> None:
+        if self._file_watcher is None:
+            return
+        await self._file_watcher.stop()
+        self._file_watcher = None
+
+    async def _handle_file_changes(self, changes: Sequence[FileChange]) -> None:
+        if not changes:
+            return
+        logger.info("检测到配置文件变更，触发热重载")
+        await self.reload_config()
 
 
 def generate_new_config_file(config_class: type[T], config_path: Path, inner_config_version: str) -> None:
@@ -220,7 +289,13 @@ def load_config_from_file(
     attribute_data = AttributeData()
     with open(config_path, "r", encoding="utf-8") as f:
         config_data = tomlkit.load(f)
-    old_ver: str = config_data["inner"]["version"]  # type: ignore
+    inner_table = config_data.get("inner")
+    if not isinstance(inner_table, Mapping):
+        raise TypeError("配置文件缺少 inner 版本信息")
+    inner_version = inner_table.get("version")
+    if not isinstance(inner_version, str):
+        raise TypeError("配置文件 inner.version 类型错误")
+    old_ver: str = inner_version
     config_data.remove("inner")  # 移除 inner 部分，避免干扰后续处理
     config_data = config_data.unwrap()  # 转换为普通字典，方便后续处理
     # 保留一份“干净”的原始数据副本，避免第一次 from_dict 过程中对 dict 的就地修改
@@ -236,8 +311,7 @@ def load_config_from_file(
                 mig = try_migrate_legacy_bot_config_dict(original_data)
                 if mig.migrated:
                     logger.warning(
-                        f"检测到旧版配置结构，已尝试自动修复: {mig.reason}。"
-                        f"建议稍后检查并保存生成的新配置文件。"
+                        f"检测到旧版配置结构，已尝试自动修复: {mig.reason}。建议稍后检查并保存生成的新配置文件。"
                     )
                     migrated_data = mig.data
                     target_config = config_class.from_dict(attribute_data, migrated_data)
