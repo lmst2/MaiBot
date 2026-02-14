@@ -33,6 +33,7 @@ class ByteComponent:
 
 
 class TextComponent(BaseMessageComponentModel):
+    """文本组件，包含一个文本消息的内容"""
     def __init__(self, text: str):
         self.text = text
         assert isinstance(text, str), "TextComponent 的 text 必须是字符串类型"
@@ -42,9 +43,10 @@ class TextComponent(BaseMessageComponentModel):
 
 
 class ImageComponent(BaseMessageComponentModel, ByteComponent):
+    """图片组件，包含一个图片消息的二进制数据和一个唯一标识该图片消息的 hash 值"""
     async def load_image_binary(self):
         if not self.binary_data:
-            ...
+            raise NotImplementedError
 
     async def to_seg(self) -> Seg:
         if not self.binary_data:
@@ -53,6 +55,7 @@ class ImageComponent(BaseMessageComponentModel, ByteComponent):
 
 
 class EmojiComponent(BaseMessageComponentModel, ByteComponent):
+    """表情组件，包含一个表情消息的二进制数据和一个唯一标识该表情消息的 hash 值"""
     async def load_emoji_binary(self) -> None:
         """
         加载表情的二进制数据，如果 binary_data 为空，则通过 emoji_hash 从表情管理器加载
@@ -81,6 +84,7 @@ class EmojiComponent(BaseMessageComponentModel, ByteComponent):
 
 
 class VoiceComponent(BaseMessageComponentModel, ByteComponent):
+    """语音组件，包含一个语音消息的二进制数据和一个唯一标识该语音消息的 hash 值"""
     async def load_voice_binary(self) -> None:
         if not self.binary_data:
             from src.common.utils.utils_file import FileUtils
@@ -97,9 +101,33 @@ class VoiceComponent(BaseMessageComponentModel, ByteComponent):
         return Seg(type="voice", data=base64.b64encode(self.binary_data).decode())
 
 
+class AtComponent(BaseMessageComponentModel):
+    """@组件，包含一个被@的用户的ID，用于表示该组件是一个@某人的消息片段"""
+    def __init__(self, target_user_id: str) -> None:
+        self.target_user_id = target_user_id
+        """目标用户ID"""
+        assert isinstance(target_user_id, str), "AtComponent 的 target_user_id 必须是字符串类型"
+
+    async def to_seg(self) -> Seg:
+        return Seg(type="at", data=self.target_user_id)
+
+
+class ReplyComponent(BaseMessageComponentModel):
+    """回复组件，包含一个回复消息的 ID，用于表示该组件是对哪条消息的回复"""
+    def __init__(self, target_message_id: str) -> None:
+        assert isinstance(target_message_id, str), "ReplyComponent 的 target_message_id 必须是字符串类型"
+        self.target_message_id = target_message_id
+        """目标消息ID"""
+
+    async def to_seg(self) -> Seg:
+        return Seg(type="reply", data=self.target_message_id)
+
+
 class ForwardNodeComponent(BaseMessageComponentModel):
+    """转发节点消息组件，包含一个转发节点的消息，所有组件按照消息顺序排列"""
     def __init__(self, forward_components: List["ForwardComponent"]):
         self.forward_components = forward_components
+        """节点的消息组件列表，按照消息顺序排列"""
         assert isinstance(forward_components, list), "ForwardNodeComponent 的 forward_components 必须是列表类型"
         assert all(isinstance(comp, ForwardComponent) for comp in forward_components), (
             "ForwardNodeComponent 的 forward_components 列表中必须全部是 ForwardComponent 类型"
@@ -128,12 +156,15 @@ StandardMessageComponents = Union[
     ImageComponent,
     EmojiComponent,
     VoiceComponent,
+    AtComponent,
+    ReplyComponent,
     ForwardNodeComponent,
     DictComponent,
 ]
 
 
 class ForwardComponent(BaseMessageComponentModel):
+    """转发组件，包含一个转发消息中的一个节点的信息，包括发送者信息和该节点的消息内容"""
     def __init__(
         self,
         user_nickname: str,
@@ -142,9 +173,13 @@ class ForwardComponent(BaseMessageComponentModel):
         user_cardname: Optional[str] = None,
     ):
         self.user_nickname: str = user_nickname
+        """转发节点的发送者昵称"""
         self.content: List[StandardMessageComponents] = content
+        """消息内容"""
         self.user_id: Optional[str] = user_id
+        """转发节点的发送者ID，可能为 None"""
         self.user_cardname: Optional[str] = user_cardname
+        """转发节点的发送者群名片，可能为 None"""
         assert self.content, "ForwardComponent 的 content 不能为空"
 
     async def to_seg(self) -> "Seg":
@@ -154,13 +189,33 @@ class ForwardComponent(BaseMessageComponentModel):
 
 
 class MessageSequence:
+    """消息组件序列，包含一个消息中的所有组件，按照顺序排列"""
+
     def __init__(self, components: List[StandardMessageComponents]):
+        """
+        创建一个消息组件序列
+
+        **消息组件序列不会对组件进行去重或校验。**
+
+        因此同一消息中可以包含多个相同的组件（例如多个文本组件、多个图片组件等）。
+        因此也可以包含多个`ReplyComponent`组件（例如回复多条消息）。
+        如果需要对组件进行去重或校验，还请在使用时自行处理。
+        """
         self.components: List[StandardMessageComponents] = components
 
     def to_dict(self) -> List[Dict[str, Any]]:
+        """将消息序列转换为字典列表格式，便于存储或传输"""
         return [self._item_2_dict(comp) for comp in self.components]
 
+    @classmethod
+    def from_dict(cls, data: List[Dict[str, Any]]) -> "MessageSequence":
+        """从字典列表格式创建消息序列实例"""
+        components: List[StandardMessageComponents] = []
+        components.extend(cls._dict_2_item(item) for item in data)
+        return cls(components=components)
+
     def _item_2_dict(self, item: StandardMessageComponents) -> Dict[str, Any]:
+        """内部方法：将单个消息组件转换为字典格式"""
         if isinstance(item, TextComponent):
             return {"type": "text", "data": item.text}
         elif isinstance(item, ImageComponent):
@@ -175,6 +230,10 @@ class MessageSequence:
             if not item.content:
                 raise RuntimeError("VoiceComponent content 未初始化")
             return {"type": "voice", "data": item.content, "hash": item.binary_hash}
+        elif isinstance(item, AtComponent):
+            return {"type": "at", "data": item.target_user_id}
+        elif isinstance(item, ReplyComponent):
+            return {"type": "reply", "data": item.target_message_id}
         elif isinstance(item, ForwardNodeComponent):
             return {
                 "type": "forward",
@@ -193,13 +252,8 @@ class MessageSequence:
             return {"type": "dict", "data": item.data}
 
     @classmethod
-    def from_dict(cls, data: List[Dict[str, Any]]) -> "MessageSequence":
-        components: List[StandardMessageComponents] = []
-        components.extend(cls._dict_2_item(item) for item in data)
-        return cls(components=components)
-
-    @classmethod
     def _dict_2_item(cls, item: Dict[str, Any]) -> StandardMessageComponents:
+        """内部方法：将单个消息组件的字典格式转换回组件对象"""
         item_type = item.get("type")
         if item_type == "text":
             return TextComponent(text=item["data"])
@@ -209,6 +263,10 @@ class MessageSequence:
             return EmojiComponent(binary_hash=item["hash"], content=item["data"])
         elif item_type == "voice":
             return VoiceComponent(binary_hash=item["hash"], content=item["data"])
+        elif item_type == "at":
+            return AtComponent(target_user_id=item["data"])
+        elif item_type == "reply":
+            return ReplyComponent(target_message_id=item["data"])
         elif item_type == "forward":
             forward_components = []
             for fc in item["data"]:

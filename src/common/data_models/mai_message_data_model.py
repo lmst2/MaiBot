@@ -1,5 +1,11 @@
 from dataclasses import dataclass, field
-from maim_message import MessageBase
+from maim_message import (
+    MessageBase,
+    UserInfo as MaimUserInfo,
+    GroupInfo as MaimGroupInfo,
+    BaseMessageInfo as MaimBaseMessageInfo,
+    Seg,
+)
 from typing import Optional
 
 import json
@@ -112,10 +118,59 @@ class MaiMessage(BaseDatabaseDataModel[Messages]):
 
     @classmethod
     def from_maim_message(cls, message: MessageBase) -> "MaiMessage":
-        raise NotImplementedError
+        """从 maim_message.MessageBase 创建 MaiMessage 实例，解析消息内容并提取相关信息"""
+        msg_info = message.message_info
+        assert msg_info, "MessageBase 的 message_info 不能为空"
+        msg_id = msg_info.message_id
+        timestamp = msg_info.time
+        assert isinstance(msg_id, str)
+        assert msg_id
+        assert timestamp
+        obj = cls(message_id=msg_id, timestamp=datetime.fromtimestamp(timestamp))
+        obj.raw_message = MessageUtils.from_maim_message_segments_to_MaiSeq(message)
+        usr_info = msg_info.user_info
+        assert usr_info
+        assert isinstance(usr_info.user_id, str)
+        assert isinstance(usr_info.user_nickname, str)
+        user_info = UserInfo(
+            user_id=usr_info.user_id,
+            user_nickname=usr_info.user_nickname,
+            user_cardname=usr_info.user_cardname,
+        )
+        if grp_info := msg_info.group_info:
+            assert isinstance(grp_info.group_id, str)
+            assert isinstance(grp_info.group_name, str)
+            group_info = GroupInfo(group_id=grp_info.group_id, group_name=grp_info.group_name)
+        else:
+            group_info = None
+        add_cfg = msg_info.additional_config or {}
+        obj.message_info = MessageInfo(user_info=user_info, group_info=group_info, additional_config=add_cfg)
+        return obj
 
-    def to_maim_message(self) -> MessageBase:
-        raise NotImplementedError
-
-    def parse_message_segments(self):
-        raise NotImplementedError
+    async def to_maim_message(self) -> MessageBase:
+        """
+        从 MaiMessage 实例转换为 maim_message.MessageBase，构建消息内容并设置相关信息
+        """
+        maim_user_info = MaimUserInfo(
+            user_id=self.message_info.user_info.user_id,
+            user_nickname=self.message_info.user_info.user_nickname,
+            user_cardname=self.message_info.user_info.user_cardname,
+            platform=self.platform,
+        )
+        maim_group_info = None
+        if self.message_info.group_info:
+            maim_group_info = MaimGroupInfo(
+                group_id=self.message_info.group_info.group_id,
+                group_name=self.message_info.group_info.group_name,
+                platform=self.platform,
+            )
+        maim_msg_info = MaimBaseMessageInfo(
+            platform=self.platform,
+            message_id=self.message_id,
+            time=self.timestamp.timestamp(),
+            group_info=maim_group_info,
+            user_info=maim_user_info,
+            additional_config=self.message_info.additional_config,
+        )
+        msg_segments = await MessageUtils.from_MaiSeq_to_maim_message_segments(self.raw_message)
+        return MessageBase(message_info=maim_msg_info, message_segment=Seg(type="seglist", data=msg_segments))
