@@ -18,15 +18,16 @@ class ExampleConfig(ConfigBase):
 
 class BotConfig(ConfigBase):
     """机器人配置类"""
+
     platform: str = ""
     """平台"""
-    
+
     qq_account: int = 0
     """QQ账号"""
-    
+
     platforms: list[str] = Field(default_factory=lambda: [])
     """其他平台"""
-    
+
     nickname: str = "麦麦"
     """机器人昵称"""
 
@@ -49,11 +50,13 @@ class PersonalityConfig(ConfigBase):
     multiple_probability: float = 0.3
     """每次构建回复时，从 multiple_reply_style 中随机替换 reply_style 的概率（0.0-1.0）"""
 
-    plan_style: str = """1.思考**所有**的可用的action中的**每个动作**是否符合当下条件，如果动作使用条件符合聊天内容就使用
-2.如果相同的action已经被执行，请不要重复执行该action
-3.如果有人对你感到厌烦，请减少回复
-4.如果有人在追问你，或者话题没有说完，请你继续回复
-5.请分析哪些对话是和你说的，哪些是其他人之间的互动，不要误认为其他人之间的互动是和你说的"""
+    plan_style: str = (
+        "1.思考**所有**的可用的action中的**每个动作**是否符合当下条件，如果动作使用条件符合聊天内容就使用"
+        "2.如果相同的action已经被执行，请不要重复执行该action"
+        "3.如果有人对你感到厌烦，请减少回复"
+        "4.如果有人在追问你，或者话题没有说完，请你继续回复"
+        "5.请分析哪些对话是和你说的，哪些是其他人之间的互动，不要误认为其他人之间的互动是和你说的"
+    )
     """_wrap_麦麦的说话规则和行为规则"""
 
     visual_style: str = "请用中文描述这张图片的内容。如果有文字，请把文字描述概括出来，请留意其主题，直观感受，输出为一段平文本，最多30字，请注意不要分点，就输出一段文本"
@@ -141,6 +144,12 @@ class ChatConfig(ConfigBase):
 
 class MessageReceiveConfig(ConfigBase):
     """消息接收配置类"""
+
+    image_parse_threshold: int = 5
+    """
+    当消息中图片数量不超过此阈值时，启用图片解析功能，将图片内容解析为文本后再进行处理。
+    当消息中图片数量超过此阈值时，为了避免过度解析导致的性能问题，将跳过图片解析，直接进行处理。
+    """
 
     ban_words: set[str] = Field(default_factory=lambda: set())
     """过滤词列表"""
@@ -497,10 +506,11 @@ class ExtraPromptItem(ConfigBase):
 class ExperimentalConfig(ConfigBase):
     """实验功能配置类"""
 
-    private_plan_style: str = """
-1.思考**所有**的可用的action中的**每个动作**是否符合当下条件，如果动作使用条件符合聊天内容就使用
-2.如果相同的内容已经被执行，请不要重复执行
-3.某句话如果已经被回复过，不要重复回复"""
+    private_plan_style: str = (
+        "1.思考**所有**的可用的action中的**每个动作**是否符合当下条件，如果动作使用条件符合聊天内容就使用"
+        "2.如果相同的内容已经被执行，请不要重复执行"
+        "3.某句话如果已经被回复过，不要重复回复"
+    )
     """_wrap_私聊说话规则，行为风格（实验性功能）"""
 
     chat_prompts: list[ExtraPromptItem] = Field(default_factory=lambda: [])
@@ -512,9 +522,10 @@ class ExperimentalConfig(ConfigBase):
 
 class MaimMessageConfig(ConfigBase):
     """maim_message配置类"""
+
     ws_server_host: str = "127.0.0.1"
     """旧版基于WS的服务器主机地址"""
-    
+
     ws_server_port: int = 8080
     """旧版基于WS的服务器端口号"""
 
@@ -628,6 +639,7 @@ class DreamConfig(ConfigBase):
             raise ValueError(f"first_delay_seconds 不能为负数，当前值: {self.first_delay_seconds}")
         return super().model_post_init(context)
 
+
 class WebUIConfig(ConfigBase):
     """WebUI配置类"""
 
@@ -655,9 +667,10 @@ class WebUIConfig(ConfigBase):
     enable_paragraph_content: bool = False
     """是否在知识图谱中加载段落完整内容（需要加载embedding store，会占用额外内存）"""
 
+
 class DatabaseConfig(ConfigBase):
     """数据库配置类"""
-    
+
     save_binary_data: bool = False
     """
     是否将消息中的二进制数据保存为独立文件

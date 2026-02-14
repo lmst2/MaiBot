@@ -13,6 +13,12 @@ logger = get_logger("base_message_component_model")
 
 
 class BaseMessageComponentModel(ABC):
+    @property
+    @abstractmethod
+    def format_name(self) -> str:
+        """消息组件的格式名称，用于标识该组件的类型"""
+        raise NotImplementedError
+
     @abstractmethod
     async def to_seg(self) -> Seg:
         """将消息组件转换为 maim_message.Seg 对象"""
@@ -34,6 +40,11 @@ class ByteComponent:
 
 class TextComponent(BaseMessageComponentModel):
     """文本组件，包含一个文本消息的内容"""
+
+    @property
+    def format_name(self) -> str:
+        return "text"
+
     def __init__(self, text: str):
         self.text = text
         assert isinstance(text, str), "TextComponent 的 text 必须是字符串类型"
@@ -44,6 +55,11 @@ class TextComponent(BaseMessageComponentModel):
 
 class ImageComponent(BaseMessageComponentModel, ByteComponent):
     """图片组件，包含一个图片消息的二进制数据和一个唯一标识该图片消息的 hash 值"""
+
+    @property
+    def format_name(self) -> str:
+        return "image"
+
     async def load_image_binary(self):
         if not self.binary_data:
             raise NotImplementedError
@@ -56,6 +72,11 @@ class ImageComponent(BaseMessageComponentModel, ByteComponent):
 
 class EmojiComponent(BaseMessageComponentModel, ByteComponent):
     """表情组件，包含一个表情消息的二进制数据和一个唯一标识该表情消息的 hash 值"""
+
+    @property
+    def format_name(self) -> str:
+        return "emoji"
+
     async def load_emoji_binary(self) -> None:
         """
         加载表情的二进制数据，如果 binary_data 为空，则通过 emoji_hash 从表情管理器加载
@@ -85,6 +106,11 @@ class EmojiComponent(BaseMessageComponentModel, ByteComponent):
 
 class VoiceComponent(BaseMessageComponentModel, ByteComponent):
     """语音组件，包含一个语音消息的二进制数据和一个唯一标识该语音消息的 hash 值"""
+
+    @property
+    def format_name(self) -> str:
+        return "voice"
+
     async def load_voice_binary(self) -> None:
         if not self.binary_data:
             from src.common.utils.utils_file import FileUtils
@@ -103,6 +129,11 @@ class VoiceComponent(BaseMessageComponentModel, ByteComponent):
 
 class AtComponent(BaseMessageComponentModel):
     """@组件，包含一个被@的用户的ID，用于表示该组件是一个@某人的消息片段"""
+
+    @property
+    def format_name(self) -> str:
+        return "at"
+
     def __init__(self, target_user_id: str) -> None:
         self.target_user_id = target_user_id
         """目标用户ID"""
@@ -114,6 +145,11 @@ class AtComponent(BaseMessageComponentModel):
 
 class ReplyComponent(BaseMessageComponentModel):
     """回复组件，包含一个回复消息的 ID，用于表示该组件是对哪条消息的回复"""
+
+    @property
+    def format_name(self) -> str:
+        return "reply"
+
     def __init__(self, target_message_id: str) -> None:
         assert isinstance(target_message_id, str), "ReplyComponent 的 target_message_id 必须是字符串类型"
         self.target_message_id = target_message_id
@@ -125,6 +161,11 @@ class ReplyComponent(BaseMessageComponentModel):
 
 class ForwardNodeComponent(BaseMessageComponentModel):
     """转发节点消息组件，包含一个转发节点的消息，所有组件按照消息顺序排列"""
+
+    @property
+    def format_name(self) -> str:
+        return "forward_node"
+
     def __init__(self, forward_components: List["ForwardComponent"]):
         self.forward_components = forward_components
         """节点的消息组件列表，按照消息顺序排列"""
@@ -165,6 +206,11 @@ StandardMessageComponents = Union[
 
 class ForwardComponent(BaseMessageComponentModel):
     """转发组件，包含一个转发消息中的一个节点的信息，包括发送者信息和该节点的消息内容"""
+
+    @property
+    def format_name(self) -> str:
+        return "forward"
+
     def __init__(
         self,
         user_nickname: str,
