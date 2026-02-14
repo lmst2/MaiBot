@@ -54,7 +54,7 @@ def _install_stub_modules(monkeypatch):
         file_name: str = ""
         description: str | None = None
         emotion: list[str] | None = None
-        emoji_hash: str | None = None
+        file_hash: str | None = None
         is_deleted: bool = False
         query_count: int = 0
         register_time: object | None = None
@@ -831,7 +831,7 @@ def test_delete_emoji_file_missing_and_db_record_missing(monkeypatch):
     emoji = emoji_manager_new.MaiEmoji()
     emoji.full_path = _DummyPath()
     emoji.file_name = "missing.png"
-    emoji.emoji_hash = "hash-missing"
+    emoji.file_hash = "hash-missing"
 
     result = manager.delete_emoji(emoji)
 
@@ -859,7 +859,7 @@ def test_delete_emoji_file_delete_error(monkeypatch):
     emoji = emoji_manager_new.MaiEmoji()
     emoji.full_path = _DummyPath()
     emoji.file_name = "boom.png"
-    emoji.emoji_hash = "hash-boom"
+    emoji.file_hash = "hash-boom"
 
     result = manager.delete_emoji(emoji)
 
@@ -915,7 +915,7 @@ def test_delete_emoji_db_error_file_still_exists(monkeypatch):
     emoji = emoji_manager_new.MaiEmoji()
     emoji.full_path = _DummyPath()
     emoji.file_name = "keep.png"
-    emoji.emoji_hash = "hash-keep"
+    emoji.file_hash = "hash-keep"
 
     result = manager.delete_emoji(emoji)
 
@@ -988,7 +988,7 @@ def test_delete_emoji_success(monkeypatch):
     emoji = emoji_manager_new.MaiEmoji()
     emoji.full_path = _DummyPath()
     emoji.file_name = "ok.png"
-    emoji.emoji_hash = "hash-ok"
+    emoji.file_hash = "hash-ok"
 
     result = manager.delete_emoji(emoji)
 
@@ -1043,7 +1043,7 @@ def test_update_emoji_usage_success(monkeypatch):
     monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
 
     emoji = emoji_manager_new.MaiEmoji()
-    emoji.emoji_hash = "hash-ok"
+    emoji.file_hash = "hash-ok"
 
     result = manager.update_emoji_usage(emoji)
 
@@ -1090,7 +1090,7 @@ def test_update_emoji_usage_missing_record(monkeypatch):
     monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
 
     emoji = emoji_manager_new.MaiEmoji()
-    emoji.emoji_hash = "hash-missing"
+    emoji.file_hash = "hash-missing"
 
     result = manager.update_emoji_usage(emoji)
 
@@ -1129,7 +1129,7 @@ def test_update_emoji_usage_execute_error(monkeypatch):
     monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
 
     emoji = emoji_manager_new.MaiEmoji()
-    emoji.emoji_hash = "hash-execute"
+    emoji.file_hash = "hash-execute"
 
     result = manager.update_emoji_usage(emoji)
 
@@ -1148,7 +1148,7 @@ def test_update_emoji_usage_get_db_session_error(monkeypatch):
     monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
 
     emoji = emoji_manager_new.MaiEmoji()
-    emoji.emoji_hash = "hash-session"
+    emoji.file_hash = "hash-session"
 
     result = manager.update_emoji_usage(emoji)
 
@@ -1264,7 +1264,7 @@ async def test_build_emoji_description_calls_hash_and_sets_description(monkeypat
     )
 
     emoji = emoji_manager_new.MaiEmoji()
-    emoji.emoji_hash = None
+    emoji.file_hash = None
     emoji._format = "png"
     emoji.full_path = Path("/tmp/a.png")
 
@@ -1292,7 +1292,7 @@ async def test_build_emoji_description_gif_conversion_error(monkeypatch):
     monkeypatch.setattr(emoji_manager_new.ImageUtils, "gif_2_static_image", staticmethod(_gif_to_static))
 
     emoji = emoji_manager_new.MaiEmoji()
-    emoji.emoji_hash = "hash"
+    emoji.file_hash = "hash"
     emoji._format = "gif"
     emoji.full_path = Path("/tmp/a.gif")
 
@@ -1330,7 +1330,7 @@ async def test_build_emoji_description_content_filtration_reject(monkeypatch):
     )
 
     emoji = emoji_manager_new.MaiEmoji()
-    emoji.emoji_hash = "hash"
+    emoji.file_hash = "hash"
     emoji._format = "png"
     emoji.full_path = Path("/tmp/a.png")
 
@@ -1365,7 +1365,7 @@ async def test_build_emoji_description_content_filtration_pass(monkeypatch):
     )
 
     emoji = emoji_manager_new.MaiEmoji()
-    emoji.emoji_hash = "hash"
+    emoji.file_hash = "hash"
     emoji._format = "png"
     emoji.full_path = Path("/tmp/a.png")
 
@@ -1394,7 +1394,7 @@ async def test_build_emoji_description_vlm_exception_propagates(monkeypatch):
     )
 
     emoji = emoji_manager_new.MaiEmoji()
-    emoji.emoji_hash = "hash"
+    emoji.file_hash = "hash"
     emoji._format = "png"
     emoji.full_path = Path("/tmp/a.png")
 
@@ -1738,7 +1738,7 @@ async def test_register_emoji_by_filename_duplicate_hash(monkeypatch, tmp_path):
 
     class _Emoji(emoji_manager_new.MaiEmoji):
         async def calculate_hash_format(self):
-            self.emoji_hash = "hash-dup"
+            self.file_hash = "hash-dup"
             self.full_path = file_path
             return True
 
@@ -1765,7 +1765,7 @@ async def test_register_emoji_by_filename_build_description_failed(monkeypatch, 
 
     class _Emoji(emoji_manager_new.MaiEmoji):
         async def calculate_hash_format(self):
-            self.emoji_hash = "hash-desc"
+            self.file_hash = "hash-desc"
             self.full_path = file_path
             return True
 
@@ -1793,7 +1793,7 @@ async def test_register_emoji_by_filename_build_emotion_failed(monkeypatch, tmp_
 
     class _Emoji(emoji_manager_new.MaiEmoji):
         async def calculate_hash_format(self):
-            self.emoji_hash = "hash-emo"
+            self.file_hash = "hash-emo"
             self.full_path = file_path
             return True
 
@@ -1827,7 +1827,7 @@ async def test_register_emoji_by_filename_capacity_replace_failed(monkeypatch, t
 
     class _Emoji(emoji_manager_new.MaiEmoji):
         async def calculate_hash_format(self):
-            self.emoji_hash = "hash-full"
+            self.file_hash = "hash-full"
             self.full_path = file_path
             return True
 
@@ -1866,7 +1866,7 @@ async def test_register_emoji_by_filename_capacity_replace_success(monkeypatch, 
 
     class _Emoji(emoji_manager_new.MaiEmoji):
         async def calculate_hash_format(self):
-            self.emoji_hash = "hash-full-ok"
+            self.file_hash = "hash-full-ok"
             self.full_path = file_path
             return True
 
@@ -1904,7 +1904,7 @@ async def test_register_emoji_by_filename_register_db_failed(monkeypatch, tmp_pa
 
     class _Emoji(emoji_manager_new.MaiEmoji):
         async def calculate_hash_format(self):
-            self.emoji_hash = "hash-db-fail"
+            self.file_hash = "hash-db-fail"
             self.full_path = file_path
             return True
 
@@ -1939,7 +1939,7 @@ async def test_register_emoji_by_filename_register_db_success(monkeypatch, tmp_p
 
     class _Emoji(emoji_manager_new.MaiEmoji):
         async def calculate_hash_format(self):
-            self.emoji_hash = "hash-db-ok"
+            self.file_hash = "hash-db-ok"
             self.full_path = file_path
             self.file_name = "db-ok.png"
             return True

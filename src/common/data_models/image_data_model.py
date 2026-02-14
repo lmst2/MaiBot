@@ -20,6 +20,20 @@ logger = get_logger("emoji")
 
 
 class BaseImageDataModel(BaseDatabaseDataModel[Images]):
+    def __init__(self, full_path: str | Path, image_bytes: Optional[bytes] = None):
+        if not full_path:
+            # 创建时候即检测文件路径合法性
+            raise ValueError("表情包路径不能为空")
+        if Path(full_path).is_dir() or not Path(full_path).exists():
+            raise FileNotFoundError(f"表情包路径无效: {full_path}")
+        resolved_path = Path(full_path).absolute().resolve()
+        self.full_path: Path = resolved_path
+        self.dir_path: Path = resolved_path.parent.resolve()
+        self.file_name: str = resolved_path.name
+        self.file_hash: str = None  # type: ignore
+
+        self.image_bytes: Optional[bytes] = image_bytes
+
     def read_image_bytes(self, path: Path) -> bytes:
         """
         同步读取图片文件的字节内容
@@ -65,55 +79,6 @@ class BaseImageDataModel(BaseDatabaseDataModel[Images]):
             logger.error(f"[获取图片格式] 读取图片格式时发生错误: {e}")
             raise e
 
-
-class MaiEmoji(BaseImageDataModel):
-    def __init__(self, full_path: str | Path):
-        if not full_path:
-            # 创建时候即检测文件路径合法性
-            raise ValueError("表情包路径不能为空")
-        if Path(full_path).is_dir() or not Path(full_path).exists():
-            raise FileNotFoundError(f"表情包路径无效: {full_path}")
-        resolved_path = Path(full_path).absolute().resolve()
-        self.full_path: Path = resolved_path
-        self.dir_path: Path = resolved_path.parent.resolve()
-        self.file_name: str = resolved_path.name
-        # self.embedding = []
-        self.emoji_hash: str = None  # type: ignore
-        self.description = ""
-        self.emotion: List[str] = []
-        self.query_count = 0
-        self.register_time: Optional[datetime] = None
-        self.last_used_time: Optional[datetime] = None
-
-        # 私有属性
-        self.is_deleted = False
-        self._format: str = ""  # 图片格式
-
-    @classmethod
-    def from_db_instance(cls, db_record: Images):
-        obj = cls(db_record.full_path)
-        obj.emoji_hash = db_record.image_hash
-        obj.description = db_record.description
-        if db_record.emotion:
-            obj.emotion = db_record.emotion.split(",")
-        obj.query_count = db_record.query_count
-        obj.last_used_time = db_record.last_used_time
-        obj.register_time = db_record.register_time
-        return obj
-
-    def to_db_instance(self) -> Images:
-        emotion_str = ",".join(self.emotion) if self.emotion else None
-        return Images(
-            image_hash=self.emoji_hash,
-            description=self.description,
-            full_path=str(self.full_path),
-            image_type=ImageType.EMOJI,
-            emotion=emotion_str,
-            query_count=self.query_count,
-            last_used_time=self.last_used_time,
-            register_time=self.register_time,
-        )
-
     async def calculate_hash_format(self) -> bool:
         """
         异步计算表情包的哈希值和格式
@@ -121,13 +86,17 @@ class MaiEmoji(BaseImageDataModel):
         Returns:
             return (bool): 如果成功计算哈希值和格式则返回True，否则返回False
         """
-        logger.debug(f"[初始化] 正在读取文件: {self.full_path}")
+
         try:
             # 计算哈希值
             logger.debug(f"[初始化] 计算 {self.file_name} 的哈希值...")
-            image_bytes = await asyncio.to_thread(self.read_image_bytes, self.full_path)
-            self.emoji_hash = hashlib.sha256(image_bytes).hexdigest()
-            logger.debug(f"[初始化] {self.file_name} 计算哈希值成功: {self.emoji_hash}")
+            if not self.image_bytes:
+                logger.debug(f"[初始化] 正在读取文件: {self.full_path}")
+                image_bytes = await asyncio.to_thread(self.read_image_bytes, self.full_path)
+            else:
+                image_bytes = self.image_bytes
+            self.file_hash = hashlib.sha256(image_bytes).hexdigest()
+            logger.debug(f"[初始化] {self.file_name} 计算哈希值成功: {self.file_hash}")
 
             # 用PIL读取图片格式
             logger.debug(f"[初始化] 读取 {self.file_name} 的图片格式...")
@@ -146,7 +115,47 @@ class MaiEmoji(BaseImageDataModel):
 
             return True
         except Exception as e:
-            logger.error(f"[初始化] 初始化表情包时发生错误: {e}")
+            logger.error(f"[初始化] 初始化图片时发生错误: {e}")
             logger.error(traceback.format_exc())
             self.is_deleted = True
             return False
+
+
+class MaiEmoji(BaseImageDataModel):
+    def __init__(self, full_path: str | Path, image_bytes: Optional[bytes] = None):
+        # self.embedding = []
+        self.description = ""
+        self.emotion: List[str] = []
+        self.query_count = 0
+        self.register_time: Optional[datetime] = None
+        self.last_used_time: Optional[datetime] = None
+
+        # 私有属性
+        self.is_deleted = False
+        self._format: str = ""  # 图片格式
+        super().__init__(full_path, image_bytes)
+
+    @classmethod
+    def from_db_instance(cls, db_record: Images):
+        obj = cls(db_record.full_path)
+        obj.file_hash = db_record.image_hash
+        obj.description = db_record.description
+        if db_record.emotion:
+            obj.emotion = db_record.emotion.split(",")
+        obj.query_count = db_record.query_count
+        obj.last_used_time = db_record.last_used_time
+        obj.register_time = db_record.register_time
+        return obj
+
+    def to_db_instance(self) -> Images:
+        emotion_str = ",".join(self.emotion) if self.emotion else None
+        return Images(
+            image_hash=self.file_hash,
+            description=self.description,
+            full_path=str(self.full_path),
+            image_type=ImageType.EMOJI,
+            emotion=emotion_str,
+            query_count=self.query_count,
+            last_used_time=self.last_used_time,
+            register_time=self.register_time,
+        )

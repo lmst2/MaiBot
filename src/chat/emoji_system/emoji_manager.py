@@ -144,12 +144,12 @@ class EmojiManager:
         # 删除数据库记录
         try:
             with get_db_session() as session:
-                statement = select(Images).filter_by(image_hash=emoji.emoji_hash, image_type=ImageType.EMOJI).limit(1)
+                statement = select(Images).filter_by(image_hash=emoji.file_hash, image_type=ImageType.EMOJI).limit(1)
                 if image_record := session.exec(statement).first():
                     session.delete(image_record)
-                    logger.info(f"[删除表情包] 成功删除数据库中的表情包记录: {emoji.emoji_hash}")
+                    logger.info(f"[删除表情包] 成功删除数据库中的表情包记录: {emoji.file_hash}")
                 else:
-                    logger.warning(f"[删除表情包] 数据库中未找到表情包记录: {emoji.emoji_hash}")
+                    logger.warning(f"[删除表情包] 数据库中未找到表情包记录: {emoji.file_hash}")
         except Exception as e:
             logger.error(f"[删除表情包] 删除数据库记录时出错: {e}")
             # 如果数据库记录删除失败，但文件可能已删除，记录一个警告
@@ -170,14 +170,14 @@ class EmojiManager:
         """
         try:
             with get_db_session() as session:
-                statement = select(Images).filter_by(image_hash=emoji.emoji_hash, image_type=ImageType.EMOJI).limit(1)
+                statement = select(Images).filter_by(image_hash=emoji.file_hash, image_type=ImageType.EMOJI).limit(1)
                 if image_record := session.exec(statement).first():
                     image_record.query_count += 1
                     image_record.last_used_time = datetime.now()
                     session.add(image_record)
-                    logger.info(f"[记录表情包使用] 成功记录表情包使用: {emoji.emoji_hash}")
+                    logger.info(f"[记录表情包使用] 成功记录表情包使用: {emoji.file_hash}")
                 else:
-                    logger.error(f"[记录表情包使用] 未找到表情包记录: {emoji.emoji_hash}")
+                    logger.error(f"[记录表情包使用] 未找到表情包记录: {emoji.file_hash}")
                     return False
         except Exception as e:
             logger.error(f"[记录表情包使用] 记录使用时出错: {e}")
@@ -194,7 +194,7 @@ class EmojiManager:
             return (Optional[MaiEmoji]): 返回表情包对象，如果未找到则返回 None
         """
         for emoji in self.emojis:
-            if emoji.emoji_hash == emoji_hash and not emoji.is_deleted:
+            if emoji.file_hash == emoji_hash and not emoji.is_deleted:
                 return emoji
         logger.info(f"[获取表情包] 未找到哈希值为 {emoji_hash} 的表情包")
         return None
@@ -210,8 +210,8 @@ class EmojiManager:
         """
         try:
             with get_db_session() as session:
-                statement = select(Images).filter_by(image_hash=emoji_hash, image_type=ImageType.EMOJI)
-                if image_record := session.execute(statement).scalars().first():
+                statement = select(Images).filter_by(image_hash=emoji_hash, image_type=ImageType.EMOJI).limit(1)
+                if image_record := session.exec(statement).first():
                     return MaiEmoji.from_db_instance(image_record)
                 logger.info(f"[数据库] 未找到哈希值为 {emoji_hash} 的表情包记录")
                 return None
@@ -224,7 +224,7 @@ class EmojiManager:
         根据文本情感标签获取合适的表情包
 
         Args:
-            text_emotion (str): 文本的情感标签
+            emotion_label (str): 文本的情感标签
         Returns:
             return (Optional[MaiEmoji]): 返回表情包对象，如果未找到则返回 None
         """
@@ -320,7 +320,7 @@ class EmojiManager:
         Returns:
             return (Tuple[bool, MaiEmoji]): 返回是否成功构建描述，及表情包对象
         """
-        if not target_emoji.emoji_hash:
+        if not target_emoji.file_hash:
             # Should not happen, but just in case
             await target_emoji.calculate_hash_format()
 
@@ -502,7 +502,7 @@ class EmojiManager:
             return False
         file_full_path = target_emoji.full_path  # 更新为可能修正后的路径
         # 2. 检查是否已经存在过
-        if existing_emoji := self.get_emoji_by_hash(target_emoji.emoji_hash):
+        if existing_emoji := self.get_emoji_by_hash(target_emoji.file_hash):
             logger.warning(f"[注册表情包] 表情包已存在，跳过注册: {existing_emoji.file_name}")
             return False
         # 3. 构建描述
