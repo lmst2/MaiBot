@@ -55,8 +55,12 @@ jobs:
           build-backend = "setuptools.build_meta"
 
           [tool.setuptools]
-          packages = ["maibot_dashboard"]
           include-package-data = true
+
+          [tool.setuptools.packages.find]
+          where = ["."]
+          include = ["maibot_dashboard"]
+          exclude = ["maibot_dashboard.dist*"]
 
           [tool.setuptools.package-data]
           maibot_dashboard = ["dist/**"]

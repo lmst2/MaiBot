@@ -24,7 +24,7 @@ export function NotFoundPage() {
             页面未找到
           </h2>
           <p className="text-base text-muted-foreground sm:text-lg max-w-md mx-auto">
-            抱歉，您访问的页面不存在或已被移除。 请检查 URL 是否正确，或返回首页继续浏览。
+            抱歉，您访问的页面不存在或已被移除。请检查 URL 是否正确，或返回首页继续浏览。
           </p>
         </div>
 
