@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+      - dev
+      - r-dev
     paths:
       - "dashboard/**"
   workflow_dispatch:
@@ -33,7 +35,13 @@ jobs:
         run: |
           rm -rf .webui_dist_pkg
           mkdir -p .webui_dist_pkg/maibot_dashboard/dist
-          WEBUI_VERSION=$(python -c "import json; print(json.load(open('dashboard/package.json'))['version'])")
+          BASE_VERSION=$(python -c "import json; print(json.load(open('dashboard/package.json'))['version'])")
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            WEBUI_VERSION="${BASE_VERSION}"
+          else
+            TODAY=$(date -u +%Y%m%d)
+            WEBUI_VERSION="${BASE_VERSION}.dev${TODAY}.${GITHUB_RUN_NUMBER}"
+          fi
           cat > .webui_dist_pkg/pyproject.toml <<'EOF'
           [project]
           name = "maibot-dashboard"
