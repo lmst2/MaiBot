@@ -42,7 +42,7 @@ jobs:
             TODAY=$(date -u +%Y%m%d)
             WEBUI_VERSION="${BASE_VERSION}.dev${TODAY}.${GITHUB_RUN_NUMBER}"
           fi
-          cat > .webui_dist_pkg/pyproject.toml <<'EOF'
+          cat > .webui_dist_pkg/pyproject.toml <<EOF
           [project]
           name = "maibot-dashboard"
           version = "${WEBUI_VERSION}"
