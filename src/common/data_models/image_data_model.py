@@ -33,6 +33,9 @@ class BaseImageDataModel(BaseDatabaseDataModel[Images]):
         self.file_hash: str = None  # type: ignore
 
         self.image_bytes: Optional[bytes] = image_bytes
+        
+        self.image_format: str = ""  # 图片格式
+        self.is_deleted: bool = False  # 是否已被标记为删除
 
     def read_image_bytes(self, path: Path) -> bytes:
         """
@@ -100,15 +103,15 @@ class BaseImageDataModel(BaseDatabaseDataModel[Images]):
 
             # 用PIL读取图片格式
             logger.debug(f"[初始化] 读取 {self.file_name} 的图片格式...")
-            self._format = await asyncio.to_thread(self.get_image_format, image_bytes)
-            logger.debug(f"[初始化] {self.file_name} 读取图片格式成功: {self._format}")
+            self.image_format = await asyncio.to_thread(self.get_image_format, image_bytes)
+            logger.debug(f"[初始化] {self.file_name} 读取图片格式成功: {self.image_format}")
 
             # 比对文件扩展名和实际格式
             file_ext = self.file_name.split(".")[-1].lower()
-            if file_ext != self._format:
-                logger.warning(f"[初始化] {self.file_name} 文件扩展名与实际格式不符: ext`{file_ext}`!=`{self._format}`")
+            if file_ext != self.image_format:
+                logger.warning(f"[初始化] {self.file_name} 文件扩展名与实际格式不符: ext`{file_ext}`!=`{self.image_format}`")
                 # 重命名文件以匹配实际格式
-                new_file_name = ".".join(self.file_name.split(".")[:-1] + [self._format])
+                new_file_name = ".".join(self.file_name.split(".")[:-1] + [self.image_format])
                 new_full_path = self.dir_path / new_file_name
                 self.full_path.rename(new_full_path)
                 self.full_path = new_full_path
@@ -124,15 +127,11 @@ class BaseImageDataModel(BaseDatabaseDataModel[Images]):
 class MaiEmoji(BaseImageDataModel):
     def __init__(self, full_path: str | Path, image_bytes: Optional[bytes] = None):
         # self.embedding = []
-        self.description = ""
+        self.description: str = ""
         self.emotion: List[str] = []
         self.query_count = 0
         self.register_time: Optional[datetime] = None
         self.last_used_time: Optional[datetime] = None
-
-        # 私有属性
-        self.is_deleted = False
-        self._format: str = ""  # 图片格式
         super().__init__(full_path, image_bytes)
 
     @classmethod
@@ -158,4 +157,29 @@ class MaiEmoji(BaseImageDataModel):
             query_count=self.query_count,
             last_used_time=self.last_used_time,
             register_time=self.register_time,
+        )
+
+
+class MaiImage(BaseImageDataModel):
+    def __init__(self, full_path: str | Path, image_bytes: Optional[bytes] = None):
+        self.description: str = ""
+        self.vlm_processed: bool = False
+        super().__init__(full_path, image_bytes)
+
+    @classmethod
+    def from_db_instance(cls, db_record: Images):
+        obj = cls(db_record.full_path)
+        obj.file_hash = db_record.image_hash
+        obj.full_path = Path(db_record.full_path)
+        obj.description = db_record.description
+        obj.vlm_processed = db_record.vlm_processed
+        return obj
+
+    def to_db_instance(self) -> Images:
+        return Images(
+            image_hash=self.file_hash,
+            description=self.description,
+            full_path=str(self.full_path),
+            image_type=ImageType.IMAGE,
+            vlm_processed=self.vlm_processed,
         )

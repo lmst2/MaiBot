@@ -360,7 +360,7 @@ class EmojiManager:
             await target_emoji.calculate_hash_format()
 
         # 调用VLM生成描述
-        image_format = target_emoji._format
+        image_format = target_emoji.image_format
         image_bytes = target_emoji.read_image_bytes(target_emoji.full_path)
 
         if image_format == "gif":
@@ -415,7 +415,7 @@ class EmojiManager:
         emotion_prompt = await prompt_manager.render_prompt(emotion_prompt_template)
         # 调用LLM生成情感标签
         emotion_result, _ = await emoji_manager_emotion_judge_llm.generate_response_async(
-            emotion_prompt, temperature=0.7, max_tokens=200
+            emotion_prompt, temperature=0.3, max_tokens=200
         )
 
         # 解析情感标签结果

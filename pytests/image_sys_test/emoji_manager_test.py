@@ -58,7 +58,7 @@ def _install_stub_modules(monkeypatch):
         is_deleted: bool = False
         query_count: int = 0
         register_time: object | None = None
-        _format: str | None = None
+        image_format: str | None = None
 
         @staticmethod
         def from_db_instance(_record):
@@ -1431,7 +1431,7 @@ async def test_build_emoji_description_calls_hash_and_sets_description(monkeypat
 
     emoji = emoji_manager_new.MaiEmoji()
     emoji.file_hash = None
-    emoji._format = "png"
+    emoji.image_format = "png"
     emoji.full_path = Path("/tmp/a.png")
 
     result, updated = await emoji_manager_new.EmojiManager().build_emoji_description(emoji)
@@ -1459,7 +1459,7 @@ async def test_build_emoji_description_gif_conversion_error(monkeypatch):
 
     emoji = emoji_manager_new.MaiEmoji()
     emoji.file_hash = "hash"
-    emoji._format = "gif"
+    emoji.image_format = "gif"
     emoji.full_path = Path("/tmp/a.gif")
 
     result, updated = await emoji_manager_new.EmojiManager().build_emoji_description(emoji)
@@ -1497,7 +1497,7 @@ async def test_build_emoji_description_content_filtration_reject(monkeypatch):
 
     emoji = emoji_manager_new.MaiEmoji()
     emoji.file_hash = "hash"
-    emoji._format = "png"
+    emoji.image_format = "png"
     emoji.full_path = Path("/tmp/a.png")
 
     result, updated = await emoji_manager_new.EmojiManager().build_emoji_description(emoji)
@@ -1532,7 +1532,7 @@ async def test_build_emoji_description_content_filtration_pass(monkeypatch):
 
     emoji = emoji_manager_new.MaiEmoji()
     emoji.file_hash = "hash"
-    emoji._format = "png"
+    emoji.image_format = "png"
     emoji.full_path = Path("/tmp/a.png")
 
     result, updated = await emoji_manager_new.EmojiManager().build_emoji_description(emoji)
@@ -1561,7 +1561,7 @@ async def test_build_emoji_description_vlm_exception_propagates(monkeypatch):
 
     emoji = emoji_manager_new.MaiEmoji()
     emoji.file_hash = "hash"
-    emoji._format = "png"
+    emoji.image_format = "png"
     emoji.full_path = Path("/tmp/a.png")
 
     with pytest.raises(RuntimeError):

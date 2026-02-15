@@ -11,7 +11,7 @@ logger = get_logger("file_utils")
 
 class FileUtils:
     @staticmethod
-    def save_bytes_to_file(file_path: Path, data: bytes):
+    def save_binary_to_file(file_path: Path, data: bytes):
         """
         将字节数据保存到指定文件路径
 
