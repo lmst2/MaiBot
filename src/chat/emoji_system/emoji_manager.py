@@ -160,6 +160,7 @@ class EmojiManager:
         return True
 
     def update_emoji_usage(self, emoji: MaiEmoji) -> bool:
+        # sourcery skip: extract-method
         """
         更新表情包的使用情况，更新查询次数和上次使用时间
 
@@ -168,12 +169,17 @@ class EmojiManager:
         Returns:
             return (bool): 更新是否成功
         """
+        if not emoji or not emoji.file_hash:
+            logger.error("[更新表情包使用] 无效的表情包对象")
+            return False
         try:
             with get_db_session() as session:
                 statement = select(Images).filter_by(image_hash=emoji.file_hash, image_type=ImageType.EMOJI).limit(1)
                 if image_record := session.exec(statement).first():
-                    image_record.query_count += 1
-                    image_record.last_used_time = datetime.now()
+                    emoji.query_count += 1
+                    image_record.query_count= emoji.query_count
+                    emoji.last_used_time = datetime.now()
+                    image_record.last_used_time = emoji.last_used_time
                     session.add(image_record)
                     logger.info(f"[记录表情包使用] 成功记录表情包使用: {emoji.file_hash}")
                 else:
@@ -181,6 +187,35 @@ class EmojiManager:
                     return False
         except Exception as e:
             logger.error(f"[记录表情包使用] 记录使用时出错: {e}")
+            return False
+        return True
+
+    def update_emoji(self, emoji: MaiEmoji) -> bool:
+        """
+        更新表情包的情感标签和描述信息
+
+        Args:
+            emoji (MaiEmoji): 需要更新的表情包对象，必须包含有效的 file_hash
+        Returns:
+            return (bool): 更新是否成功
+        """
+        if not emoji or not emoji.file_hash:
+            logger.error("[更新表情包] 无效的表情包对象")
+            return False
+
+        try:
+            with get_db_session() as session:
+                statement = select(Images).filter_by(image_hash=emoji.file_hash, image_type=ImageType.EMOJI).limit(1)
+                if image_record := session.exec(statement).first():
+                    image_record.description = emoji.description
+                    image_record.emotion = ",".join(emoji.emotion) if emoji.emotion else None
+                    session.add(image_record)
+                    logger.info(f"[更新表情包] 成功更新表情包信息: {emoji.file_hash}")
+                else:
+                    logger.error(f"[更新表情包] 未找到表情包记录: {emoji.file_hash}")
+                    return False
+        except Exception as e:
+            logger.error(f"[更新表情包] 更新数据库记录时出错: {e}")
             return False
         return True
 

@@ -1015,13 +1015,14 @@ def test_update_emoji_usage_success(monkeypatch):
         def __init__(self):
             self.query_count = 2
             self.last_used_time = None
+    record = _Record()
 
     class _Result:
         def scalars(self):
             return self
 
         def first(self):
-            return _Record()
+            return record
 
     class _Session:
         def __enter__(self):
@@ -1048,6 +1049,8 @@ def test_update_emoji_usage_success(monkeypatch):
     result = manager.update_emoji_usage(emoji)
 
     assert result is True
+    assert emoji.query_count == 1
+    assert record.query_count == 1
     assert any("成功记录表情包使用" in m for m in _messages(logger.info_calls))
 
 
@@ -1154,6 +1157,169 @@ def test_update_emoji_usage_get_db_session_error(monkeypatch):
 
     assert result is False
     assert any("记录使用时出错" in m for m in _messages(logger.error_calls))
+
+
+def test_update_emoji_success(monkeypatch):
+    emoji_manager_new = import_emoji_manager_new(monkeypatch)
+    logger = emoji_manager_new.logger
+    manager = emoji_manager_new.EmojiManager()
+
+    class _Select:
+        def filter_by(self, **_kwargs):
+            return self
+
+        def limit(self, _num):
+            return self
+
+    def _select(_model):
+        return _Select()
+
+    class _Record:
+        def __init__(self):
+            self.description = None
+            self.emotion = None
+
+    class _Result:
+        def scalars(self):
+            return self
+
+        def first(self):
+            return _Record()
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def exec(self, _statement):
+            return _Result()
+
+        def add(self, _record):
+            self.added = True
+
+    def _get_db_session():
+        return _Session()
+
+    monkeypatch.setattr(emoji_manager_new, "select", _select)
+    monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
+
+    emoji = emoji_manager_new.MaiEmoji()
+    emoji.file_hash = "hash-update"
+    emoji.description = "new-desc"
+    emoji.emotion = ["a", "b"]
+
+    result = manager.update_emoji(emoji)
+
+    assert result is True
+    assert any("成功更新表情包信息" in m for m in _messages(logger.info_calls))
+
+
+def test_update_emoji_missing_record(monkeypatch):
+    emoji_manager_new = import_emoji_manager_new(monkeypatch)
+    logger = emoji_manager_new.logger
+    manager = emoji_manager_new.EmojiManager()
+
+    class _Select:
+        def filter_by(self, **_kwargs):
+            return self
+
+        def limit(self, _num):
+            return self
+
+    def _select(_model):
+        return _Select()
+
+    class _Result:
+        def scalars(self):
+            return self
+
+        def first(self):
+            return None
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def exec(self, _statement):
+            return _Result()
+
+    def _get_db_session():
+        return _Session()
+
+    monkeypatch.setattr(emoji_manager_new, "select", _select)
+    monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
+
+    emoji = emoji_manager_new.MaiEmoji()
+    emoji.file_hash = "hash-missing"
+
+    result = manager.update_emoji(emoji)
+
+    assert result is False
+    assert any("未找到表情包记录" in m for m in _messages(logger.error_calls))
+
+
+def test_update_emoji_execute_error(monkeypatch):
+    emoji_manager_new = import_emoji_manager_new(monkeypatch)
+    logger = emoji_manager_new.logger
+    manager = emoji_manager_new.EmojiManager()
+
+    class _Select:
+        def filter_by(self, **_kwargs):
+            return self
+
+        def limit(self, _num):
+            return self
+
+    def _select(_model):
+        return _Select()
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def exec(self, _statement):
+            raise RuntimeError("execute failed")
+
+    def _get_db_session():
+        return _Session()
+
+    monkeypatch.setattr(emoji_manager_new, "select", _select)
+    monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
+
+    emoji = emoji_manager_new.MaiEmoji()
+    emoji.file_hash = "hash-execute"
+
+    result = manager.update_emoji(emoji)
+
+    assert result is False
+    assert any("更新数据库记录时出错" in m for m in _messages(logger.error_calls))
+
+
+def test_update_emoji_get_db_session_error(monkeypatch):
+    emoji_manager_new = import_emoji_manager_new(monkeypatch)
+    logger = emoji_manager_new.logger
+    manager = emoji_manager_new.EmojiManager()
+
+    def _get_db_session():
+        raise RuntimeError("get_db_session failed")
+
+    monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
+
+    emoji = emoji_manager_new.MaiEmoji()
+    emoji.file_hash = "hash-session"
+
+    result = manager.update_emoji(emoji)
+
+    assert result is False
+    assert any("更新数据库记录时出错" in m for m in _messages(logger.error_calls))
 
 
 @pytest.mark.asyncio
