@@ -215,6 +215,12 @@ class ConfigManager:
     def register_reload_callback(self, callback: Callable[[], object]) -> None:
         self._reload_callbacks.append(callback)
 
+    def unregister_reload_callback(self, callback: Callable[[], object]) -> None:
+        try:
+            self._reload_callbacks.remove(callback)
+        except ValueError:
+            return
+
     async def reload_config(self) -> bool:
         async with self._reload_lock:
             try:
