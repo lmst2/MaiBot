@@ -4,3 +4,4 @@
 
 export { useAutoSave, useConfigAutoSave } from './useAutoSave'
 export type { UseAutoSaveOptions, UseAutoSaveReturn, AutoSaveState } from './useAutoSave'
+export { ChatSectionHook } from './ChatSectionHook'
