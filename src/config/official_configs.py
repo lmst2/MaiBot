@@ -143,20 +143,42 @@ class ChatConfig(ConfigBase):
     - dynamic: think_level由planner动态给出（根据planner返回的think_level决定）
     """
 
-    plan_reply_log_max_per_chat: int = 1024
+    plan_reply_log_max_per_chat: int = Field(
+        default=1024,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "file-text",
+        },
+    )
     """每个聊天流最大保存的Plan/Reply日志数量，超过此数量时会自动删除最老的日志"""
 
-    llm_quote: bool = False
+    llm_quote: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "quote",
+        },
+    )
     """是否在 reply action 中启用 quote 参数，启用后 LLM 可以控制是否引用消息"""
 
-    enable_talk_value_rules: bool = True
+    enable_talk_value_rules: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "settings",
+        },
+    )
     """是否启用动态发言频率规则"""
 
     talk_value_rules: list[TalkRulesItem] = Field(
         default_factory=lambda: [
             TalkRulesItem(platform="", item_id="", rule_type="group", time="00:00-08:59", value=0.8),
             TalkRulesItem(platform="", item_id="", rule_type="group", time="09:00-18:59", value=1.0),
-        ]
+        ],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "list",
+        },
     )
     """
     _wrap_思考频率规则列表，支持按聊天流/按日内时段配置。
