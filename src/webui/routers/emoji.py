@@ -3,7 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, List, Optional
+from typing import Annotated, Any, List, Optional
 
 import asyncio
 import hashlib
@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from PIL import Image
 from sqlalchemy import func
-from sqlmodel import col, delete, select
+from sqlmodel import col, select
 
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Images, ImageType
@@ -67,7 +67,7 @@ def _background_generate_thumbnail(source_path: str, file_hash: str) -> None:
 
 def _ensure_thumbnail_cache_dir() -> Path:
     """确保缩略图缓存目录存在"""
-    THUMBNAIL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    _ = THUMBNAIL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     return THUMBNAIL_CACHE_DIR
 
 
@@ -947,7 +947,7 @@ async def upload_emoji(
 
         # 保存文件
         with open(full_path, "wb") as f:
-            f.write(file_content)
+            _ = f.write(file_content)
 
         logger.info(f"表情包文件已保存: {full_path}")
 
@@ -1010,7 +1010,7 @@ async def batch_upload_emoji(
     try:
         verify_auth_token(maibot_session, authorization)
 
-        results = {
+        results: dict[str, Any] = {
             "success": True,
             "total": len(files),
             "uploaded": 0,
@@ -1095,7 +1095,7 @@ async def batch_upload_emoji(
                     counter += 1
 
                 with open(full_path, "wb") as f:
-                    f.write(file_content)
+                    _ = f.write(file_content)
 
                 # 处理情感标签
                 emotion_str = ",".join(e.strip() for e in emotion.split(",") if e.strip()) if emotion else ""

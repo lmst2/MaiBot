@@ -49,7 +49,7 @@ def parse_chat_id_to_stream_ids(chat_id_str: str) -> List[str]:
 def get_display_name_for_chat_id(chat_id_str: str, session: Session) -> str:
     """
     获取 chat_id 的显示名称
-    尝试解析 JSON 并查询 ChatStreams 表获取群聊名称
+    尝试解析 JSON 并查询 ChatSession 表获取群聊名称
     """
     stream_ids = parse_chat_id_to_stream_ids(chat_id_str)
 
