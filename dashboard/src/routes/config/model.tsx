@@ -58,8 +58,12 @@ import { SharePackDialog } from '@/components/share-pack-dialog'
 
 // 导入模块化的类型定义和组件
 import type { ModelInfo, ProviderConfig, ModelTaskConfig, TaskConfig } from './model/types'
-import { TaskConfigCard, Pagination, ModelTable, ModelCardList } from './model/components'
+import { Pagination, ModelTable, ModelCardList } from './model/components'
 import { useModelTour, useModelFetcher, useModelAutoSave } from './model/hooks'
+
+// 导入动态表单和 Hook 系统
+import { DynamicConfigForm } from '@/components/dynamic-form'
+import { fieldHooks } from '@/lib/field-hooks'
 
 // 主导出组件：包装 RestartProvider
 export function ModelConfigPage() {
@@ -918,101 +922,22 @@ function ModelConfigPageContent() {
           </p>
 
           {taskConfig && (
-            <div className="grid gap-4 sm:gap-6">
-              {/* Utils 任务 */}
-              <TaskConfigCard
-                title="组件模型 (utils)"
-                description="用于表情包、取名、关系、情绪变化等组件"
-                taskConfig={taskConfig.utils}
-                modelNames={modelNames}
-                onChange={(field, value) => updateTaskConfig('utils', field, value)}
-                dataTour="task-model-select"
-              />
-
-              {/* Tool Use 任务 */}
-              <TaskConfigCard
-                title="工具调用模型 (tool_use)"
-                description="需要使用支持工具调用的模型"
-                taskConfig={taskConfig.tool_use}
-                modelNames={modelNames}
-                onChange={(field, value) => updateTaskConfig('tool_use', field, value)}
-              />
-
-              {/* Replyer 任务 */}
-              <TaskConfigCard
-                title="首要回复模型 (replyer)"
-                description="用于表达器和表达方式学习"
-                taskConfig={taskConfig.replyer}
-                modelNames={modelNames}
-                onChange={(field, value) => updateTaskConfig('replyer', field, value)}
-              />
-
-              {/* Planner 任务 */}
-              <TaskConfigCard
-                title="决策模型 (planner)"
-                description="负责决定麦麦该什么时候回复"
-                taskConfig={taskConfig.planner}
-                modelNames={modelNames}
-                onChange={(field, value) => updateTaskConfig('planner', field, value)}
-              />
-
-              {/* VLM 任务 */}
-              <TaskConfigCard
-                title="图像识别模型 (vlm)"
-                description="视觉语言模型"
-                taskConfig={taskConfig.vlm}
-                modelNames={modelNames}
-                onChange={(field, value) => updateTaskConfig('vlm', field, value)}
-                hideTemperature
-              />
-
-              {/* Voice 任务 */}
-              <TaskConfigCard
-                title="语音识别模型 (voice)"
-                description="语音转文字"
-                taskConfig={taskConfig.voice}
-                modelNames={modelNames}
-                onChange={(field, value) => updateTaskConfig('voice', field, value)}
-                hideTemperature
-                hideMaxTokens
-              />
-
-              {/* Embedding 任务 */}
-              <TaskConfigCard
-                title="嵌入模型 (embedding)"
-                description="用于向量化"
-                taskConfig={taskConfig.embedding}
-                modelNames={modelNames}
-                onChange={(field, value) => updateTaskConfig('embedding', field, value)}
-                hideTemperature
-                hideMaxTokens
-              />
-
-              {/* LPMM 相关任务 */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold">LPMM 知识库模型</h3>
-                
-                <TaskConfigCard
-                  title="实体提取模型 (lpmm_entity_extract)"
-                  description="从文本中提取实体"
-                  taskConfig={taskConfig.lpmm_entity_extract}
-                  modelNames={modelNames}
-                  onChange={(field, value) =>
-                    updateTaskConfig('lpmm_entity_extract', field, value)
-                  }
-                />
-
-                <TaskConfigCard
-                  title="RDF 构建模型 (lpmm_rdf_build)"
-                  description="构建知识图谱"
-                  taskConfig={taskConfig.lpmm_rdf_build}
-                  modelNames={modelNames}
-                  onChange={(field, value) =>
-                    updateTaskConfig('lpmm_rdf_build', field, value)
-                  }
-                />
-              </div>
-            </div>
+            <DynamicConfigForm
+              schema={{
+                className: 'TaskConfig',
+                classDoc: '任务配置',
+                fields: [],
+                nested: {},
+              }}
+              values={{ taskConfig }}
+              onChange={(field, value) => {
+                if (field === 'taskConfig') {
+                  setTaskConfig(value as ModelTaskConfig)
+                  setHasUnsavedChanges(true)
+                }
+              }}
+              hooks={fieldHooks}
+            />
           )}
         </TabsContent>
       </Tabs>
