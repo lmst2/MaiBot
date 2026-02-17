@@ -102,10 +102,23 @@ class TalkRulesItem(ConfigBase):
 class ChatConfig(ConfigBase):
     """聊天配置类"""
 
-    talk_value: float = 1
+    talk_value: float = Field(
+        default=1,
+        json_schema_extra={
+            "x-widget": "slider",
+            "x-icon": "message-circle",
+            "step": 0.1,
+        },
+    )
     """聊天频率，越小越沉默，范围0-1"""
 
-    mentioned_bot_reply: bool = True
+    mentioned_bot_reply: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "at-sign",
+        },
+    )
     """是否启用提及必回复"""
 
     max_context_size: int = 30
@@ -114,7 +127,13 @@ class ChatConfig(ConfigBase):
     planner_smooth: float = 3
     """规划器平滑，增大数值会减小planner负荷，略微降低反应速度，推荐1-5，0为关闭，必须大于等于0"""
 
-    think_mode: Literal["classic", "deep", "dynamic"] = "dynamic"
+    think_mode: Literal["classic", "deep", "dynamic"] = Field(
+        default="dynamic",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "brain",
+        },
+    )
     """
     思考模式配置
     - classic: 默认think_level为0（轻量回复，不需要思考和回忆）
