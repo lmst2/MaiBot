@@ -65,9 +65,6 @@ class ExpressionUpdateRequest(BaseModel):
     situation: Optional[str] = None
     style: Optional[str] = None
     chat_id: Optional[str] = None
-    checked: Optional[bool] = None
-    rejected: Optional[bool] = None
-    require_unchecked: Optional[bool] = False  # 用于人工审核时的冲突检测
 
 
 class ExpressionUpdateResponse(BaseModel):
@@ -388,25 +385,15 @@ async def update_expression(
         if not expression:
             raise HTTPException(status_code=404, detail=f"未找到 ID 为 {expression_id} 的表达方式")
 
-        # 冲突检测：如果要求未检查状态，但已经被检查了
-        if request.require_unchecked and getattr(expression, "checked", False):
-            raise HTTPException(
-                status_code=409,
-                detail=f"此表达方式已被{'AI自动' if getattr(expression, 'modified_by', None) == 'ai' else '人工'}检查，请刷新列表",
-            )
-
         # 只更新提供的字段
         update_data = request.model_dump(exclude_unset=True)
 
-        # 移除 require_unchecked，它不是数据库字段
-        update_data.pop("require_unchecked", None)
+        # 映射 API 字段名到数据库字段名
+        if "chat_id" in update_data:
+            update_data["session_id"] = update_data.pop("chat_id")
 
         if not update_data:
             raise HTTPException(status_code=400, detail="未提供任何需要更新的字段")
-
-        # 如果更新了 checked 或 rejected，标记为用户修改
-        if "checked" in update_data or "rejected" in update_data:
-            update_data["modified_by"] = "user"
 
         # 更新最后活跃时间
         update_data["last_active_time"] = datetime.now()
