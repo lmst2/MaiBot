@@ -12,6 +12,8 @@ export type FieldType =
   | 'object'
   | 'textarea'
 
+export type XWidgetType = 'slider' | 'select' | 'textarea' | 'switch' | 'custom'
+
 export interface FieldSchema {
   name: string
   type: FieldType
@@ -26,6 +28,9 @@ export interface FieldSchema {
     type: string
   }
   properties?: ConfigSchema
+  'x-widget'?: XWidgetType
+  'x-icon'?: string
+  step?: number
 }
 
 export interface ConfigSchema {
