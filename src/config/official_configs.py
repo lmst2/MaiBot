@@ -104,6 +104,8 @@ class ChatConfig(ConfigBase):
 
     talk_value: float = Field(
         default=1,
+        ge=0,
+        le=1,
         json_schema_extra={
             "x-widget": "slider",
             "x-icon": "message-circle",

@@ -77,6 +77,18 @@ class ConfigSchemaGenerator:
         if options:
             schema["options"] = options
 
+        # Task 1c: Merge json_schema_extra (x-widget, x-icon, step, etc.)
+        if hasattr(field_info, "json_schema_extra") and field_info.json_schema_extra:
+            schema.update(field_info.json_schema_extra)
+
+        # Task 1d: Map Pydantic constraints to minValue/maxValue (frontend naming convention)
+        if hasattr(field_info, "metadata") and field_info.metadata:
+            for constraint in field_info.metadata:
+                if hasattr(constraint, "ge"):
+                    schema["minValue"] = constraint.ge
+                if hasattr(constraint, "le"):
+                    schema["maxValue"] = constraint.le
+
         return schema
 
     @staticmethod
