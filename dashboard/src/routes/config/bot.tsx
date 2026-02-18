@@ -69,6 +69,11 @@ import { useAutoSave, useConfigAutoSave } from './bot/hooks'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 
+// 导入动态表单和 Hook 系统
+import { DynamicConfigForm } from '@/components/dynamic-form'
+import { fieldHooks } from '@/lib/field-hooks'
+import { ChatSectionHook } from '@/routes/config/bot/hooks'
+
 // ==================== 常量定义 ====================
 /** Toast 显示前的延迟时间 (毫秒) */
 const TOAST_DISPLAY_DELAY = 500
@@ -307,6 +312,13 @@ function BotConfigPageContent() {
   useEffect(() => {
     loadConfig()
   }, [loadConfig])
+
+  useEffect(() => {
+    fieldHooks.register('chat', ChatSectionHook, 'replace')
+    return () => {
+      fieldHooks.unregister('chat')
+    }
+  }, [])
 
   // 使用模块化的 useAutoSave hook
   const { triggerAutoSave, cancelPendingAutoSave } = useAutoSave(
@@ -652,7 +664,24 @@ function BotConfigPageContent() {
 
         {/* 聊天配置 */}
         <TabsContent value="chat" className="space-y-4">
-          {chatConfig && <ChatSection config={chatConfig} onChange={setChatConfig} />}
+          {chatConfig && (
+            <DynamicConfigForm
+              schema={{
+                className: 'ChatConfig',
+                classDoc: '聊天配置',
+                fields: [],
+                nested: {},
+              }}
+              values={{ chat: chatConfig }}
+              onChange={(field, value) => {
+                if (field === 'chat') {
+                  setChatConfig(value as ChatConfig)
+                  setHasUnsavedChanges(true)
+                }
+              }}
+              hooks={fieldHooks}
+            />
+          )}
         </TabsContent>
 
         {/* 表达配置 */}

@@ -5,7 +5,7 @@ import types
 from dataclasses import dataclass, field
 from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Union, get_args, get_origin, Tuple, Any, List, Dict, Set, Literal
+from typing import Any, Dict, List, Literal, Set, Tuple, Union, cast, get_args, get_origin
 
 __all__ = ["ConfigBase", "Field", "AttributeData"]
 
@@ -43,6 +43,16 @@ class AttrDocBase:
         class_node = self._find_class_node(class_source)
         # 从类定义节点中提取字段文档
         return self._extract_field_docs(class_node, allow_extra_methods)
+
+    @classmethod
+    def get_class_field_docs(cls) -> dict[str, str]:
+        class_source = cls._get_class_source()
+        class_node = cls._find_class_node(class_source)
+        return AttrDocBase._extract_field_docs(
+            cast(AttrDocBase, cast(Any, cls)),
+            class_node,
+            allow_extra_methods=False,
+        )
 
     @classmethod
     def _get_class_source(cls) -> str:
@@ -265,7 +275,7 @@ class ConfigBase(BaseModel, AttrDocBase):
             if origin_type in (int, float, str, bool, complex, bytes, Any):
                 continue
             # 允许嵌套的ConfigBase自定义类
-            if inspect.isclass(origin_type) and issubclass(origin_type, ConfigBase):  # type: ignore
+            if isinstance(origin_type, type) and issubclass(cast(type, origin_type), ConfigBase):
                 continue
             # 只允许 list, set, dict 三类泛型
             if origin_type not in (list, set, dict, List, Set, Dict, Literal):

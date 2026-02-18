@@ -19,47 +19,116 @@ class ExampleConfig(ConfigBase):
 class BotConfig(ConfigBase):
     """机器人配置类"""
 
-    platform: str = ""
+    platform: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "wifi",
+        },
+    )
     """平台"""
 
-    qq_account: int = 0
+    qq_account: int = Field(
+        default=0,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "user",
+        },
+    )
     """QQ账号"""
 
-    platforms: list[str] = Field(default_factory=lambda: [])
+    platforms: list[str] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "layers",
+        },
+    )
     """其他平台"""
 
-    nickname: str = "麦麦"
+    nickname: str = Field(
+        default="麦麦",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "user-circle",
+        },
+    )
     """机器人昵称"""
 
-    alias_names: list[str] = Field(default_factory=lambda: [])
+    alias_names: list[str] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "tags",
+        },
+    )
     """别名列表"""
 
 
 class PersonalityConfig(ConfigBase):
     """人格配置类"""
 
-    personality: str = "是一个大二在读女大学生，现在正在上网和群友聊天，有时有点攻击性，有时比较温柔"
+    personality: str = Field(
+        default="是一个大二在读女大学生，现在正在上网和群友聊天，有时有点攻击性，有时比较温柔",
+        json_schema_extra={
+            "x-widget": "textarea",
+            "x-icon": "user-circle",
+        },
+    )
     """人格，建议100字以内，描述人格特质和身份特征"""
 
-    reply_style: str = "请不要刻意突出自身学科背景。可以参考贴吧，知乎和微博的回复风格。"
+    reply_style: str = Field(
+        default="请不要刻意突出自身学科背景。可以参考贴吧，知乎和微博的回复风格。",
+        json_schema_extra={
+            "x-widget": "textarea",
+            "x-icon": "message-square",
+        },
+    )
     """默认表达风格，描述麦麦说话的表达风格，表达习惯，如要修改，可以酌情新增内容，建议1-2行"""
 
-    multiple_reply_style: list[str] = Field(default_factory=lambda: [])
+    multiple_reply_style: list[str] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "list",
+        },
+    )
     """可选的多种表达风格列表，当配置不为空时可按概率随机替换 reply_style"""
 
-    multiple_probability: float = 0.3
+    multiple_probability: float = Field(
+        default=0.3,
+        ge=0,
+        le=1,
+        json_schema_extra={
+            "x-widget": "slider",
+            "x-icon": "percent",
+            "step": 0.1,
+        },
+    )
     """每次构建回复时，从 multiple_reply_style 中随机替换 reply_style 的概率（0.0-1.0）"""
 
-    plan_style: str = (
-        "1.思考**所有**的可用的action中的**每个动作**是否符合当下条件，如果动作使用条件符合聊天内容就使用"
-        "2.如果相同的action已经被执行，请不要重复执行该action"
-        "3.如果有人对你感到厌烦，请减少回复"
-        "4.如果有人在追问你，或者话题没有说完，请你继续回复"
-        "5.请分析哪些对话是和你说的，哪些是其他人之间的互动，不要误认为其他人之间的互动是和你说的"
+    plan_style: str = Field(
+        default=(
+            "1.思考**所有**的可用的action中的**每个动作**是否符合当下条件，如果动作使用条件符合聊天内容就使用"
+            "2.如果相同的action已经被执行，请不要重复执行该action"
+            "3.如果有人对你感到厌烦，请减少回复"
+            "4.如果有人在追问你，或者话题没有说完，请你继续回复"
+            "5.请分析哪些对话是和你说的，哪些是其他人之间的互动，不要误认为其他人之间的互动是和你说的"
+        ),
+        json_schema_extra={
+            "x-widget": "textarea",
+            "x-icon": "book-open",
+        },
     )
     """_wrap_麦麦的说话规则和行为规则"""
 
-    visual_style: str = "请用中文描述这张图片的内容。如果有文字，请把文字描述概括出来，请留意其主题，直观感受，输出为一段平文本，最多30字，请注意不要分点，就输出一段文本"
+    visual_style: str = Field(
+        default="请用中文描述这张图片的内容。如果有文字，请把文字描述概括出来，请留意其主题，直观感受，输出为一段平文本，最多30字，请注意不要分点，就输出一段文本",
+        json_schema_extra={
+            "x-widget": "textarea",
+            "x-icon": "image",
+        },
+    )
     """_wrap_识图提示词，不建议修改"""
 
     states: list[str] = Field(
@@ -67,18 +136,37 @@ class PersonalityConfig(ConfigBase):
             "是一个女大学生，喜欢上网聊天，会刷小红书。",
             "是一个大二心理学生，会刷贴吧和中国知网。",
             "是一个赛博网友，最近很想吐槽人。",
-        ]
+        ],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "shuffle",
+        },
     )
     """_wrap_状态列表，用于随机替换personality"""
 
-    state_probability: float = 0.3
+    state_probability: float = Field(
+        default=0.3,
+        ge=0,
+        le=1,
+        json_schema_extra={
+            "x-widget": "slider",
+            "x-icon": "percent",
+            "step": 0.1,
+        },
+    )
     """状态概率，每次构建人格时替换personality的概率"""
 
 
 class RelationshipConfig(ConfigBase):
     """关系配置类"""
 
-    enable_relationship: bool = True
+    enable_relationship: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "heart",
+        },
+    )
     """是否启用关系系统，关系系统被移除，此部分配置暂时无效"""
 
 
@@ -102,19 +190,54 @@ class TalkRulesItem(ConfigBase):
 class ChatConfig(ConfigBase):
     """聊天配置类"""
 
-    talk_value: float = 1
+    talk_value: float = Field(
+        default=1,
+        ge=0,
+        le=1,
+        json_schema_extra={
+            "x-widget": "slider",
+            "x-icon": "message-circle",
+            "step": 0.1,
+        },
+    )
     """聊天频率，越小越沉默，范围0-1"""
 
-    mentioned_bot_reply: bool = True
+    mentioned_bot_reply: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "at-sign",
+        },
+    )
     """是否启用提及必回复"""
 
-    max_context_size: int = 30
+    max_context_size: int = Field(
+        default=30,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "layers",
+        },
+    )
     """上下文长度"""
 
-    planner_smooth: float = 3
+    planner_smooth: float = Field(
+        default=3,
+        ge=0,
+        json_schema_extra={
+            "x-widget": "slider",
+            "x-icon": "gauge",
+            "step": 0.5,
+        },
+    )
     """规划器平滑，增大数值会减小planner负荷，略微降低反应速度，推荐1-5，0为关闭，必须大于等于0"""
 
-    think_mode: Literal["classic", "deep", "dynamic"] = "dynamic"
+    think_mode: Literal["classic", "deep", "dynamic"] = Field(
+        default="dynamic",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "brain",
+        },
+    )
     """
     思考模式配置
     - classic: 默认think_level为0（轻量回复，不需要思考和回忆）
@@ -122,20 +245,42 @@ class ChatConfig(ConfigBase):
     - dynamic: think_level由planner动态给出（根据planner返回的think_level决定）
     """
 
-    plan_reply_log_max_per_chat: int = 1024
+    plan_reply_log_max_per_chat: int = Field(
+        default=1024,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "file-text",
+        },
+    )
     """每个聊天流最大保存的Plan/Reply日志数量，超过此数量时会自动删除最老的日志"""
 
-    llm_quote: bool = False
+    llm_quote: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "quote",
+        },
+    )
     """是否在 reply action 中启用 quote 参数，启用后 LLM 可以控制是否引用消息"""
 
-    enable_talk_value_rules: bool = True
+    enable_talk_value_rules: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "settings",
+        },
+    )
     """是否启用动态发言频率规则"""
 
     talk_value_rules: list[TalkRulesItem] = Field(
         default_factory=lambda: [
             TalkRulesItem(platform="", item_id="", rule_type="group", time="00:00-08:59", value=0.8),
             TalkRulesItem(platform="", item_id="", rule_type="group", time="09:00-18:59", value=1.0),
-        ]
+        ],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "list",
+        },
     )
     """
     _wrap_思考频率规则列表，支持按聊天流/按日内时段配置。
@@ -145,16 +290,34 @@ class ChatConfig(ConfigBase):
 class MessageReceiveConfig(ConfigBase):
     """消息接收配置类"""
 
-    image_parse_threshold: int = 5
+    image_parse_threshold: int = Field(
+        default=5,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "image",
+        },
+    )
     """
     当消息中图片数量不超过此阈值时，启用图片解析功能，将图片内容解析为文本后再进行处理。
     当消息中图片数量超过此阈值时，为了避免过度解析导致的性能问题，将跳过图片解析，直接进行处理。
     """
 
-    ban_words: set[str] = Field(default_factory=lambda: set())
+    ban_words: set[str] = Field(
+        default_factory=lambda: set(),
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "ban",
+        },
+    )
     """过滤词列表"""
 
-    ban_msgs_regex: set[str] = Field(default_factory=lambda: set())
+    ban_msgs_regex: set[str] = Field(
+        default_factory=lambda: set(),
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "regex",
+        },
+    )
     """过滤正则表达式列表"""
 
     def model_post_init(self, context: Optional[dict] = None) -> None:
@@ -167,44 +330,121 @@ class MessageReceiveConfig(ConfigBase):
 
 
 class TargetItem(ConfigBase):
-    platform: str = ""
+    platform: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "wifi",
+        },
+    )
     """平台，与ID一起留空表示全局"""
 
-    item_id: str = ""
+    item_id: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """用户ID，与平台一起留空表示全局"""
 
-    rule_type: Literal["group", "private"] = "group"
+    rule_type: Literal["group", "private"] = Field(
+        default="group",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "users",
+        },
+    )
     """聊天流类型，group（群聊）或private（私聊）"""
 
 
 class MemoryConfig(ConfigBase):
     """记忆配置类"""
 
-    max_agent_iterations: int = 5
+    max_agent_iterations: int = Field(
+        default=5,
+        ge=1,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "layers",
+        },
+    )
     """记忆思考深度（最低为1）"""
 
-    agent_timeout_seconds: float = 120.0
+    agent_timeout_seconds: float = Field(
+        default=120.0,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "clock",
+        },
+    )
     """最长回忆时间（秒）"""
 
-    global_memory: bool = False
+    global_memory: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "globe",
+        },
+    )
     """是否允许记忆检索在聊天记录中进行全局查询（忽略当前chat_id，仅对 search_chat_history 等工具生效）"""
 
-    global_memory_blacklist: list[TargetItem] = Field(default_factory=lambda: [])
+    global_memory_blacklist: list[TargetItem] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "shield-off",
+        },
+    )
     """_wrap_全局记忆黑名单，当启用全局记忆时，不将特定聊天流纳入检索"""
 
-    chat_history_topic_check_message_threshold: int = 80
+    chat_history_topic_check_message_threshold: int = Field(
+        default=80,
+        ge=1,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """聊天历史话题检查的消息数量阈值，当累积消息数达到此值时触发话题检查"""
 
-    chat_history_topic_check_time_hours: float = 8.0
+    chat_history_topic_check_time_hours: float = Field(
+        default=8.0,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "clock",
+        },
+    )
     """聊天历史话题检查的时间阈值（小时），当距离上次检查超过此时间且消息数达到最小阈值时触发话题检查"""
 
-    chat_history_topic_check_min_messages: int = 20
+    chat_history_topic_check_min_messages: int = Field(
+        default=20,
+        ge=1,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """聊天历史话题检查的时间触发模式下的最小消息数阈值"""
 
-    chat_history_finalize_no_update_checks: int = 3
+    chat_history_finalize_no_update_checks: int = Field(
+        default=3,
+        ge=1,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "check-circle",
+        },
+    )
     """聊天历史话题打包存储的连续无更新检查次数阈值，当话题连续N次检查无新增内容时触发打包存储"""
 
-    chat_history_finalize_message_count: int = 5
+    chat_history_finalize_message_count: int = Field(
+        default=5,
+        ge=1,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "package",
+        },
+    )
     """聊天历史话题打包存储的消息条数阈值，当话题的消息条数超过此值时触发打包存储"""
 
     def model_post_init(self, context: Optional[dict] = None) -> None:
@@ -237,29 +477,71 @@ class MemoryConfig(ConfigBase):
 
 
 class LearningItem(ConfigBase):
-    platform: str = ""
+    platform: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "wifi",
+        },
+    )
     """平台，与ID一起留空表示全局"""
 
-    item_id: str = ""
+    item_id: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """用户ID，与平台一起留空表示全局"""
 
-    rule_type: Literal["group", "private"] = "group"
+    rule_type: Literal["group", "private"] = Field(
+        default="group",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "users",
+        },
+    )
     """聊天流类型，group（群聊）或private（私聊）"""
 
-    use_expression: bool = True
+    use_expression: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "message-square",
+        },
+    )
     """是否启用表达学习"""
 
-    enable_learning: bool = True
+    enable_learning: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "graduation-cap",
+        },
+    )
     """是否启用表达优化学习"""
 
-    enable_jargon_learning: bool = False
+    enable_jargon_learning: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "book",
+        },
+    )
     """是否启用jargon学习"""
 
 
 class ExpressionGroup(ConfigBase):
     """表达互通组配置类，若列表为空代表全局共享"""
 
-    expression_groups: list[TargetItem] = Field(default_factory=lambda: [])
+    expression_groups: list[TargetItem] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "users",
+        },
+    )
     """_wrap_表达学习互通组"""
 
 
@@ -276,44 +558,120 @@ class ExpressionConfig(ConfigBase):
                 enable_learning=True,
                 enable_jargon_learning=True,
             )
-        ]
+        ],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "list",
+        },
     )
     """_wrap_表达学习配置列表，支持按聊天流配置"""
 
-    expression_groups: list[ExpressionGroup] = Field(default_factory=list)
+    expression_groups: list[ExpressionGroup] = Field(
+        default_factory=list,
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "users",
+        },
+    )
     """_wrap_表达学习互通组"""
 
-    expression_checked_only: bool = True
+    expression_checked_only: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "check",
+        },
+    )
     """是否仅选择已检查且未拒绝的表达方式"""
 
-    expression_self_reflect: bool = True
+    expression_self_reflect: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "refresh-cw",
+        },
+    )
     """是否启用自动表达优化"""
 
-    expression_auto_check_interval: int = 600
+    expression_auto_check_interval: int = Field(
+        default=600,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "clock",
+        },
+    )
     """表达方式自动检查的间隔时间（秒）"""
 
-    expression_auto_check_count: int = 20
+    expression_auto_check_count: int = Field(
+        default=20,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """每次自动检查时随机选取的表达方式数量"""
 
-    expression_auto_check_custom_criteria: list[str] = Field(default_factory=list)
+    expression_auto_check_custom_criteria: list[str] = Field(
+        default_factory=list,
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "file-text",
+        },
+    )
     """表达方式自动检查的额外自定义评估标准"""
 
-    expression_manual_reflect: bool = False
+    expression_manual_reflect: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "hand",
+        },
+    )
     """是否启用手动表达优化"""
 
-    manual_reflect_operator_id: Optional[TargetItem] = None
+    manual_reflect_operator_id: Optional[TargetItem] = Field(
+        default=None,
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "user-cog",
+        },
+    )
     """手动表达优化操作员ID"""
 
-    allow_reflect: list[TargetItem] = Field(default_factory=list)
+    allow_reflect: list[TargetItem] = Field(
+        default_factory=list,
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "shield",
+        },
+    )
     """允许进行表达反思的聊天流ID列表，只有在此列表中的聊天流才会提出问题并跟踪。如果列表为空，则所有聊天流都可以进行表达反思（前提是reflect为true）"""
 
-    all_global_jargon: bool = True
+    all_global_jargon: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "globe",
+        },
+    )
     """是否开启全局黑话模式，注意，此功能关闭后，已经记录的全局黑话不会改变，需要手动删除"""
 
-    enable_jargon_explanation: bool = True
+    enable_jargon_explanation: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "info",
+        },
+    )
     """是否在回复前尝试对上下文中的黑话进行解释（关闭可减少一次LLM调用，仅影响回复前的黑话匹配与解释，不影响黑话学习）"""
 
-    jargon_mode: Literal["context", "planner"] = "planner"
+    jargon_mode: Literal["context", "planner"] = Field(
+        default="planner",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "settings",
+        },
+    )
     """
     黑话解释来源模式
     
@@ -326,52 +684,127 @@ class ExpressionConfig(ConfigBase):
 class ToolConfig(ConfigBase):
     """工具配置类"""
 
-    enable_tool: bool = False
+    enable_tool: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "wrench",
+        },
+    )
     """是否在聊天中启用工具"""
 
 
 class VoiceConfig(ConfigBase):
     """语音识别配置类"""
 
-    enable_asr: bool = False
+    enable_asr: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "mic",
+        },
+    )
     """是否启用语音识别，启用后麦麦可以识别语音消息"""
 
 
 class EmojiConfig(ConfigBase):
     """表情包配置类"""
 
-    emoji_chance: float = 0.4
+    emoji_chance: float = Field(
+        default=0.4,
+        ge=0,
+        le=1,
+        json_schema_extra={
+            "x-widget": "slider",
+            "x-icon": "smile",
+            "step": 0.1,
+        },
+    )
     """发送表情包的基础概率"""
 
-    max_reg_num: int = 100
+    max_reg_num: int = Field(
+        default=100,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """表情包最大注册数量"""
 
-    do_replace: bool = True
+    do_replace: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "refresh-cw",
+        },
+    )
     """达到最大注册数量时替换旧表情包，关闭则达到最大数量时不会继续收集表情包"""
 
-    check_interval: int = 10
+    check_interval: int = Field(
+        default=10,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "clock",
+        },
+    )
     """表情包检查间隔（分钟）"""
 
-    steal_emoji: bool = True
+    steal_emoji: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "copy",
+        },
+    )
     """是否偷取表情包，让麦麦可以将一些表情包据为己有"""
 
-    content_filtration: bool = False
+    content_filtration: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "filter",
+        },
+    )
     """是否启用表情包过滤，只有符合该要求的表情包才会被保存"""
 
-    filtration_prompt: str = "符合公序良俗"
+    filtration_prompt: str = Field(
+        default="符合公序良俗",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "shield",
+        },
+    )
     """表情包过滤要求，只有符合该要求的表情包才会被保存"""
 
 
 class KeywordRuleConfig(ConfigBase):
     """关键词规则配置类"""
 
-    keywords: list[str] = Field(default_factory=lambda: [])
+    keywords: list[str] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "tag",
+        },
+    )
     """关键词列表"""
 
-    regex: list[str] = Field(default_factory=lambda: [])
+    regex: list[str] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "regex",
+        },
+    )
     """正则表达式列表"""
 
-    reaction: str = ""
+    reaction: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "textarea",
+            "x-icon": "message-circle",
+        },
+    )
     """关键词触发的反应"""
 
     def model_post_init(self, context: Optional[dict] = None) -> None:
@@ -393,10 +826,22 @@ class KeywordRuleConfig(ConfigBase):
 class KeywordReactionConfig(ConfigBase):
     """关键词配置类"""
 
-    keyword_rules: list[KeywordRuleConfig] = Field(default_factory=lambda: [])
+    keyword_rules: list[KeywordRuleConfig] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "list",
+        },
+    )
     """关键词规则列表"""
 
-    regex_rules: list[KeywordRuleConfig] = Field(default_factory=lambda: [])
+    regex_rules: list[KeywordRuleConfig] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "list",
+        },
+    )
     """正则表达式规则列表"""
 
     def model_post_init(self, context: Optional[dict] = None) -> None:
@@ -410,91 +855,238 @@ class KeywordReactionConfig(ConfigBase):
 class ResponsePostProcessConfig(ConfigBase):
     """回复后处理配置类"""
 
-    enable_response_post_process: bool = True
+    enable_response_post_process: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "settings",
+        },
+    )
     """是否启用回复后处理，包括错别字生成器，回复分割器"""
 
 
 class ChineseTypoConfig(ConfigBase):
     """中文错别字配置类"""
 
-    enable: bool = True
+    enable: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "type",
+        },
+    )
     """是否启用中文错别字生成器"""
 
-    error_rate: float = 0.01
+    error_rate: float = Field(
+        default=0.01,
+        ge=0,
+        le=1,
+        json_schema_extra={
+            "x-widget": "slider",
+            "x-icon": "percent",
+            "step": 0.01,
+        },
+    )
     """单字替换概率"""
 
-    min_freq: int = 9
+    min_freq: int = Field(
+        default=9,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """最小字频阈值"""
 
-    tone_error_rate: float = 0.1
+    tone_error_rate: float = Field(
+        default=0.1,
+        ge=0,
+        le=1,
+        json_schema_extra={
+            "x-widget": "slider",
+            "x-icon": "percent",
+            "step": 0.1,
+        },
+    )
     """声调错误概率"""
 
-    word_replace_rate: float = 0.006
+    word_replace_rate: float = Field(
+        default=0.006,
+        ge=0,
+        le=1,
+        json_schema_extra={
+            "x-widget": "slider",
+            "x-icon": "percent",
+            "step": 0.001,
+        },
+    )
     """整词替换概率"""
 
 
 class ResponseSplitterConfig(ConfigBase):
     """回复分割器配置类"""
 
-    enable: bool = True
+    enable: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "scissors",
+        },
+    )
     """是否启用回复分割器"""
 
-    max_length: int = 512
+    max_length: int = Field(
+        default=512,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "ruler",
+        },
+    )
     """回复允许的最大长度"""
 
-    max_sentence_num: int = 8
+    max_sentence_num: int = Field(
+        default=8,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """回复允许的最大句子数"""
 
-    enable_kaomoji_protection: bool = False
+    enable_kaomoji_protection: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "smile",
+        },
+    )
     """是否启用颜文字保护"""
 
-    enable_overflow_return_all: bool = False
+    enable_overflow_return_all: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "maximize",
+        },
+    )
     """是否在句子数量超出回复允许的最大句子数时一次性返回全部内容"""
 
 
 class TelemetryConfig(ConfigBase):
     """遥测配置类"""
 
-    enable: bool = True
+    enable: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "activity",
+        },
+    )
     """是否启用遥测"""
 
 
 class DebugConfig(ConfigBase):
     """调试配置类"""
 
-    show_prompt: bool = False
+    show_prompt: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "eye",
+        },
+    )
     """是否显示prompt"""
 
-    show_replyer_prompt: bool = True
+    show_replyer_prompt: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "message-square",
+        },
+    )
     """是否显示回复器prompt"""
 
-    show_replyer_reasoning: bool = True
+    show_replyer_reasoning: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "brain",
+        },
+    )
     """是否显示回复器推理"""
 
-    show_jargon_prompt: bool = False
+    show_jargon_prompt: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "book",
+        },
+    )
     """是否显示jargon相关提示词"""
 
-    show_memory_prompt: bool = False
+    show_memory_prompt: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "database",
+        },
+    )
     """是否显示记忆检索相关prompt"""
 
-    show_planner_prompt: bool = False
+    show_planner_prompt: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "map",
+        },
+    )
     """是否显示planner的prompt和原始返回结果"""
 
-    show_lpmm_paragraph: bool = False
+    show_lpmm_paragraph: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "file-text",
+        },
+    )
     """是否显示lpmm找到的相关文段日志"""
 
 
 class ExtraPromptItem(ConfigBase):
-    platform: str = ""
+    platform: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "wifi",
+        },
+    )
     """平台，留空无效"""
 
-    item_id: str = ""
+    item_id: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """用户ID，留空无效"""
 
-    rule_type: Literal["group", "private"] = "group"
+    rule_type: Literal["group", "private"] = Field(
+        default="group",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "users",
+        },
+    )
     """聊天流类型，group（群聊）或private（私聊）"""
 
-    prompt: str = ""
+    prompt: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "textarea",
+            "x-icon": "file-text",
+        },
+    )
     """额外的prompt内容"""
 
     def model_post_init(self, context: Optional[dict] = None) -> None:
@@ -506,128 +1098,357 @@ class ExtraPromptItem(ConfigBase):
 class ExperimentalConfig(ConfigBase):
     """实验功能配置类"""
 
-    private_plan_style: str = (
-        "1.思考**所有**的可用的action中的**每个动作**是否符合当下条件，如果动作使用条件符合聊天内容就使用"
-        "2.如果相同的内容已经被执行，请不要重复执行"
-        "3.某句话如果已经被回复过，不要重复回复"
+    private_plan_style: str = Field(
+        default=(
+            "1.思考**所有**的可用的action中的**每个动作**是否符合当下条件，如果动作使用条件符合聊天内容就使用"
+            "2.如果相同的内容已经被执行，请不要重复执行"
+            "3.某句话如果已经被回复过，不要重复回复"
+        ),
+        json_schema_extra={
+            "x-widget": "textarea",
+            "x-icon": "user",
+        },
     )
     """_wrap_私聊说话规则，行为风格（实验性功能）"""
 
-    chat_prompts: list[ExtraPromptItem] = Field(default_factory=lambda: [])
+    chat_prompts: list[ExtraPromptItem] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "list",
+        },
+    )
     """_wrap_为指定聊天添加额外的prompt配置列表"""
 
-    lpmm_memory: bool = False
+    lpmm_memory: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "database",
+        },
+    )
     """是否将聊天历史总结导入到LPMM知识库。开启后，chat_history_summarizer总结出的历史记录会同时导入到知识库"""
 
 
 class MaimMessageConfig(ConfigBase):
     """maim_message配置类"""
 
-    ws_server_host: str = "127.0.0.1"
+    ws_server_host: str = Field(
+        default="127.0.0.1",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "server",
+        },
+    )
     """旧版基于WS的服务器主机地址"""
 
-    ws_server_port: int = 8080
+    ws_server_port: int = Field(
+        default=8080,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """旧版基于WS的服务器端口号"""
 
-    auth_token: list[str] = Field(default_factory=lambda: [])
+    auth_token: list[str] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "key",
+        },
+    )
     """认证令牌，用于旧版API验证，为空则不启用验证"""
 
-    enable_api_server: bool = False
+    enable_api_server: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "server",
+        },
+    )
     """是否启用额外的新版API Server"""
 
-    api_server_host: str = "0.0.0.0"
+    api_server_host: str = Field(
+        default="0.0.0.0",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "globe",
+        },
+    )
     """新版API Server主机地址"""
 
-    api_server_port: int = 8090
+    api_server_port: int = Field(
+        default=8090,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """新版API Server端口号"""
 
-    api_server_use_wss: bool = False
+    api_server_use_wss: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "lock",
+        },
+    )
     """新版API Server是否启用WSS"""
 
-    api_server_cert_file: str = ""
+    api_server_cert_file: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "file",
+        },
+    )
     """新版API Server SSL证书文件路径"""
 
-    api_server_key_file: str = ""
+    api_server_key_file: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "key",
+        },
+    )
     """新版API Server SSL密钥文件路径"""
 
-    api_server_allowed_api_keys: list[str] = Field(default_factory=lambda: [])
+    api_server_allowed_api_keys: list[str] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "shield",
+        },
+    )
     """新版API Server允许的API Key列表，为空则允许所有连接"""
 
 
 class LPMMKnowledgeConfig(ConfigBase):
     """LPMM知识库配置类"""
 
-    enable: bool = True
+    enable: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "database",
+        },
+    )
     """是否启用LPMM知识库"""
 
-    lpmm_mode: Literal["classic", "agent"] = "classic"
+    lpmm_mode: Literal["classic", "agent"] = Field(
+        default="classic",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "brain",
+        },
+    )
     """LPMM知识库模式，可选：classic经典模式，agent 模式"""
 
-    rag_synonym_search_top_k: int = 10
+    rag_synonym_search_top_k: int = Field(
+        default=10,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """同义检索TopK"""
 
-    rag_synonym_threshold: float = 0.8
+    rag_synonym_threshold: float = Field(
+        default=0.8,
+        ge=0,
+        le=1,
+        json_schema_extra={
+            "x-widget": "slider",
+            "x-icon": "percent",
+            "step": 0.1,
+        },
+    )
     """同义阈值，相似度高于该值的关系会被当作同义词"""
 
-    info_extraction_workers: int = 3
+    info_extraction_workers: int = Field(
+        default=3,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "cpu",
+        },
+    )
     """实体抽取同时执行线程数，非Pro模型不要设置超过5"""
 
-    qa_relation_search_top_k: int = 10
+    qa_relation_search_top_k: int = Field(
+        default=10,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """关系检索TopK"""
 
-    qa_relation_threshold: float = 0.75
+    qa_relation_threshold: float = Field(
+        default=0.75,
+        ge=0,
+        le=1,
+        json_schema_extra={
+            "x-widget": "slider",
+            "x-icon": "percent",
+            "step": 0.05,
+        },
+    )
     """关系阈值，相似度高于该值的关系会被认为是相关关系"""
 
-    qa_paragraph_search_top_k: int = 1000
+    qa_paragraph_search_top_k: int = Field(
+        default=1000,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """段落检索TopK（不能过小，可能影响搜索结果）"""
 
-    qa_paragraph_node_weight: float = 0.05
+    qa_paragraph_node_weight: float = Field(
+        default=0.05,
+        json_schema_extra={
+            "x-widget": "slider",
+            "x-icon": "weight",
+            "step": 0.01,
+        },
+    )
     """段落节点权重（在图搜索&PPR计算中的权重，当搜索仅使用DPR时，此参数不起作用）"""
 
-    qa_ent_filter_top_k: int = 10
+    qa_ent_filter_top_k: int = Field(
+        default=10,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """实体过滤TopK"""
 
-    qa_ppr_damping: float = 0.8
+    qa_ppr_damping: float = Field(
+        default=0.8,
+        ge=0,
+        le=1,
+        json_schema_extra={
+            "x-widget": "slider",
+            "x-icon": "percent",
+            "step": 0.1,
+        },
+    )
     """PPR阻尼系数"""
 
-    qa_res_top_k: int = 10
+    qa_res_top_k: int = Field(
+        default=10,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """最终提供段落TopK"""
 
-    embedding_dimension: int = 1024
+    embedding_dimension: int = Field(
+        default=1024,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """嵌入向量维度,输出维度"""
 
-    max_embedding_workers: int = 3
+    max_embedding_workers: int = Field(
+        default=3,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "cpu",
+        },
+    )
     """嵌入/抽取并发线程数"""
 
-    embedding_chunk_size: int = 4
+    embedding_chunk_size: int = Field(
+        default=4,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """每批嵌入的条数"""
 
-    max_synonym_entities: int = 2000
+    max_synonym_entities: int = Field(
+        default=2000,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """同义边参与的实体数上限，超限则跳过"""
 
-    enable_ppr: bool = True
+    enable_ppr: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "zap",
+        },
+    )
     """是否启用PPR，低配机器可关闭"""
 
 
 class DreamConfig(ConfigBase):
     """Dream配置类"""
 
-    interval_minutes: int = 30
+    interval_minutes: int = Field(
+        default=30,
+        ge=1,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "clock",
+        },
+    )
     """做梦时间间隔（分钟），默认30分钟"""
 
-    max_iterations: int = 20
+    max_iterations: int = Field(
+        default=20,
+        ge=1,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hash",
+        },
+    )
     """做梦最大轮次，默认20轮"""
 
-    first_delay_seconds: int = 1800
+    first_delay_seconds: int = Field(
+        default=1800,
+        ge=0,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "timer",
+        },
+    )
     """程序启动后首次做梦前的延迟时间（秒），默认1800秒"""
 
-    dream_send: str = ""
+    dream_send: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "send",
+        },
+    )
     """做梦结果推送目标，格式为 "platform:user_id，为空则不发送"""
 
-    dream_time_ranges: list[str] = Field(default_factory=lambda: ["23:00-10:00"])
+    dream_time_ranges: list[str] = Field(
+        default_factory=lambda: ["23:00-10:00"],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "moon",
+        },
+    )
     """_wrap_做梦时间段配置列表"""
 
-    dream_visible: bool = False
+    dream_visible: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "eye",
+        },
+    )
     """做梦结果发送后是否存储到上下文"""
 
     def model_post_init(self, context: Optional[dict] = None) -> None:
@@ -643,35 +1464,89 @@ class DreamConfig(ConfigBase):
 class WebUIConfig(ConfigBase):
     """WebUI配置类"""
 
-    enabled: bool = True
+    enabled: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "monitor",
+        },
+    )
     """是否启用WebUI"""
 
-    mode: Literal["development", "production"] = "production"
+    mode: Literal["development", "production"] = Field(
+        default="production",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "settings",
+        },
+    )
     """运行模式：development(开发) 或 production(生产)"""
 
-    anti_crawler_mode: Literal["false", "strict", "loose", "basic"] = "basic"
+    anti_crawler_mode: Literal["false", "strict", "loose", "basic"] = Field(
+        default="basic",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "shield",
+        },
+    )
     """防爬虫模式：false(禁用) / strict(严格) / loose(宽松) / basic(基础-只记录不阻止)"""
 
-    allowed_ips: str = "127.0.0.1"
+    allowed_ips: str = Field(
+        default="127.0.0.1",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "network",
+        },
+    )
     """IP白名单（逗号分隔，支持精确IP、CIDR格式和通配符）"""
 
-    trusted_proxies: str = ""
+    trusted_proxies: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "server",
+        },
+    )
     """信任的代理IP列表（逗号分隔），只有来自这些IP的X-Forwarded-For才被信任"""
 
-    trust_xff: bool = False
+    trust_xff: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "shield-check",
+        },
+    )
     """是否启用X-Forwarded-For代理解析（默认false）"""
 
-    secure_cookie: bool = False
+    secure_cookie: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "cookie",
+        },
+    )
     """是否启用安全Cookie（仅通过HTTPS传输，默认false）"""
 
-    enable_paragraph_content: bool = False
+    enable_paragraph_content: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "file-text",
+        },
+    )
     """是否在知识图谱中加载段落完整内容（需要加载embedding store，会占用额外内存）"""
 
 
 class DatabaseConfig(ConfigBase):
     """数据库配置类"""
 
-    save_binary_data: bool = False
+    save_binary_data: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "save",
+        },
+    )
     """
     是否将消息中的二进制数据保存为独立文件
     若启用，消息中的语音等二进制数据将会保存为独立文件，并在消息中以特殊标记替代。启用会导致数据文件夹体积增大，但可以实现二次识别等功能。
