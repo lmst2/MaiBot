@@ -33,9 +33,8 @@ class BaseImageDataModel(BaseDatabaseDataModel[Images]):
         self.file_hash: str = None  # type: ignore
 
         self.image_bytes: Optional[bytes] = image_bytes
-        
+
         self.image_format: str = ""  # 图片格式
-        self.is_deleted: bool = False  # 是否已被标记为删除
 
     def read_image_bytes(self, path: Path) -> bytes:
         """
@@ -89,7 +88,6 @@ class BaseImageDataModel(BaseDatabaseDataModel[Images]):
         Returns:
             return (bool): 如果成功计算哈希值和格式则返回True，否则返回False
         """
-
         try:
             # 计算哈希值
             logger.debug(f"[初始化] 计算 {self.file_name} 的哈希值...")
@@ -109,7 +107,9 @@ class BaseImageDataModel(BaseDatabaseDataModel[Images]):
             # 比对文件扩展名和实际格式
             file_ext = self.file_name.split(".")[-1].lower()
             if file_ext != self.image_format:
-                logger.warning(f"[初始化] {self.file_name} 文件扩展名与实际格式不符: ext`{file_ext}`!=`{self.image_format}`")
+                logger.warning(
+                    f"[初始化] {self.file_name} 文件扩展名与实际格式不符: ext`{file_ext}`!=`{self.image_format}`"
+                )
                 # 重命名文件以匹配实际格式
                 new_file_name = ".".join(self.file_name.split(".")[:-1] + [self.image_format])
                 new_full_path = self.dir_path / new_file_name
@@ -120,7 +120,6 @@ class BaseImageDataModel(BaseDatabaseDataModel[Images]):
         except Exception as e:
             logger.error(f"[初始化] 初始化图片时发生错误: {e}")
             logger.error(traceback.format_exc())
-            self.is_deleted = True
             return False
 
 
@@ -136,6 +135,19 @@ class MaiEmoji(BaseImageDataModel):
 
     @classmethod
     def from_db_instance(cls, db_record: Images):
+        """从数据库记录创建 MaiEmoji 对象，如果记录标记为文件不存在则**抛出异常**
+
+        调用者应该对数据库记录进行检查，如果 `no_file_flag` 为 True 则不应该调用此方法
+
+        Args:
+            db_record (Images): 数据库中的图片记录
+        Returns:
+            return (MaiEmoji): 包含图片信息的 MaiEmoji 对象
+        Raises:
+            ValueError: 如果数据库记录标记为文件不存在则抛出该异常
+        """
+        if db_record.no_file_flag:
+            raise ValueError(f"数据库记录 {db_record.image_hash} 标记为文件不存在，无法创建 MaiEmoji 对象")
         obj = cls(db_record.full_path)
         obj.file_hash = db_record.image_hash
         obj.description = db_record.description
@@ -168,6 +180,19 @@ class MaiImage(BaseImageDataModel):
 
     @classmethod
     def from_db_instance(cls, db_record: Images):
+        """从数据库记录创建 MaiImage 对象，如果记录标记为文件不存在则**抛出异常**
+
+        调用者应该对数据库记录进行检查，如果 `no_file_flag` 为 True 则不应该调用此方法
+
+        Args:
+            db_record (Images): 数据库中的图片记录
+        Returns:
+            return (MaiImage): 包含图片信息的 MaiImage 对象
+        Raises:
+            ValueError: 如果数据库记录标记为文件不存在则抛出该异常
+        """
+        if db_record.no_file_flag:
+            raise ValueError(f"数据库记录 {db_record.image_hash} 标记为文件不存在，无法创建 MaiImage 对象")
         obj = cls(db_record.full_path)
         obj.file_hash = db_record.image_hash
         obj.full_path = Path(db_record.full_path)

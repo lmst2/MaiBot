@@ -4,7 +4,6 @@ import datetime
 
 # from .message_storage import MongoDBMessageStorage
 from src.chat.utils.chat_message_builder import build_readable_messages, get_raw_msg_before_timestamp_with_chat
-from src.common.data_models import transform_class_to_dict
 
 # from src.config.config import global_config
 from typing import Dict, Any, Optional

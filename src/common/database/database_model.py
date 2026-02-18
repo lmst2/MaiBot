@@ -93,8 +93,10 @@ class Images(SQLModel, table=True):
     query_count: int = Field(default=0)  # 被查询次数
     is_registered: bool = Field(default=False)  # 是否已经注册
     is_banned: bool = Field(default=False)  # 被手动禁用
+    
+    no_file_flag: bool = Field(default=False)  # 文件不存在标记，如果为True表示文件已经不存在，仅保留描述字段
 
-    record_time: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 记录时间（被创建的时间）
+    record_time: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 记录时间（数据库记录被创建的时间）
     register_time: Optional[datetime] = Field(default=None, sa_column=Column(DateTime, nullable=True))  # 注册时间（被注册为可用表情包的时间）
     last_used_time: Optional[datetime] = Field(default=None, sa_column=Column(DateTime, nullable=True))  # 上次使用时间
 

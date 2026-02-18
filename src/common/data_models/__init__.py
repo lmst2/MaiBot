@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 
-from dataclasses import is_dataclass
-from typing import Any, Dict, Self, TypeVar, Generic, TYPE_CHECKING
+from typing import Self, TypeVar, Generic, TYPE_CHECKING
 
 import copy
 
@@ -14,20 +13,6 @@ T = TypeVar("T", bound="SQLModel")
 class BaseDataModel:
     def deepcopy(self):
         return copy.deepcopy(self)
-
-
-def transform_class_to_dict(obj: Any) -> Dict[str, Any]:
-    if obj is None:
-        return {}
-    if is_dataclass(obj):
-        return obj.__dict__
-    if hasattr(obj, "dict"):
-        return obj.dict()
-    if hasattr(obj, "model_dump"):
-        return obj.model_dump()
-    if hasattr(obj, "__dict__"):
-        return obj.__dict__
-    return {"value": obj}
 
 
 class BaseDatabaseDataModel(ABC, Generic[T]):

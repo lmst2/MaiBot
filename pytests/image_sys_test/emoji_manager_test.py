@@ -55,7 +55,6 @@ def _install_stub_modules(monkeypatch):
         description: str | None = None
         emotion: list[str] | None = None
         file_hash: str | None = None
-        is_deleted: bool = False
         query_count: int = 0
         register_time: object | None = None
         image_format: str | None = None
@@ -83,6 +82,7 @@ def _install_stub_modules(monkeypatch):
         id = 0
         is_registered = False
         is_banned = False
+        no_file_flag = False
         register_time = None
         query_count = 0
         last_used_time = None
@@ -470,6 +470,9 @@ def test_load_emojis_from_db_partial_bad_records(monkeypatch):
         def __init__(self, record_id, full_path):
             self.id = record_id
             self.full_path = full_path
+            self.image_type = emoji_manager_new.ImageType.EMOJI
+            self.no_file_flag = False
+            self.is_banned = False
 
     records = [_Record(1, "bad"), _Record(2, "ok")]
 
@@ -598,6 +601,62 @@ def test_load_emojis_from_db_scalars_all_error(monkeypatch):
     assert manager.emojis == []
     assert manager._emoji_num == 0
     assert any("不可恢复错误" in m for m in _messages(logger.critical_calls))
+
+
+def test_load_emojis_from_db_skips_filtered_records(monkeypatch):
+    emoji_manager_new = import_emoji_manager_new(monkeypatch)
+    logger = emoji_manager_new.logger
+
+    class _Record:
+        def __init__(self, record_id, full_path, image_type, no_file_flag=False, is_banned=False):
+            self.id = record_id
+            self.full_path = full_path
+            self.image_type = image_type
+            self.no_file_flag = no_file_flag
+            self.is_banned = is_banned
+
+    records = [
+        _Record(1, "img.png", "IMAGE"),
+        _Record(2, "nofile.png", emoji_manager_new.ImageType.EMOJI, no_file_flag=True),
+        _Record(3, "banned.png", emoji_manager_new.ImageType.EMOJI, is_banned=True),
+        _Record(4, "ok.png", emoji_manager_new.ImageType.EMOJI),
+    ]
+
+    class _Result:
+        def all(self):
+            return records
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def exec(self, _statement):
+            return _Result()
+
+    def _get_db_session():
+        return _Session()
+
+    created = []
+
+    def _from_db_instance(record):
+        emoji = emoji_manager_new.MaiEmoji()
+        emoji.file_name = record.full_path
+        created.append(record.id)
+        return emoji
+
+    monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
+    monkeypatch.setattr(emoji_manager_new.MaiEmoji, "from_db_instance", staticmethod(_from_db_instance))
+    manager = emoji_manager_new.EmojiManager()
+
+    manager.load_emojis_from_db()
+
+    assert created == [4]
+    assert len(manager.emojis) == 1
+    assert manager._emoji_num == 1
+    assert any("成功加载" in m for m in _messages(logger.info_calls))
 
 
 def test_register_emoji_to_db_invalid_object(monkeypatch):
@@ -921,7 +980,7 @@ def test_delete_emoji_db_error_file_still_exists(monkeypatch):
 
     assert result is False
     assert any("删除数据库记录时出错" in m for m in _messages(logger.error_calls))
-    assert any("数据库记录删除失败，但文件仍存在" in m for m in _messages(logger.warning_calls))
+    assert any("数据库记录修改失败，但文件仍存在" in m for m in _messages(logger.warning_calls))
 
 
 def test_delete_emoji_success(monkeypatch):
@@ -954,7 +1013,8 @@ def test_delete_emoji_success(monkeypatch):
         return _Select()
 
     class _Record:
-        pass
+        def __init__(self):
+            self.no_file_flag = False
 
     class _Result:
         def scalars(self):
@@ -962,6 +1022,75 @@ def test_delete_emoji_success(monkeypatch):
 
         def first(self):
             return _Record()
+
+    class _Session:
+        def __init__(self):
+            self.added = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def exec(self, _statement):
+            return _Result()
+
+        def add(self, _record):
+            self.added = True
+
+    def _get_db_session():
+        return _Session()
+
+    monkeypatch.setattr(emoji_manager_new, "select", _select)
+    monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
+
+    emoji = emoji_manager_new.MaiEmoji()
+    emoji.full_path = _DummyPath()
+    emoji.file_name = "ok.png"
+    emoji.file_hash = "hash-ok"
+
+    result = manager.delete_emoji(emoji)
+
+    assert result is True
+    assert any("成功删除表情包文件" in m for m in _messages(logger.info_calls))
+    assert any("成功修改数据库中的表情包记录" in m for m in _messages(logger.info_calls))
+
+def test_delete_emoji_no_desc_deletes_record(monkeypatch):
+    emoji_manager_new = import_emoji_manager_new(monkeypatch)
+    logger = emoji_manager_new.logger
+    manager = emoji_manager_new.EmojiManager()
+
+    class _DummyPath:
+        def __init__(self):
+            self._name = "empty.png"
+
+        def unlink(self):
+            return None
+
+        def exists(self):
+            return False
+
+        @property
+        def name(self):
+            return self._name
+
+    class _Select:
+        def filter_by(self, **_kwargs):
+            return self
+
+        def limit(self, _num):
+            return self
+
+    def _select(_model):
+        return _Select()
+
+    class _Result:
+        def scalars(self):
+            return self
+
+        def first(self):
+            return object()
 
     class _Session:
         def __init__(self):
@@ -987,14 +1116,13 @@ def test_delete_emoji_success(monkeypatch):
 
     emoji = emoji_manager_new.MaiEmoji()
     emoji.full_path = _DummyPath()
-    emoji.file_name = "ok.png"
-    emoji.file_hash = "hash-ok"
+    emoji.file_name = "empty.png"
+    emoji.file_hash = "hash-empty"
 
-    result = manager.delete_emoji(emoji)
+    result = manager.delete_emoji(emoji, no_desc=True)
 
     assert result is True
-    assert any("成功删除表情包文件" in m for m in _messages(logger.info_calls))
-    assert any("成功删除数据库中的表情包记录" in m for m in _messages(logger.info_calls))
+    assert any("成功删除数据库中的空表情包记录" in m for m in _messages(logger.info_calls))
 
 
 def test_update_emoji_usage_success(monkeypatch):
@@ -1320,6 +1448,255 @@ def test_update_emoji_get_db_session_error(monkeypatch):
 
     assert result is False
     assert any("更新数据库记录时出错" in m for m in _messages(logger.error_calls))
+
+
+def test_get_emoji_by_hash_from_db_no_file_flag(monkeypatch):
+    emoji_manager_new = import_emoji_manager_new(monkeypatch)
+    logger = emoji_manager_new.logger
+    manager = emoji_manager_new.EmojiManager()
+
+    class _Select:
+        def filter_by(self, **_kwargs):
+            return self
+
+        def limit(self, _num):
+            return self
+
+    def _select(_model):
+        return _Select()
+
+    class _Record:
+        def __init__(self):
+            self.no_file_flag = True
+            self.image_hash = "hash-nofile"
+
+    class _Result:
+        def scalars(self):
+            return self
+
+        def first(self):
+            return _Record()
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def exec(self, _statement):
+            return _Result()
+
+    def _get_db_session():
+        return _Session()
+
+    monkeypatch.setattr(emoji_manager_new, "select", _select)
+    monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
+
+    result = manager.get_emoji_by_hash_from_db("hash-nofile")
+
+    assert result is None
+    assert any("标记为文件不存在" in m for m in _messages(logger.warning_calls))
+
+
+def test_get_emoji_by_hash_from_db_success(monkeypatch):
+    emoji_manager_new = import_emoji_manager_new(monkeypatch)
+    manager = emoji_manager_new.EmojiManager()
+
+    class _Select:
+        def filter_by(self, **_kwargs):
+            return self
+
+        def limit(self, _num):
+            return self
+
+    def _select(_model):
+        return _Select()
+
+    class _Record:
+        def __init__(self):
+            self.no_file_flag = False
+            self.image_hash = "hash-ok"
+
+    class _Result:
+        def scalars(self):
+            return self
+
+        def first(self):
+            return _Record()
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def exec(self, _statement):
+            return _Result()
+
+    def _get_db_session():
+        return _Session()
+
+    emoji = emoji_manager_new.MaiEmoji()
+    emoji.file_hash = "hash-ok"
+
+    monkeypatch.setattr(emoji_manager_new, "select", _select)
+    monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
+    monkeypatch.setattr(emoji_manager_new.MaiEmoji, "from_db_instance", staticmethod(lambda _r: emoji))
+
+    result = manager.get_emoji_by_hash_from_db("hash-ok")
+
+    assert result is emoji
+
+
+def test_ban_emoji_success(monkeypatch):
+    emoji_manager_new = import_emoji_manager_new(monkeypatch)
+    logger = emoji_manager_new.logger
+    manager = emoji_manager_new.EmojiManager()
+
+    class _Select:
+        def filter_by(self, **_kwargs):
+            return self
+
+        def limit(self, _num):
+            return self
+
+    def _select(_model):
+        return _Select()
+
+    class _Record:
+        def __init__(self):
+            self.is_banned = False
+
+    class _Result:
+        def scalars(self):
+            return self
+
+        def first(self):
+            return _Record()
+
+    class _Session:
+        def __init__(self):
+            self.added = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def exec(self, _statement):
+            return _Result()
+
+        def add(self, _record):
+            self.added = True
+
+    def _get_db_session():
+        return _Session()
+
+    monkeypatch.setattr(emoji_manager_new, "select", _select)
+    monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
+
+    emoji = emoji_manager_new.MaiEmoji()
+    emoji.file_name = "ban.png"
+    emoji.file_hash = "hash-ban"
+    manager.emojis = [emoji]
+
+    result = manager.ban_emoji(emoji)
+
+    assert result is True
+    assert emoji not in manager.emojis
+    assert any("成功封禁表情包" in m for m in _messages(logger.info_calls))
+
+
+def test_ban_emoji_missing_record(monkeypatch):
+    emoji_manager_new = import_emoji_manager_new(monkeypatch)
+    logger = emoji_manager_new.logger
+    manager = emoji_manager_new.EmojiManager()
+
+    class _Select:
+        def filter_by(self, **_kwargs):
+            return self
+
+        def limit(self, _num):
+            return self
+
+    def _select(_model):
+        return _Select()
+
+    class _Result:
+        def scalars(self):
+            return self
+
+        def first(self):
+            return None
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def exec(self, _statement):
+            return _Result()
+
+    def _get_db_session():
+        return _Session()
+
+    monkeypatch.setattr(emoji_manager_new, "select", _select)
+    monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
+
+    emoji = emoji_manager_new.MaiEmoji()
+    emoji.file_name = "missing.png"
+    emoji.file_hash = "hash-missing"
+
+    result = manager.ban_emoji(emoji)
+
+    assert result is False
+    assert any("未找到表情包记录" in m for m in _messages(logger.warning_calls))
+
+
+def test_ban_emoji_db_error(monkeypatch):
+    emoji_manager_new = import_emoji_manager_new(monkeypatch)
+    logger = emoji_manager_new.logger
+    manager = emoji_manager_new.EmojiManager()
+
+    class _Select:
+        def filter_by(self, **_kwargs):
+            return self
+
+        def limit(self, _num):
+            return self
+
+    def _select(_model):
+        return _Select()
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def exec(self, _statement):
+            raise RuntimeError("db failed")
+
+    def _get_db_session():
+        return _Session()
+
+    monkeypatch.setattr(emoji_manager_new, "select", _select)
+    monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
+
+    emoji = emoji_manager_new.MaiEmoji()
+    emoji.file_name = "boom.png"
+    emoji.file_hash = "hash-boom"
+
+    result = manager.ban_emoji(emoji)
+
+    assert result is False
+    assert any("封禁时出错" in m for m in _messages(logger.error_calls))
 
 
 @pytest.mark.asyncio
@@ -1697,14 +2074,13 @@ def test_check_emoji_file_integrity_no_issues(monkeypatch):
     emoji = emoji_manager_new.MaiEmoji()
     emoji.file_name = "ok.png"
     emoji.full_path = _DummyPath("ok.png")
-    emoji.is_deleted = False
     emoji.description = "desc"
     manager.emojis = [emoji]
     manager._emoji_num = 1
 
     called = {"count": 0}
 
-    def _delete(_emoji):
+    def _delete(_emoji, no_desc=False):
         called["count"] += 1
         return True
 
@@ -1741,24 +2117,18 @@ def test_check_emoji_file_integrity_removes_invalid_records(monkeypatch):
     missing_file.full_path = _DummyPath("missing.png", exists=False)
     missing_file.description = "desc"
 
-    deleted_flag = emoji_manager_new.MaiEmoji()
-    deleted_flag.file_name = "deleted.png"
-    deleted_flag.full_path = _DummyPath("deleted.png", exists=True)
-    deleted_flag.is_deleted = True
-    deleted_flag.description = "desc"
-
     missing_desc = emoji_manager_new.MaiEmoji()
     missing_desc.file_name = "nodesc.png"
     missing_desc.full_path = _DummyPath("nodesc.png", exists=True)
     missing_desc.description = None
 
-    manager.emojis = [missing_file, deleted_flag, missing_desc]
-    manager._emoji_num = 3
+    manager.emojis = [missing_file, missing_desc]
+    manager._emoji_num = 2
 
     deleted = []
 
-    def _delete(emoji):
-        deleted.append(emoji.file_name)
+    def _delete(emoji, no_desc=False):
+        deleted.append((emoji.file_name, no_desc))
         return True
 
     monkeypatch.setattr(manager, "delete_emoji", _delete)
@@ -1767,13 +2137,12 @@ def test_check_emoji_file_integrity_removes_invalid_records(monkeypatch):
 
     assert manager.emojis == []
     assert manager._emoji_num == 0
-    assert set(deleted) == {"missing.png", "deleted.png", "nodesc.png"}
+    assert set(deleted) == {("missing.png", False), ("nodesc.png", True)}
     messages = _messages(logger.warning_calls)
     assert any("文件缺失" in m for m in messages)
-    assert any("标记为已删除" in m for m in messages)
     assert any("缺失描述" in m for m in messages)
     assert any("成功删除缺失文件的表情包记录" in m for m in _messages(logger.info_calls))
-    assert any("删除了 3 条记录" in m for m in _messages(logger.info_calls))
+    assert any("删除了 2 条记录" in m for m in _messages(logger.info_calls))
 
 
 def test_check_emoji_file_integrity_delete_failed(monkeypatch):
@@ -1800,7 +2169,7 @@ def test_check_emoji_file_integrity_delete_failed(monkeypatch):
     manager.emojis = [emoji]
     manager._emoji_num = 1
 
-    def _delete(_emoji):
+    def _delete(_emoji, no_desc=False):
         return False
 
     monkeypatch.setattr(manager, "delete_emoji", _delete)
@@ -1987,6 +2356,7 @@ async def test_register_emoji_by_filename_capacity_replace_failed(monkeypatch, t
     manager = emoji_manager_new.EmojiManager()
     manager._emoji_num = 1
     emoji_manager_new.global_config.emoji.max_reg_num = 1
+    emoji_manager_new.global_config.emoji.do_replace = True
 
     file_path = tmp_path / "full.png"
     file_path.write_bytes(b"")
@@ -2026,6 +2396,7 @@ async def test_register_emoji_by_filename_capacity_replace_success(monkeypatch, 
     manager = emoji_manager_new.EmojiManager()
     manager._emoji_num = 1
     emoji_manager_new.global_config.emoji.max_reg_num = 1
+    emoji_manager_new.global_config.emoji.do_replace = True
 
     file_path = tmp_path / "full-ok.png"
     file_path.write_bytes(b"")
