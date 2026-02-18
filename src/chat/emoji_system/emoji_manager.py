@@ -56,15 +56,26 @@ class EmojiManager:
 
         logger.info("启动表情包管理器")
 
-    async def get_emoji_description_by_bytes(self, emoji_bytes: bytes) -> Optional[Tuple[str, List[str]]]:
+    async def get_emoji_description(
+        self, emoji_bytes: Optional[bytes] = None, emoji_hash: Optional[str] = None
+    ) -> Optional[Tuple[str, List[str]]]:
         """
         根据表情包哈希获取表情包描述的封装方法
-
+        
+        Args:
+            emoji_bytes (Optional[bytes]): 表情包的字节数据，如果提供了字节数据但数据库中没有找到对应记录，则会尝试构建表情包描述
+            emoji_hash (Optional[str]): 表情包的哈希值，如果提供了哈希值则优先使用哈希值查找表情包描述
         Returns:
             return (Optional[Tuple[str, List[str]]]): 如果找到对应的表情包，则返回包含描述和情感标签的元组；若没找到，则尝试构建表情包描述并返回，如果构建失败则返回 None
         """
         # 先查找
-        emoji_hash = hashlib.sha256(emoji_bytes).hexdigest()
+        if emoji_hash is None and emoji_bytes is not None:
+            emoji_hash = hashlib.sha256(emoji_bytes).hexdigest()
+        else:
+            emoji_hash = emoji_hash
+        if not emoji_hash:
+            raise ValueError("获取表情包描述失败: 既没有提供表情包字节数据，也没有提供表情包哈希值")
+
         if emoji := self.get_emoji_by_hash(emoji_hash):
             return emoji.description, emoji.emotion or []
         try:
@@ -74,6 +85,10 @@ class EmojiManager:
                     return result.description, result.emotion.split(",") if result.emotion else []
         except Exception as e:
             logger.warning(f"从数据库查找表情包时出错: {e}，将尝试构建表情包描述")
+
+        # 如果提供了字节数据但数据库中没有找到，尝试构建
+        if not emoji_bytes:
+            return None
 
         # 找不到尝试构建
         logger.info(f"未找到哈希值为 {emoji_hash} 的表情包与其描述，尝试构建描述")
