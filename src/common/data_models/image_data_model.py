@@ -83,7 +83,7 @@ class BaseImageDataModel(BaseDatabaseDataModel[Images]):
 
     async def calculate_hash_format(self) -> bool:
         """
-        异步计算表情包的哈希值和格式
+        异步计算表情包的哈希值和格式，初始化后应该执行此方法来确保对象的哈希值和格式正确
 
         Returns:
             return (bool): 如果成功计算哈希值和格式则返回True，否则返回False

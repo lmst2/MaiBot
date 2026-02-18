@@ -58,6 +58,7 @@ def _install_stub_modules(monkeypatch):
         query_count: int = 0
         register_time: object | None = None
         image_format: str | None = None
+        image_bytes: bytes | None = None
 
         @staticmethod
         def from_db_instance(_record):
@@ -128,10 +129,17 @@ def _install_stub_modules(monkeypatch):
         def flush(self):
             pass
 
+        def commit(self):
+            pass
+
     def get_db_session():
         return _DummySession()
 
+    def get_db_session_manual():
+        return _DummySession()
+
     db_mod.get_db_session = get_db_session
+    db_mod.get_db_session_manual = get_db_session_manual
 
     # src.common.utils.utils_image
     image_utils_mod = _stub_module("src.common.utils.utils_image")
@@ -236,6 +244,15 @@ def import_emoji_manager_new(monkeypatch):
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, "emoji_manager_new", module)
     spec.loader.exec_module(module)
+
+    class _Select:
+        def filter_by(self, **kwargs):
+            return self
+
+        def limit(self, n):
+            return self
+
+    module.select = lambda _model: _Select()
     return module
 
 
@@ -763,6 +780,12 @@ def test_register_emoji_to_db_db_error(monkeypatch):
         def flush(self):
             pass
 
+        def exec(self, _statement):
+            return self
+
+        def first(self):
+            return None
+
     def _get_db_session():
         return _Session()
 
@@ -821,6 +844,12 @@ def test_register_emoji_to_db_success(monkeypatch, tmp_path):
         def flush(self):
             pass
 
+        def exec(self, _statement):
+            return self
+
+        def first(self):
+            return None
+
     def _get_db_session():
         return _Session()
 
@@ -858,6 +887,7 @@ def test_delete_emoji_file_missing_and_db_record_missing(monkeypatch):
     class _Select:
         def filter_by(self, **_kwargs):
             return self
+
         def limit(self, _num):
             return self
 
@@ -948,7 +978,7 @@ def test_delete_emoji_db_error_file_still_exists(monkeypatch):
     class _Select:
         def filter_by(self, **_kwargs):
             return self
-        
+
         def limit(self, _num):
             return self
 
@@ -1006,6 +1036,7 @@ def test_delete_emoji_success(monkeypatch):
     class _Select:
         def filter_by(self, **_kwargs):
             return self
+
         def limit(self, _num):
             return self
 
@@ -1055,6 +1086,7 @@ def test_delete_emoji_success(monkeypatch):
     assert result is True
     assert any("成功删除表情包文件" in m for m in _messages(logger.info_calls))
     assert any("成功修改数据库中的表情包记录" in m for m in _messages(logger.info_calls))
+
 
 def test_delete_emoji_no_desc_deletes_record(monkeypatch):
     emoji_manager_new = import_emoji_manager_new(monkeypatch)
@@ -1133,6 +1165,7 @@ def test_update_emoji_usage_success(monkeypatch):
     class _Select:
         def filter_by(self, **_kwargs):
             return self
+
         def limit(self, _num):
             return self
 
@@ -1143,6 +1176,7 @@ def test_update_emoji_usage_success(monkeypatch):
         def __init__(self):
             self.query_count = 2
             self.last_used_time = None
+
     record = _Record()
 
     class _Result:
@@ -1237,6 +1271,7 @@ def test_update_emoji_usage_execute_error(monkeypatch):
     class _Select:
         def filter_by(self, **_kwargs):
             return self
+
         def limit(self, _num):
             return self
 
@@ -2254,6 +2289,38 @@ async def test_register_emoji_by_filename_hash_format_failed(monkeypatch, tmp_pa
         async def calculate_hash_format(self):
             return False
 
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def exec(self, _statement):
+            return self
+
+        def first(self):
+            return None
+
+    class _Select:
+        def __init__(self) -> None:
+            pass
+
+        def filter_by(self, **_kwargs):
+            return self
+
+        def limit(self, _num):
+            return self
+
+    def _get_db_session_manual():
+        return _Session()
+
+    def _get_db_session():
+        return _Session()
+
+    monkeypatch.setattr(emoji_manager_new, "get_db_session_manual", _get_db_session_manual)
+    monkeypatch.setattr(emoji_manager_new, "get_db_session", _get_db_session)
+    monkeypatch.setattr(emoji_manager_new, "select", lambda _model: _Select())
     monkeypatch.setattr(emoji_manager_new, "MaiEmoji", _Emoji)
 
     result = await manager.register_emoji_by_filename(file_path)

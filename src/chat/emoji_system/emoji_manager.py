@@ -5,6 +5,7 @@ from sqlmodel import select
 from typing import Optional, Tuple, List
 
 import asyncio
+import hashlib
 import heapq
 import Levenshtein
 import random
@@ -13,7 +14,7 @@ import re
 from src.common.logger import get_logger
 from src.common.data_models.image_data_model import MaiEmoji
 from src.common.database.database_model import Images, ImageType
-from src.common.database.database import get_db_session
+from src.common.database.database import get_db_session, get_db_session_manual
 from src.common.utils.utils_image import ImageUtils
 from src.prompt.prompt_manager import prompt_manager
 from src.config.config import global_config
@@ -43,6 +44,10 @@ emoji_manager_emotion_judge_llm = LLMRequest(model_set=model_config.model_task_c
 
 
 class EmojiManager:
+    """
+    表情包管理器
+    """
+
     def __init__(self):
         _ensure_directories()
 
@@ -50,6 +55,57 @@ class EmojiManager:
         self.emojis: list[MaiEmoji] = []
 
         logger.info("启动表情包管理器")
+
+    async def get_emoji_description_by_bytes(self, emoji_bytes: bytes) -> Optional[Tuple[str, List[str]]]:
+        """
+        根据表情包哈希获取表情包描述的封装方法
+
+        Returns:
+            return (Optional[Tuple[str, List[str]]]): 如果找到对应的表情包，则返回包含描述和情感标签的元组；若没找到，则尝试构建表情包描述并返回，如果构建失败则返回 None
+        """
+        # 先查找
+        emoji_hash = hashlib.sha256(emoji_bytes).hexdigest()
+        if emoji := self.get_emoji_by_hash(emoji_hash):
+            return emoji.description, emoji.emotion or []
+        try:
+            with get_db_session() as session:
+                statement = select(Images).filter_by(image_hash=emoji_hash, image_type=ImageType.EMOJI).limit(1)
+                if result := session.exec(statement).first():
+                    return result.description, result.emotion.split(",") if result.emotion else []
+        except Exception as e:
+            logger.warning(f"从数据库查找表情包时出错: {e}，将尝试构建表情包描述")
+
+        # 找不到尝试构建
+        logger.info(f"未找到哈希值为 {emoji_hash} 的表情包与其描述，尝试构建描述")
+        full_path = EMOJI_DIR / f"{emoji_hash}.png"
+        try:
+            full_path.write_bytes(emoji_bytes)
+            new_emoji = MaiEmoji(full_path=full_path, image_bytes=emoji_bytes)
+            await new_emoji.calculate_hash_format()
+        except Exception as e:
+            logger.error(f"缓存表情包文件时出错: {e}")
+            raise e
+        success_desc, new_emoji = await self.build_emoji_description(new_emoji)
+        if not success_desc:
+            logger.error("构建表情包描述失败")
+            return None
+        success_emotion, new_emoji = await self.build_emoji_emotion(new_emoji)
+        if not success_emotion:
+            logger.error("构建表情包情感标签失败")
+            return None
+
+        # 缓存结果到数据库
+        with get_db_session() as session:
+            try:
+                image_record = new_emoji.to_db_instance()
+                image_record.is_registered = False
+                image_record.is_banned = False
+                image_record.register_time = datetime.now()
+                image_record.no_file_flag = True
+                session.add(image_record)
+            except Exception as e:
+                logger.error(f"缓存表情包描述时出错: {e}")
+        return new_emoji.description, new_emoji.emotion or []
 
     def load_emojis_from_db(self) -> None:
         """
@@ -114,14 +170,33 @@ class EmojiManager:
         # 注册到数据库
         try:
             with get_db_session() as session:
-                image_record = emoji.to_db_instance()
-                image_record.is_registered = True
-                image_record.is_banned = False
-                image_record.register_time = datetime.now()
-                session.add(image_record)
-                session.flush()
-                record_id = image_record.id
-                logger.info(f"[注册表情包] 成功注册表情包到数据库, ID: {record_id}, 路径: {emoji.full_path}")
+                statement = select(Images).filter_by(image_hash=emoji.file_hash, image_type=ImageType.EMOJI).limit(1)
+                if existing_record := session.exec(statement).first():
+                    if existing_record.no_file_flag:
+                        existing_record.no_file_flag = False
+                        existing_record.is_banned = False
+                        existing_record.full_path = str(emoji.full_path)
+                        existing_record.description = emoji.description
+                        existing_record.emotion = ",".join(emoji.emotion) if emoji.emotion else None
+                        existing_record.query_count = emoji.query_count
+                        existing_record.last_used_time = emoji.last_used_time
+                        existing_record.register_time = emoji.register_time
+                        session.add(existing_record)
+                        logger.info(
+                            f"[注册表情包] 更新已有记录并注册表情包到数据库, ID: {existing_record.id}, 路径: {emoji.full_path}"
+                        )
+                    else:
+                        logger.warning(f"[注册表情包] 数据库中已存在表情包记录: {emoji.file_hash}")
+                        return False
+                else:
+                    image_record = emoji.to_db_instance()
+                    image_record.is_registered = True
+                    image_record.is_banned = False
+                    image_record.register_time = datetime.now()
+                    session.add(image_record)
+                    session.flush()
+                    record_id = image_record.id
+                    logger.info(f"[注册表情包] 成功注册表情包到数据库, ID: {record_id}, 路径: {emoji.full_path}")
         except Exception as e:
             logger.error(f"[注册表情包] 注册到数据库时出错: {e}")
             return False
@@ -401,7 +476,9 @@ class EmojiManager:
 
         # 调用VLM生成描述
         image_format = target_emoji.image_format
-        image_bytes = await asyncio.to_thread(target_emoji.read_image_bytes, target_emoji.full_path)
+        image_bytes = target_emoji.image_bytes or await asyncio.to_thread(
+            target_emoji.read_image_bytes, target_emoji.full_path
+        )
 
         if image_format == "gif":
             try:
@@ -565,6 +642,29 @@ class EmojiManager:
             target_emoji = MaiEmoji(full_path=file_full_path)
         except Exception as e:
             logger.error(f"[注册表情包] 创建表情包对象时出错: {e}")
+            return False
+
+        # 0. 先验证数据库中是否已经存在相同哈希的表情包，避免重复构建
+        try:
+            with get_db_session_manual() as session:
+                statement = (
+                    select(Images).filter_by(image_hash=target_emoji.file_hash, image_type=ImageType.EMOJI).limit(1)
+                )
+                if image_record := session.exec(statement).first():
+                    if image_record.no_file_flag:
+                        image_record.no_file_flag = False
+                        image_record.is_banned = False
+                        image_record.is_registered = True
+                        image_record.full_path = str(target_emoji.full_path)
+                        session.add(image_record)
+                        session.commit()
+                        logger.info(f"表情包注册成功，Hash: {target_emoji.file_hash}")
+                        return True
+                    else:
+                        logger.warning(f"[注册表情包] 数据库中已存在表情包记录，跳过注册: {target_emoji.file_name}")
+                        return False
+        except Exception as e:
+            logger.error(f"[注册表情包] 查询数据库时出错: {e}")
             return False
 
         # 1. 计算哈希值和格式
