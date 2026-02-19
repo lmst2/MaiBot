@@ -1,7 +1,7 @@
 import { Palette, Info, Shield, Eye, EyeOff, Copy, RefreshCw, Check, CheckCircle2, XCircle, AlertTriangle, Settings, RotateCcw, Database, Download, Upload, Trash2, HardDrive } from 'lucide-react'
 import { useTheme } from '@/components/use-theme'
 import { useAnimation } from '@/hooks/use-animation'
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
+import { useState, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { fetchWithAuth } from '@/lib/fetch-with-auth'
@@ -143,12 +143,12 @@ function hslToHex(hsl: string): string {
   
   let r = 0, g = 0, b = 0
   
-  if (0 <= h && h < 60) { r = c; g = x; b = 0 }
-  else if (60 <= h && h < 120) { r = x; g = c; b = 0 }
-  else if (120 <= h && h < 180) { r = 0; g = c; b = x }
-  else if (180 <= h && h < 240) { r = 0; g = x; b = c }
-  else if (240 <= h && h < 300) { r = x; g = 0; b = c }
-  else if (300 <= h && h < 360) { r = c; g = 0; b = x }
+  if (h >= 0 && h < 60) { r = c; g = x; b = 0 }
+  else if (h >= 60 && h < 120) { r = x; g = c; b = 0 }
+  else if (h >= 120 && h < 180) { r = 0; g = c; b = x }
+  else if (h >= 180 && h < 240) { r = 0; g = x; b = c }
+  else if (h >= 240 && h < 300) { r = x; g = 0; b = c }
+  else if (h >= 300 && h < 360) { r = c; g = 0; b = x }
   
   const toHex = (n: number) => {
     const hex = Math.round((n + m) * 255).toString(16)
@@ -169,9 +169,30 @@ function AppearanceTab() {
   const cssDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    setLocalCSS(themeConfig.customCSS || '')
-  }, [themeConfig.customCSS])
+  const updateTokenSection = useCallback(
+    <K extends keyof ThemeTokens>(section: K, partial: Partial<ThemeTokens[K]>) => {
+      updateThemeConfig({
+        tokenOverrides: {
+          ...themeConfig.tokenOverrides,
+          [section]: {
+            ...defaultLightTokens[section],
+            ...themeConfig.tokenOverrides?.[section],
+            ...partial,
+          } as ThemeTokens[K],
+        },
+      })
+    },
+    [themeConfig.tokenOverrides, updateThemeConfig]
+  )
+
+  const resetTokenSection = useCallback(
+    (section: keyof ThemeTokens) => {
+      const newOverrides: Partial<ThemeTokens> = { ...themeConfig.tokenOverrides }
+      delete newOverrides[section]
+      updateThemeConfig({ tokenOverrides: newOverrides })
+    },
+    [themeConfig.tokenOverrides, updateThemeConfig]
+  )
 
   const handleCSSChange = useCallback((val: string) => {
     setLocalCSS(val)
@@ -234,6 +255,8 @@ function AppearanceTab() {
 
   const handleResetTheme = () => {
     resetTheme()
+    setLocalCSS('')
+    setCssWarnings([])
     toast({ title: '重置成功', description: '主题已重置为默认值' })
   }
 
@@ -347,11 +370,7 @@ function AppearanceTab() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      const newOverrides = { ...themeConfig.tokenOverrides }
-                      delete newOverrides.typography
-                      updateThemeConfig({ tokenOverrides: newOverrides })
-                    }}
+                    onClick={() => resetTokenSection('typography')}
                     disabled={!themeConfig.tokenOverrides?.typography}
                     className="h-8 text-xs"
                   >
@@ -372,14 +391,8 @@ function AppearanceTab() {
                       else if (val === 'mono') fontVal = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
                       else if (val === 'sans') fontVal = 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
                       
-                      updateThemeConfig({
-                        tokenOverrides: {
-                          ...themeConfig.tokenOverrides,
-                          typography: {
-                            ...themeConfig.tokenOverrides?.typography,
-                            'font-family-base': fontVal
-                          }
-                        }
+                      updateTokenSection('typography', {
+                        'font-family-base': fontVal,
                       })
                     }}
                   >
@@ -409,14 +422,8 @@ function AppearanceTab() {
                     max={20}
                     step={1}
                     onValueChange={(vals) => {
-                      updateThemeConfig({
-                        tokenOverrides: {
-                          ...themeConfig.tokenOverrides,
-                          typography: {
-                            ...themeConfig.tokenOverrides?.typography,
-                            'font-size-base': `${vals[0] / 16}rem`
-                          }
-                        }
+                      updateTokenSection('typography', {
+                        'font-size-base': `${vals[0] / 16}rem`,
                       })
                     }}
                   />
@@ -427,14 +434,8 @@ function AppearanceTab() {
                   <Select
                     value={String((themeConfig.tokenOverrides?.typography as any)?.['line-height-normal'] || '1.5')}
                     onValueChange={(val) => {
-                      updateThemeConfig({
-                        tokenOverrides: {
-                          ...themeConfig.tokenOverrides,
-                          typography: {
-                            ...themeConfig.tokenOverrides?.typography,
-                            'line-height-normal': parseFloat(val)
-                          }
-                        }
+                      updateTokenSection('typography', {
+                        'line-height-normal': parseFloat(val),
                       })
                     }}
                   >
@@ -461,11 +462,7 @@ function AppearanceTab() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      const newOverrides = { ...themeConfig.tokenOverrides }
-                      delete newOverrides.visual
-                      updateThemeConfig({ tokenOverrides: newOverrides })
-                    }}
+                    onClick={() => resetTokenSection('visual')}
                     disabled={!themeConfig.tokenOverrides?.visual}
                     className="h-8 text-xs"
                   >
@@ -488,14 +485,8 @@ function AppearanceTab() {
                     max={24}
                     step={1}
                     onValueChange={(vals) => {
-                      updateThemeConfig({
-                        tokenOverrides: {
-                          ...themeConfig.tokenOverrides,
-                          visual: {
-                            ...themeConfig.tokenOverrides?.visual,
-                            'radius-md': `${vals[0] / 16}rem`
-                          }
-                        }
+                      updateTokenSection('visual', {
+                        'radius-md': `${vals[0] / 16}rem`,
                       })
                     }}
                   />
@@ -515,14 +506,8 @@ function AppearanceTab() {
                       else if (val === 'lg') shadowVal = defaultLightTokens.visual['shadow-lg']
                       else if (val === 'xl') shadowVal = defaultLightTokens.visual['shadow-xl']
                       
-                      updateThemeConfig({
-                        tokenOverrides: {
-                          ...themeConfig.tokenOverrides,
-                          visual: {
-                            ...themeConfig.tokenOverrides?.visual,
-                            'shadow-md': shadowVal
-                          }
-                        }
+                      updateTokenSection('visual', {
+                        'shadow-md': shadowVal,
                       })
                     }}
                   >
@@ -545,14 +530,8 @@ function AppearanceTab() {
                     id="blur-switch"
                     checked={(themeConfig.tokenOverrides?.visual as any)?.['blur-md'] !== '0px'}
                     onCheckedChange={(checked) => {
-                      updateThemeConfig({
-                        tokenOverrides: {
-                          ...themeConfig.tokenOverrides,
-                          visual: {
-                            ...themeConfig.tokenOverrides?.visual,
-                            'blur-md': checked ? defaultLightTokens.visual['blur-md'] : '0px'
-                          }
-                        }
+                      updateTokenSection('visual', {
+                        'blur-md': checked ? defaultLightTokens.visual['blur-md'] : '0px',
                       })
                     }}
                   />
@@ -570,11 +549,7 @@ function AppearanceTab() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      const newOverrides = { ...themeConfig.tokenOverrides }
-                      delete newOverrides.layout
-                      updateThemeConfig({ tokenOverrides: newOverrides })
-                    }}
+                    onClick={() => resetTokenSection('layout')}
                     disabled={!themeConfig.tokenOverrides?.layout}
                     className="h-8 text-xs"
                   >
@@ -597,14 +572,8 @@ function AppearanceTab() {
                     max={24}
                     step={0.5}
                     onValueChange={(vals) => {
-                      updateThemeConfig({
-                        tokenOverrides: {
-                          ...themeConfig.tokenOverrides,
-                          layout: {
-                            ...themeConfig.tokenOverrides?.layout,
-                            'sidebar-width': `${vals[0]}rem`
-                          }
-                        }
+                      updateTokenSection('layout', {
+                        'sidebar-width': `${vals[0]}rem`,
                       })
                     }}
                   />
@@ -624,14 +593,8 @@ function AppearanceTab() {
                     max={1600}
                     step={10}
                     onValueChange={(vals) => {
-                      updateThemeConfig({
-                        tokenOverrides: {
-                          ...themeConfig.tokenOverrides,
-                          layout: {
-                            ...themeConfig.tokenOverrides?.layout,
-                            'max-content-width': `${vals[0]}px`
-                          }
-                        }
+                      updateTokenSection('layout', {
+                        'max-content-width': `${vals[0]}px`,
                       })
                     }}
                   />
@@ -651,14 +614,8 @@ function AppearanceTab() {
                     max={0.4}
                     step={0.01}
                     onValueChange={(vals) => {
-                      updateThemeConfig({
-                        tokenOverrides: {
-                          ...themeConfig.tokenOverrides,
-                          layout: {
-                            ...themeConfig.tokenOverrides?.layout,
-                            'space-unit': `${vals[0]}rem`
-                          }
-                        }
+                      updateTokenSection('layout', {
+                        'space-unit': `${vals[0]}rem`,
                       })
                     }}
                   />
@@ -676,11 +633,7 @@ function AppearanceTab() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      const newOverrides = { ...themeConfig.tokenOverrides }
-                      delete newOverrides.animation
-                      updateThemeConfig({ tokenOverrides: newOverrides })
-                    }}
+                    onClick={() => resetTokenSection('animation')}
                     disabled={!themeConfig.tokenOverrides?.animation}
                     className="h-8 text-xs"
                   >
@@ -708,14 +661,8 @@ function AppearanceTab() {
                         setEnableAnimations(true)
                       }
 
-                      updateThemeConfig({
-                        tokenOverrides: {
-                          ...themeConfig.tokenOverrides,
-                          animation: {
-                            ...themeConfig.tokenOverrides?.animation,
-                            'anim-duration-normal': duration
-                          }
-                        }
+                      updateTokenSection('animation', {
+                        'anim-duration-normal': duration,
                       })
                     }}
                   >
@@ -748,6 +695,7 @@ function AppearanceTab() {
             variant="outline"
             size="sm"
             onClick={() => {
+              setLocalCSS('')
               updateThemeConfig({ customCSS: '' })
               setCssWarnings([])
             }}
@@ -2186,39 +2134,6 @@ function ThemeOption({ value, current, onChange, label, description }: ThemeOpti
             <div className="h-2 w-2 rounded-full bg-gradient-to-r from-slate-400 to-slate-900" />
           </>
         )}
-      </div>
-    </button>
-  )
-}
-
-type ColorPresetOptionProps = {
-  value: string
-  current: string
-  onChange: (color: string) => void
-  label: string
-  colorClass: string
-}
-
-function ColorPresetOption({ value, current, onChange, label, colorClass }: ColorPresetOptionProps) {
-  const isSelected = current === value
-
-  return (
-    <button
-      onClick={() => onChange(value)}
-      className={cn(
-        'relative rounded-lg border-2 p-2 sm:p-3 text-left transition-all',
-        'hover:border-primary/50 hover:bg-accent/50',
-        isSelected ? 'border-primary bg-accent' : 'border-border'
-      )}
-    >
-      {/* 选中指示器 */}
-      {isSelected && (
-        <div className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-primary" />
-      )}
-
-      <div className="flex flex-col items-center gap-1.5 sm:gap-2">
-        <div className={cn('h-8 w-8 sm:h-10 sm:w-10 rounded-full', colorClass)} />
-        <div className="text-[10px] sm:text-xs font-medium text-center">{label}</div>
       </div>
     </button>
   )
