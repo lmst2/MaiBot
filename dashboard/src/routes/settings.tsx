@@ -1,7 +1,7 @@
 import { Palette, Info, Shield, Eye, EyeOff, Copy, RefreshCw, Check, CheckCircle2, XCircle, AlertTriangle, Settings, RotateCcw, Database, Download, Upload, Trash2, HardDrive } from 'lucide-react'
 import { useTheme } from '@/components/use-theme'
 import { useAnimation } from '@/hooks/use-animation'
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { fetchWithAuth } from '@/lib/fetch-with-auth'
@@ -49,6 +49,23 @@ import {
 
 import { getComputedTokens } from '@/lib/theme/pipeline'
 import { hexToHSL } from '@/lib/theme/palette'
+import { defaultDarkTokens, defaultLightTokens } from '@/lib/theme/tokens'
+import type { ThemeTokens } from '@/lib/theme/tokens'
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion'
+import { CodeEditor } from '@/components/CodeEditor'
+import { sanitizeCSS } from '@/lib/theme/sanitizer'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 export function SettingsPage() {
   return (
@@ -265,6 +282,25 @@ function hslToHex(hsl: string): string {
 function AppearanceTab() {
   const { theme, setTheme, themeConfig, updateThemeConfig, resolvedTheme } = useTheme()
   const { enableAnimations, setEnableAnimations, enableWavesBackground, setEnableWavesBackground } = useAnimation()
+  
+  const [localCSS, setLocalCSS] = useState(themeConfig.customCSS || '')
+  const [cssWarnings, setCssWarnings] = useState<string[]>([])
+  const cssDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    setLocalCSS(themeConfig.customCSS || '')
+  }, [themeConfig.customCSS])
+
+  const handleCSSChange = useCallback((val: string) => {
+    setLocalCSS(val)
+    const result = sanitizeCSS(val)
+    setCssWarnings(result.warnings)
+    
+    if (cssDebounceRef.current) clearTimeout(cssDebounceRef.current)
+    cssDebounceRef.current = setTimeout(() => {
+      updateThemeConfig({ customCSS: val })
+    }, 500)
+  }, [updateThemeConfig])
 
   const currentAccentHex = useMemo(() => {
     if (themeConfig.accentColor) {
@@ -377,6 +413,453 @@ function AppearanceTab() {
               <ColorTokenPreview name="border" value={previewTokens.border} />
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* 样式微调 */}
+      <div>
+        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">界面样式微调</h3>
+        <Accordion type="single" collapsible className="w-full">
+          {/* 1. 字体排版 (Typography) */}
+          <AccordionItem value="typography">
+            <AccordionTrigger>字体排版 (Typography)</AccordionTrigger>
+            <AccordionContent>
+              <div className="space-y-4 pt-2">
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const newOverrides = { ...themeConfig.tokenOverrides }
+                      delete newOverrides.typography
+                      updateThemeConfig({ tokenOverrides: newOverrides })
+                    }}
+                    disabled={!themeConfig.tokenOverrides?.typography}
+                    className="h-8 text-xs"
+                  >
+                    <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                    重置默认
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>字体族 (Font Family)</Label>
+                  <Select
+                    value={(themeConfig.tokenOverrides?.typography as any)?.['font-family-base']?.includes('ui-serif') ? 'serif' : 
+                           (themeConfig.tokenOverrides?.typography as any)?.['font-family-base']?.includes('ui-monospace') ? 'mono' : 
+                           (themeConfig.tokenOverrides?.typography as any)?.['font-family-base'] ? 'sans' : 'system'}
+                    onValueChange={(val) => {
+                      let fontVal = defaultLightTokens.typography['font-family-base']
+                      if (val === 'serif') fontVal = 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif'
+                      else if (val === 'mono') fontVal = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+                      else if (val === 'sans') fontVal = 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                      
+                      updateThemeConfig({
+                        tokenOverrides: {
+                          ...themeConfig.tokenOverrides,
+                          typography: {
+                            ...themeConfig.tokenOverrides?.typography,
+                            'font-family-base': fontVal
+                          }
+                        }
+                      })
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择字体族" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="system">系统默认 (System)</SelectItem>
+                      <SelectItem value="sans">无衬线 (Sans-serif)</SelectItem>
+                      <SelectItem value="serif">衬线 (Serif)</SelectItem>
+                      <SelectItem value="mono">等宽 (Monospace)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between">
+                    <Label>基准字体大小 (Base Size)</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {parseFloat((themeConfig.tokenOverrides?.typography as any)?.['font-size-base'] || '1') * 16}px
+                    </span>
+                  </div>
+                  <Slider
+                    defaultValue={[16]}
+                    value={[parseFloat((themeConfig.tokenOverrides?.typography as any)?.['font-size-base'] || '1') * 16]}
+                    min={12}
+                    max={20}
+                    step={1}
+                    onValueChange={(vals) => {
+                      updateThemeConfig({
+                        tokenOverrides: {
+                          ...themeConfig.tokenOverrides,
+                          typography: {
+                            ...themeConfig.tokenOverrides?.typography,
+                            'font-size-base': `${vals[0] / 16}rem`
+                          }
+                        }
+                      })
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>行高 (Line Height)</Label>
+                  <Select
+                    value={String((themeConfig.tokenOverrides?.typography as any)?.['line-height-normal'] || '1.5')}
+                    onValueChange={(val) => {
+                      updateThemeConfig({
+                        tokenOverrides: {
+                          ...themeConfig.tokenOverrides,
+                          typography: {
+                            ...themeConfig.tokenOverrides?.typography,
+                            'line-height-normal': parseFloat(val)
+                          }
+                        }
+                      })
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择行高" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1.2">紧凑 (1.2)</SelectItem>
+                      <SelectItem value="1.5">正常 (1.5)</SelectItem>
+                      <SelectItem value="1.75">宽松 (1.75)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          {/* 2. 视觉效果 (Visual) */}
+          <AccordionItem value="visual">
+            <AccordionTrigger>视觉效果 (Visual)</AccordionTrigger>
+            <AccordionContent>
+              <div className="space-y-4 pt-2">
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const newOverrides = { ...themeConfig.tokenOverrides }
+                      delete newOverrides.visual
+                      updateThemeConfig({ tokenOverrides: newOverrides })
+                    }}
+                    disabled={!themeConfig.tokenOverrides?.visual}
+                    className="h-8 text-xs"
+                  >
+                    <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                    重置默认
+                  </Button>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between">
+                    <Label>圆角大小 (Radius)</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {Math.round(parseFloat((themeConfig.tokenOverrides?.visual as any)?.['radius-md'] || '0.375') * 16)}px
+                    </span>
+                  </div>
+                  <Slider
+                    defaultValue={[6]}
+                    value={[Math.round(parseFloat((themeConfig.tokenOverrides?.visual as any)?.['radius-md'] || '0.375') * 16)]}
+                    min={0}
+                    max={24}
+                    step={1}
+                    onValueChange={(vals) => {
+                      updateThemeConfig({
+                        tokenOverrides: {
+                          ...themeConfig.tokenOverrides,
+                          visual: {
+                            ...themeConfig.tokenOverrides?.visual,
+                            'radius-md': `${vals[0] / 16}rem`
+                          }
+                        }
+                      })
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>阴影强度 (Shadow)</Label>
+                  <Select
+                    value={(themeConfig.tokenOverrides?.visual as any)?.['shadow-md'] === 'none' ? 'none' :
+                           (themeConfig.tokenOverrides?.visual as any)?.['shadow-md'] === defaultLightTokens.visual['shadow-sm'] ? 'sm' :
+                           (themeConfig.tokenOverrides?.visual as any)?.['shadow-md'] === defaultLightTokens.visual['shadow-lg'] ? 'lg' :
+                           (themeConfig.tokenOverrides?.visual as any)?.['shadow-md'] === defaultLightTokens.visual['shadow-xl'] ? 'xl' : 'md'}
+                    onValueChange={(val) => {
+                      let shadowVal = defaultLightTokens.visual['shadow-md']
+                      if (val === 'none') shadowVal = 'none'
+                      else if (val === 'sm') shadowVal = defaultLightTokens.visual['shadow-sm']
+                      else if (val === 'lg') shadowVal = defaultLightTokens.visual['shadow-lg']
+                      else if (val === 'xl') shadowVal = defaultLightTokens.visual['shadow-xl']
+                      
+                      updateThemeConfig({
+                        tokenOverrides: {
+                          ...themeConfig.tokenOverrides,
+                          visual: {
+                            ...themeConfig.tokenOverrides?.visual,
+                            'shadow-md': shadowVal
+                          }
+                        }
+                      })
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择阴影强度" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">无阴影 (None)</SelectItem>
+                      <SelectItem value="sm">轻微 (Small)</SelectItem>
+                      <SelectItem value="md">中等 (Medium)</SelectItem>
+                      <SelectItem value="lg">强烈 (Large)</SelectItem>
+                      <SelectItem value="xl">极强 (Extra Large)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="blur-switch">模糊效果 (Blur)</Label>
+                  <Switch
+                    id="blur-switch"
+                    checked={(themeConfig.tokenOverrides?.visual as any)?.['blur-md'] !== '0px'}
+                    onCheckedChange={(checked) => {
+                      updateThemeConfig({
+                        tokenOverrides: {
+                          ...themeConfig.tokenOverrides,
+                          visual: {
+                            ...themeConfig.tokenOverrides?.visual,
+                            'blur-md': checked ? defaultLightTokens.visual['blur-md'] : '0px'
+                          }
+                        }
+                      })
+                    }}
+                  />
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          {/* 3. 布局 (Layout) */}
+          <AccordionItem value="layout">
+            <AccordionTrigger>布局 (Layout)</AccordionTrigger>
+            <AccordionContent>
+              <div className="space-y-4 pt-2">
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const newOverrides = { ...themeConfig.tokenOverrides }
+                      delete newOverrides.layout
+                      updateThemeConfig({ tokenOverrides: newOverrides })
+                    }}
+                    disabled={!themeConfig.tokenOverrides?.layout}
+                    className="h-8 text-xs"
+                  >
+                    <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                    重置默认
+                  </Button>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between">
+                    <Label>侧边栏宽度 (Sidebar Width)</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {(themeConfig.tokenOverrides?.layout as any)?.['sidebar-width'] || '16rem'}
+                    </span>
+                  </div>
+                  <Slider
+                    defaultValue={[16]}
+                    value={[parseFloat((themeConfig.tokenOverrides?.layout as any)?.['sidebar-width'] || '16')]}
+                    min={12}
+                    max={24}
+                    step={0.5}
+                    onValueChange={(vals) => {
+                      updateThemeConfig({
+                        tokenOverrides: {
+                          ...themeConfig.tokenOverrides,
+                          layout: {
+                            ...themeConfig.tokenOverrides?.layout,
+                            'sidebar-width': `${vals[0]}rem`
+                          }
+                        }
+                      })
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between">
+                    <Label>内容区最大宽度 (Max Width)</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {(themeConfig.tokenOverrides?.layout as any)?.['max-content-width'] || '1280px'}
+                    </span>
+                  </div>
+                  <Slider
+                    defaultValue={[1280]}
+                    value={[parseFloat(((themeConfig.tokenOverrides?.layout as any)?.['max-content-width'] || '1280').replace('px', ''))]}
+                    min={960}
+                    max={1600}
+                    step={10}
+                    onValueChange={(vals) => {
+                      updateThemeConfig({
+                        tokenOverrides: {
+                          ...themeConfig.tokenOverrides,
+                          layout: {
+                            ...themeConfig.tokenOverrides?.layout,
+                            'max-content-width': `${vals[0]}px`
+                          }
+                        }
+                      })
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between">
+                    <Label>基准间距 (Spacing Unit)</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {(themeConfig.tokenOverrides?.layout as any)?.['space-unit'] || '0.25rem'}
+                    </span>
+                  </div>
+                  <Slider
+                    defaultValue={[0.25]}
+                    value={[parseFloat(((themeConfig.tokenOverrides?.layout as any)?.['space-unit'] || '0.25').replace('rem', ''))]}
+                    min={0.2}
+                    max={0.4}
+                    step={0.01}
+                    onValueChange={(vals) => {
+                      updateThemeConfig({
+                        tokenOverrides: {
+                          ...themeConfig.tokenOverrides,
+                          layout: {
+                            ...themeConfig.tokenOverrides?.layout,
+                            'space-unit': `${vals[0]}rem`
+                          }
+                        }
+                      })
+                    }}
+                  />
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          {/* 4. 动画 (Animation) */}
+          <AccordionItem value="animation">
+            <AccordionTrigger>动画 (Animation)</AccordionTrigger>
+            <AccordionContent>
+              <div className="space-y-4 pt-2">
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const newOverrides = { ...themeConfig.tokenOverrides }
+                      delete newOverrides.animation
+                      updateThemeConfig({ tokenOverrides: newOverrides })
+                    }}
+                    disabled={!themeConfig.tokenOverrides?.animation}
+                    className="h-8 text-xs"
+                  >
+                    <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                    重置默认
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>动画速度 (Speed)</Label>
+                  <Select
+                    value={(themeConfig.tokenOverrides?.animation as any)?.['anim-duration-normal'] === '100ms' ? 'fast' :
+                           (themeConfig.tokenOverrides?.animation as any)?.['anim-duration-normal'] === '500ms' ? 'slow' :
+                           (themeConfig.tokenOverrides?.animation as any)?.['anim-duration-normal'] === '0ms' ? 'off' : 'normal'}
+                    onValueChange={(val) => {
+                      let duration = '300ms'
+                      if (val === 'fast') duration = '100ms'
+                      else if (val === 'slow') duration = '500ms'
+                      else if (val === 'off') duration = '0ms'
+                      
+                      // 如果用户选了关闭，我们也应该同步更新 enableAnimations 开关
+                      if (val === 'off' && enableAnimations) {
+                        setEnableAnimations(false)
+                      } else if (val !== 'off' && !enableAnimations) {
+                        setEnableAnimations(true)
+                      }
+
+                      updateThemeConfig({
+                        tokenOverrides: {
+                          ...themeConfig.tokenOverrides,
+                          animation: {
+                            ...themeConfig.tokenOverrides?.animation,
+                            'anim-duration-normal': duration
+                          }
+                        }
+                      })
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择动画速度" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="fast">快速 (100ms)</SelectItem>
+                      <SelectItem value="normal">正常 (300ms)</SelectItem>
+                      <SelectItem value="slow">慢速 (500ms)</SelectItem>
+                      <SelectItem value="off">关闭 (0ms)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-3 sm:mb-4">
+          <div>
+            <h3 className="text-base sm:text-lg font-semibold">自定义 CSS</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              编写自定义 CSS 来进一步个性化界面。危险的 CSS（如 @import、url()）将被自动过滤。
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              updateThemeConfig({ customCSS: '' })
+              setCssWarnings([])
+            }}
+            disabled={!themeConfig.customCSS}
+          >
+            <Trash2 className="h-4 w-4 mr-1" />
+            清除
+          </Button>
+        </div>
+        
+        <div className="rounded-lg border bg-card p-3 sm:p-4 space-y-3">
+          <CodeEditor
+            value={localCSS}
+            language="css"
+            height="250px"
+            placeholder={`/* 在这里输入自定义 CSS */\n\n/* 例如: */\n/* .sidebar { background: #1a1a2e; } */`}
+            onChange={handleCSSChange}
+          />
+          
+          {cssWarnings.length > 0 && (
+            <div className="rounded-md bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 p-3">
+              <div className="flex items-center gap-2 text-yellow-800 dark:text-yellow-200 text-sm font-medium mb-1">
+                <AlertTriangle className="h-4 w-4" />
+                以下内容已被安全过滤：
+              </div>
+              <ul className="text-xs text-yellow-700 dark:text-yellow-300 space-y-0.5 ml-6 list-disc">
+                {cssWarnings.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
 

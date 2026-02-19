@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
-import { python } from '@codemirror/lang-python'
+import { css } from '@codemirror/lang-css'
 import { json, jsonParseLinter } from '@codemirror/lang-json'
+import { python } from '@codemirror/lang-python'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { EditorView } from '@codemirror/view'
 import { StreamLanguage } from '@codemirror/language'
@@ -9,10 +10,11 @@ import { toml as tomlMode } from '@codemirror/legacy-modes/mode/toml'
 
 import { useTheme } from '@/components/use-theme'
 
-export type Language = 'python' | 'json' | 'toml' | 'text'
+export type Language = 'python' | 'json' | 'toml' | 'css' | 'text'
 
 interface CodeEditorProps {
   value: string
+
   onChange?: (value: string) => void
   language?: Language
   readOnly?: boolean
@@ -29,6 +31,7 @@ const languageExtensions: Record<Language, any[]> = {
   python: [python()],
   json: [json(), jsonParseLinter()],
   toml: [StreamLanguage.define(tomlMode)],
+  css: [css()],
   text: [],
 }
 
