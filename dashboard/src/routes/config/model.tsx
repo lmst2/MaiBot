@@ -79,7 +79,6 @@ function ModelConfigPageContent() {
   const [models, setModels] = useState<ModelInfo[]>([])
   const [providers, setProviders] = useState<string[]>([])
   const [providerConfigs, setProviderConfigs] = useState<ProviderConfig[]>([])
-  const [modelNames, setModelNames] = useState<string[]>([])
   const [taskConfig, setTaskConfig] = useState<ModelTaskConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -183,7 +182,6 @@ function ModelConfigPageContent() {
       const config = await getModelConfig()
       const modelList = (config.models as ModelInfo[]) || []
       setModels(modelList)
-      setModelNames(modelList.map((m) => m.name))
       
       const providerList = (config.api_providers as ProviderConfig[]) || []
       setProviders(providerList.map((p) => p.name))
@@ -433,8 +431,6 @@ function ModelConfigPageContent() {
     }
     
     setModels(newModels)
-    // 立即更新模型名称列表
-    setModelNames(newModels.map((m) => m.name))
 
     // 如果模型名称发生变化，更新任务配置中对该模型的引用
     if (oldModelName && oldModelName !== modelToSave.name && taskConfig) {
@@ -492,8 +488,6 @@ function ModelConfigPageContent() {
     if (deletingIndex !== null) {
       const newModels = models.filter((_, i) => i !== deletingIndex)
       setModels(newModels)
-      // 立即更新模型名称列表
-      setModelNames(newModels.map((m) => m.name))
       // 重新检查任务配置问题
       checkTaskConfigIssues(taskConfig, newModels)
       toast({
@@ -546,8 +540,6 @@ function ModelConfigPageContent() {
     const deletedCount = selectedModels.size
     const newModels = models.filter((_, index) => !selectedModels.has(index))
     setModels(newModels)
-    // 立即更新模型名称列表
-    setModelNames(newModels.map((m) => m.name))
     // 重新检查任务配置问题
     checkTaskConfigIssues(taskConfig, newModels)
     setSelectedModels(new Set())
@@ -558,53 +550,6 @@ function ModelConfigPageContent() {
     })
   }
 
-  // 更新任务配置
-  const updateTaskConfig = (
-    taskName: keyof ModelTaskConfig,
-    field: keyof TaskConfig,
-    value: string[] | number | string
-  ) => {
-    if (!taskConfig) return
-    
-    // 检测 embedding 模型列表变化
-    if (taskName === 'embedding' && field === 'model_list' && Array.isArray(value)) {
-      const previousModels = previousEmbeddingModelsRef.current
-      const newModels = value as string[]
-      
-      // 判断是否有变化（添加、删除或替换）
-      const hasChanges = 
-        previousModels.length !== newModels.length ||
-        previousModels.some(model => !newModels.includes(model)) ||
-        newModels.some(model => !previousModels.includes(model))
-      
-      if (hasChanges && previousModels.length > 0) {
-        // 存储待更新的配置
-        pendingEmbeddingUpdateRef.current = { field, value }
-        // 显示警告对话框
-        setEmbeddingWarningOpen(true)
-        return
-      }
-    }
-    
-    // 正常更新配置
-    const newTaskConfig = {
-      ...taskConfig,
-      [taskName]: {
-        ...taskConfig[taskName],
-        [field]: value,
-      },
-    }
-    setTaskConfig(newTaskConfig)
-    
-    // 重新检查任务配置问题
-    checkTaskConfigIssues(newTaskConfig, models)
-    
-    // 如果是 embedding 模型列表，更新 ref
-    if (taskName === 'embedding' && field === 'model_list' && Array.isArray(value)) {
-      previousEmbeddingModelsRef.current = [...(value as string[])]
-    }
-  }
-  
   // 确认更新嵌入模型
   const handleConfirmEmbeddingChange = () => {
     if (!taskConfig || !pendingEmbeddingUpdateRef.current) return

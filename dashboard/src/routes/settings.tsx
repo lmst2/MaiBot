@@ -1,7 +1,7 @@
 import { Palette, Info, Shield, Eye, EyeOff, Copy, RefreshCw, Check, CheckCircle2, XCircle, AlertTriangle, Settings, RotateCcw, Database, Download, Upload, Trash2, HardDrive } from 'lucide-react'
 import { useTheme } from '@/components/use-theme'
 import { useAnimation } from '@/hooks/use-animation'
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { cn } from '@/lib/utils'
 import { fetchWithAuth } from '@/lib/fetch-with-auth'
@@ -46,6 +46,27 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+
+import { getComputedTokens } from '@/lib/theme/pipeline'
+import { hexToHSL } from '@/lib/theme/palette'
+import { defaultLightTokens } from '@/lib/theme/tokens'
+import { exportThemeJSON, importThemeJSON } from '@/lib/theme/storage'
+import type { ThemeTokens } from '@/lib/theme/tokens'
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion'
+import { CodeEditor } from '@/components/CodeEditor'
+import { sanitizeCSS } from '@/lib/theme/sanitizer'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 export function SettingsPage() {
   return (
@@ -101,146 +122,147 @@ export function SettingsPage() {
   )
 }
 
-// 应用主题色的辅助函数
-function applyAccentColor(color: string) {
-  const root = document.documentElement
+// 辅助函数：将 HSL 字符串转换为 HEX
+function hslToHex(hsl: string): string {
+  if (!hsl) return '#000000'
   
-  // 预设颜色配置
-  const colors = {
-    // 单色
-    blue: { 
-      hsl: '221.2 83.2% 53.3%', 
-      darkHsl: '217.2 91.2% 59.8%',
-      gradient: null
-    },
-    purple: { 
-      hsl: '271 91% 65%', 
-      darkHsl: '270 95% 75%',
-      gradient: null
-    },
-    green: { 
-      hsl: '142 71% 45%', 
-      darkHsl: '142 76% 36%',
-      gradient: null
-    },
-    orange: { 
-      hsl: '25 95% 53%', 
-      darkHsl: '20 90% 48%',
-      gradient: null
-    },
-    pink: { 
-      hsl: '330 81% 60%', 
-      darkHsl: '330 85% 70%',
-      gradient: null
-    },
-    red: { 
-      hsl: '0 84% 60%', 
-      darkHsl: '0 90% 70%',
-      gradient: null
-    },
-    
-    // 渐变色
-    'gradient-sunset': { 
-      hsl: '15 95% 60%', 
-      darkHsl: '15 95% 65%',
-      gradient: 'linear-gradient(135deg, hsl(25 95% 53%) 0%, hsl(330 81% 60%) 100%)'
-    },
-    'gradient-ocean': { 
-      hsl: '200 90% 55%', 
-      darkHsl: '200 90% 60%',
-      gradient: 'linear-gradient(135deg, hsl(221.2 83.2% 53.3%) 0%, hsl(189 94% 43%) 100%)'
-    },
-    'gradient-forest': { 
-      hsl: '150 70% 45%', 
-      darkHsl: '150 75% 40%',
-      gradient: 'linear-gradient(135deg, hsl(142 71% 45%) 0%, hsl(158 64% 52%) 100%)'
-    },
-    'gradient-aurora': { 
-      hsl: '310 85% 65%', 
-      darkHsl: '310 90% 70%',
-      gradient: 'linear-gradient(135deg, hsl(271 91% 65%) 0%, hsl(330 81% 60%) 100%)'
-    },
-    'gradient-fire': { 
-      hsl: '15 95% 55%', 
-      darkHsl: '15 95% 60%',
-      gradient: 'linear-gradient(135deg, hsl(0 84% 60%) 0%, hsl(25 95% 53%) 100%)'
-    },
-    'gradient-twilight': { 
-      hsl: '250 90% 60%', 
-      darkHsl: '250 95% 65%',
-      gradient: 'linear-gradient(135deg, hsl(239 84% 67%) 0%, hsl(271 91% 65%) 100%)'
-    },
+  // 解析 "221.2 83.2% 53.3%" 格式
+  const parts = hsl.split(' ').filter(Boolean)
+  if (parts.length < 3) return '#000000'
+  
+  const h = parseFloat(parts[0])
+  const s = parseFloat(parts[1].replace('%', ''))
+  const l = parseFloat(parts[2].replace('%', ''))
+  
+  const sDecimal = s / 100
+  const lDecimal = l / 100
+  
+  const c = (1 - Math.abs(2 * lDecimal - 1)) * sDecimal
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
+  const m = lDecimal - c / 2
+  
+  let r = 0, g = 0, b = 0
+  
+  if (h >= 0 && h < 60) { r = c; g = x; b = 0 }
+  else if (h >= 60 && h < 120) { r = x; g = c; b = 0 }
+  else if (h >= 120 && h < 180) { r = 0; g = c; b = x }
+  else if (h >= 180 && h < 240) { r = 0; g = x; b = c }
+  else if (h >= 240 && h < 300) { r = x; g = 0; b = c }
+  else if (h >= 300 && h < 360) { r = c; g = 0; b = x }
+  
+  const toHex = (n: number) => {
+    const hex = Math.round((n + m) * 255).toString(16)
+    return hex.length === 1 ? '0' + hex : hex
   }
-
-  const selectedColor = colors[color as keyof typeof colors]
-  if (selectedColor) {
-    // 设置主色
-    root.style.setProperty('--primary', selectedColor.hsl)
-    
-    // 设置渐变（如果有）
-    if (selectedColor.gradient) {
-      root.style.setProperty('--primary-gradient', selectedColor.gradient)
-      root.classList.add('has-gradient')
-    } else {
-      root.style.removeProperty('--primary-gradient')
-      root.classList.remove('has-gradient')
-    }
-  } else if (color.startsWith('#')) {
-    // 自定义颜色 - 将 HEX 转换为 HSL
-    const hexToHsl = (hex: string) => {
-      // 移除 # 号
-      hex = hex.replace('#', '')
-      
-      // 转换为 RGB
-      const r = parseInt(hex.substring(0, 2), 16) / 255
-      const g = parseInt(hex.substring(2, 4), 16) / 255
-      const b = parseInt(hex.substring(4, 6), 16) / 255
-      
-      const max = Math.max(r, g, b)
-      const min = Math.min(r, g, b)
-      let h = 0
-      let s = 0
-      const l = (max + min) / 2
-      
-      if (max !== min) {
-        const d = max - min
-        s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
-        
-        switch (max) {
-          case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break
-          case g: h = ((b - r) / d + 2) / 6; break
-          case b: h = ((r - g) / d + 4) / 6; break
-        }
-      }
-      
-      return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`
-    }
-    
-    root.style.setProperty('--primary', hexToHsl(color))
-    root.style.removeProperty('--primary-gradient')
-    root.classList.remove('has-gradient')
-  }
+  
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
 
 // 外观设置标签页
 function AppearanceTab() {
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme, themeConfig, updateThemeConfig, resolvedTheme, resetTheme } = useTheme()
   const { enableAnimations, setEnableAnimations, enableWavesBackground, setEnableWavesBackground } = useAnimation()
-  const [accentColor, setAccentColor] = useState(() => {
-    return localStorage.getItem('accent-color') || 'blue'
-  })
+  const { toast } = useToast()
+  
+  const [localCSS, setLocalCSS] = useState(themeConfig.customCSS || '')
+  const [cssWarnings, setCssWarnings] = useState<string[]>([])
+  const cssDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // 页面加载时应用保存的主题色
-  useEffect(() => {
-    const savedColor = localStorage.getItem('accent-color') || 'blue'
-    applyAccentColor(savedColor)
-  }, [])
+  const updateTokenSection = useCallback(
+    <K extends keyof ThemeTokens>(section: K, partial: Partial<ThemeTokens[K]>) => {
+      updateThemeConfig({
+        tokenOverrides: {
+          ...themeConfig.tokenOverrides,
+          [section]: {
+            ...defaultLightTokens[section],
+            ...themeConfig.tokenOverrides?.[section],
+            ...partial,
+          } as ThemeTokens[K],
+        },
+      })
+    },
+    [themeConfig.tokenOverrides, updateThemeConfig]
+  )
 
-  const handleAccentColorChange = (color: string) => {
-    setAccentColor(color)
-    localStorage.setItem('accent-color', color)
-    applyAccentColor(color)
+  const resetTokenSection = useCallback(
+    (section: keyof ThemeTokens) => {
+      const newOverrides: Partial<ThemeTokens> = { ...themeConfig.tokenOverrides }
+      delete newOverrides[section]
+      updateThemeConfig({ tokenOverrides: newOverrides })
+    },
+    [themeConfig.tokenOverrides, updateThemeConfig]
+  )
+
+  const handleCSSChange = useCallback((val: string) => {
+    setLocalCSS(val)
+    const result = sanitizeCSS(val)
+    setCssWarnings(result.warnings)
+    
+    if (cssDebounceRef.current) clearTimeout(cssDebounceRef.current)
+    cssDebounceRef.current = setTimeout(() => {
+      updateThemeConfig({ customCSS: val })
+    }, 500)
+  }, [updateThemeConfig])
+
+  const currentAccentHex = useMemo(() => {
+    if (themeConfig.accentColor) {
+      return hslToHex(themeConfig.accentColor)
+    }
+    return '#3b82f6' // 默认蓝色
+  }, [themeConfig.accentColor])
+
+  const handleAccentColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const hex = e.target.value
+    const hsl = hexToHSL(hex)
+    updateThemeConfig({ accentColor: hsl })
   }
+
+  const handleResetAccent = () => {
+    updateThemeConfig({ accentColor: '' })
+  }
+
+  const handleExport = () => {
+    const json = exportThemeJSON()
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `maibot-theme-${Date.now()}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const json = ev.target?.result as string
+      const result = importThemeJSON(json)
+      if (result.success) {
+        // 导入成功后需要刷新页面使配置生效（因为 ThemeProvider 需要重新读取 localStorage）
+        toast({ title: '导入成功', description: '主题配置已导入，页面将自动刷新' })
+        setTimeout(() => window.location.reload(), 1000)
+      } else {
+        toast({ title: '导入失败', description: result.errors.join('; '), variant: 'destructive' })
+      }
+    }
+    reader.readAsText(file)
+    // 重置 input，允许重复选择同一文件
+    e.target.value = ''
+  }
+
+  const handleResetTheme = () => {
+    resetTheme()
+    setLocalCSS('')
+    setCssWarnings([])
+    toast({ title: '重置成功', description: '主题已重置为默认值' })
+  }
+
+  const previewTokens = useMemo(() => {
+    return getComputedTokens(themeConfig, resolvedTheme === 'dark').color
+  }, [themeConfig, resolvedTheme])
 
   return (
     <div className="space-y-6 sm:space-y-8">
@@ -272,136 +294,438 @@ function AppearanceTab() {
         </div>
       </div>
 
-      {/* 主题色 */}
+      {/* 主题色配置 */}
       <div>
-        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">主题色</h3>
+        <div className="flex items-center justify-between mb-3 sm:mb-4">
+          <h3 className="text-base sm:text-lg font-semibold">主题色</h3>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleResetAccent}
+            disabled={!themeConfig.accentColor}
+            className="h-8"
+          >
+            <RotateCcw className="mr-2 h-3.5 w-3.5" />
+            重置默认
+          </Button>
+        </div>
         
-        {/* 单色预设 */}
-        <div className="space-y-3 sm:space-y-4">
-          <div>
-            <h4 className="text-xs sm:text-sm font-medium mb-2 sm:mb-3">单色</h4>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3">
-              <ColorPresetOption
-                value="blue"
-                current={accentColor}
-                onChange={handleAccentColorChange}
-                label="蓝色"
-                colorClass="bg-blue-500"
-              />
-              <ColorPresetOption
-                value="purple"
-                current={accentColor}
-                onChange={handleAccentColorChange}
-                label="紫色"
-                colorClass="bg-purple-500"
-              />
-              <ColorPresetOption
-                value="green"
-                current={accentColor}
-                onChange={handleAccentColorChange}
-                label="绿色"
-                colorClass="bg-green-500"
-              />
-              <ColorPresetOption
-                value="orange"
-                current={accentColor}
-                onChange={handleAccentColorChange}
-                label="橙色"
-                colorClass="bg-orange-500"
-              />
-              <ColorPresetOption
-                value="pink"
-                current={accentColor}
-                onChange={handleAccentColorChange}
-                label="粉色"
-                colorClass="bg-pink-500"
-              />
-              <ColorPresetOption
-                value="red"
-                current={accentColor}
-                onChange={handleAccentColorChange}
-                label="红色"
-                colorClass="bg-red-500"
-              />
-            </div>
-          </div>
-
-          {/* 渐变色预设 */}
-          <div>
-            <h4 className="text-xs sm:text-sm font-medium mb-2 sm:mb-3">渐变色</h4>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3">
-              <ColorPresetOption
-                value="gradient-sunset"
-                current={accentColor}
-                onChange={handleAccentColorChange}
-                label="日落"
-                colorClass="bg-gradient-to-r from-orange-500 to-pink-500"
-              />
-              <ColorPresetOption
-                value="gradient-ocean"
-                current={accentColor}
-                onChange={handleAccentColorChange}
-                label="海洋"
-                colorClass="bg-gradient-to-r from-blue-500 to-cyan-500"
-              />
-              <ColorPresetOption
-                value="gradient-forest"
-                current={accentColor}
-                onChange={handleAccentColorChange}
-                label="森林"
-                colorClass="bg-gradient-to-r from-green-500 to-emerald-500"
-              />
-              <ColorPresetOption
-                value="gradient-aurora"
-                current={accentColor}
-                onChange={handleAccentColorChange}
-                label="极光"
-                colorClass="bg-gradient-to-r from-purple-500 to-pink-500"
-              />
-              <ColorPresetOption
-                value="gradient-fire"
-                current={accentColor}
-                onChange={handleAccentColorChange}
-                label="烈焰"
-                colorClass="bg-gradient-to-r from-red-500 to-orange-500"
-              />
-              <ColorPresetOption
-                value="gradient-twilight"
-                current={accentColor}
-                onChange={handleAccentColorChange}
-                label="暮光"
-                colorClass="bg-gradient-to-r from-indigo-500 to-purple-500"
-              />
-            </div>
-          </div>
-
-          {/* 自定义颜色选择器 */}
-          <div>
-            <h4 className="text-xs sm:text-sm font-medium mb-2 sm:mb-3">自定义颜色</h4>
-            <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-              <div className="flex-1">
+        <div className="space-y-6">
+          {/* 颜色选择器 */}
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center p-4 rounded-lg border bg-card">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full border-2 border-border overflow-hidden relative shadow-sm">
                 <input
                   type="color"
-                  value={accentColor.startsWith('#') ? accentColor : '#3b82f6'}
-                  onChange={(e) => handleAccentColorChange(e.target.value)}
-                  className="h-10 sm:h-12 w-full rounded-lg border-2 border-border cursor-pointer"
-                  title="选择自定义颜色"
+                  value={currentAccentHex}
+                  onChange={handleAccentColorChange}
+                  className="absolute inset-0 w-[150%] h-[150%] -top-1/4 -left-1/4 cursor-pointer p-0 border-0"
                 />
               </div>
-              <div className="flex-1">
-                <Input
-                  type="text"
-                  value={accentColor}
-                  onChange={(e) => handleAccentColorChange(e.target.value)}
-                  placeholder="#3b82f6"
-                  className="font-mono text-sm"
-                />
+              <div className="space-y-1">
+                <Label htmlFor="accent-color-input" className="font-medium">主色调</Label>
+                <p className="text-xs text-muted-foreground">点击色环选择或输入 HEX 值</p>
               </div>
             </div>
-            <p className="text-[10px] sm:text-xs text-muted-foreground mt-2">
-              点击色块选择颜色，或手动输入 HEX 颜色代码
+            
+            <div className="flex-1 w-full sm:w-auto flex items-center gap-2">
+              <Input
+                id="accent-color-input"
+                type="text"
+                value={currentAccentHex}
+                onChange={handleAccentColorChange}
+                className="font-mono uppercase w-32"
+                maxLength={7}
+              />
+            </div>
+          </div>
+
+          {/* 实时色板预览 */}
+          <div className="space-y-3">
+            <h4 className="text-sm font-medium text-muted-foreground">实时色板预览</h4>
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-3">
+              <ColorTokenPreview name="primary" value={previewTokens.primary} foreground={previewTokens['primary-foreground']} />
+              <ColorTokenPreview name="secondary" value={previewTokens.secondary} foreground={previewTokens['secondary-foreground']} />
+              <ColorTokenPreview name="muted" value={previewTokens.muted} foreground={previewTokens['muted-foreground']} />
+              <ColorTokenPreview name="accent" value={previewTokens.accent} foreground={previewTokens['accent-foreground']} />
+              <ColorTokenPreview name="destructive" value={previewTokens.destructive} foreground={previewTokens['destructive-foreground']} />
+              <ColorTokenPreview name="background" value={previewTokens.background} foreground={previewTokens.foreground} border />
+              <ColorTokenPreview name="card" value={previewTokens.card} foreground={previewTokens['card-foreground']} border />
+              <ColorTokenPreview name="border" value={previewTokens.border} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 样式微调 */}
+      <div>
+        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">界面样式微调</h3>
+        <Accordion type="single" collapsible className="w-full">
+          {/* 1. 字体排版 (Typography) */}
+          <AccordionItem value="typography">
+            <AccordionTrigger>字体排版 (Typography)</AccordionTrigger>
+            <AccordionContent>
+              <div className="space-y-4 pt-2">
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => resetTokenSection('typography')}
+                    disabled={!themeConfig.tokenOverrides?.typography}
+                    className="h-8 text-xs"
+                  >
+                    <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                    重置默认
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>字体族 (Font Family)</Label>
+                  <Select
+                    value={(themeConfig.tokenOverrides?.typography as any)?.['font-family-base']?.includes('ui-serif') ? 'serif' : 
+                           (themeConfig.tokenOverrides?.typography as any)?.['font-family-base']?.includes('ui-monospace') ? 'mono' : 
+                           (themeConfig.tokenOverrides?.typography as any)?.['font-family-base'] ? 'sans' : 'system'}
+                    onValueChange={(val) => {
+                      let fontVal = defaultLightTokens.typography['font-family-base']
+                      if (val === 'serif') fontVal = 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif'
+                      else if (val === 'mono') fontVal = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+                      else if (val === 'sans') fontVal = 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                      
+                      updateTokenSection('typography', {
+                        'font-family-base': fontVal,
+                      })
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择字体族" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="system">系统默认 (System)</SelectItem>
+                      <SelectItem value="sans">无衬线 (Sans-serif)</SelectItem>
+                      <SelectItem value="serif">衬线 (Serif)</SelectItem>
+                      <SelectItem value="mono">等宽 (Monospace)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between">
+                    <Label>基准字体大小 (Base Size)</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {parseFloat((themeConfig.tokenOverrides?.typography as any)?.['font-size-base'] || '1') * 16}px
+                    </span>
+                  </div>
+                  <Slider
+                    defaultValue={[16]}
+                    value={[parseFloat((themeConfig.tokenOverrides?.typography as any)?.['font-size-base'] || '1') * 16]}
+                    min={12}
+                    max={20}
+                    step={1}
+                    onValueChange={(vals) => {
+                      updateTokenSection('typography', {
+                        'font-size-base': `${vals[0] / 16}rem`,
+                      })
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>行高 (Line Height)</Label>
+                  <Select
+                    value={String((themeConfig.tokenOverrides?.typography as any)?.['line-height-normal'] || '1.5')}
+                    onValueChange={(val) => {
+                      updateTokenSection('typography', {
+                        'line-height-normal': parseFloat(val),
+                      })
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择行高" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1.2">紧凑 (1.2)</SelectItem>
+                      <SelectItem value="1.5">正常 (1.5)</SelectItem>
+                      <SelectItem value="1.75">宽松 (1.75)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          {/* 2. 视觉效果 (Visual) */}
+          <AccordionItem value="visual">
+            <AccordionTrigger>视觉效果 (Visual)</AccordionTrigger>
+            <AccordionContent>
+              <div className="space-y-4 pt-2">
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => resetTokenSection('visual')}
+                    disabled={!themeConfig.tokenOverrides?.visual}
+                    className="h-8 text-xs"
+                  >
+                    <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                    重置默认
+                  </Button>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between">
+                    <Label>圆角大小 (Radius)</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {Math.round(parseFloat((themeConfig.tokenOverrides?.visual as any)?.['radius-md'] || '0.375') * 16)}px
+                    </span>
+                  </div>
+                  <Slider
+                    defaultValue={[6]}
+                    value={[Math.round(parseFloat((themeConfig.tokenOverrides?.visual as any)?.['radius-md'] || '0.375') * 16)]}
+                    min={0}
+                    max={24}
+                    step={1}
+                    onValueChange={(vals) => {
+                      updateTokenSection('visual', {
+                        'radius-md': `${vals[0] / 16}rem`,
+                      })
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>阴影强度 (Shadow)</Label>
+                  <Select
+                    value={(themeConfig.tokenOverrides?.visual as any)?.['shadow-md'] === 'none' ? 'none' :
+                           (themeConfig.tokenOverrides?.visual as any)?.['shadow-md'] === defaultLightTokens.visual['shadow-sm'] ? 'sm' :
+                           (themeConfig.tokenOverrides?.visual as any)?.['shadow-md'] === defaultLightTokens.visual['shadow-lg'] ? 'lg' :
+                           (themeConfig.tokenOverrides?.visual as any)?.['shadow-md'] === defaultLightTokens.visual['shadow-xl'] ? 'xl' : 'md'}
+                    onValueChange={(val) => {
+                      let shadowVal = defaultLightTokens.visual['shadow-md']
+                      if (val === 'none') shadowVal = 'none'
+                      else if (val === 'sm') shadowVal = defaultLightTokens.visual['shadow-sm']
+                      else if (val === 'lg') shadowVal = defaultLightTokens.visual['shadow-lg']
+                      else if (val === 'xl') shadowVal = defaultLightTokens.visual['shadow-xl']
+                      
+                      updateTokenSection('visual', {
+                        'shadow-md': shadowVal,
+                      })
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择阴影强度" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">无阴影 (None)</SelectItem>
+                      <SelectItem value="sm">轻微 (Small)</SelectItem>
+                      <SelectItem value="md">中等 (Medium)</SelectItem>
+                      <SelectItem value="lg">强烈 (Large)</SelectItem>
+                      <SelectItem value="xl">极强 (Extra Large)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="blur-switch">模糊效果 (Blur)</Label>
+                  <Switch
+                    id="blur-switch"
+                    checked={(themeConfig.tokenOverrides?.visual as any)?.['blur-md'] !== '0px'}
+                    onCheckedChange={(checked) => {
+                      updateTokenSection('visual', {
+                        'blur-md': checked ? defaultLightTokens.visual['blur-md'] : '0px',
+                      })
+                    }}
+                  />
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          {/* 3. 布局 (Layout) */}
+          <AccordionItem value="layout">
+            <AccordionTrigger>布局 (Layout)</AccordionTrigger>
+            <AccordionContent>
+              <div className="space-y-4 pt-2">
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => resetTokenSection('layout')}
+                    disabled={!themeConfig.tokenOverrides?.layout}
+                    className="h-8 text-xs"
+                  >
+                    <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                    重置默认
+                  </Button>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between">
+                    <Label>侧边栏宽度 (Sidebar Width)</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {(themeConfig.tokenOverrides?.layout as any)?.['sidebar-width'] || '16rem'}
+                    </span>
+                  </div>
+                  <Slider
+                    defaultValue={[16]}
+                    value={[parseFloat((themeConfig.tokenOverrides?.layout as any)?.['sidebar-width'] || '16')]}
+                    min={12}
+                    max={24}
+                    step={0.5}
+                    onValueChange={(vals) => {
+                      updateTokenSection('layout', {
+                        'sidebar-width': `${vals[0]}rem`,
+                      })
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between">
+                    <Label>内容区最大宽度 (Max Width)</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {(themeConfig.tokenOverrides?.layout as any)?.['max-content-width'] || '1280px'}
+                    </span>
+                  </div>
+                  <Slider
+                    defaultValue={[1280]}
+                    value={[parseFloat(((themeConfig.tokenOverrides?.layout as any)?.['max-content-width'] || '1280').replace('px', ''))]}
+                    min={960}
+                    max={1600}
+                    step={10}
+                    onValueChange={(vals) => {
+                      updateTokenSection('layout', {
+                        'max-content-width': `${vals[0]}px`,
+                      })
+                    }}
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between">
+                    <Label>基准间距 (Spacing Unit)</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {(themeConfig.tokenOverrides?.layout as any)?.['space-unit'] || '0.25rem'}
+                    </span>
+                  </div>
+                  <Slider
+                    defaultValue={[0.25]}
+                    value={[parseFloat(((themeConfig.tokenOverrides?.layout as any)?.['space-unit'] || '0.25').replace('rem', ''))]}
+                    min={0.2}
+                    max={0.4}
+                    step={0.01}
+                    onValueChange={(vals) => {
+                      updateTokenSection('layout', {
+                        'space-unit': `${vals[0]}rem`,
+                      })
+                    }}
+                  />
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          {/* 4. 动画 (Animation) */}
+          <AccordionItem value="animation">
+            <AccordionTrigger>动画 (Animation)</AccordionTrigger>
+            <AccordionContent>
+              <div className="space-y-4 pt-2">
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => resetTokenSection('animation')}
+                    disabled={!themeConfig.tokenOverrides?.animation}
+                    className="h-8 text-xs"
+                  >
+                    <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                    重置默认
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>动画速度 (Speed)</Label>
+                  <Select
+                    value={(themeConfig.tokenOverrides?.animation as any)?.['anim-duration-normal'] === '100ms' ? 'fast' :
+                           (themeConfig.tokenOverrides?.animation as any)?.['anim-duration-normal'] === '500ms' ? 'slow' :
+                           (themeConfig.tokenOverrides?.animation as any)?.['anim-duration-normal'] === '0ms' ? 'off' : 'normal'}
+                    onValueChange={(val) => {
+                      let duration = '300ms'
+                      if (val === 'fast') duration = '100ms'
+                      else if (val === 'slow') duration = '500ms'
+                      else if (val === 'off') duration = '0ms'
+                      
+                      // 如果用户选了关闭，我们也应该同步更新 enableAnimations 开关
+                      if (val === 'off' && enableAnimations) {
+                        setEnableAnimations(false)
+                      } else if (val !== 'off' && !enableAnimations) {
+                        setEnableAnimations(true)
+                      }
+
+                      updateTokenSection('animation', {
+                        'anim-duration-normal': duration,
+                      })
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="选择动画速度" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="fast">快速 (100ms)</SelectItem>
+                      <SelectItem value="normal">正常 (300ms)</SelectItem>
+                      <SelectItem value="slow">慢速 (500ms)</SelectItem>
+                      <SelectItem value="off">关闭 (0ms)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-3 sm:mb-4">
+          <div>
+            <h3 className="text-base sm:text-lg font-semibold">自定义 CSS</h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              编写自定义 CSS 来进一步个性化界面。危险的 CSS（如 @import、url()）将被自动过滤。
             </p>
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setLocalCSS('')
+              updateThemeConfig({ customCSS: '' })
+              setCssWarnings([])
+            }}
+            disabled={!themeConfig.customCSS}
+          >
+            <Trash2 className="h-4 w-4 mr-1" />
+            清除
+          </Button>
+        </div>
+        
+        <div className="rounded-lg border bg-card p-3 sm:p-4 space-y-3">
+          <CodeEditor
+            value={localCSS}
+            language="css"
+            height="250px"
+            placeholder={`/* 在这里输入自定义 CSS */\n\n/* 例如: */\n/* .sidebar { background: #1a1a2e; } */`}
+            onChange={handleCSSChange}
+          />
+          
+          {cssWarnings.length > 0 && (
+            <div className="rounded-md bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-800 p-3">
+              <div className="flex items-center gap-2 text-yellow-800 dark:text-yellow-200 text-sm font-medium mb-1">
+                <AlertTriangle className="h-4 w-4" />
+                以下内容已被安全过滤：
+              </div>
+              <ul className="text-xs text-yellow-700 dark:text-yellow-300 space-y-0.5 ml-6 list-disc">
+                {cssWarnings.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
 
@@ -445,8 +769,92 @@ function AppearanceTab() {
                 onCheckedChange={setEnableWavesBackground}
               />
             </div>
-          </div>
-        </div>
+           </div>
+         </div>
+       </div>
+
+       {/* 主题导入/导出 */}
+       <div>
+         <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">主题导入/导出</h3>
+         <div className="rounded-lg border bg-card p-3 sm:p-4 space-y-3">
+           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+             {/* 导出按钮 */}
+             <Button 
+               onClick={handleExport}
+               variant="outline"
+               className="gap-2"
+             >
+               <Download className="h-4 w-4" />
+               导出主题
+             </Button>
+
+             {/* 导入按钮 */}
+             <Button 
+               onClick={() => fileInputRef.current?.click()}
+               variant="outline"
+               className="gap-2"
+             >
+               <Upload className="h-4 w-4" />
+               导入主题
+             </Button>
+
+             {/* 重置按钮 */}
+             <AlertDialog>
+               <AlertDialogTrigger asChild>
+                 <Button 
+                   variant="outline"
+                   className="gap-2"
+                 >
+                   <RotateCcw className="h-4 w-4" />
+                   重置为默认
+                 </Button>
+               </AlertDialogTrigger>
+               <AlertDialogContent>
+                 <AlertDialogHeader>
+                   <AlertDialogTitle>确认重置主题</AlertDialogTitle>
+                   <AlertDialogDescription>
+                     这将重置所有主题设置为默认值，包括颜色、字体、布局和自定义 CSS。此操作不可撤销，确定要继续吗？
+                   </AlertDialogDescription>
+                 </AlertDialogHeader>
+                 <AlertDialogFooter>
+                   <AlertDialogCancel>取消</AlertDialogCancel>
+                   <AlertDialogAction onClick={handleResetTheme}>
+                     确认重置
+                   </AlertDialogAction>
+                 </AlertDialogFooter>
+               </AlertDialogContent>
+             </AlertDialog>
+           </div>
+
+           {/* 隐藏的文件输入 */}
+           <input
+             ref={fileInputRef}
+             type="file"
+             accept=".json"
+             onChange={handleImport}
+             className="hidden"
+           />
+
+           <p className="text-xs text-muted-foreground">
+             导出主题为 JSON 文件便于分享或备份，导入时会自动应用所有配置。
+           </p>
+         </div>
+       </div>
+     </div>
+  )
+}
+
+function ColorTokenPreview({ name, value, foreground, border }: { name: string, value: string, foreground?: string, border?: boolean }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div 
+        className={cn("h-16 rounded-md shadow-sm flex items-center justify-center text-xs font-medium", border && "border border-border")}
+        style={{ backgroundColor: `hsl(${value})`, color: foreground ? `hsl(${foreground})` : undefined }}
+      >
+        Aa
+      </div>
+      <div className="text-xs text-muted-foreground text-center truncate" title={name}>
+        {name}
       </div>
     </div>
   )
@@ -1726,39 +2134,6 @@ function ThemeOption({ value, current, onChange, label, description }: ThemeOpti
             <div className="h-2 w-2 rounded-full bg-gradient-to-r from-slate-400 to-slate-900" />
           </>
         )}
-      </div>
-    </button>
-  )
-}
-
-type ColorPresetOptionProps = {
-  value: string
-  current: string
-  onChange: (color: string) => void
-  label: string
-  colorClass: string
-}
-
-function ColorPresetOption({ value, current, onChange, label, colorClass }: ColorPresetOptionProps) {
-  const isSelected = current === value
-
-  return (
-    <button
-      onClick={() => onChange(value)}
-      className={cn(
-        'relative rounded-lg border-2 p-2 sm:p-3 text-left transition-all',
-        'hover:border-primary/50 hover:bg-accent/50',
-        isSelected ? 'border-primary bg-accent' : 'border-border'
-      )}
-    >
-      {/* 选中指示器 */}
-      {isSelected && (
-        <div className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-primary" />
-      )}
-
-      <div className="flex flex-col items-center gap-1.5 sm:gap-2">
-        <div className={cn('h-8 w-8 sm:h-10 sm:w-10 rounded-full', colorClass)} />
-        <div className="text-[10px] sm:text-xs font-medium text-center">{label}</div>
       </div>
     </button>
   )

@@ -2,7 +2,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   BotInfoSection,
   PersonalitySection,
-  ChatSection,
   DreamSection,
   LPMMSection,
   LogSection,
@@ -625,7 +624,6 @@ function BotConfigPageContent() {
                 }
               }}
               language="toml"
-              theme="dark"
               height="calc(100vh - 280px)"
               minHeight="500px"
               placeholder="TOML 配置内容"
