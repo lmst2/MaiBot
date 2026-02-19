@@ -178,14 +178,14 @@ function applyAccentColor(color: string) {
   const selectedColor = colors[color as keyof typeof colors]
   if (selectedColor) {
     // 设置主色
-    root.style.setProperty('--primary', selectedColor.hsl)
+    root.style.setProperty('--color-primary', selectedColor.hsl)
     
     // 设置渐变（如果有）
     if (selectedColor.gradient) {
-      root.style.setProperty('--primary-gradient', selectedColor.gradient)
+      root.style.setProperty('--color-primary-gradient', selectedColor.gradient)
       root.classList.add('has-gradient')
     } else {
-      root.style.removeProperty('--primary-gradient')
+      root.style.removeProperty('--color-primary-gradient')
       root.classList.remove('has-gradient')
     }
   } else if (color.startsWith('#')) {
@@ -219,8 +219,8 @@ function applyAccentColor(color: string) {
       return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`
     }
     
-    root.style.setProperty('--primary', hexToHsl(color))
-    root.style.removeProperty('--primary-gradient')
+    root.style.setProperty('--color-primary', hexToHsl(color))
+    root.style.removeProperty('--color-primary-gradient')
     root.classList.remove('has-gradient')
   }
 }

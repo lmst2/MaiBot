@@ -602,20 +602,19 @@ function PluginConfigEditor({ plugin, onBack }: PluginConfigEditorProps) {
             </AlertDescription>
           </Alert>
           
-          <CodeEditor
-            value={sourceCode}
-            onChange={(value) => {
-              setSourceCode(value)
-              if (hasTomlError) {
-                setHasTomlError(false)
-              }
-            }}
-            language="toml"
-            theme="dark"
-            height="calc(100vh - 350px)"
-            minHeight="500px"
-            placeholder="TOML 配置内容"
-          />
+            <CodeEditor
+              value={sourceCode}
+              onChange={(value) => {
+                setSourceCode(value)
+                if (hasTomlError) {
+                  setHasTomlError(false)
+                }
+              }}
+              language="toml"
+              height="calc(100vh - 350px)"
+              minHeight="500px"
+              placeholder="TOML 配置内容"
+            />
         </div>
       )}
 
