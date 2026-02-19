@@ -124,6 +124,8 @@ class BaseImageDataModel(BaseDatabaseDataModel[Images]):
 
 
 class MaiEmoji(BaseImageDataModel):
+    """麦麦的表情包对象，仅当**图片文件存在**时才应该创建此对象，数据库记录如果标记为文件不存在`(no_file_flag = True)`则不应该调用 `from_db_instance` 方法来创建此对象"""
+
     def __init__(self, full_path: str | Path, image_bytes: Optional[bytes] = None):
         # self.embedding = []
         self.description: str = ""
@@ -173,6 +175,8 @@ class MaiEmoji(BaseImageDataModel):
 
 
 class MaiImage(BaseImageDataModel):
+    """麦麦图片数据模型，仅当**图片文件存在**时才应该创建此对象，数据库记录如果标记为文件不存在`(no_file_flag = True)`则不应该调用 `from_db_instance` 方法来创建此对象"""
+
     def __init__(self, full_path: str | Path, image_bytes: Optional[bytes] = None):
         self.description: str = ""
         self.vlm_processed: bool = False
