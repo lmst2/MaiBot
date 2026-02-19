@@ -6,7 +6,9 @@
 // 所有设置的 key 定义
 export const STORAGE_KEYS = {
   // 外观设置
+  /** @deprecated 使用新的主题系统 — 见 @/lib/theme/storage.ts 的 THEME_STORAGE_KEYS.MODE */
   THEME: 'maibot-ui-theme',
+  /** @deprecated 使用新的主题系统 — 见 @/lib/theme/storage.ts 的 THEME_STORAGE_KEYS.ACCENT */
   ACCENT_COLOR: 'accent-color',
   ENABLE_ANIMATIONS: 'maibot-animations',
   ENABLE_WAVES_BACKGROUND: 'maibot-waves-background',

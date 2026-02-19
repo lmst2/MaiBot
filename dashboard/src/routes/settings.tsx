@@ -49,7 +49,8 @@ import {
 
 import { getComputedTokens } from '@/lib/theme/pipeline'
 import { hexToHSL } from '@/lib/theme/palette'
-import { defaultDarkTokens, defaultLightTokens } from '@/lib/theme/tokens'
+import { defaultLightTokens } from '@/lib/theme/tokens'
+import { exportThemeJSON, importThemeJSON } from '@/lib/theme/storage'
 import type { ThemeTokens } from '@/lib/theme/tokens'
 import {
   Accordion,
@@ -121,127 +122,6 @@ export function SettingsPage() {
   )
 }
 
-// 应用主题色的辅助函数
-function applyAccentColor(color: string) {
-  const root = document.documentElement
-  
-  // 预设颜色配置
-  const colors = {
-    // 单色
-    blue: { 
-      hsl: '221.2 83.2% 53.3%', 
-      darkHsl: '217.2 91.2% 59.8%',
-      gradient: null
-    },
-    purple: { 
-      hsl: '271 91% 65%', 
-      darkHsl: '270 95% 75%',
-      gradient: null
-    },
-    green: { 
-      hsl: '142 71% 45%', 
-      darkHsl: '142 76% 36%',
-      gradient: null
-    },
-    orange: { 
-      hsl: '25 95% 53%', 
-      darkHsl: '20 90% 48%',
-      gradient: null
-    },
-    pink: { 
-      hsl: '330 81% 60%', 
-      darkHsl: '330 85% 70%',
-      gradient: null
-    },
-    red: { 
-      hsl: '0 84% 60%', 
-      darkHsl: '0 90% 70%',
-      gradient: null
-    },
-    
-    // 渐变色
-    'gradient-sunset': { 
-      hsl: '15 95% 60%', 
-      darkHsl: '15 95% 65%',
-      gradient: 'linear-gradient(135deg, hsl(25 95% 53%) 0%, hsl(330 81% 60%) 100%)'
-    },
-    'gradient-ocean': { 
-      hsl: '200 90% 55%', 
-      darkHsl: '200 90% 60%',
-      gradient: 'linear-gradient(135deg, hsl(221.2 83.2% 53.3%) 0%, hsl(189 94% 43%) 100%)'
-    },
-    'gradient-forest': { 
-      hsl: '150 70% 45%', 
-      darkHsl: '150 75% 40%',
-      gradient: 'linear-gradient(135deg, hsl(142 71% 45%) 0%, hsl(158 64% 52%) 100%)'
-    },
-    'gradient-aurora': { 
-      hsl: '310 85% 65%', 
-      darkHsl: '310 90% 70%',
-      gradient: 'linear-gradient(135deg, hsl(271 91% 65%) 0%, hsl(330 81% 60%) 100%)'
-    },
-    'gradient-fire': { 
-      hsl: '15 95% 55%', 
-      darkHsl: '15 95% 60%',
-      gradient: 'linear-gradient(135deg, hsl(0 84% 60%) 0%, hsl(25 95% 53%) 100%)'
-    },
-    'gradient-twilight': { 
-      hsl: '250 90% 60%', 
-      darkHsl: '250 95% 65%',
-      gradient: 'linear-gradient(135deg, hsl(239 84% 67%) 0%, hsl(271 91% 65%) 100%)'
-    },
-  }
-
-  const selectedColor = colors[color as keyof typeof colors]
-  if (selectedColor) {
-    // 设置主色
-    root.style.setProperty('--color-primary', selectedColor.hsl)
-    
-    // 设置渐变（如果有）
-    if (selectedColor.gradient) {
-      root.style.setProperty('--color-primary-gradient', selectedColor.gradient)
-      root.classList.add('has-gradient')
-    } else {
-      root.style.removeProperty('--color-primary-gradient')
-      root.classList.remove('has-gradient')
-    }
-  } else if (color.startsWith('#')) {
-    // 自定义颜色 - 将 HEX 转换为 HSL
-    const hexToHsl = (hex: string) => {
-      // 移除 # 号
-      hex = hex.replace('#', '')
-      
-      // 转换为 RGB
-      const r = parseInt(hex.substring(0, 2), 16) / 255
-      const g = parseInt(hex.substring(2, 4), 16) / 255
-      const b = parseInt(hex.substring(4, 6), 16) / 255
-      
-      const max = Math.max(r, g, b)
-      const min = Math.min(r, g, b)
-      let h = 0
-      let s = 0
-      const l = (max + min) / 2
-      
-      if (max !== min) {
-        const d = max - min
-        s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
-        
-        switch (max) {
-          case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break
-          case g: h = ((b - r) / d + 2) / 6; break
-          case b: h = ((r - g) / d + 4) / 6; break
-        }
-      }
-      
-      return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`
-    }
-    
-    root.style.setProperty('--color-primary', hexToHsl(color))
-    root.style.removeProperty('--color-primary-gradient')
-    root.classList.remove('has-gradient')
-  }
-}
-
 // 辅助函数：将 HSL 字符串转换为 HEX
 function hslToHex(hsl: string): string {
   if (!hsl) return '#000000'
@@ -280,12 +160,14 @@ function hslToHex(hsl: string): string {
 
 // 外观设置标签页
 function AppearanceTab() {
-  const { theme, setTheme, themeConfig, updateThemeConfig, resolvedTheme } = useTheme()
+  const { theme, setTheme, themeConfig, updateThemeConfig, resolvedTheme, resetTheme } = useTheme()
   const { enableAnimations, setEnableAnimations, enableWavesBackground, setEnableWavesBackground } = useAnimation()
+  const { toast } = useToast()
   
   const [localCSS, setLocalCSS] = useState(themeConfig.customCSS || '')
   const [cssWarnings, setCssWarnings] = useState<string[]>([])
   const cssDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setLocalCSS(themeConfig.customCSS || '')
@@ -317,6 +199,42 @@ function AppearanceTab() {
 
   const handleResetAccent = () => {
     updateThemeConfig({ accentColor: '' })
+  }
+
+  const handleExport = () => {
+    const json = exportThemeJSON()
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `maibot-theme-${Date.now()}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const json = ev.target?.result as string
+      const result = importThemeJSON(json)
+      if (result.success) {
+        // 导入成功后需要刷新页面使配置生效（因为 ThemeProvider 需要重新读取 localStorage）
+        toast({ title: '导入成功', description: '主题配置已导入，页面将自动刷新' })
+        setTimeout(() => window.location.reload(), 1000)
+      } else {
+        toast({ title: '导入失败', description: result.errors.join('; '), variant: 'destructive' })
+      }
+    }
+    reader.readAsText(file)
+    // 重置 input，允许重复选择同一文件
+    e.target.value = ''
+  }
+
+  const handleResetTheme = () => {
+    resetTheme()
+    toast({ title: '重置成功', description: '主题已重置为默认值' })
   }
 
   const previewTokens = useMemo(() => {
@@ -903,10 +821,78 @@ function AppearanceTab() {
                 onCheckedChange={setEnableWavesBackground}
               />
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
+           </div>
+         </div>
+       </div>
+
+       {/* 主题导入/导出 */}
+       <div>
+         <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">主题导入/导出</h3>
+         <div className="rounded-lg border bg-card p-3 sm:p-4 space-y-3">
+           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+             {/* 导出按钮 */}
+             <Button 
+               onClick={handleExport}
+               variant="outline"
+               className="gap-2"
+             >
+               <Download className="h-4 w-4" />
+               导出主题
+             </Button>
+
+             {/* 导入按钮 */}
+             <Button 
+               onClick={() => fileInputRef.current?.click()}
+               variant="outline"
+               className="gap-2"
+             >
+               <Upload className="h-4 w-4" />
+               导入主题
+             </Button>
+
+             {/* 重置按钮 */}
+             <AlertDialog>
+               <AlertDialogTrigger asChild>
+                 <Button 
+                   variant="outline"
+                   className="gap-2"
+                 >
+                   <RotateCcw className="h-4 w-4" />
+                   重置为默认
+                 </Button>
+               </AlertDialogTrigger>
+               <AlertDialogContent>
+                 <AlertDialogHeader>
+                   <AlertDialogTitle>确认重置主题</AlertDialogTitle>
+                   <AlertDialogDescription>
+                     这将重置所有主题设置为默认值，包括颜色、字体、布局和自定义 CSS。此操作不可撤销，确定要继续吗？
+                   </AlertDialogDescription>
+                 </AlertDialogHeader>
+                 <AlertDialogFooter>
+                   <AlertDialogCancel>取消</AlertDialogCancel>
+                   <AlertDialogAction onClick={handleResetTheme}>
+                     确认重置
+                   </AlertDialogAction>
+                 </AlertDialogFooter>
+               </AlertDialogContent>
+             </AlertDialog>
+           </div>
+
+           {/* 隐藏的文件输入 */}
+           <input
+             ref={fileInputRef}
+             type="file"
+             accept=".json"
+             onChange={handleImport}
+             className="hidden"
+           />
+
+           <p className="text-xs text-muted-foreground">
+             导出主题为 JSON 文件便于分享或备份，导入时会自动应用所有配置。
+           </p>
+         </div>
+       </div>
+     </div>
   )
 }
 
