@@ -7,7 +7,9 @@ from src.chat.message_receive.chat_stream import get_chat_manager
 from src.common.logger import get_logger
 from src.plugin_system.base.component_types import EventType, EventHandlerInfo, MaiMessages, CustomEventHandlerResult
 from src.plugin_system.base.base_events_handler import BaseEventHandler
+from src.plugin_system.base.workflow_types import WorkflowContext, WorkflowStepResult
 from .global_announcement_manager import global_announcement_manager
+from .workflow_engine import workflow_engine
 
 if TYPE_CHECKING:
     from src.common.data_models.llm_data_model import LLMGenerationDataModel
@@ -57,16 +59,20 @@ class EventsManager:
             return False
 
         if handler_info.event_type not in self._history_enable_map:
-            logger.error(f"事件类型 {handler_info.event_type} 未注册，无法为其注册处理器 {handler_name}")
-            return False
+            if isinstance(handler_info.event_type, str):
+                self.register_event(handler_info.event_type, enable_history_result=False)
+                logger.info(f"自动注册自定义事件类型: {handler_info.event_type}")
+            else:
+                logger.error(f"事件类型 {handler_info.event_type} 未注册，无法为其注册处理器 {handler_name}")
+                return False
 
         self._handler_mapping[handler_name] = handler_class
         return self._insert_event_handler(handler_class, handler_info)
 
     async def handle_mai_events(
         self,
-        event_type: EventType,
-        message: Optional[MessageRecv | MessageSending] = None,
+        event_type: EventType | str,
+        message: Optional[MessageRecv | MessageSending | MaiMessages] = None,
         llm_prompt: Optional[str] = None,
         llm_response: Optional["LLMGenerationDataModel"] = None,
         stream_id: Optional[str] = None,
@@ -120,6 +126,37 @@ class EventsManager:
                 self._dispatch_handler_task(handler, event_type, transformed_message)
 
         return continue_flag, modified_message
+
+    async def handle_workflow_message(
+        self,
+        message: Optional[MessageRecv | MessageSending | MaiMessages] = None,
+        stream_id: Optional[str] = None,
+        action_usage: Optional[List[str]] = None,
+        context: Optional[WorkflowContext] = None,
+    ) -> Tuple[WorkflowStepResult, Optional[MaiMessages], WorkflowContext]:
+        """执行线性workflow消息流转（MVP兼容入口）。"""
+        initial_message = self._prepare_message(EventType.ON_MESSAGE_PRE_PROCESS, message=message, stream_id=stream_id)
+
+        async def _dispatch(
+            event_type: EventType | str,
+            workflow_message: Optional[MaiMessages],
+            workflow_stream_id: Optional[str],
+            workflow_action_usage: Optional[List[str]],
+        ) -> Tuple[bool, Optional[MaiMessages]]:
+            return await self.handle_mai_events(
+                event_type=event_type,
+                message=workflow_message,
+                stream_id=workflow_stream_id,
+                action_usage=workflow_action_usage,
+            )
+
+        return await workflow_engine.execute_linear(
+            dispatch_event=_dispatch,
+            message=initial_message,
+            stream_id=stream_id,
+            action_usage=action_usage,
+            context=context,
+        )
 
     async def cancel_handler_tasks(self, handler_name: str) -> None:
         tasks_to_be_cancelled = self._handler_tasks.get(handler_name, [])
@@ -294,14 +331,17 @@ class EventsManager:
 
     def _prepare_message(
         self,
-        event_type: EventType,
-        message: Optional[MessageRecv | MessageSending] = None,
+        event_type: EventType | str,
+        message: Optional[MessageRecv | MessageSending | MaiMessages] = None,
         llm_prompt: Optional[str] = None,
         llm_response: Optional["LLMGenerationDataModel"] = None,
         stream_id: Optional[str] = None,
         action_usage: Optional[List[str]] = None,
     ) -> Optional[MaiMessages]:
         """根据事件类型和输入，准备和转换消息对象。"""
+        if isinstance(message, MaiMessages):
+            return message.deepcopy()
+
         if message:
             return self._transform_event_message(message, llm_prompt, llm_response)
 

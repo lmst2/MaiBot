@@ -9,6 +9,9 @@ from .base_action import BaseAction
 from .base_tool import BaseTool
 from .base_command import BaseCommand
 from .base_events_handler import BaseEventHandler
+from .service_types import PluginServiceInfo
+from .workflow_types import WorkflowContext, WorkflowMessage, WorkflowStage, WorkflowStepInfo, WorkflowStepResult
+from .workflow_errors import WorkflowErrorCode
 from .component_types import (
     ComponentType,
     ActionActivationType,
@@ -59,4 +62,11 @@ __all__ = [
     "ReplyContent",
     "ForwardNode",
     "ReplySetModel",
+    "PluginServiceInfo",
+    "WorkflowContext",
+    "WorkflowMessage",
+    "WorkflowStage",
+    "WorkflowStepInfo",
+    "WorkflowStepResult",
+    "WorkflowErrorCode",
 ]
