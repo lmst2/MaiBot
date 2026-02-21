@@ -36,7 +36,9 @@ class ImageManager:
 
         logger.info("图片管理器初始化完成")
 
-    async def get_image_description(self, image_hash: Optional[str] = None, image_bytes: Optional[bytes] = None) -> str:
+    async def get_image_description(
+        self, *, image_hash: Optional[str] = None, image_bytes: Optional[bytes] = None
+    ) -> str:
         """
         获取图片描述的封装方法
 
@@ -82,7 +84,7 @@ class ImageManager:
     def get_image_from_db(self, image_hash: str) -> Optional[MaiImage]:
         """
         从数据库中根据图片哈希值获取图片记录
-        
+
         """
         with get_db_session() as session:
             statement = select(Images).filter_by(image_hash=image_hash, image_type=ImageType.IMAGE).limit(1)
@@ -262,3 +264,6 @@ class ImageManager:
         if not description:
             logger.warning("VLM未能生成图片描述")
         return description or ""
+
+
+image_manager = ImageManager()

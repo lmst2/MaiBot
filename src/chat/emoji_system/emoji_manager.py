@@ -57,11 +57,11 @@ class EmojiManager:
         logger.info("启动表情包管理器")
 
     async def get_emoji_description(
-        self, emoji_bytes: Optional[bytes] = None, emoji_hash: Optional[str] = None
+        self, *, emoji_bytes: Optional[bytes] = None, emoji_hash: Optional[str] = None
     ) -> Optional[Tuple[str, List[str]]]:
         """
-        根据表情包哈希获取表情包描述的封装方法
-        
+        根据表情包哈希获取表情包描述和情感列表的封装方法
+
         Args:
             emoji_bytes (Optional[bytes]): 表情包的字节数据，如果提供了字节数据但数据库中没有找到对应记录，则会尝试构建表情包描述
             emoji_hash (Optional[str]): 表情包的哈希值，如果提供了哈希值则优先使用哈希值查找表情包描述
