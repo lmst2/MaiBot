@@ -200,12 +200,42 @@ class PluginManager:
         """
         重载插件模块
         """
+        old_instance = self.loaded_plugins.get(plugin_name)
+        if not old_instance:
+            logger.warning(f"插件 {plugin_name} 未加载，无法重载")
+            return False
+
         if not await self.remove_registered_plugin(plugin_name):
             return False
+
         if not self.load_registered_plugin_classes(plugin_name)[0]:
+            logger.error(f"插件 {plugin_name} 重载失败，开始回滚旧实例")
+            rollback_ok = await self._rollback_failed_reload(plugin_name, old_instance)
+            if rollback_ok:
+                logger.info(f"插件 {plugin_name} 已回滚到旧版本实例")
+            else:
+                logger.error(f"插件 {plugin_name} 回滚失败，插件当前不可用")
             return False
+
         logger.debug(f"插件 {plugin_name} 重载成功")
         return True
+
+    async def _rollback_failed_reload(self, plugin_name: str, old_instance: PluginBase) -> bool:
+        """重载失败后回滚旧实例。"""
+        try:
+            await component_registry.remove_components_by_plugin(plugin_name)
+            component_registry.remove_plugin_registry(plugin_name)
+            plugin_service_registry.remove_services_by_plugin(plugin_name)
+
+            if not old_instance.register_plugin():
+                logger.error(f"插件 {plugin_name} 回滚失败: 旧实例重新注册失败")
+                return False
+
+            self.loaded_plugins[plugin_name] = old_instance
+            return True
+        except Exception as e:
+            logger.error(f"插件 {plugin_name} 回滚异常: {e}", exc_info=True)
+            return False
 
     def rescan_plugin_directory(self) -> Tuple[int, int]:
         """

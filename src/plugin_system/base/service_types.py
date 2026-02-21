@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 
 @dataclass
@@ -11,6 +11,8 @@ class PluginServiceInfo:
     version: str = "1.0.0"
     description: str = ""
     enabled: bool = True
+    public: bool = False
+    allowed_callers: List[str] = field(default_factory=list)
     params_schema: Dict[str, Any] = field(default_factory=dict)
     return_schema: Dict[str, Any] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)

@@ -1,7 +1,8 @@
 from typing import Any, Awaitable, Callable, List, Optional, Tuple, Union
+import asyncio
+import inspect
 import time
 import uuid
-import inspect
 
 from src.common.logger import get_logger
 from src.plugin_system.base.component_types import EventType, MaiMessages
@@ -144,11 +145,19 @@ class WorkflowEngine:
 
             step_timing_key = f"{stage.value}:{step_info.full_name}"
             step_start = time.perf_counter()
+            timeout_seconds = step_info.timeout_ms / 1000 if step_info.timeout_ms > 0 else None
 
             try:
-                result = handler(context, message)
-                if inspect.isawaitable(result):
-                    result = await result
+                if inspect.iscoroutinefunction(handler):
+                    coroutine = handler(context, message)
+                    result = await asyncio.wait_for(coroutine, timeout_seconds) if timeout_seconds else await coroutine
+                else:
+                    if timeout_seconds:
+                        result = await asyncio.wait_for(asyncio.to_thread(handler, context, message), timeout_seconds)
+                    else:
+                        result = handler(context, message)
+                    if inspect.isawaitable(result):
+                        result = await asyncio.wait_for(result, timeout_seconds) if timeout_seconds else await result
                 context.timings[step_timing_key] = time.perf_counter() - step_start
 
                 normalized_result = self._normalize_step_result(result)
@@ -164,6 +173,24 @@ class WorkflowEngine:
                     )
                     normalized_result.diagnostics.setdefault("error_code", WorkflowErrorCode.DOWNSTREAM_FAILED.value)
                 return normalized_result
+
+            except asyncio.TimeoutError:
+                context.timings[step_timing_key] = time.perf_counter() - step_start
+                timeout_message = f"workflow step timeout after {step_info.timeout_ms}ms"
+                context.errors.append(f"{step_info.full_name}: {timeout_message}")
+                logger.error(
+                    f"[trace_id={context.trace_id}] Workflow step {step_info.full_name} 超时: {timeout_message}"
+                )
+                return WorkflowStepResult(
+                    status="failed",
+                    return_message=timeout_message,
+                    diagnostics={
+                        "stage": stage.value,
+                        "step": step_info.full_name,
+                        "trace_id": context.trace_id,
+                        "error_code": WorkflowErrorCode.STEP_TIMEOUT.value,
+                    },
+                )
 
             except Exception as e:
                 context.timings[step_timing_key] = time.perf_counter() - step_start
