@@ -12,7 +12,7 @@ import json
 from datetime import datetime
 
 from src.common.database.database_model import Messages
-from src.common.data_models.message_component_model import MessageSequence
+from src.common.data_models.message_component_data_model import MessageSequence
 from src.common.utils.utils_message import MessageUtils
 
 from . import BaseDatabaseDataModel
@@ -48,21 +48,30 @@ class MaiMessage(BaseDatabaseDataModel[Messages]):
         # 定义其他属性
         self.message_info: MessageInfo  # 初始化后赋值
         self.is_mentioned: bool = False
+        """机器人被提及标记，若被at，则提及也被标记"""
         self.is_at: bool = False
+        """机器人被at标记"""
         self.is_emoji: bool = False
+        """消息为纯表情包，在计算打字时长时候会被特殊处理"""
         self.is_picture: bool = False
+        """消息为纯图片，在计算打字时长时候会被特殊处理"""
         self.is_command: bool = False
+        """消息为命令消息，打字时长必定为0"""
         self.is_notify: bool = False
+        """消息为通知消息"""
 
         self.session_id: str
         self.reply_to: Optional[str] = None
 
         self.processed_plain_text: Optional[str] = None
+        """处理过后的纯文本内容"""
         self.display_message: Optional[str] = None
+        """最后显示给大模型的消息内容"""
         self.raw_message: MessageSequence
+        """原始消息数据"""
 
     @classmethod
-    def from_db_instance(cls, db_record: "Messages") -> "MaiMessage":
+    def from_db_instance(cls, db_record: "Messages"):
         obj = cls(message_id=db_record.message_id, timestamp=db_record.timestamp)
 
         user_info = UserInfo(db_record.user_id, db_record.user_nickname, db_record.user_cardname)
@@ -117,7 +126,7 @@ class MaiMessage(BaseDatabaseDataModel[Messages]):
         )
 
     @classmethod
-    def from_maim_message(cls, message: MessageBase) -> "MaiMessage":
+    def from_maim_message(cls, message: MessageBase):
         """从 maim_message.MessageBase 创建 MaiMessage 实例，解析消息内容并提取相关信息"""
         msg_info = message.message_info
         assert msg_info, "MessageBase 的 message_info 不能为空"

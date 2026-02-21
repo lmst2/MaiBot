@@ -1,11 +1,12 @@
 from maim_message import MessageBase, Seg
-from typing import List
+from typing import List, Tuple, Optional
 
 import base64
 import hashlib
 import msgpack
+import re
 
-from src.common.data_models.message_component_model import (
+from src.common.data_models.message_component_data_model import (
     MessageSequence,
     StandardMessageComponents,
     TextComponent,
@@ -16,6 +17,7 @@ from src.common.data_models.message_component_model import (
     ReplyComponent,
     DictComponent,
 )
+from src.config.config import global_config
 
 
 class MessageUtils:
@@ -85,3 +87,40 @@ class MessageUtils:
             return ReplyComponent(target_message_id=seg.data)
         else:
             raise NotImplementedError(f"暂时不支持的消息片段类型: {seg.type}")
+
+    @staticmethod
+    def check_ban_words(text: str) -> Tuple[bool, Optional[str]]:
+        """检查消息是否包含过滤词
+
+        Args:
+            text: 待检查的文本
+
+        Returns:
+            bool: 是否包含过滤词
+        """
+        if not text:
+            return False, None
+        return next(
+            ((True, word) for word in global_config.message_receive.ban_words if word in text),
+            (False, None),
+        )
+
+    @staticmethod
+    def check_ban_regex(text: str) -> Tuple[bool, Optional[str]]:
+        """检查消息是否匹配过滤正则表达式
+
+        Args:
+            text: 待检查的文本
+            chat: 聊天对象
+            userinfo: 用户信息
+
+        Returns:
+            bool: 是否匹配过滤正则
+        """
+        # 检查text是否为None或空字符串
+        if not text:
+            return False, None
+        return next(
+            ((True, pattern) for pattern in global_config.message_receive.ban_msgs_regex if re.search(pattern, text)),
+            (False, None),
+        )

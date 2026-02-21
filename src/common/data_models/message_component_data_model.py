@@ -134,9 +134,18 @@ class AtComponent(BaseMessageComponentModel):
     def format_name(self) -> str:
         return "at"
 
-    def __init__(self, target_user_id: str) -> None:
+    def __init__(
+        self,
+        target_user_id: str,
+        target_user_nickname: Optional[str] = None,
+        target_user_cardname: Optional[str] = None,
+    ) -> None:
         self.target_user_id = target_user_id
         """目标用户ID"""
+        self.target_user_nickname = target_user_nickname
+        """目标用户昵称"""
+        self.target_user_cardname = target_user_cardname
+        """目标用户备注名"""
         assert isinstance(target_user_id, str), "AtComponent 的 target_user_id 必须是字符串类型"
 
     async def to_seg(self) -> Seg:
@@ -214,12 +223,15 @@ class ForwardComponent(BaseMessageComponentModel):
     def __init__(
         self,
         user_nickname: str,
+        message_id: str,
         content: List[StandardMessageComponents],
         user_id: Optional[str] = None,
         user_cardname: Optional[str] = None,
     ):
         self.user_nickname: str = user_nickname
         """转发节点的发送者昵称"""
+        self.message_id: str = message_id
+        """转发节点的消息ID"""
         self.content: List[StandardMessageComponents] = content
         """消息内容"""
         self.user_id: Optional[str] = user_id
@@ -277,7 +289,14 @@ class MessageSequence:
                 raise RuntimeError("VoiceComponent content 未初始化")
             return {"type": "voice", "data": item.content, "hash": item.binary_hash}
         elif isinstance(item, AtComponent):
-            return {"type": "at", "data": item.target_user_id}
+            return {
+                "type": "at",
+                "data": {
+                    "target_user_id": item.target_user_id,
+                    "target_user_nickname": item.target_user_nickname,
+                    "target_user_cardname": item.target_user_cardname,
+                },
+            }
         elif isinstance(item, ReplyComponent):
             return {"type": "reply", "data": item.target_message_id}
         elif isinstance(item, ForwardNodeComponent):
@@ -288,6 +307,7 @@ class MessageSequence:
                         "user_id": comp.user_id,
                         "user_nickname": comp.user_nickname,
                         "user_cardname": comp.user_cardname,
+                        "message_id": comp.message_id,
                         "content": [self._item_2_dict(c) for c in comp.content],
                     }
                     for comp in item.forward_components
@@ -310,7 +330,11 @@ class MessageSequence:
         elif item_type == "voice":
             return VoiceComponent(binary_hash=item["hash"], content=item["data"])
         elif item_type == "at":
-            return AtComponent(target_user_id=item["data"])
+            return AtComponent(
+                target_user_id=item["data"]["target_user_id"],
+                target_user_nickname=item["data"].get("target_user_nickname"),
+                target_user_cardname=item["data"].get("target_user_cardname"),
+            )
         elif item_type == "reply":
             return ReplyComponent(target_message_id=item["data"])
         elif item_type == "forward":
@@ -321,6 +345,7 @@ class MessageSequence:
                     user_nickname=fc["user_nickname"],
                     user_id=fc.get("user_id"),
                     user_cardname=fc.get("user_cardname"),
+                    message_id=fc.get("message_id"),
                     content=content,
                 )
                 forward_components.append(forward_component)
