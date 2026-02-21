@@ -6,6 +6,7 @@ import toml
 import json
 import shutil
 import datetime
+import re
 
 from src.common.logger import get_logger
 from src.plugin_system.base.component_types import (
@@ -17,7 +18,7 @@ from src.plugin_system.base.config_types import (
     ConfigSection,
     ConfigLayout,
 )
-from src.plugin_system.utils.manifest_utils import ManifestValidator
+from src.plugin_system.utils.manifest_utils import ManifestValidator, VersionComparator
 
 logger = get_logger("plugin_base")
 
@@ -41,7 +42,7 @@ class PluginBase(ABC):
 
     @property
     @abstractmethod
-    def dependencies(self) -> List[str]:
+    def dependencies(self) -> List[Union[str, Dict[str, Any]]]:
         return []  # 依赖的其他插件
 
     @property
@@ -104,7 +105,7 @@ class PluginBase(ABC):
             enabled=self.enable_plugin,
             is_built_in=False,
             config_file=self.config_file_name or "",
-            dependencies=self.dependencies.copy(),
+            dependencies=self._get_dependency_names(),
             python_dependencies=self.python_dependencies.copy(),
             # manifest相关信息
             manifest_data=self.manifest_data.copy(),
@@ -541,12 +542,100 @@ class PluginBase(ABC):
         if not self.dependencies:
             return True
 
-        for dep in self.dependencies:
-            if not component_registry.get_plugin_info(dep):
-                logger.error(f"{self.log_prefix} 缺少依赖插件: {dep}")
+        for dependency in self.dependencies:
+            dep_name, version_spec, min_version, max_version = self._parse_dependency(dependency)
+            if not dep_name:
+                logger.warning(f"{self.log_prefix} 跳过无效依赖声明: {dependency}")
+                continue
+
+            dep_plugin_info = component_registry.get_plugin_info(dep_name)
+            if not dep_plugin_info:
+                logger.error(f"{self.log_prefix} 缺少依赖插件: {dep_name}")
                 return False
 
+            dep_version = dep_plugin_info.version or "0.0.0"
+
+            if version_spec:
+                is_ok, msg = self._is_version_spec_satisfied(dep_version, version_spec)
+                if not is_ok:
+                    logger.error(f"{self.log_prefix} 依赖插件版本不满足: {dep_name} {version_spec}, 当前版本={dep_version} ({msg})")
+                    return False
+
+            if min_version or max_version:
+                is_ok, msg = VersionComparator.is_version_in_range(dep_version, min_version, max_version)
+                if not is_ok:
+                    logger.error(
+                        f"{self.log_prefix} 依赖插件版本不满足: {dep_name} 要求区间[{min_version or '-inf'}, {max_version or '+inf'}], 当前版本={dep_version} ({msg})"
+                    )
+                    return False
+
         return True
+
+    def _get_dependency_names(self) -> List[str]:
+        """获取依赖插件名称列表（用于插件信息展示和统计）。"""
+        dependency_names: List[str] = []
+        for dependency in self.dependencies:
+            dep_name, _, _, _ = self._parse_dependency(dependency)
+            if dep_name:
+                dependency_names.append(dep_name)
+        return dependency_names
+
+    def _parse_dependency(self, dependency: Any) -> tuple[str, str, str, str]:
+        """解析依赖声明。
+
+        支持格式：
+        - "plugin_a"
+        - {"name": "plugin_a", "version": ">=1.2.0,<2.0.0"}
+        - {"name": "plugin_a", "min_version": "1.2.0", "max_version": "2.0.0"}
+        """
+        if isinstance(dependency, str):
+            return dependency.strip(), "", "", ""
+
+        if isinstance(dependency, dict):
+            dep_name = str(dependency.get("name", "")).strip()
+            version_spec = str(dependency.get("version", "")).strip()
+            min_version = str(dependency.get("min_version", "")).strip()
+            max_version = str(dependency.get("max_version", "")).strip()
+            return dep_name, version_spec, min_version, max_version
+
+        return "", "", "", ""
+
+    def _is_version_spec_satisfied(self, version: str, version_spec: str) -> tuple[bool, str]:
+        """检查版本是否满足表达式。
+
+        支持：==, >=, <=, >, <，可用逗号分隔多个条件。
+        示例：">=1.2.0,<2.0.0"
+        """
+        normalized_version = VersionComparator.normalize_version(version)
+        clauses = [clause.strip() for clause in version_spec.split(",") if clause.strip()]
+        if not clauses:
+            return True, ""
+
+        operators_pattern = r"^(==|>=|<=|>|<)\s*(.+)$"
+
+        for clause in clauses:
+            if not (match := re.match(operators_pattern, clause)):
+                return False, f"无效版本约束表达式: {clause}"
+
+            operator, target_version = match.group(1), VersionComparator.normalize_version(match.group(2))
+            compare_result = VersionComparator.compare_versions(normalized_version, target_version)
+
+            is_satisfied = False
+            if operator == "==":
+                is_satisfied = compare_result == 0
+            elif operator == ">=":
+                is_satisfied = compare_result >= 0
+            elif operator == "<=":
+                is_satisfied = compare_result <= 0
+            elif operator == ">":
+                is_satisfied = compare_result > 0
+            elif operator == "<":
+                is_satisfied = compare_result < 0
+
+            if not is_satisfied:
+                return False, f"{normalized_version} 不满足约束 {operator}{target_version}"
+
+        return True, ""
 
     def get_config(self, key: str, default: Any = None) -> Any:
         """获取插件配置值，支持嵌套键访问

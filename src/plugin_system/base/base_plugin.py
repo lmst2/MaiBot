@@ -1,9 +1,10 @@
 from abc import abstractmethod
-from typing import List, Type, Tuple, Union
+from typing import Any, Callable, List, Type, Tuple, Union
 from .plugin_base import PluginBase
 
 from src.common.logger import get_logger
 from src.plugin_system.base.component_types import ActionInfo, CommandInfo, EventHandlerInfo, ToolInfo
+from src.plugin_system.base.workflow_types import WorkflowStepInfo
 from .base_action import BaseAction
 from .base_command import BaseCommand
 from .base_events_handler import BaseEventHandler
@@ -44,6 +45,13 @@ class BasePlugin(PluginBase):
         """
         raise NotImplementedError("Subclasses must implement this method")
 
+    def get_workflow_steps(self) -> List[Tuple[WorkflowStepInfo, Callable[..., Any]]]:
+        """获取插件包含的workflow steps。
+
+        默认返回空列表，子类可按需覆盖。
+        """
+        return []
+
     def register_plugin(self) -> bool:
         """注册插件及其所有组件"""
         from src.plugin_system.core.component_registry import component_registry
@@ -69,7 +77,25 @@ class BasePlugin(PluginBase):
 
         # 注册插件
         if component_registry.register_plugin(self.plugin_info):
+            # 注册workflow steps（可选）
+            registered_step_count = 0
+            for step_info, step_handler in self.get_workflow_steps():
+                if not step_info.plugin_name:
+                    step_info.plugin_name = self.plugin_name
+                elif step_info.plugin_name != self.plugin_name:
+                    logger.warning(
+                        f"{self.log_prefix} workflow step {step_info.name} 的plugin_name({step_info.plugin_name})与当前插件不一致，已覆盖为 {self.plugin_name}"
+                    )
+                    step_info.plugin_name = self.plugin_name
+
+                if component_registry.register_workflow_step(step_info, step_handler):
+                    registered_step_count += 1
+                else:
+                    logger.warning(f"{self.log_prefix} workflow step {step_info.full_name} 注册失败")
+
             logger.debug(f"{self.log_prefix} 插件注册成功，包含 {len(registered_components)} 个组件")
+            if registered_step_count > 0:
+                logger.debug(f"{self.log_prefix} workflow steps 注册成功，数量: {registered_step_count}")
             return True
         else:
             logger.error(f"{self.log_prefix} 插件注册失败")

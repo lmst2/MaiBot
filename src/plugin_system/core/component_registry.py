@@ -1,6 +1,6 @@
 import re
 
-from typing import Dict, List, Optional, Any, Pattern, Tuple, Union, Type
+from typing import Callable, Dict, List, Optional, Any, Pattern, Tuple, Union, Type
 
 from src.common.logger import get_logger
 from src.plugin_system.base.component_types import (
@@ -16,6 +16,7 @@ from src.plugin_system.base.base_command import BaseCommand
 from src.plugin_system.base.base_action import BaseAction
 from src.plugin_system.base.base_tool import BaseTool
 from src.plugin_system.base.base_events_handler import BaseEventHandler
+from src.plugin_system.base.workflow_types import WorkflowStage, WorkflowStepInfo
 
 logger = get_logger("component_registry")
 
@@ -60,6 +61,10 @@ class ComponentRegistry:
         """event_handler名 -> event_handler类"""
         self._enabled_event_handlers: Dict[str, Type[BaseEventHandler]] = {}
         """启用的事件处理器 event_handler名 -> event_handler类"""
+
+        # Workflow step注册表
+        self._workflow_steps: Dict[WorkflowStage, Dict[str, WorkflowStepInfo]] = {stage: {} for stage in WorkflowStage}
+        self._workflow_step_handlers: Dict[str, Callable[..., Any]] = {}
 
         logger.info("组件注册中心初始化完成")
 
@@ -282,8 +287,115 @@ class ComponentRegistry:
             logger.warning(f"插件 {plugin_name} 未注册，无法移除")
             return False
         del self._plugins[plugin_name]
+        self.remove_workflow_steps_by_plugin(plugin_name)
         logger.info(f"插件 {plugin_name} 已移除")
         return True
+
+    # === Workflow step 注册与查询 ===
+
+    def register_workflow_step(self, step_info: WorkflowStepInfo, step_handler: Callable[..., Any]) -> bool:
+        """注册workflow步骤。"""
+        if not step_info.name or not step_info.plugin_name:
+            logger.error("workflow step 注册失败: step名称或插件名称为空")
+            return False
+        if "." in step_info.name:
+            logger.error(f"workflow step 名称 '{step_info.name}' 包含非法字符 '.'，请使用下划线替代")
+            return False
+        if "." in step_info.plugin_name:
+            logger.error(f"workflow step 所属插件名称 '{step_info.plugin_name}' 包含非法字符 '.'，请使用下划线替代")
+            return False
+
+        full_name = step_info.full_name
+        stage_registry = self._workflow_steps.get(step_info.stage)
+        if stage_registry is None:
+            logger.error(f"workflow step 注册失败: 未知阶段 {step_info.stage}")
+            return False
+        if full_name in stage_registry:
+            logger.warning(f"workflow step 已存在，跳过注册: {full_name}")
+            return False
+
+        stage_registry[full_name] = step_info
+        self._workflow_step_handlers[full_name] = step_handler
+        logger.debug(f"已注册workflow step: {full_name} @ {step_info.stage}")
+        return True
+
+    def get_steps_by_stage(self, stage: WorkflowStage, enabled_only: bool = False) -> Dict[str, WorkflowStepInfo]:
+        """获取某阶段的workflow步骤。"""
+        steps = self._workflow_steps.get(stage, {})
+        if enabled_only:
+            return {name: info for name, info in steps.items() if info.enabled}
+        return steps.copy()
+
+    def get_workflow_step(self, step_name: str, stage: Optional[WorkflowStage] = None) -> Optional[WorkflowStepInfo]:
+        """获取workflow step信息。
+
+        step_name支持两种：
+        - full_name: plugin_name.step_name
+        - short_name: step_name（若有冲突返回第一个并告警）
+        """
+        candidates: List[WorkflowStepInfo] = []
+
+        target_stages = [stage] if stage else list(WorkflowStage)
+        for current_stage in target_stages:
+            current_steps = self._workflow_steps.get(current_stage, {})
+            if "." in step_name:
+                if step_info := current_steps.get(step_name):
+                    return step_info
+                continue
+            candidates.extend([step_info for step_info in current_steps.values() if step_info.name == step_name])
+
+        if len(candidates) == 1:
+            return candidates[0]
+        if len(candidates) > 1:
+            logger.warning(f"workflow step 名称 '{step_name}' 存在多义，使用第一个匹配: {candidates[0].full_name}")
+            return candidates[0]
+        return None
+
+    def get_workflow_step_handler(
+        self, step_name: str, stage: Optional[WorkflowStage] = None
+    ) -> Optional[Callable[..., Any]]:
+        """获取workflow step处理函数。"""
+        if "." in step_name:
+            return self._workflow_step_handlers.get(step_name)
+
+        if step_info := self.get_workflow_step(step_name, stage):
+            return self._workflow_step_handlers.get(step_info.full_name)
+        return None
+
+    def enable_workflow_step(self, step_name: str, stage: Optional[WorkflowStage] = None) -> bool:
+        """启用workflow step。"""
+        step_info = self.get_workflow_step(step_name, stage)
+        if not step_info:
+            logger.warning(f"workflow step 未注册，无法启用: {step_name}")
+            return False
+        step_info.enabled = True
+        logger.info(f"workflow step 已启用: {step_info.full_name}")
+        return True
+
+    def disable_workflow_step(self, step_name: str, stage: Optional[WorkflowStage] = None) -> bool:
+        """禁用workflow step。"""
+        step_info = self.get_workflow_step(step_name, stage)
+        if not step_info:
+            logger.warning(f"workflow step 未注册，无法禁用: {step_name}")
+            return False
+        step_info.enabled = False
+        logger.info(f"workflow step 已禁用: {step_info.full_name}")
+        return True
+
+    def remove_workflow_steps_by_plugin(self, plugin_name: str) -> int:
+        """移除某插件注册的所有workflow step。"""
+        removed_count = 0
+        for stage in WorkflowStage:
+            stage_registry = self._workflow_steps.get(stage, {})
+            target_names = [name for name, info in stage_registry.items() if info.plugin_name == plugin_name]
+            for full_name in target_names:
+                stage_registry.pop(full_name, None)
+                self._workflow_step_handlers.pop(full_name, None)
+                removed_count += 1
+
+        if removed_count:
+            logger.info(f"已移除插件 {plugin_name} 的 workflow step 数量: {removed_count}")
+        return removed_count
 
     # === 组件全局启用/禁用方法 ===
 
@@ -602,6 +714,12 @@ class ComponentRegistry:
                 tool_components += 1
             elif component.component_type == ComponentType.EVENT_HANDLER:
                 events_handlers += 1
+
+        workflow_step_count = sum(len(steps) for steps in self._workflow_steps.values())
+        enabled_workflow_step_count = sum(
+            len([step for step in steps.values() if step.enabled]) for steps in self._workflow_steps.values()
+        )
+
         return {
             "action_components": action_components,
             "command_components": command_components,
@@ -614,6 +732,11 @@ class ComponentRegistry:
             },
             "enabled_components": len([c for c in self._components.values() if c.enabled]),
             "enabled_plugins": len([p for p in self._plugins.values() if p.enabled]),
+            "workflow_steps": workflow_step_count,
+            "enabled_workflow_steps": enabled_workflow_step_count,
+            "workflow_steps_by_stage": {
+                stage.value: len(steps) for stage, steps in self._workflow_steps.items()
+            },
         }
 
 
