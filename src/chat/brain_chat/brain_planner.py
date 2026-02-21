@@ -431,15 +431,21 @@ class BrainPlanner:
         except Exception as req_e:
             logger.error(f"{self.log_prefix}LLM 请求执行失败: {req_e}")
             extracted_reasoning = f"LLM 请求失败，模型出现问题: {req_e}"
-            return extracted_reasoning, [
-                ActionPlannerInfo(
-                    action_type="complete_talk",
-                    reasoning=extracted_reasoning,
-                    action_data={},
-                    action_message=None,
-                    available_actions=available_actions,
-                )
-            ], llm_content, llm_reasoning, llm_duration_ms
+            return (
+                extracted_reasoning,
+                [
+                    ActionPlannerInfo(
+                        action_type="complete_talk",
+                        reasoning=extracted_reasoning,
+                        action_data={},
+                        action_message=None,
+                        available_actions=available_actions,
+                    )
+                ],
+                llm_content,
+                llm_reasoning,
+                llm_duration_ms,
+            )
 
         # 解析LLM响应
         if llm_content:

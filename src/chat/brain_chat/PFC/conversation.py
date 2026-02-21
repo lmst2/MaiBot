@@ -112,10 +112,10 @@ class Conversation:
                             "user_nickname": msg.user_info.user_nickname if msg.user_info else "",
                             "user_cardname": msg.user_info.user_cardname if msg.user_info else None,
                             "platform": msg.user_info.platform if msg.user_info else "",
-                        }
+                        },
                     }
                     initial_messages_dict.append(msg_dict)
-                
+
                 # 将加载的消息填充到 ObservationInfo 的 chat_history
                 self.observation_info.chat_history = initial_messages_dict
                 self.observation_info.chat_history_str = chat_talking_prompt + "\n"

@@ -315,15 +315,15 @@ async def get_jargon_stats():
             total = session.exec(select(fn.count()).select_from(Jargon)).one()
 
             confirmed_jargon = session.exec(
-                select(fn.count()).select_from(Jargon).where(col(Jargon.is_jargon) == True)
+                select(fn.count()).select_from(Jargon).where(col(Jargon.is_jargon))
             ).one()
             confirmed_not_jargon = session.exec(
-                select(fn.count()).select_from(Jargon).where(col(Jargon.is_jargon) == False)
+                select(fn.count()).select_from(Jargon).where(col(Jargon.is_jargon).is_(False))
             ).one()
             pending = session.exec(select(fn.count()).select_from(Jargon).where(col(Jargon.is_jargon).is_(None))).one()
 
             complete_count = session.exec(
-                select(fn.count()).select_from(Jargon).where(col(Jargon.is_complete) == True)
+                select(fn.count()).select_from(Jargon).where(col(Jargon.is_complete))
             ).one()
 
             chat_count = session.exec(

@@ -35,6 +35,7 @@ logger = get_logger("planner")
 
 install(extra_lines=3)
 
+
 class ActionPlanner:
     def __init__(self, chat_id: str, action_manager: ActionManager):
         self.chat_id = chat_id
@@ -48,7 +49,7 @@ class ActionPlanner:
         self.last_obs_time_mark = 0.0
 
         self.plan_log: List[Tuple[str, float, Union[List[ActionPlannerInfo], str]]] = []
-        
+
         # 黑话缓存：使用 OrderedDict 实现 LRU，最多缓存10个
         self.unknown_words_cache: OrderedDict[str, None] = OrderedDict()
         self.unknown_words_cache_limit = 10
@@ -111,20 +112,29 @@ class ActionPlanner:
 
             # 替换 [picid:xxx] 为 [图片：描述]
             pic_pattern = r"\[picid:([^\]]+)\]"
+
             def replace_pic_id(pic_match: re.Match) -> str:
                 pic_id = pic_match.group(1)
                 description = translate_pid_to_description(pic_id)
                 return f"[图片：{description}]"
+
             msg_text = re.sub(pic_pattern, replace_pic_id, msg_text)
 
             # 替换用户引用格式：回复<aaa:bbb> 和 @<aaa:bbb>
-            platform = getattr(message, "user_info", None) and message.user_info.platform or getattr(message, "chat_info", None) and message.chat_info.platform or "qq"
+            platform = (
+                getattr(message, "user_info", None)
+                and message.user_info.platform
+                or getattr(message, "chat_info", None)
+                and message.chat_info.platform
+                or "qq"
+            )
             msg_text = replace_user_references(msg_text, platform, replace_bot_name=True)
 
             # 替换单独的 <用户名:用户ID> 格式（replace_user_references 已处理回复<和@<格式）
             # 匹配所有 <aaa:bbb> 格式，由于 replace_user_references 已经替换了回复<和@<格式，
             # 这里匹配到的应该都是单独的格式
             user_ref_pattern = r"<([^:<>]+):([^:<>]+)>"
+
             def replace_user_ref(user_match: re.Match) -> str:
                 user_name = user_match.group(1)
                 user_id = user_match.group(2)
@@ -137,6 +147,7 @@ class ActionPlanner:
                 except Exception:
                     # 如果解析失败，使用原始昵称
                     return user_name
+
             msg_text = re.sub(user_ref_pattern, replace_user_ref, msg_text)
 
             preview = msg_text if len(msg_text) <= 100 else f"{msg_text[:97]}..."
@@ -165,7 +176,7 @@ class ActionPlanner:
             else:
                 reasoning = "未提供原因"
             action_data = {key: value for key, value in action_json.items() if key not in ["action"]}
-            
+
             # 非no_reply动作需要target_message_id
             target_message = None
 
@@ -244,7 +255,7 @@ class ActionPlanner:
     def _update_unknown_words_cache(self, new_words: List[str]) -> None:
         """
         更新黑话缓存，将新的黑话加入缓存
-        
+
         Args:
             new_words: 新提取的黑话列表
         """
@@ -254,7 +265,7 @@ class ActionPlanner:
             word = word.strip()
             if not word:
                 continue
-            
+
             # 如果已存在，移到末尾（LRU）
             if word in self.unknown_words_cache:
                 self.unknown_words_cache.move_to_end(word)
@@ -269,10 +280,10 @@ class ActionPlanner:
     def _merge_unknown_words_with_cache(self, new_words: Optional[List[str]]) -> List[str]:
         """
         合并新提取的黑话和缓存中的黑话
-        
+
         Args:
             new_words: 新提取的黑话列表（可能为None）
-            
+
         Returns:
             合并后的黑话列表（去重）
         """
@@ -284,31 +295,29 @@ class ActionPlanner:
                     word = word.strip()
                     if word:
                         cleaned_new_words.append(word)
-        
+
         # 获取缓存中的黑话列表
         cached_words = list(self.unknown_words_cache.keys())
-        
+
         # 合并并去重（保留顺序：新提取的在前，缓存的在后）
         merged_words: List[str] = []
         seen = set()
-        
+
         # 先添加新提取的
         for word in cleaned_new_words:
             if word not in seen:
                 merged_words.append(word)
                 seen.add(word)
-        
+
         # 再添加缓存的（如果不在新提取的列表中）
         for word in cached_words:
             if word not in seen:
                 merged_words.append(word)
                 seen.add(word)
-        
+
         return merged_words
 
-    def _process_unknown_words_cache(
-        self, actions: List[ActionPlannerInfo]
-    ) -> None:
+    def _process_unknown_words_cache(self, actions: List[ActionPlannerInfo]) -> None:
         """
         处理黑话缓存逻辑：
         1. 检查是否有 reply action 提取了 unknown_words
@@ -316,7 +325,7 @@ class ActionPlanner:
         3. 如果缓存数量大于5，移除最老的2个
         4. 对于每个 reply action，合并缓存和新提取的黑话
         5. 更新缓存
-        
+
         Args:
             actions: 解析后的动作列表
         """
@@ -330,7 +339,7 @@ class ActionPlanner:
                     removed_count += 1
             if removed_count > 0:
                 logger.debug(f"{self.log_prefix}缓存数量大于5，移除最老的{removed_count}个缓存")
-        
+
         # 检查是否有 reply action 提取了 unknown_words
         has_extracted_unknown_words = False
         for action in actions:
@@ -340,22 +349,22 @@ class ActionPlanner:
                 if unknown_words and isinstance(unknown_words, list) and len(unknown_words) > 0:
                     has_extracted_unknown_words = True
                     break
-        
+
         # 如果当前 plan 的 reply 没有提取，移除最老的1个
         if not has_extracted_unknown_words:
             if len(self.unknown_words_cache) > 0:
                 self.unknown_words_cache.popitem(last=False)
                 logger.debug(f"{self.log_prefix}当前 plan 的 reply 没有提取黑话，移除最老的1个缓存")
-        
+
         # 对于每个 reply action，合并缓存和新提取的黑话
         for action in actions:
             if action.action_type == "reply":
                 action_data = action.action_data or {}
                 new_words = action_data.get("unknown_words")
-                
+
                 # 合并新提取的和缓存的黑话列表
                 merged_words = self._merge_unknown_words_with_cache(new_words)
-                
+
                 # 更新 action_data
                 if merged_words:
                     action_data["unknown_words"] = merged_words
@@ -366,7 +375,7 @@ class ActionPlanner:
                 else:
                     # 如果没有合并后的黑话，移除 unknown_words 字段
                     action_data.pop("unknown_words", None)
-                
+
                 # 更新缓存（将新提取的黑话加入缓存）
                 if new_words:
                     self._update_unknown_words_cache(new_words)
@@ -442,15 +451,19 @@ class ActionPlanner:
             # 检查是否已经有回复该消息的 action
             has_reply_to_force_message = False
             for action in actions:
-                if action.action_type == "reply" and action.action_message and action.action_message.message_id == force_reply_message.message_id:
+                if (
+                    action.action_type == "reply"
+                    and action.action_message
+                    and action.action_message.message_id == force_reply_message.message_id
+                ):
                     has_reply_to_force_message = True
                     break
-            
+
             # 如果没有回复该消息，强制添加回复 action
             if not has_reply_to_force_message:
                 # 移除所有 no_reply action（如果有）
                 actions = [a for a in actions if a.action_type != "no_reply"]
-                
+
                 # 创建强制回复 action
                 available_actions_dict = dict(current_available_actions)
                 force_reply_action = ActionPlannerInfo(
@@ -577,10 +590,11 @@ class ActionPlanner:
             if global_config.chat.think_mode == "classic":
                 reply_action_example = ""
                 if global_config.chat.llm_quote:
-                    reply_action_example += "5.如果要明确回复消息，使用quote，如果消息不多不需要明确回复，设置quote为false\n"
+                    reply_action_example += (
+                        "5.如果要明确回复消息，使用quote，如果消息不多不需要明确回复，设置quote为false\n"
+                    )
                 reply_action_example += (
-                    '{{"action":"reply", "target_message_id":"消息id(m+数字)", '
-                    '"unknown_words":["词语1","词语2"]'
+                    '{{"action":"reply", "target_message_id":"消息id(m+数字)", "unknown_words":["词语1","词语2"]'
                 )
                 if global_config.chat.llm_quote:
                     reply_action_example += ', "quote":"如果需要引用该message，设置为true"'
@@ -590,7 +604,9 @@ class ActionPlanner:
                     "5.think_level表示思考深度，0表示该回复不需要思考和回忆，1表示该回复需要进行回忆和思考\n"
                 )
                 if global_config.chat.llm_quote:
-                    reply_action_example += "6.如果要明确回复消息，使用quote，如果消息不多不需要明确回复，设置quote为false\n"
+                    reply_action_example += (
+                        "6.如果要明确回复消息，使用quote，如果消息不多不需要明确回复，设置quote为false\n"
+                    )
                 reply_action_example += (
                     '{{"action":"reply", "think_level":数值等级(0或1), '
                     '"target_message_id":"消息id(m+数字)", '
@@ -741,15 +757,21 @@ class ActionPlanner:
 
         except Exception as req_e:
             logger.error(f"{self.log_prefix}LLM 请求执行失败: {req_e}")
-            return f"LLM 请求失败，模型出现问题: {req_e}", [
-                ActionPlannerInfo(
-                    action_type="no_reply",
-                    reasoning=f"LLM 请求失败，模型出现问题: {req_e}",
-                    action_data={},
-                    action_message=None,
-                    available_actions=available_actions,
-                )
-            ], llm_content, llm_reasoning, llm_duration_ms
+            return (
+                f"LLM 请求失败，模型出现问题: {req_e}",
+                [
+                    ActionPlannerInfo(
+                        action_type="no_reply",
+                        reasoning=f"LLM 请求失败，模型出现问题: {req_e}",
+                        action_data={},
+                        action_message=None,
+                        available_actions=available_actions,
+                    )
+                ],
+                llm_content,
+                llm_reasoning,
+                llm_duration_ms,
+            )
 
         # 解析LLM响应
         extracted_reasoning = ""

@@ -519,7 +519,7 @@ def _build_readable_messages_internal(
     output_lines: List[str] = []
 
     prev_timestamp: Optional[float] = None
-    for timestamp, name, content, is_action in detailed_message:
+    for timestamp, name, content, _is_action in detailed_message:
         # 检查是否需要插入长时间间隔提示
         if long_time_notice and prev_timestamp is not None:
             time_diff = timestamp - prev_timestamp

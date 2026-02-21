@@ -387,7 +387,7 @@ def test_auth_required_list(client):
     """测试未认证访问列表端点（401）"""
     # Without mock_token_verify fixture
     with patch("src.webui.routers.emoji.verify_auth_token", return_value=False):
-        response = client.get("/emoji/list")
+        client.get("/emoji/list")
         # verify_auth_token 返回 False 会触发 HTTPException
         # 但具体状态码取决于 verify_auth_token_from_cookie_or_header 的实现
         # 这里假设它抛出 401
@@ -397,7 +397,7 @@ def test_auth_required_update(client, sample_emojis):
     """测试未认证访问更新端点（401）"""
     with patch("src.webui.routers.emoji.verify_auth_token", return_value=False):
         emoji_id = sample_emojis[0].id
-        response = client.patch(f"/emoji/{emoji_id}", json={"description": "test"})
+        client.patch(f"/emoji/{emoji_id}", json={"description": "test"})
         # Should be unauthorized
 
 

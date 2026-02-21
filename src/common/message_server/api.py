@@ -9,6 +9,7 @@ from .server import get_global_server
 
 global_api = None
 
+
 def get_global_api() -> MessageServer:  # sourcery skip: extract-method
     """获取全局MessageServer实例"""
     global global_api
@@ -80,12 +81,12 @@ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
                     api_logger.warning(f"Rejected connection with invalid API Key: {api_key}")
                     return False
 
-                server_config.on_auth = auth_handler # type: ignore # maim_message库写错类型了
+                server_config.on_auth = auth_handler  # type: ignore # maim_message库写错类型了
 
                 # 3. Setup Message Bridge
                 # Initialize refined route map if not exists
                 if not hasattr(global_api, "platform_map"):
-                    global_api.platform_map = {} # type: ignore # 不知道这是什么神奇写法 
+                    global_api.platform_map = {}  # type: ignore # 不知道这是什么神奇写法
 
                 async def bridge_message_handler(message: APIMessageBase, metadata: dict):
                     # 使用 MessageConverter 转换 APIMessageBase 到 Legacy MessageBase
@@ -108,7 +109,7 @@ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
                             api_logger.debug(f"Bridge received: api_key='{api_key}', platform='{platform}'")
 
                             if platform:
-                                global_api.platform_map[platform] = api_key # type: ignore 
+                                global_api.platform_map[platform] = api_key  # type: ignore
                                 api_logger.info(f"Updated platform_map: {platform} -> {api_key}")
                         except Exception as e:
                             api_logger.warning(f"Failed to update platform map: {e}")
@@ -117,21 +118,21 @@ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
                     if "raw_message" not in msg_dict:
                         msg_dict["raw_message"] = None
 
-                    await global_api.process_message(msg_dict) # type: ignore
+                    await global_api.process_message(msg_dict)  # type: ignore
 
-                server_config.on_message = bridge_message_handler # type: ignore # maim_message库写错类型了
+                server_config.on_message = bridge_message_handler  # type: ignore # maim_message库写错类型了
 
                 # 3.5. Register custom message handlers (bridge to Legacy handlers)
                 # message_id_echo: handles message ID echo from adapters
                 # 兼容新旧两个版本的 maim_message:
                 # - 旧版: handler(payload)
                 # - 新版: handler(payload, metadata)
-                async def custom_message_id_echo_handler(payload: dict, metadata: dict = None): # type: ignore
+                async def custom_message_id_echo_handler(payload: dict, metadata: dict = None):  # type: ignore
                     # Bridge to the Legacy custom handler registered in main.py
                     try:
                         # The Legacy handler expects the payload format directly
                         if hasattr(global_api, "_custom_message_handlers"):
-                            handler = global_api._custom_message_handlers.get("message_id_echo") # type: ignore # 已经不知道这是什么了
+                            handler = global_api._custom_message_handlers.get("message_id_echo")  # type: ignore # 已经不知道这是什么了
                             if handler:
                                 await handler(payload)
                                 api_logger.debug(f"Processed message_id_echo: {payload}")
@@ -140,7 +141,7 @@ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
                     except Exception as e:
                         api_logger.warning(f"Failed to process message_id_echo: {e}")
 
-                server_config.register_custom_handler("message_id_echo", custom_message_id_echo_handler) # type: ignore # maim_message库写错类型了
+                server_config.register_custom_handler("message_id_echo", custom_message_id_echo_handler)  # type: ignore # maim_message库写错类型了
 
                 # 4. Initialize Server
                 extra_server = WebSocketServer(config=server_config)
@@ -167,7 +168,7 @@ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
                 global_api.stop = patched_stop
 
                 # Attach for reference
-                global_api.extra_server = extra_server # type: ignore # 这是什么
+                global_api.extra_server = extra_server  # type: ignore # 这是什么
 
             except ImportError:
                 get_logger("maim_message").error(

@@ -66,9 +66,9 @@ class DirectMessageSender:
 
             # 发送消息（直接调用底层 API）
             from src.chat.message_receive.uni_message_sender import _send_message
-            
+
             sent = await _send_message(message, show_log=True)
-            
+
             if sent:
                 # 存储消息
                 await self.storage.store_message(message, chat_stream)

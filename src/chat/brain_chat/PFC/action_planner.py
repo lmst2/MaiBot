@@ -1,5 +1,5 @@
 import time
-from typing import Tuple, Optional, Dict, Any  # 增加了 Optional
+from typing import Tuple, Optional  # 增加了 Optional
 from src.common.logger import get_logger
 from src.llm_models.utils_model import LLMRequest
 from src.config.config import global_config, model_config
@@ -120,7 +120,7 @@ class ActionPlanner:
     def _get_personality_prompt(self) -> str:
         """获取个性提示信息"""
         prompt_personality = global_config.personality.personality
-        
+
         # 检查是否需要随机替换为状态
         if (
             global_config.personality.states
@@ -128,7 +128,7 @@ class ActionPlanner:
             and random.random() < global_config.personality.state_probability
         ):
             prompt_personality = random.choice(global_config.personality.states)
-        
+
         bot_name = global_config.bot.nickname
         return f"你的名字是{bot_name},你{prompt_personality};"
 
@@ -170,12 +170,9 @@ class ActionPlanner:
                             )
                         break
             else:
-                logger.debug(
-                    f"[私聊][{self.private_name}]聊天历史为空或尚未加载，跳过 Bot 发言时间检查。"
-                )
+                logger.debug(f"[私聊][{self.private_name}]聊天历史为空或尚未加载，跳过 Bot 发言时间检查。")
         except Exception as e:
             logger.debug(f"[私聊][{self.private_name}]获取 Bot 上次发言时间时出错: {e}")
-
 
         # --- 获取超时提示信息 ---
         # (这部分逻辑不变)

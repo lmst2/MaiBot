@@ -274,6 +274,23 @@ class ComponentRegistry:
             logger.error(f"移除组件 {component_name} 时发生错误: {e}")
             return False
 
+    async def remove_components_by_plugin(self, plugin_name: str) -> int:
+        """移除某插件注册的所有组件。"""
+        targets = [
+            (component_info.name, component_info.component_type)
+            for component_info in self._components.values()
+            if component_info.plugin_name == plugin_name
+        ]
+
+        removed_count = 0
+        for component_name, component_type in targets:
+            if await self.remove_component(component_name, component_type, plugin_name):
+                removed_count += 1
+
+        if removed_count:
+            logger.info(f"已移除插件 {plugin_name} 的组件数量: {removed_count}")
+        return removed_count
+
     def remove_plugin_registry(self, plugin_name: str) -> bool:
         """移除插件注册信息
 
@@ -734,9 +751,7 @@ class ComponentRegistry:
             "enabled_plugins": len([p for p in self._plugins.values() if p.enabled]),
             "workflow_steps": workflow_step_count,
             "enabled_workflow_steps": enabled_workflow_step_count,
-            "workflow_steps_by_stage": {
-                stage.value: len(steps) for stage, steps in self._workflow_steps.items()
-            },
+            "workflow_steps_by_stage": {stage.value: len(steps) for stage, steps in self._workflow_steps.items()},
         }
 
 

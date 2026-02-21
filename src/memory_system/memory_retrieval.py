@@ -2,7 +2,7 @@ import time
 import json
 import asyncio
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple, Callable, cast
+from typing import List, Dict, Any, Optional, Tuple, Callable
 from src.common.logger import get_logger
 from src.config.config import global_config, model_config
 from src.prompt.prompt_manager import prompt_manager
@@ -34,7 +34,7 @@ def _cleanup_stale_not_found_thinking_back() -> None:
     try:
         with get_db_session() as session:
             statement = select(ThinkingQuestion).where(
-                (ThinkingQuestion.found_answer == False)
+                col(ThinkingQuestion.found_answer).is_(False)
                 & (ThinkingQuestion.updated_timestamp < datetime.fromtimestamp(threshold_time))
             )
             records = session.exec(statement).all()
@@ -786,8 +786,7 @@ def _get_recent_query_history(chat_id: str, time_window_seconds: float = 600.0) 
         str: 格式化的查询历史字符串
     """
     try:
-        current_time = time.time()
-        start_time = current_time - time_window_seconds
+        _current_time = time.time()
 
         with get_db_session() as session:
             statement = (
@@ -838,15 +837,14 @@ def _get_recent_found_answers(chat_id: str, time_window_seconds: float = 600.0) 
         List[str]: 格式化的答案列表，每个元素格式为 "问题：xxx\n答案：xxx"
     """
     try:
-        current_time = time.time()
-        start_time = current_time - time_window_seconds
+        _current_time = time.time()
 
         # 查询最近时间窗口内已找到答案的记录，按更新时间倒序
         with get_db_session() as session:
             statement = (
                 select(ThinkingQuestion)
                 .where(col(ThinkingQuestion.context) == chat_id)
-                .where(col(ThinkingQuestion.found_answer) == True)
+                .where(col(ThinkingQuestion.found_answer))
                 .where(col(ThinkingQuestion.answer).is_not(None))
                 .where(col(ThinkingQuestion.answer) != "")
                 .order_by(col(ThinkingQuestion.updated_timestamp).desc())

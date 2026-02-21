@@ -46,6 +46,7 @@ def patch_attrdoc_post_init():
 
 config_base_module.logger = logging.getLogger("config_base_test_logger")
 
+
 class SimpleClass(ConfigBase):
     a: int = 1
     b: str = "test"
@@ -282,7 +283,7 @@ class TestConfigBase:
                 True,
                 "ConfigBase is not Hashable",
                 id="listset-validation-set-configbase-element_reject",
-            )
+            ),
         ],
     )
     def test_validate_list_set_type(self, annotation, expect_error, error_fragment):
@@ -340,7 +341,7 @@ class TestConfigBase:
                 False,
                 None,
                 id="dict-validation-happy-configbase-value",
-            )
+            ),
         ],
     )
     def test_validate_dict_type(self, annotation, expect_error, error_fragment):
@@ -353,13 +354,11 @@ class TestConfigBase:
         field_name = "mapping"
 
         if expect_error:
-
             # Act / Assert
             with pytest.raises(TypeError) as exc_info:
                 dummy._validate_dict_type(annotation, field_name)
             assert error_fragment in str(exc_info.value)
         else:
-
             # Act
             dummy._validate_dict_type(annotation, field_name)
 
@@ -392,7 +391,7 @@ class TestConfigBase:
 
         # Assert
         assert "字段'field_y'中使用了 Any 类型注解" in caplog.text
-    
+
     def test_discourage_any_usage_suppressed_warning(self, caplog):
         class Sample(ConfigBase):
             _validate_any: bool = False

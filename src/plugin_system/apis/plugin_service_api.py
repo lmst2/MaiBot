@@ -39,6 +39,18 @@ def unregister_service(service_name: str, plugin_name: Optional[str] = None) -> 
     return plugin_service_registry.unregister_service(service_name, plugin_name)
 
 
-async def call_service(service_name: str, *args: Any, plugin_name: Optional[str] = None, **kwargs: Any) -> Any:
+async def call_service(
+    service_name: str,
+    *args: Any,
+    plugin_name: Optional[str] = None,
+    caller_plugin: Optional[str] = None,
+    **kwargs: Any,
+) -> Any:
     """调用插件服务。"""
-    return await plugin_service_registry.call_service(service_name, *args, plugin_name=plugin_name, **kwargs)
+    return await plugin_service_registry.call_service(
+        service_name,
+        *args,
+        plugin_name=plugin_name,
+        caller_plugin=caller_plugin,
+        **kwargs,
+    )

@@ -9,6 +9,7 @@ from src.common.database.database import get_db_session
 
 logger = get_logger("file_utils")
 
+
 class FileUtils:
     @staticmethod
     def save_binary_to_file(file_path: Path, data: bytes):
@@ -35,7 +36,7 @@ class FileUtils:
         except Exception as e:
             logger.error(f"保存文件 {file_path} 失败: {e}")
             raise e
-        
+
     @staticmethod
     def get_file_path_by_hash(data_hash: str) -> Path:
         """

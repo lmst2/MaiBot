@@ -532,7 +532,7 @@ async def get_emoji_stats(maibot_session: Optional[str] = Cookie(None), authoriz
                 .select_from(Images)
                 .where(
                     col(Images.image_type) == ImageType.EMOJI,
-                    col(Images.is_registered) == True,
+                    col(Images.is_registered),
                 )
             )
             banned_statement = (
@@ -540,7 +540,7 @@ async def get_emoji_stats(maibot_session: Optional[str] = Cookie(None), authoriz
                 .select_from(Images)
                 .where(
                     col(Images.image_type) == ImageType.EMOJI,
-                    col(Images.is_banned) == True,
+                    col(Images.is_banned),
                 )
             )
 
@@ -1283,7 +1283,7 @@ async def preheat_thumbnail_cache(
                 select(Images)
                 .where(
                     col(Images.image_type) == ImageType.EMOJI,
-                    col(Images.is_banned) == False,
+                    col(Images.is_banned).is_(False),
                 )
                 .order_by(col(Images.query_count).desc())
                 .limit(limit * 2)

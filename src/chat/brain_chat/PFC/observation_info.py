@@ -5,7 +5,7 @@ from src.common.logger import get_logger
 from .chat_observer import ChatObserver
 from .chat_states import NotificationHandler, NotificationType, Notification
 from src.chat.utils.chat_message_builder import build_readable_messages
-from src.common.data_models.database_data_model import DatabaseMessages, DatabaseUserInfo
+from src.common.data_models.database_data_model import DatabaseMessages
 import traceback  # 导入 traceback 用于调试
 
 logger = get_logger("observation_info")
@@ -13,15 +13,15 @@ logger = get_logger("observation_info")
 
 def dict_to_database_message(msg_dict: Dict[str, Any]) -> DatabaseMessages:
     """Convert PFC dict format to DatabaseMessages object
-    
+
     Args:
         msg_dict: Message in PFC dict format with nested user_info
-        
+
     Returns:
         DatabaseMessages object compatible with build_readable_messages()
     """
     user_info_dict: Dict[str, Any] = msg_dict.get("user_info", {})
-    
+
     return DatabaseMessages(
         message_id=msg_dict.get("message_id", ""),
         time=msg_dict.get("time", 0.0),

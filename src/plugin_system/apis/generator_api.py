@@ -123,7 +123,7 @@ async def generate_reply(
         # 如果 reply_time_point 未传入，设置为当前时间戳
         if reply_time_point is None:
             reply_time_point = time.time()
-        
+
         # 获取回复器
         logger.debug("[GeneratorAPI] 开始生成回复")
         replyer = get_replyer(chat_stream, chat_id, request_type=request_type)

@@ -117,7 +117,7 @@ class PromptManager:
     def add_context_construct_function(self, name: str, func: Callable[[str], str | Coroutine[Any, Any, str]]) -> None:
         """
         添加一个上下文构造函数
-        
+
         Args:
             name (str): 上下文名称
             func (Callable[[str], str | Coroutine[Any, Any, str]]): 构造函数，接受 Prompt 名称作为参数，返回字符串或返回字符串的协程
@@ -144,7 +144,7 @@ class PromptManager:
     def get_prompt(self, prompt_name: str) -> Prompt:
         """
         获取指定名称的 Prompt 实例的克隆
-        
+
         Args:
             prompt_name (str): 要获取的 Prompt 名称
         Returns:
@@ -161,7 +161,7 @@ class PromptManager:
     async def render_prompt(self, prompt: Prompt) -> str:
         """
         渲染一个 Prompt 实例
-        
+
         Args:
             prompt (Prompt): 要渲染的 Prompt 实例
         Returns:

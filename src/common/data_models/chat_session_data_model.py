@@ -4,6 +4,7 @@ from src.common.database.database_model import ChatSession
 
 from . import BaseDatabaseDataModel
 
+
 class MaiChatSession(BaseDatabaseDataModel[ChatSession]):
     def __init__(self, session_id: str, platform: str, user_id: Optional[str] = None, group_id: Optional[str] = None):
         self.session_id = session_id

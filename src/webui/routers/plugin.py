@@ -1762,7 +1762,7 @@ async def update_plugin_config_raw(
         try:
             tomlkit.loads(request.config)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"TOML 格式错误: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"TOML 格式错误: {str(e)}") from e
 
         # 备份旧配置
         import shutil

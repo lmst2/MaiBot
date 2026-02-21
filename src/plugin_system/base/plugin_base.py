@@ -558,7 +558,9 @@ class PluginBase(ABC):
             if version_spec:
                 is_ok, msg = self._is_version_spec_satisfied(dep_version, version_spec)
                 if not is_ok:
-                    logger.error(f"{self.log_prefix} 依赖插件版本不满足: {dep_name} {version_spec}, 当前版本={dep_version} ({msg})")
+                    logger.error(
+                        f"{self.log_prefix} 依赖插件版本不满足: {dep_name} {version_spec}, 当前版本={dep_version} ({msg})"
+                    )
                     return False
 
             if min_version or max_version:

@@ -96,7 +96,7 @@ class Message(MessageBase):
                 if processed_text:
                     return f"{global_config.bot.nickname}: {processed_text}"
                 return None
-            
+
             tasks = [process_forward_node(node_dict) for node_dict in segment.data]
             results = await asyncio.gather(*tasks, return_exceptions=True)
             segments_text = []

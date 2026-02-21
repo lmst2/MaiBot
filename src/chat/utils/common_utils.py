@@ -5,6 +5,7 @@ from src.common.logger import get_logger
 
 logger = get_logger("common_utils")
 
+
 class TempMethodsExpression:
     """用于临时存放一些方法的类"""
 
