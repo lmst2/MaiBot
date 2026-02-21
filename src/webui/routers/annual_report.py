@@ -333,7 +333,7 @@ async def get_social_network(year: int = 2025) -> SocialNetworkData:
             statement = select(func.count()).where(
                 col(Messages.timestamp) >= datetime.fromtimestamp(start_ts),
                 col(Messages.timestamp) <= datetime.fromtimestamp(end_ts),
-                col(Messages.is_at) == True,
+                col(Messages.is_at),
             )
             data.at_count = int(session.exec(statement).first() or 0)
 
@@ -342,7 +342,7 @@ async def get_social_network(year: int = 2025) -> SocialNetworkData:
             statement = select(func.count()).where(
                 col(Messages.timestamp) >= datetime.fromtimestamp(start_ts),
                 col(Messages.timestamp) <= datetime.fromtimestamp(end_ts),
-                col(Messages.is_mentioned) == True,
+                col(Messages.is_mentioned),
             )
             data.mentioned_count = int(session.exec(statement).first() or 0)
 
@@ -552,7 +552,7 @@ async def get_expression_vibe(year: int = 2025) -> ExpressionVibeData:
         # 1. 表情包之王 - 使用次数最多的表情包
         with get_db_session() as session:
             statement = (
-                select(Images).where(col(Images.is_registered) == True).order_by(desc(col(Images.query_count))).limit(5)
+                select(Images).where(col(Images.is_registered)).order_by(desc(col(Images.query_count))).limit(5)
             )
             top_emojis = session.exec(statement).all()
         if top_emojis:
@@ -636,7 +636,7 @@ async def get_expression_vibe(year: int = 2025) -> ExpressionVibeData:
             statement = select(func.count()).where(
                 col(Messages.timestamp) >= datetime.fromtimestamp(start_ts),
                 col(Messages.timestamp) <= datetime.fromtimestamp(end_ts),
-                col(Messages.is_picture) == True,
+                col(Messages.is_picture),
             )
             data.image_processed_count = int(session.exec(statement).first() or 0)
 
@@ -781,12 +781,12 @@ async def get_achievements(year: int = 2025) -> AchievementData:
         # 1. 新学到的黑话数量
         # Jargon 表没有时间字段,统计全部已确认的黑话
         with get_db_session() as session:
-            statement = select(func.count()).where(col(Jargon.is_jargon) == True)
+            statement = select(func.count()).where(col(Jargon.is_jargon))
             data.new_jargon_count = int(session.exec(statement).first() or 0)
 
         # 2. 代表性黑话示例
         with get_db_session() as session:
-            statement = select(Jargon).where(col(Jargon.is_jargon) == True).order_by(desc(col(Jargon.count))).limit(5)
+            statement = select(Jargon).where(col(Jargon.is_jargon)).order_by(desc(col(Jargon.count))).limit(5)
             jargon_samples = session.exec(statement).all()
         data.sample_jargons = [
             {

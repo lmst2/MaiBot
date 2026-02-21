@@ -20,9 +20,9 @@ from typing import List, Dict, Set, Tuple
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
-from src.llm_models.utils_model import LLMRequest
-from src.config.config import model_config
-from src.common.logger import get_logger
+from src.llm_models.utils_model import LLMRequest  # noqa: E402
+from src.config.config import model_config  # noqa: E402
+from src.common.logger import get_logger  # noqa: E402
 
 logger = get_logger("expression_evaluator_llm")
 

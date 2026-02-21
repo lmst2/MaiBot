@@ -1234,7 +1234,7 @@ class MCPClientManager:
             return await client.read_resource(uri)
 
         # 自动查找拥有该资源的服务器
-        for resource_key, (resource_info, client) in self._all_resources.items():
+        for _resource_key, (resource_info, client) in self._all_resources.items():
             if resource_info.uri == uri:
                 return await client.read_resource(uri)
 
@@ -1265,7 +1265,7 @@ class MCPClientManager:
             return await client.get_prompt(name, arguments)
 
         # 自动查找拥有该提示模板的服务器
-        for prompt_key, (prompt_info, client) in self._all_prompts.items():
+        for _prompt_key, (prompt_info, client) in self._all_prompts.items():
             if prompt_info.name == name:
                 return await client.get_prompt(name, arguments)
 

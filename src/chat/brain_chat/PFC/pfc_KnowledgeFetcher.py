@@ -6,8 +6,6 @@ from src.common.logger import get_logger
 from src.llm_models.utils_model import LLMRequest
 from src.config.config import model_config
 from src.chat.knowledge import qa_manager
-from src.chat.utils.chat_message_builder import build_readable_messages
-from src.chat.brain_chat.PFC.observation_info import dict_to_database_message
 
 logger = get_logger("knowledge_fetcher")
 
@@ -48,13 +46,7 @@ class KnowledgeFetcher:
         Returns:
             Tuple[str, str]: (获取的知识, 知识来源)
         """
-        db_messages = [dict_to_database_message(m) for m in chat_history]
-        chat_history_text = build_readable_messages(
-            db_messages,
-            replace_bot_name=True,
-            timestamp_mode="relative",
-            read_mark=0.0,
-        )
+        _ = chat_history
 
         # NOTE: Hippocampus memory system was redesigned in v0.12.2
         # The old get_memory_from_text API no longer exists

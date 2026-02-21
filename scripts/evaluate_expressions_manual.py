@@ -18,9 +18,9 @@ from datetime import datetime
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
-from src.common.database.database_model import Expression
-from src.common.database.database import db
-from src.common.logger import get_logger
+from src.common.database.database_model import Expression  # noqa: E402
+from src.common.database.database import db  # noqa: E402
+from src.common.logger import get_logger  # noqa: E402
 
 logger = get_logger("expression_evaluator_manual")
 

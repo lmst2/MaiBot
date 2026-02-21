@@ -86,8 +86,8 @@ def init_dream_tools(chat_id: str) -> None:
     finish_maintenance = make_finish_maintenance(chat_id)
 
     search_jargon = make_search_jargon(chat_id)
-    delete_jargon = make_delete_jargon(chat_id)
-    update_jargon = make_update_jargon(chat_id)
+    _delete_jargon = make_delete_jargon(chat_id)
+    _update_jargon = make_update_jargon(chat_id)
 
     _dream_tool_registry.register_tool(
         DreamTool(

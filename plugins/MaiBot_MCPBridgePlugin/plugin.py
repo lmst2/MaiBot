@@ -1201,7 +1201,7 @@ class MCPStatusTool(BaseTool):
 
         lines = ["📦 可用 MCP 资源"]
         by_server: Dict[str, List[MCPResourceInfo]] = {}
-        for key, (resource_info, _) in resources.items():
+        for _key, (resource_info, _) in resources.items():
             if server_name and resource_info.server_name != server_name:
                 continue
             if resource_info.server_name not in by_server:
@@ -1222,7 +1222,7 @@ class MCPStatusTool(BaseTool):
 
         lines = ["📝 可用 MCP 提示模板"]
         by_server: Dict[str, List[MCPPromptInfo]] = {}
-        for key, (prompt_info, _) in prompts.items():
+        for _key, (prompt_info, _) in prompts.items():
             if server_name and prompt_info.server_name != server_name:
                 continue
             if prompt_info.server_name not in by_server:
@@ -1559,7 +1559,7 @@ class MCPStatusCommand(BaseCommand):
 
         # 按服务器分组显示
         by_server: Dict[str, List[Tuple[str, Any]]] = {}
-        for tool_key, tool_info, client in matched:
+        for tool_key, tool_info, _client in matched:
             server_name = tool_info.server_name
             if server_name not in by_server:
                 by_server[server_name] = []
@@ -1647,7 +1647,7 @@ class MCPStatusCommand(BaseCommand):
                 from src.plugin_system.core.component_registry import component_registry
 
                 registered = 0
-                for name, chain in tool_chain_manager.get_enabled_chains().items():
+                for name, _chain in tool_chain_manager.get_enabled_chains().items():
                     tool_name = f"chain_{name}".replace("-", "_").replace(".", "_")
                     if component_registry.get_component_info(tool_name, ComponentType.TOOL):
                         registered += 1
@@ -1788,7 +1788,7 @@ class MCPStatusCommand(BaseCommand):
             if tools:
                 lines.append("\n🔧 可用工具:")
                 by_server = {}
-                for key, (info, _) in tools.items():
+                for _key, (info, _) in tools.items():
                     if server_name and info.server_name != server_name:
                         continue
                     by_server.setdefault(info.server_name, []).append(info.name)
@@ -3180,14 +3180,14 @@ mcp_bing_*""",
 
                 # 创建异步执行函数（使用闭包捕获 tool_key）
                 def make_execute_func(tk: str):
-                    async def execute_func(**kwargs) -> str:
+                    async def _execute_func(**kwargs) -> str:
                         result = await mcp_manager.call_tool(tk, kwargs)
                         if result.success:
                             return result.content or "(无返回内容)"
                         else:
                             return f"工具调用失败: {result.error}"
 
-                    return execute_func
+                    return _execute_func
 
                 execute_func = make_execute_func(tool_key)
 

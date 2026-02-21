@@ -232,7 +232,7 @@ async def get_reply_log_detail(chat_id: str, filename: str):
                 success=data.get("success", True),
             )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"读取日志失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"读取日志失败: {str(e)}") from e
 
 
 # ========== 兼容接口 ==========

@@ -370,7 +370,7 @@ async def get_person_stats(maibot_session: Optional[str] = Cookie(None), authori
 
         with get_db_session() as session:
             total = len(session.exec(select(PersonInfo.id)).all())
-            known = len(session.exec(select(PersonInfo.id).where(col(PersonInfo.is_known) == True)).all())
+            known = len(session.exec(select(PersonInfo.id).where(col(PersonInfo.is_known))).all())
         unknown = total - known
 
         # 按平台统计

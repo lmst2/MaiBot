@@ -218,7 +218,7 @@ async def get_log_detail(chat_id: str, filename: str):
             data = json.load(f)
             return PlanLogDetail(**data)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"读取日志失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"读取日志失败: {str(e)}") from e
 
 
 # ========== 兼容旧接口 ==========

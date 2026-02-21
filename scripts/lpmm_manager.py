@@ -21,18 +21,18 @@ PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 
-from src.common.logger import get_logger  # type: ignore
-from src.config.config import global_config, model_config  # type: ignore
+from src.common.logger import get_logger  # type: ignore  # noqa: E402
+from src.config.config import global_config, model_config  # type: ignore  # noqa: E402
 
 # 引入各功能脚本的入口函数
-from import_openie import main as import_openie_main  # type: ignore
-from info_extraction import main as info_extraction_main  # type: ignore
-from delete_lpmm_items import main as delete_lpmm_items_main  # type: ignore
-from inspect_lpmm_batch import main as inspect_lpmm_batch_main  # type: ignore
-from inspect_lpmm_global import main as inspect_lpmm_global_main  # type: ignore
-from refresh_lpmm_knowledge import main as refresh_lpmm_knowledge_main  # type: ignore
-from test_lpmm_retrieval import main as test_lpmm_retrieval_main  # type: ignore
-from raw_data_preprocessor import load_raw_data  # type: ignore
+from import_openie import main as import_openie_main  # type: ignore  # noqa: E402
+from info_extraction import main as info_extraction_main  # type: ignore  # noqa: E402
+from delete_lpmm_items import main as delete_lpmm_items_main  # type: ignore  # noqa: E402
+from inspect_lpmm_batch import main as inspect_lpmm_batch_main  # type: ignore  # noqa: E402
+from inspect_lpmm_global import main as inspect_lpmm_global_main  # type: ignore  # noqa: E402
+from refresh_lpmm_knowledge import main as refresh_lpmm_knowledge_main  # type: ignore  # noqa: E402
+from test_lpmm_retrieval import main as test_lpmm_retrieval_main  # type: ignore  # noqa: E402
+from raw_data_preprocessor import load_raw_data  # type: ignore  # noqa: E402
 
 
 logger = get_logger("lpmm_manager")

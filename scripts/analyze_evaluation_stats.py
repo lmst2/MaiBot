@@ -19,7 +19,7 @@ from typing import Dict, List, Set, Tuple
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
-from src.common.logger import get_logger
+from src.common.logger import get_logger  # noqa: E402
 
 logger = get_logger("evaluation_stats_analyzer")
 
