@@ -17,6 +17,7 @@ from src.bw_learner.learner_utils import (
 
 logger = get_logger("jargon")
 
+
 class JargonExplainer:
     """黑话解释器，用于在回复前识别和解释上下文中的黑话"""
 

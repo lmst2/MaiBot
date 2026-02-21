@@ -55,7 +55,9 @@ class PluginServiceRegistry:
         full_name = self._resolve_full_name(service_name, plugin_name)
         return self._service_handlers.get(full_name) if full_name else None
 
-    def list_services(self, plugin_name: Optional[str] = None, enabled_only: bool = False) -> Dict[str, PluginServiceInfo]:
+    def list_services(
+        self, plugin_name: Optional[str] = None, enabled_only: bool = False
+    ) -> Dict[str, PluginServiceInfo]:
         """列出插件服务。"""
         services = self._services.copy()
         if plugin_name:
@@ -120,7 +122,12 @@ class PluginServiceRegistry:
             target_name = f"{plugin_name}.{service_name}" if plugin_name and "." not in service_name else service_name
             raise ValueError(f"插件服务未注册: {target_name}")
 
-        if "." not in service_name and plugin_name is None and caller_plugin and service_info.plugin_name != caller_plugin:
+        if (
+            "." not in service_name
+            and plugin_name is None
+            and caller_plugin
+            and service_info.plugin_name != caller_plugin
+        ):
             raise PermissionError("跨插件服务调用必须使用完整服务名或显式指定plugin_name")
 
         if not self._is_call_authorized(service_info, caller_plugin):
@@ -153,7 +160,9 @@ class PluginServiceRegistry:
         allowed_callers = {caller.strip() for caller in service_info.allowed_callers if caller.strip()}
         return "*" in allowed_callers or caller_plugin in allowed_callers
 
-    def _validate_input_contract(self, service_info: PluginServiceInfo, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+    def _validate_input_contract(
+        self, service_info: PluginServiceInfo, args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> None:
         """校验服务入参契约。"""
         schema = service_info.params_schema
         if not schema:

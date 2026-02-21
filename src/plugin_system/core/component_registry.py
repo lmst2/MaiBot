@@ -751,9 +751,7 @@ class ComponentRegistry:
             "enabled_plugins": len([p for p in self._plugins.values() if p.enabled]),
             "workflow_steps": workflow_step_count,
             "enabled_workflow_steps": enabled_workflow_step_count,
-            "workflow_steps_by_stage": {
-                stage.value: len(steps) for stage, steps in self._workflow_steps.items()
-            },
+            "workflow_steps_by_stage": {stage.value: len(steps) for stage, steps in self._workflow_steps.items()},
         }
 
 

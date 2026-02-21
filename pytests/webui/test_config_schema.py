@@ -1,5 +1,3 @@
-import pytest
-
 from src.config.official_configs import ChatConfig
 from src.config.config import Config
 from src.webui.config_schema import ConfigSchemaGenerator

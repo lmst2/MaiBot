@@ -96,7 +96,9 @@ class WorkflowEngine:
             except Exception as e:
                 workflow_context.timings[stage_key] = time.perf_counter() - stage_start
                 workflow_context.errors.append(f"{stage_key}: {e}")
-                logger.error(f"[trace_id={workflow_context.trace_id}] Workflow阶段 {stage_key} 执行异常: {e}", exc_info=True)
+                logger.error(
+                    f"[trace_id={workflow_context.trace_id}] Workflow阶段 {stage_key} 执行异常: {e}", exc_info=True
+                )
                 self._execution_history[workflow_context.trace_id]["status"] = "failed"
                 self._execution_history[workflow_context.trace_id]["errors"] = workflow_context.errors.copy()
                 return (
@@ -195,7 +197,9 @@ class WorkflowEngine:
             except Exception as e:
                 context.timings[step_timing_key] = time.perf_counter() - step_start
                 context.errors.append(f"{step_info.full_name}: {e}")
-                logger.error(f"[trace_id={context.trace_id}] Workflow step {step_info.full_name} 执行异常: {e}", exc_info=True)
+                logger.error(
+                    f"[trace_id={context.trace_id}] Workflow step {step_info.full_name} 执行异常: {e}", exc_info=True
+                )
                 return WorkflowStepResult(
                     status="failed",
                     return_message=str(e),

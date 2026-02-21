@@ -1,10 +1,10 @@
 from typing import List, Tuple, Dict, Any
 from src.common.logger import get_logger
+
 # NOTE: HippocampusManager doesn't exist in v0.12.2 - memory system was redesigned
 # from src.plugins.memory_system.Hippocampus import HippocampusManager
 from src.llm_models.utils_model import LLMRequest
-from src.config.config import global_config, model_config
-from src.chat.message_receive.message import Message
+from src.config.config import model_config
 from src.chat.knowledge import qa_manager
 from src.chat.utils.chat_message_builder import build_readable_messages
 from src.chat.brain_chat.PFC.observation_info import dict_to_database_message
@@ -16,9 +16,7 @@ class KnowledgeFetcher:
     """知识调取器"""
 
     def __init__(self, private_name: str):
-        self.llm = LLMRequest(
-            model_set=model_config.model_task_config.utils
-        )
+        self.llm = LLMRequest(model_set=model_config.model_task_config.utils)
         self.private_name = private_name
 
     def _lpmm_get_knowledge(self, query: str) -> str:
@@ -64,7 +62,7 @@ class KnowledgeFetcher:
         # TODO: Integrate with new memory system if needed
         knowledge_text = ""
         sources_text = "无记忆匹配"  # 默认值
-        
+
         # # 从记忆中获取相关知识 (DISABLED - old Hippocampus API)
         # related_memory = await HippocampusManager.get_instance().get_memory_from_text(
         #     text=f"{query}\n{chat_history_text}",

@@ -54,8 +54,6 @@ async def generate_dream_summary(
 ) -> None:
     """生成梦境总结，输出到日志，并根据配置可选地推送给指定用户"""
     try:
-        
-
         # 第一步：建立工具调用结果映射 (call_id -> result)
         tool_results_map: dict[str, str] = {}
         for msg in conversation_messages:

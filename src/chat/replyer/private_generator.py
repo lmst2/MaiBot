@@ -26,6 +26,7 @@ from src.chat.utils.chat_message_builder import (
 )
 from src.bw_learner.expression_selector import expression_selector
 from src.plugin_system.apis.message_api import translate_pid_to_description
+
 # from src.memory_system.memory_activator import MemoryActivator
 from src.person_info.person_info import Person, is_person_known
 from src.plugin_system.base.component_types import ActionInfo, EventType
@@ -807,7 +808,7 @@ class PrivateReplyer:
                 reply_style = global_config.personality.reply_style
 
         # 使用统一的 is_bot_self 函数判断是否是机器人自己（支持多平台，包括 WebUI）
-        
+
         if is_bot_self(platform, user_id):
             prompt_template = prompt_manager.get_prompt("private_replyer_self")
             prompt_template.add_context("target", target)

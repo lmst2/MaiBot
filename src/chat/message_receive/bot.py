@@ -85,17 +85,17 @@ class ChatBot:
 
     async def _create_pfc_chat(self, message: MessageRecv):
         """创建或获取PFC对话实例
-        
+
         Args:
             message: 消息对象
         """
         try:
             chat_id = str(message.chat_stream.stream_id)
             private_name = str(message.message_info.user_info.user_nickname)
-            
+
             logger.debug(f"[私聊][{private_name}]创建或获取PFC对话: {chat_id}")
             await self.pfc_manager.get_or_create_conversation(chat_id, private_name)
-            
+
         except Exception as e:
             logger.error(f"创建PFC聊天失败: {e}")
             logger.error(traceback.format_exc())

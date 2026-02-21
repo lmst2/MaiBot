@@ -189,7 +189,7 @@ async def _send_message(message: MessageSending, show_log=True) -> bool:
 
                 # 如果未开启 API Server，直接跳过 Fallback
                 if not global_config.maim_message.enable_api_server:
-                    logger.debug(f"[API Server Fallback] API Server未开启，跳过fallback")
+                    logger.debug("[API Server Fallback] API Server未开启，跳过fallback")
                     if legacy_exception:
                         raise legacy_exception
                     return False
@@ -198,13 +198,13 @@ async def _send_message(message: MessageSending, show_log=True) -> bool:
                 extra_server = getattr(global_api, "extra_server", None)
 
                 if not extra_server:
-                    logger.warning(f"[API Server Fallback] extra_server不存在")
+                    logger.warning("[API Server Fallback] extra_server不存在")
                     if legacy_exception:
                         raise legacy_exception
                     return False
 
                 if not extra_server.is_running():
-                    logger.warning(f"[API Server Fallback] extra_server未运行")
+                    logger.warning("[API Server Fallback] extra_server未运行")
                     if legacy_exception:
                         raise legacy_exception
                     return False
@@ -253,7 +253,7 @@ async def _send_message(message: MessageSending, show_log=True) -> bool:
                 )
 
                 # 直接调用 Server 的 send_message 接口，它会自动处理路由
-                logger.debug(f"[API Server Fallback] 正在通过extra_server发送消息...")
+                logger.debug("[API Server Fallback] 正在通过extra_server发送消息...")
                 results = await extra_server.send_message(api_message)
                 logger.debug(f"[API Server Fallback] 发送结果: {results}")
 

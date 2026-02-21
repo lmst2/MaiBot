@@ -42,9 +42,7 @@ class GoalAnalyzer:
     """对话目标分析器"""
 
     def __init__(self, stream_id: str, private_name: str):
-        self.llm = LLMRequest(
-            model_set=model_config.model_task_config.planner, request_type="conversation_goal"
-        )
+        self.llm = LLMRequest(model_set=model_config.model_task_config.planner, request_type="conversation_goal")
 
         self.personality_info = self._get_personality_prompt()
         self.name = global_config.bot.nickname
@@ -60,7 +58,7 @@ class GoalAnalyzer:
     def _get_personality_prompt(self) -> str:
         """获取个性提示信息"""
         prompt_personality = global_config.personality.personality
-        
+
         # 检查是否需要随机替换为状态
         if (
             global_config.personality.states
@@ -68,7 +66,7 @@ class GoalAnalyzer:
             and random.random() < global_config.personality.state_probability
         ):
             prompt_personality = random.choice(global_config.personality.states)
-        
+
         bot_name = global_config.bot.nickname
         return f"你的名字是{bot_name},你{prompt_personality};"
 

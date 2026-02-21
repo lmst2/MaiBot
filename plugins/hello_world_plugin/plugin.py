@@ -238,7 +238,7 @@ class TestCommand(BaseCommand):
                 chat_stream=self.message.chat_stream,
                 reply_reason=reply_reason,
                 enable_chinese_typo=False,
-                extra_info=f"{reply_reason}用于测试bot的功能是否正常。请你按设定的人设表达一句\"测试正常\"",
+                extra_info=f'{reply_reason}用于测试bot的功能是否正常。请你按设定的人设表达一句"测试正常"',
             )
             if result_status:
                 # 发送生成的回复

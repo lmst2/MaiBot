@@ -93,11 +93,15 @@ class Images(SQLModel, table=True):
     query_count: int = Field(default=0)  # 被查询次数
     is_registered: bool = Field(default=False)  # 是否已经注册
     is_banned: bool = Field(default=False)  # 被手动禁用
-    
+
     no_file_flag: bool = Field(default=False)  # 文件不存在标记，如果为True表示文件已经不存在，仅保留描述字段
 
-    record_time: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 记录时间（数据库记录被创建的时间）
-    register_time: Optional[datetime] = Field(default=None, sa_column=Column(DateTime, nullable=True))  # 注册时间（被注册为可用表情包的时间）
+    record_time: datetime = Field(
+        default_factory=datetime.now, sa_column=Column(DateTime, index=True)
+    )  # 记录时间（数据库记录被创建的时间）
+    register_time: Optional[datetime] = Field(
+        default=None, sa_column=Column(DateTime, nullable=True)
+    )  # 注册时间（被注册为可用表情包的时间）
     last_used_time: Optional[datetime] = Field(default=None, sa_column=Column(DateTime, nullable=True))  # 上次使用时间
 
     vlm_processed: bool = Field(default=False)  # 是否已经过VLM处理
@@ -171,7 +175,9 @@ class Expression(SQLModel, table=True):
 
     content_list: str  # 内容列表，JSON格式存储
     count: int = Field(default=0)  # 使用次数
-    last_active_time: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 上次使用时间
+    last_active_time: datetime = Field(
+        default_factory=datetime.now, sa_column=Column(DateTime, index=True)
+    )  # 上次使用时间
     create_time: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime))  # 创建时间
     session_id: Optional[str] = Field(default=None, max_length=255, nullable=True)  # 会话ID，区分是否为全局表达方式
 
@@ -232,8 +238,12 @@ class ThinkingQuestion(SQLModel, table=True):
     answer: Optional[str] = Field(default=None, nullable=True)  # 问题答案
 
     thinking_steps: Optional[str] = Field(default=None, nullable=True)  # 思考步骤，JSON格式存储
-    created_timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 创建时间
-    updated_timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 最后更新时间
+    created_timestamp: datetime = Field(
+        default_factory=datetime.now, sa_column=Column(DateTime, index=True)
+    )  # 创建时间
+    updated_timestamp: datetime = Field(
+        default_factory=datetime.now, sa_column=Column(DateTime, index=True)
+    )  # 最后更新时间
 
 
 class BinaryData(SQLModel, table=True):
@@ -272,7 +282,9 @@ class PersonInfo(SQLModel, table=True):
 
     # 认识次数和时间
     know_counts: int = Field(default=0)  # 认识次数
-    first_known_time: Optional[datetime] = Field(default=None, sa_column=Column(DateTime, nullable=True))  # 首次认识时间
+    first_known_time: Optional[datetime] = Field(
+        default=None, sa_column=Column(DateTime, nullable=True)
+    )  # 首次认识时间
     last_known_time: Optional[datetime] = Field(default=None, sa_column=Column(DateTime, nullable=True))  # 最后认识时间
 
 
@@ -285,8 +297,12 @@ class ChatSession(SQLModel, table=True):
 
     session_id: str = Field(unique=True, index=True, max_length=255)  # 聊天会话ID
 
-    created_timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 创建时间
-    last_active_timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 最后活跃时间
+    created_timestamp: datetime = Field(
+        default_factory=datetime.now, sa_column=Column(DateTime, index=True)
+    )  # 创建时间
+    last_active_timestamp: datetime = Field(
+        default_factory=datetime.now, sa_column=Column(DateTime, index=True)
+    )  # 最后活跃时间
 
     # 身份元数据
     user_id: Optional[str] = Field(index=True, max_length=255, nullable=True)  # 用户ID

@@ -1071,7 +1071,6 @@ class DefaultReplyer:
         chat_target_2_prompt = prompt_manager.get_prompt("chat_target_group2")
         chat_target_2 = await prompt_manager.render_prompt(chat_target_2_prompt)
 
-
         # 根据配置构建最终的 reply_style：支持 multiple_reply_style 按概率随机替换
         reply_style = global_config.personality.reply_style
         multi_styles = global_config.personality.multiple_reply_style

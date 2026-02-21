@@ -2,7 +2,6 @@ import time
 import asyncio
 from typing import List, Any
 from src.common.logger import get_logger
-from src.config.config import global_config
 from src.chat.message_receive.chat_stream import get_chat_manager
 from src.chat.utils.chat_message_builder import get_raw_msg_by_timestamp_with_chat_inclusive
 from src.chat.utils.common_utils import TempMethodsExpression
@@ -119,9 +118,7 @@ class MessageRecorder:
 
                 # 触发 expression_learner 和 jargon_miner 的处理
                 if self.enable_expression_learning:
-                    asyncio.create_task(
-                        self._trigger_expression_learning(messages)
-                    )
+                    asyncio.create_task(self._trigger_expression_learning(messages))
 
             except Exception as e:
                 logger.error(f"为聊天流 {self.chat_name} 提取和分发消息失败: {e}")
@@ -130,9 +127,7 @@ class MessageRecorder:
                 traceback.print_exc()
                 # 即使失败也保持时间戳更新，避免频繁重试
 
-    async def _trigger_expression_learning(
-        self, messages: List[Any]
-    ) -> None:
+    async def _trigger_expression_learning(self, messages: List[Any]) -> None:
         """
         触发 expression 学习，使用指定的消息列表
 

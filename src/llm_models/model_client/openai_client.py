@@ -458,8 +458,8 @@ def _default_normal_response_parser(
                 if not isinstance(arguments, dict):
                     # 此时为了调试方便，建议打印出 arguments 的类型
                     raise RespParseException(
-                        resp, 
-                        f"响应解析失败，工具调用参数无法解析为字典类型 type={type(arguments)} arguments={arguments}"
+                        resp,
+                        f"响应解析失败，工具调用参数无法解析为字典类型 type={type(arguments)} arguments={arguments}",
                     )
                 api_response.tool_calls.append(ToolCall(call.id, call.function.name, arguments))
             except json.JSONDecodeError as e:

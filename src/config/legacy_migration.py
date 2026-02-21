@@ -278,4 +278,3 @@ def try_migrate_legacy_bot_config_dict(data: dict[str, Any]) -> MigrationResult:
 
     reason = ",".join(reasons)
     return MigrationResult(data=data, migrated=migrated_any, reason=reason)
-

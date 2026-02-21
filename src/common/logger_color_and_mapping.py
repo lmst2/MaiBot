@@ -221,5 +221,7 @@ if not supports_truecolor():
         CONVERTED_MODULE_COLORS[name] = escape_str
 else:
     for name, (hex_fore_color, hex_back_color, bold) in MODULE_COLORS.items():
-        escape_str = rgb_pair_to_ansi_truecolor(hex_to_rgb(hex_fore_color), hex_to_rgb(hex_back_color) if hex_back_color else None, bold)
+        escape_str = rgb_pair_to_ansi_truecolor(
+            hex_to_rgb(hex_fore_color), hex_to_rgb(hex_back_color) if hex_back_color else None, bold
+        )
         CONVERTED_MODULE_COLORS[name] = escape_str

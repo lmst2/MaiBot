@@ -4,7 +4,6 @@ import importlib
 import pytest
 from pathlib import Path
 import importlib.util
-import asyncio
 
 
 class DummyLogger:
@@ -71,6 +70,7 @@ class DummyLLMRequest:
     async def generate_response_for_image(self, prompt, image_base64, image_format, temp):
         return ("dummy description", {})
 
+
 class DummySelect:
     def __init__(self, *a, **k):
         pass
@@ -80,6 +80,7 @@ class DummySelect:
 
     def limit(self, n):
         return self
+
 
 @pytest.fixture(autouse=True)
 def patch_external_dependencies(monkeypatch):
@@ -103,11 +104,11 @@ def patch_external_dependencies(monkeypatch):
     # Patch MaiImage data model
     data_model_mod = types.SimpleNamespace(MaiImage=DummyMaiImage)
     monkeypatch.setitem(sys.modules, "src.common.data_models.image_data_model", data_model_mod)
- 
+
     # Patch SQLModel select function
     sql_mod = types.SimpleNamespace(select=lambda *a, **k: DummySelect())
     monkeypatch.setitem(sys.modules, "sqlmodel", sql_mod)
-    
+
     # Patch config values used at import-time
     cfg = types.SimpleNamespace(personality=types.SimpleNamespace(visual_style="test-style"))
     model_cfg = types.SimpleNamespace(model_task_config=types.SimpleNamespace(vlm="test-vlm"))
@@ -134,7 +135,7 @@ def _load_image_manager_module(tmp_path=None):
         if tmp_path is not None:
             tmpdir = Path(tmp_path)
             tmpdir.mkdir(parents=True, exist_ok=True)
-            setattr(mod, "IMAGE_DIR", tmpdir)
+            mod.IMAGE_DIR = tmpdir
     except Exception:
         pass
     return mod
@@ -197,4 +198,3 @@ async def test_save_image_and_process_and_cleanup(tmp_path):
 
     # cleanup should run without error
     mgr.cleanup_invalid_descriptions_in_db()
-

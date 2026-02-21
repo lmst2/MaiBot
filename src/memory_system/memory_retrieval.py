@@ -2,7 +2,7 @@ import time
 import json
 import asyncio
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple, Callable, cast
+from typing import List, Dict, Any, Optional, Tuple, Callable
 from src.common.logger import get_logger
 from src.config.config import global_config, model_config
 from src.prompt.prompt_manager import prompt_manager

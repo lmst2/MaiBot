@@ -429,7 +429,9 @@ class PluginManager:
 
     def _resolve_plugin_load_order(self, dependency_graph: Dict[str, Set[str]]) -> Tuple[List[str], Set[str]]:
         """根据依赖图计算加载顺序，并检测循环依赖。"""
-        indegree: Dict[str, int] = {plugin_name: len(dependencies) for plugin_name, dependencies in dependency_graph.items()}
+        indegree: Dict[str, int] = {
+            plugin_name: len(dependencies) for plugin_name, dependencies in dependency_graph.items()
+        }
         reverse_graph: Dict[str, Set[str]] = {plugin_name: set() for plugin_name in dependency_graph}
 
         for plugin_name, dependencies in dependency_graph.items():

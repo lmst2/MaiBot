@@ -1,6 +1,5 @@
 """Expression routes pytest tests"""
 
-from datetime import datetime
 from typing import Generator
 from unittest.mock import MagicMock
 
@@ -12,7 +11,6 @@ from sqlalchemy import text
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from src.common.database.database_model import Expression
-from src.common.database.database import get_db_session
 
 
 def create_test_app() -> FastAPI:

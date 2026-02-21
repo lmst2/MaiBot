@@ -704,10 +704,7 @@ class BrainChatting:
 
                             # 等待指定时间，但可被新消息打断
                             try:
-                                await asyncio.wait_for(
-                                    self._new_message_event.wait(),
-                                    timeout=wait_seconds
-                                )
+                                await asyncio.wait_for(self._new_message_event.wait(), timeout=wait_seconds)
                                 # 如果事件被触发，说明有新消息到达
                                 logger.info(f"{self.log_prefix} wait 动作被新消息打断，提前结束等待")
                             except asyncio.TimeoutError:
@@ -731,7 +728,9 @@ class BrainChatting:
                             # 使用默认等待时间
                             wait_seconds = 3
 
-                            logger.info(f"{self.log_prefix} 执行 listening（转换为 wait）动作，等待 {wait_seconds} 秒（可被新消息打断）")
+                            logger.info(
+                                f"{self.log_prefix} 执行 listening（转换为 wait）动作，等待 {wait_seconds} 秒（可被新消息打断）"
+                            )
 
                             # 清除事件状态，准备等待新消息
                             self._new_message_event.clear()
@@ -749,10 +748,7 @@ class BrainChatting:
 
                             # 等待指定时间，但可被新消息打断
                             try:
-                                await asyncio.wait_for(
-                                    self._new_message_event.wait(),
-                                    timeout=wait_seconds
-                                )
+                                await asyncio.wait_for(self._new_message_event.wait(), timeout=wait_seconds)
                                 # 如果事件被触发，说明有新消息到达
                                 logger.info(f"{self.log_prefix} listening 动作被新消息打断，提前结束等待")
                             except asyncio.TimeoutError:
