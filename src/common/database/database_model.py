@@ -300,7 +300,7 @@ class ChatSession(SQLModel, table=True):
     created_timestamp: datetime = Field(
         default_factory=datetime.now, sa_column=Column(DateTime, index=True)
     )  # 创建时间
-    last_active_timestamp: datetime = Field(
+    last_active_timestamp: Optional[datetime] = Field(
         default_factory=datetime.now, sa_column=Column(DateTime, index=True)
     )  # 最后活跃时间
 

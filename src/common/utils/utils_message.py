@@ -124,3 +124,14 @@ class MessageUtils:
             ((True, pattern) for pattern in global_config.message_receive.ban_msgs_regex if re.search(pattern, text)),
             (False, None),
         )
+
+    @staticmethod
+    def calculate_session_id(platform: str, *, user_id: Optional[str] = None, group_id: Optional[str] = None) -> str:
+        """计算会话ID"""
+        if not user_id and not group_id:
+            raise ValueError("UserID 或 GroupID 必须提供其一")
+        if group_id:
+            components = [platform, group_id]
+        else:
+            components = [platform, user_id, "private"]
+        return hashlib.md5("_".join(components).encode()).hexdigest()

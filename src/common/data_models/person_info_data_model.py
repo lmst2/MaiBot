@@ -78,6 +78,9 @@ class MaiPersonInfo(BaseDatabaseDataModel[PersonInfo]):
         )
 
     def to_db_instance(self) -> "PersonInfo":
+        group_cardname = (
+            json.dumps([gc.__dict__ for gc in self.group_cardname_list]) if self.group_cardname_list else None
+        )
         return PersonInfo(
             is_known=self.is_known,
             person_id=self.person_id,
@@ -86,7 +89,7 @@ class MaiPersonInfo(BaseDatabaseDataModel[PersonInfo]):
             platform=self.platform,
             user_id=self.user_id,
             user_nickname=self.user_nickname,
-            group_cardname=json.dumps([gn.__dict__ for gn in self.group_cardname_list]) if self.group_cardname_list else None,
+            group_cardname=group_cardname,
             memory_points=json.dumps(self.memory_points) if self.memory_points else None,
             know_counts=self.know_counts,
             first_known_time=self.first_known_time,
