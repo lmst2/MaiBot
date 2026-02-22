@@ -145,12 +145,25 @@ class ChatManager:
             self.sessions.clear()
             raise e
 
+    async def regularly_save_sessions(self, interval_seconds: int = 300):
+        """定期将会话记录保存到数据库中
+
+        Args:
+            interval_seconds: 保存间隔时间，单位为秒，默认为300秒（5分钟）
+        """
+        while True:
+            await asyncio.sleep(interval_seconds)
+            try:
+                await asyncio.to_thread(self.save_all_sessions)
+            except Exception as e:
+                logger.error(f"定期保存会话记录时发生错误: {e}")
+
     def save_all_sessions(self):
         """将内存中的全部会话记录保存到数据库"""
         try:
             for session in self.sessions.values():
                 self._save_session(session)
-            logger.info(f"已保存 {len(self.sessions)} 个会话记录到数据库中")
+            logger.info(f"共 {len(self.sessions)} 个会话已经保存到数据库中")
         except Exception as e:
             logger.error(f"保存会话记录到数据库时发生错误: {e}")
             raise e
