@@ -145,6 +145,7 @@ export type UserThemeConfig = {
   accentColor: string
   tokenOverrides: Partial<ThemeTokens>
   customCSS: string
+  backgroundConfig?: BackgroundConfigMap
 }
 
 // ============================================================================
@@ -350,4 +351,51 @@ export function tokenToCSSVarName(
   key: string,
 ): string {
   return `--${category}-${key}`
+}
+
+// ============================================================================
+// Background Config Types
+// ============================================================================
+
+export type BackgroundEffects = {
+  blur: number           // px, 0-50
+  overlayColor: string   // HSL string，如 '0 0% 0%'
+  overlayOpacity: number // 0-1
+  position: 'cover' | 'contain' | 'center' | 'stretch'
+  brightness: number     // 0-200, default 100
+  contrast: number       // 0-200, default 100
+  saturate: number       // 0-200, default 100
+  gradientOverlay?: string // CSS gradient string（可选）
+}
+
+export type BackgroundConfig = {
+  type: 'none' | 'image' | 'video'
+  assetId?: string       // IndexedDB asset ID
+  inherit?: boolean      // true = 继承页面背景
+  effects: BackgroundEffects
+  customCSS: string      // 组件级自定义 CSS
+}
+
+export type BackgroundConfigMap = {
+  page?: BackgroundConfig
+  sidebar?: BackgroundConfig
+  header?: BackgroundConfig
+  card?: BackgroundConfig
+  dialog?: BackgroundConfig
+}
+
+export const defaultBackgroundEffects: BackgroundEffects = {
+  blur: 0,
+  overlayColor: '0 0% 0%',
+  overlayOpacity: 0,
+  position: 'cover',
+  brightness: 100,
+  contrast: 100,
+  saturate: 100,
+}
+
+export const defaultBackgroundConfig: BackgroundConfig = {
+  type: 'none',
+  effects: defaultBackgroundEffects,
+  customCSS: '',
 }

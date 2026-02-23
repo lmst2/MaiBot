@@ -49,9 +49,9 @@ import {
 
 import { getComputedTokens } from '@/lib/theme/pipeline'
 import { hexToHSL } from '@/lib/theme/palette'
-import { defaultLightTokens } from '@/lib/theme/tokens'
+import { defaultBackgroundConfig, defaultBackgroundEffects, defaultLightTokens } from '@/lib/theme/tokens'
 import { exportThemeJSON, importThemeJSON } from '@/lib/theme/storage'
-import type { ThemeTokens } from '@/lib/theme/tokens'
+import type { BackgroundConfigMap, BackgroundEffects, ThemeTokens } from '@/lib/theme/tokens'
 import {
   Accordion,
   AccordionContent,
@@ -59,6 +59,9 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion'
 import { CodeEditor } from '@/components/CodeEditor'
+import { BackgroundEffectsControls } from '@/components/background-effects-controls'
+import { BackgroundUploader } from '@/components/background-uploader'
+import { ComponentCSSEditor } from '@/components/component-css-editor'
 import { sanitizeCSS } from '@/lib/theme/sanitizer'
 import {
   Select,
@@ -167,6 +170,7 @@ function AppearanceTab() {
   const [localCSS, setLocalCSS] = useState(themeConfig.customCSS || '')
   const [cssWarnings, setCssWarnings] = useState<string[]>([])
   const cssDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+const bgDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const updateTokenSection = useCallback(
@@ -264,6 +268,39 @@ function AppearanceTab() {
     return getComputedTokens(themeConfig, resolvedTheme === 'dark').color
   }, [themeConfig, resolvedTheme])
 
+  const bgConfig: BackgroundConfigMap = themeConfig.backgroundConfig ?? {}
+
+  const handleBgAssetChange = (layerId: keyof BackgroundConfigMap, assetId: string | undefined) => {
+    const current = bgConfig[layerId] ?? defaultBackgroundConfig
+    const newMap: BackgroundConfigMap = {
+      ...bgConfig,
+      [layerId]: { ...current, assetId, type: assetId ? 'image' : 'none' },
+    }
+    if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current)
+    bgDebounceRef.current = setTimeout(() => updateThemeConfig({ backgroundConfig: newMap }), 500)
+  }
+
+  const handleBgEffectsChange = (layerId: keyof BackgroundConfigMap, effects: BackgroundEffects) => {
+    const current = bgConfig[layerId] ?? defaultBackgroundConfig
+    const newMap: BackgroundConfigMap = { ...bgConfig, [layerId]: { ...current, effects } }
+    if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current)
+    bgDebounceRef.current = setTimeout(() => updateThemeConfig({ backgroundConfig: newMap }), 500)
+  }
+
+  const handleBgCSSChange = (layerId: keyof BackgroundConfigMap, css: string) => {
+    const current = bgConfig[layerId] ?? defaultBackgroundConfig
+    const newMap: BackgroundConfigMap = { ...bgConfig, [layerId]: { ...current, customCSS: css } }
+    if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current)
+    bgDebounceRef.current = setTimeout(() => updateThemeConfig({ backgroundConfig: newMap }), 500)
+  }
+
+  const handleBgInheritChange = (layerId: keyof BackgroundConfigMap, inherit: boolean) => {
+    const current = bgConfig[layerId] ?? defaultBackgroundConfig
+    const newMap: BackgroundConfigMap = { ...bgConfig, [layerId]: { ...current, inherit } }
+    if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current)
+    bgDebounceRef.current = setTimeout(() => updateThemeConfig({ backgroundConfig: newMap }), 500)
+  }
+
   return (
     <div className="space-y-6 sm:space-y-8">
       {/* 主题模式 */}
@@ -360,6 +397,8 @@ function AppearanceTab() {
       {/* 样式微调 */}
       <div>
         <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">界面样式微调</h3>
+
+
         <Accordion type="single" collapsible className="w-full">
           {/* 1. 字体排版 (Typography) */}
           <AccordionItem value="typography">
@@ -677,6 +716,54 @@ function AppearanceTab() {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          {/* 5. 背景设置 (Backgrounds) */}
+          <AccordionItem value="backgrounds">
+            <AccordionTrigger>背景设置 (Backgrounds)</AccordionTrigger>
+            <AccordionContent>
+              <div className="pt-2">
+                <Tabs defaultValue="page">
+                  <TabsList className="w-full grid grid-cols-5">
+                    <TabsTrigger value="page">页面</TabsTrigger>
+                    <TabsTrigger value="sidebar">侧边栏</TabsTrigger>
+                    <TabsTrigger value="header">Header</TabsTrigger>
+                    <TabsTrigger value="card">Card</TabsTrigger>
+                    <TabsTrigger value="dialog">Dialog</TabsTrigger>
+                  </TabsList>
+
+                  {(['page', 'sidebar', 'header', 'card', 'dialog'] as const).map((layerId) => (
+                    <TabsContent key={layerId} value={layerId} className="space-y-4 mt-4">
+                      {layerId !== 'page' && (
+                        <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-3">
+                          <div className="space-y-0.5">
+                            <Label className="text-sm font-medium">继承上级背景</Label>
+                            <p className="text-xs text-muted-foreground">开启后将使用上级层级的背景配置</p>
+                          </div>
+                          <Switch
+                            checked={bgConfig[layerId]?.inherit ?? false}
+                            onCheckedChange={(v) => handleBgInheritChange(layerId, v)}
+                          />
+                        </div>
+                      )}
+                      <BackgroundUploader
+                        assetId={bgConfig[layerId]?.assetId}
+                        onAssetSelect={(id) => handleBgAssetChange(layerId, id)}
+                      />
+                      <BackgroundEffectsControls
+                        effects={bgConfig[layerId]?.effects ?? defaultBackgroundEffects}
+                        onChange={(effects) => handleBgEffectsChange(layerId, effects)}
+                      />
+                      <ComponentCSSEditor
+                        componentId={layerId}
+                        value={bgConfig[layerId]?.customCSS ?? ''}
+                        onChange={(css) => handleBgCSSChange(layerId, css)}
+                      />
+                    </TabsContent>
+                  ))}
+                </Tabs>
               </div>
             </AccordionContent>
           </AccordionItem>
