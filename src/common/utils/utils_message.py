@@ -1,5 +1,5 @@
 from maim_message import MessageBase, Seg
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Sequence
 
 import base64
 import hashlib
@@ -35,7 +35,7 @@ class MessageUtils:
     def from_maim_message_segments_to_MaiSeq(message: "MessageBase") -> MessageSequence:
         """从maim_message.MessageBase.message_segment转换为MessageSequence"""
         raw_msg_seq = message.message_segment
-        components: List[StandardMessageComponents] = []
+        components: Sequence[StandardMessageComponents] = []
         if not raw_msg_seq:
             return MessageSequence(components)
         if raw_msg_seq.type == "seglist":

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from maim_message import Seg, UserInfo, MessageBase, BaseMessageInfo
-from typing import Optional, List, Union, Dict, Any
+from typing import Optional, List, Union, Dict, Any, Sequence
 
 import asyncio
 import hashlib
@@ -142,9 +142,9 @@ class AtComponent(BaseMessageComponentModel):
     ) -> None:
         self.target_user_id = target_user_id
         """目标用户ID"""
-        self.target_user_nickname = target_user_nickname
+        self.target_user_nickname: Optional[str] = target_user_nickname
         """目标用户昵称"""
-        self.target_user_cardname = target_user_cardname
+        self.target_user_cardname: Optional[str] = target_user_cardname
         """目标用户备注名"""
         assert isinstance(target_user_id, str), "AtComponent 的 target_user_id 必须是字符串类型"
 
@@ -159,10 +159,25 @@ class ReplyComponent(BaseMessageComponentModel):
     def format_name(self) -> str:
         return "reply"
 
-    def __init__(self, target_message_id: str) -> None:
+    def __init__(
+        self,
+        target_message_id: str,
+        target_message_content: Optional[str] = None,
+        target_message_sender_id: Optional[str] = None,
+        target_message_sender_nickname: Optional[str] = None,
+        target_message_sender_cardname: Optional[str] = None,
+    ) -> None:
         assert isinstance(target_message_id, str), "ReplyComponent 的 target_message_id 必须是字符串类型"
         self.target_message_id = target_message_id
         """目标消息ID"""
+        self.target_message_content: Optional[str] = target_message_content
+        """目标消息内容"""
+        self.target_message_sender_id: Optional[str] = target_message_sender_id
+        """目标消息发送者ID"""
+        self.target_message_sender_nickname: Optional[str] = target_message_sender_nickname
+        """目标消息发送者昵称"""
+        self.target_message_sender_cardname: Optional[str] = target_message_sender_cardname
+        """目标消息发送者群昵称"""
 
     async def to_seg(self) -> Seg:
         return Seg(type="reply", data=self.target_message_id)
@@ -224,7 +239,7 @@ class ForwardComponent(BaseMessageComponentModel):
         self,
         user_nickname: str,
         message_id: str,
-        content: List[StandardMessageComponents],
+        content: Sequence[StandardMessageComponents],
         user_id: Optional[str] = None,
         user_cardname: Optional[str] = None,
     ):
@@ -232,7 +247,7 @@ class ForwardComponent(BaseMessageComponentModel):
         """转发节点的发送者昵称"""
         self.message_id: str = message_id
         """转发节点的消息ID"""
-        self.content: List[StandardMessageComponents] = content
+        self.content: Sequence[StandardMessageComponents] = content
         """消息内容"""
         self.user_id: Optional[str] = user_id
         """转发节点的发送者ID，可能为 None"""
@@ -249,7 +264,7 @@ class ForwardComponent(BaseMessageComponentModel):
 class MessageSequence:
     """消息组件序列，包含一个消息中的所有组件，按照顺序排列"""
 
-    def __init__(self, components: List[StandardMessageComponents]):
+    def __init__(self, components: Sequence[StandardMessageComponents]):
         """
         创建一个消息组件序列
 
@@ -259,16 +274,16 @@ class MessageSequence:
         因此也可以包含多个`ReplyComponent`组件（例如回复多条消息）。
         如果需要对组件进行去重或校验，还请在使用时自行处理。
         """
-        self.components: List[StandardMessageComponents] = components
+        self.components: Sequence[StandardMessageComponents] = components
 
     def to_dict(self) -> List[Dict[str, Any]]:
         """将消息序列转换为字典列表格式，便于存储或传输"""
         return [self._item_2_dict(comp) for comp in self.components]
 
     @classmethod
-    def from_dict(cls, data: List[Dict[str, Any]]) -> "MessageSequence":
+    def from_dict(cls, data: List[Dict[str, Any]]):
         """从字典列表格式创建消息序列实例"""
-        components: List[StandardMessageComponents] = []
+        components: Sequence[StandardMessageComponents] = []
         components.extend(cls._dict_2_item(item) for item in data)
         return cls(components=components)
 

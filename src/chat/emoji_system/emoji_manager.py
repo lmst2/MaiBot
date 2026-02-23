@@ -67,6 +67,9 @@ class EmojiManager:
             emoji_hash (Optional[str]): 表情包的哈希值，如果提供了哈希值则优先使用哈希值查找表情包描述
         Returns:
             return (Optional[Tuple[str, List[str]]]): 如果找到对应的表情包，则返回包含描述和情感标签的元组；若没找到，则尝试构建表情包描述并返回，如果构建失败则返回 None
+        Raises:
+            ValueError: 如果既没有提供表情包字节数据，也没有提供表情包哈希值，则抛出异常
+            Exception: 如果在缓存表情包的过程中发生错误，则抛出异常
         """
         # 先查找
         if emoji_hash is None and emoji_bytes is not None:

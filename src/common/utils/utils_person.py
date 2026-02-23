@@ -20,7 +20,7 @@ class PersonUtils:
         """根据person_id获取用户信息"""
         try:
             with get_db_session() as session:
-                statement = select(PersonInfo).filter_by(person_id=person_id)
+                statement = select(PersonInfo).filter_by(person_id=person_id).limit(1)
                 if result := session.exec(statement).first():
                     return MaiPersonInfo.from_db_instance(result)
         except Exception as e:

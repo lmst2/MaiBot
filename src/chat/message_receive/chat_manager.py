@@ -103,7 +103,7 @@ class ChatManager:
         # 内存没有就找db
         try:
             with get_db_session() as db_session:
-                statement = select(ChatSession).filter_by(session_id=session_id)
+                statement = select(ChatSession).filter_by(session_id=session_id).limit(1)
                 if result := db_session.exec(statement).first():
                     session = BotChatSession.from_db_instance(result)
                     self.sessions[session.session_id] = session
@@ -229,7 +229,7 @@ class ChatManager:
         """将会话记录保存到数据库"""
         with get_db_session() as db_session:
             db_instance = session.to_db_instance()
-            statement = select(ChatSession).filter_by(session_id=db_instance.session_id)
+            statement = select(ChatSession).filter_by(session_id=db_instance.session_id).limit(1)
             if result := db_session.exec(statement).first():
                 result.created_timestamp = db_instance.created_timestamp
                 result.last_active_timestamp = db_instance.last_active_timestamp
