@@ -20,6 +20,9 @@ import { cn } from '@/lib/utils'
 import { formatVersion } from '@/lib/version'
 import type { ReactNode, ComponentType } from 'react'
 import type { LucideProps } from 'lucide-react'
+import { BackgroundLayer } from '@/components/background-layer'
+
+import { useBackground } from '@/hooks/use-background'
 
 interface LayoutProps {
   children: ReactNode
@@ -140,6 +143,10 @@ export function Layout({ children }: LayoutProps) {
 
   const actualTheme = getActualTheme()
 
+  const pageBg = useBackground('page')
+  const sidebarBg = useBackground('sidebar')
+  const headerBg = useBackground('header')
+
   // 登出处理
   const handleLogout = async () => {
     await logout()
@@ -158,6 +165,7 @@ export function Layout({ children }: LayoutProps) {
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         )}
       >
+        <BackgroundLayer config={sidebarBg} layerId="sidebar" />
         {/* Logo 区域 */}
         <div className="flex h-16 items-center border-b px-4">
           <div
@@ -306,6 +314,7 @@ export function Layout({ children }: LayoutProps) {
         
         {/* Topbar */}
         <header className="flex h-16 items-center justify-between border-b bg-card/80 backdrop-blur-md px-4 sticky top-0 z-10">
+          <BackgroundLayer config={headerBg} layerId="header" />
           <div className="flex items-center gap-4">
             {/* 移动端菜单按钮 */}
             <button
@@ -398,7 +407,10 @@ export function Layout({ children }: LayoutProps) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-hidden bg-background">{children}</main>
+        <main className="relative flex-1 overflow-hidden bg-background">
+          <BackgroundLayer config={pageBg} layerId="page" />
+          {children}
+        </main>
 
         {/* Back to Top Button */}
         <BackToTop />

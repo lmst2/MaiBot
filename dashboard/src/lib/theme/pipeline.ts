@@ -6,6 +6,8 @@ import { sanitizeCSS } from './sanitizer'
 import { defaultDarkTokens, defaultLightTokens, tokenToCSSVarName } from './tokens'
 
 const CUSTOM_CSS_ID = 'maibot-custom-css'
+const COMPONENT_CSS_ID_PREFIX = 'maibot-bg-css-'
+const COMPONENT_IDS = ['page', 'sidebar', 'header', 'card', 'dialog'] as const
 
 const mergeTokens = (base: ThemeTokens, overrides: Partial<ThemeTokens>): ThemeTokens => {
   return {
@@ -106,19 +108,87 @@ export function removeCustomCSS(): void {
   }
 }
 
+/**
+ * 为指定组件注入自定义 CSS
+ * 使用独立的 style 标签,CSS 经过 sanitize 处理
+ * @param css - 要注入的 CSS 字符串
+ * @param componentId - 组件标识符 (page/sidebar/header/card/dialog)
+ */
+export function injectComponentCSS(css: string, componentId: string): void {
+  const styleId = `${COMPONENT_CSS_ID_PREFIX}${componentId}`
+
+  if (css.trim().length === 0) {
+    removeComponentCSS(componentId)
+    return
+  }
+
+  const sanitized = sanitizeCSS(css)
+  const sanitizedCss = sanitized.css
+
+  if (sanitizedCss.trim().length === 0) {
+    removeComponentCSS(componentId)
+    return
+  }
+
+  const existing = document.getElementById(styleId)
+  if (existing) {
+    existing.textContent = sanitizedCss
+    return
+  }
+
+  const style = document.createElement('style')
+  style.id = styleId
+  style.textContent = sanitizedCss
+  document.head.appendChild(style)
+}
+
+/**
+ * 移除指定组件的自定义 CSS
+ */
+export function removeComponentCSS(componentId: string): void {
+  const styleId = `${COMPONENT_CSS_ID_PREFIX}${componentId}`
+  document.getElementById(styleId)?.remove()
+}
+
+/**
+ * 移除所有组件的自定义 CSS
+ */
+export function removeAllComponentCSS(): void {
+  COMPONENT_IDS.forEach(removeComponentCSS)
+}
+
 export function applyThemePipeline(config: UserThemeConfig, isDark: boolean): void {
   const root = document.documentElement
   const tokens = buildTokens(config, isDark)
-
   injectTokensAsCSS(tokens, root)
-
   if (config.customCSS) {
     const sanitized = sanitizeCSS(config.customCSS)
     if (sanitized.css.trim().length > 0) {
       injectCustomCSS(sanitized.css)
-      return
+    } else {
+      removeCustomCSS()
     }
+  } else {
+    removeCustomCSS()
   }
 
-  removeCustomCSS()
+  // 应用组件级 CSS(注入顺序在全局 CSS 之后)
+  if (config.backgroundConfig) {
+    const { page, sidebar, header, card, dialog } = config.backgroundConfig
+    ;[
+      ['page', page],
+      ['sidebar', sidebar],
+      ['header', header],
+      ['card', card],
+      ['dialog', dialog],
+    ].forEach(([id, cfg]) => {
+      if (cfg && typeof cfg === 'object' && 'customCSS' in cfg && cfg.customCSS) {
+        injectComponentCSS(cfg.customCSS, id as string)
+      } else {
+        removeComponentCSS(id as string)
+      }
+    })
+  } else {
+    removeAllComponentCSS()
+  }
 }

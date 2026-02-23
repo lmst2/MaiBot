@@ -3,7 +3,7 @@
  * 统一处理主题相关的存储操作，包括加载、保存、导出、导入和迁移旧 key
  */
 
-import type { UserThemeConfig } from './tokens'
+import type { BackgroundConfigMap, UserThemeConfig } from './tokens'
 
 /**
  * 主题存储 key 定义
@@ -15,6 +15,7 @@ export const THEME_STORAGE_KEYS = {
   ACCENT: 'maibot-theme-accent',
   OVERRIDES: 'maibot-theme-overrides',
   CUSTOM_CSS: 'maibot-theme-custom-css',
+  BACKGROUND_CONFIG: 'maibot-theme-background',
 } as const
 
 /**
@@ -25,6 +26,7 @@ const DEFAULT_THEME_CONFIG: UserThemeConfig = {
   accentColor: 'blue',
   tokenOverrides: {},
   customCSS: '',
+  backgroundConfig: {} as BackgroundConfigMap,
 }
 
 /**
@@ -50,11 +52,23 @@ export function loadThemeConfig(): UserThemeConfig {
     }
   }
 
+  // 加载 backgroundConfig
+  const backgroundConfigStr = localStorage.getItem(THEME_STORAGE_KEYS.BACKGROUND_CONFIG)
+  let backgroundConfig: BackgroundConfigMap = {}
+  if (backgroundConfigStr) {
+    try {
+      backgroundConfig = JSON.parse(backgroundConfigStr)
+    } catch {
+      backgroundConfig = {}
+    }
+  }
+
   return {
     selectedPreset: preset || DEFAULT_THEME_CONFIG.selectedPreset,
     accentColor: accent || DEFAULT_THEME_CONFIG.accentColor,
     tokenOverrides,
     customCSS: customCSS || DEFAULT_THEME_CONFIG.customCSS,
+    backgroundConfig,
   }
 }
 
@@ -68,6 +82,11 @@ export function saveThemeConfig(config: UserThemeConfig): void {
   localStorage.setItem(THEME_STORAGE_KEYS.ACCENT, config.accentColor)
   localStorage.setItem(THEME_STORAGE_KEYS.OVERRIDES, JSON.stringify(config.tokenOverrides))
   localStorage.setItem(THEME_STORAGE_KEYS.CUSTOM_CSS, config.customCSS)
+  if (config.backgroundConfig) {
+    localStorage.setItem(THEME_STORAGE_KEYS.BACKGROUND_CONFIG, JSON.stringify(config.backgroundConfig))
+  } else {
+    localStorage.removeItem(THEME_STORAGE_KEYS.BACKGROUND_CONFIG)
+  }
 }
 
 /**
@@ -152,6 +171,7 @@ export function importThemeJSON(
     accentColor: configObj.accentColor as string,
     tokenOverrides: (configObj.tokenOverrides as Partial<any>) || {},
     customCSS: configObj.customCSS as string,
+    backgroundConfig: (configObj.backgroundConfig as BackgroundConfigMap) ?? {},
   }
 
   saveThemeConfig(validConfig)
