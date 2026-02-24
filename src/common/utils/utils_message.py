@@ -1,5 +1,5 @@
 from maim_message import MessageBase, Seg
-from typing import List, Tuple, Optional, Sequence
+from typing import List, Tuple, Optional, Sequence, TYPE_CHECKING
 
 import base64
 import hashlib
@@ -18,6 +18,9 @@ from src.common.data_models.message_component_data_model import (
     DictComponent,
 )
 from src.config.config import global_config
+
+if TYPE_CHECKING:
+    from src.chat.message_receive.message import SessionMessage
 
 
 class MessageUtils:
@@ -135,3 +138,12 @@ class MessageUtils:
         else:
             components = [platform, user_id, "private"]
         return hashlib.md5("_".join(components).encode()).hexdigest()
+
+    @staticmethod
+    def store_message_to_db(message: "SessionMessage"):
+        """存储消息到数据库"""
+        from src.common.database.database import get_db_session
+
+        with get_db_session() as session:
+            db_message = message.to_db_instance()
+            session.add(db_message)
