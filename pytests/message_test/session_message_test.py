@@ -200,7 +200,7 @@ async def test_image(monkeypatch):
     msg.raw_message = MessageSequence(components=[])
     msg.raw_message.components = [ImageComponent(binary_hash="image_hash"), TextComponent("Hello, world!")]
     await msg.process()
-    assert msg.processed_plain_text == "[发了一张图片，网卡了加载不出来] Hello, world!"
+    assert msg.processed_plain_text == "[一张图片，网卡了加载不出来] Hello, world!"
 
 
 @pytest.mark.asyncio
@@ -211,7 +211,7 @@ async def test_emoji(monkeypatch):
     msg.raw_message = MessageSequence(components=[])
     msg.raw_message.components = [EmojiComponent(binary_hash="emoji_hash"), TextComponent("Hello, world!")]
     await msg.process()
-    assert msg.processed_plain_text == "[发了一个表情，网卡了加载不出来] Hello, world!"
+    assert msg.processed_plain_text == "[一个表情，网卡了加载不出来] Hello, world!"
 
 
 @pytest.mark.asyncio

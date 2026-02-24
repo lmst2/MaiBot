@@ -33,7 +33,7 @@ class MsgIDMapping:
 
 class SessionMessage(MaiMessage):
     async def process(self):
-        """处理消息内容，识别消息内容并转化为文本"""
+        """处理消息内容，识别消息内容并转化为文本（会修改消息组件属性）"""
         tasks = [self.process_single_component(component, MsgIDMapping()) for component in self.raw_message.components]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         processed_texts: List[str] = []
@@ -47,6 +47,7 @@ class SessionMessage(MaiMessage):
     async def process_single_component(
         self, component: StandardMessageComponents, id_content_map: MsgIDMapping, recursion_depth: int = 0
     ) -> str:
+        """按照类型处理单个消息组件，返回处理后的文本内容（会修改消息组件属性）"""
         if isinstance(component, TextComponent):
             return component.text
         elif isinstance(component, ImageComponent):
@@ -73,9 +74,9 @@ class SessionMessage(MaiMessage):
         try:
             desc = await image_manager.get_image_description(image_bytes=component.binary_data)
         except Exception:
-            desc = None
+            desc = None  # 失败置空
 
-        content = f"[图片：{desc}]" if desc else "[发了一张图片，网卡了加载不出来]"
+        content = f"[图片：{desc}]" if desc else "[一张图片，网卡了加载不出来]"
         component.content = content
         return content
 
@@ -88,23 +89,25 @@ class SessionMessage(MaiMessage):
         try:
             tuple_content = await emoji_manager.get_emoji_description(emoji_bytes=component.binary_data)
         except Exception:
-            tuple_content = None
+            tuple_content = None  # 失败置空
 
         if tuple_content:
             desc, _ = tuple_content
             content = f"[表情包: {desc}]"
         else:
-            content = "[发了一个表情，网卡了加载不出来]"
+            content = "[一个表情，网卡了加载不出来]"
         component.content = content
         return content
 
     async def process_at_component(self, component: AtComponent) -> str:
+        # 如果已经有昵称或备注了，直接使用
         if component.target_user_cardname:
             return f"@{component.target_user_cardname}"
         elif component.target_user_nickname:
             return f"@{component.target_user_nickname}"
         from src.common.utils.utils_person import PersonUtils
 
+        # 查询用户信息
         if person_info := PersonUtils.get_person_info_by_user_id_and_platform(component.target_user_id, self.platform):
             component.target_user_nickname = component.target_user_nickname or person_info.user_nickname
             if self.message_info.group_info and person_info.group_cardname_list:
@@ -112,11 +115,11 @@ class SessionMessage(MaiMessage):
                     if group_card.group_id == self.message_info.group_info.group_id:
                         component.target_user_cardname = group_card.group_cardname
                         break
-        if component.target_user_cardname:
+        if component.target_user_cardname:  # 优先使用群备注
             return f"@{component.target_user_cardname}"
-        elif component.target_user_nickname:
+        elif component.target_user_nickname:  # 其次使用昵称
             return f"@{component.target_user_nickname}"
-        else:
+        else:  # 最后使用用户ID
             return f"@{component.target_user_id}"
 
     async def process_voice_component(self, component: VoiceComponent) -> str:
@@ -136,10 +139,10 @@ class SessionMessage(MaiMessage):
     ) -> str:
         if component.target_message_content:
             return component.target_message_content
-        if result_item := id_content_map.mapping.get(component.target_message_id):
+        if result_item := id_content_map.mapping.get(component.target_message_id):  # ID映射缓存优先
             content, sender_info = result_item
-            if isinstance(content, Task):
-                content = await content
+            if isinstance(content, Task):  # 如果是Task，说明是转发组件传入的占位结果，需要等待其完成
+                content = await content  # 获取最终结果
                 id_content_map.mapping[component.target_message_id] = (content, sender_info)  # 更新为实际内容
             component.target_message_content = content
             tgt_msg_s_name = sender_info.user_cardname or sender_info.user_nickname or sender_info.user_id
@@ -147,7 +150,7 @@ class SessionMessage(MaiMessage):
             component.target_message_sender_nickname = sender_info.user_nickname
             component.target_message_sender_id = sender_info.user_id
             return f"[回复了{tgt_msg_s_name}的消息: {content}]"
-        else:
+        else:  # 尝试从数据库根据消息id查找消息内容
             try:
                 with get_db_session() as session:
                     statement = select(Messages).filter_by(message_id=component.target_message_id).limit(1)
@@ -173,10 +176,13 @@ class SessionMessage(MaiMessage):
                 self._process_multiple_components(node.content, id_content_map, recursion_depth + 1)
             )
             node_user_info = UserInfo(node.user_id or "未知用户", node.user_nickname, node.user_cardname)
+            # 传入ID缓存映射，方便Reply组件获取并等待处理结果
             id_content_map.mapping[node.message_id] = (task, node_user_info)
+
             task_list.append(task)
             node_user_info_list.append(node_user_info)
-        results = await asyncio.gather(*task_list, return_exceptions=True)
+
+        results = await asyncio.gather(*task_list, return_exceptions=True)  # 并行处理节点内容
         forward_texts = []
         for idx, result in enumerate(results):
             if isinstance(result, BaseException):
@@ -190,11 +196,8 @@ class SessionMessage(MaiMessage):
     async def _process_multiple_components(
         self, components: Sequence[StandardMessageComponents], id_content_map: MsgIDMapping, recursion_depth: int = 0
     ) -> str:
-        tasks = [
-            self.process_single_component(component, id_content_map, recursion_depth=recursion_depth)
-            for component in components
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        tasks = [self.process_single_component(component, id_content_map, recursion_depth) for component in components]
+        results = await asyncio.gather(*tasks, return_exceptions=True)  # 并行处理多个组件
         processed_texts: List[str] = []
         for result in results:
             if isinstance(result, BaseException):
