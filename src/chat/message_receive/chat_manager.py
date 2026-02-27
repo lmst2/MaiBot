@@ -9,7 +9,7 @@ from src.common.logger import get_logger
 from src.common.data_models.chat_session_data_model import MaiChatSession
 from src.common.database.database_model import ChatSession
 from src.common.database.database import get_db_session
-from src.common.utils.utils_message import MessageUtils
+from src.common.utils.utils_session import SessionUtils
 
 if TYPE_CHECKING:
     from .message import SessionMessage
@@ -95,7 +95,7 @@ class ChatManager:
         Raises:
             Exception: 获取或创建会话时发生错误
         """
-        session_id = MessageUtils.calculate_session_id(platform, user_id=user_id, group_id=group_id)
+        session_id = SessionUtils.calculate_session_id(platform, user_id=user_id, group_id=group_id)
         if session := self.get_session_by_session_id(session_id):
             session.update_active_time()
             return session
@@ -131,7 +131,7 @@ class ChatManager:
             raise ValueError("消息缺少平台信息")
         user_id = message.message_info.user_info.user_id
         group_id = message.message_info.group_info.group_id if message.message_info.group_info else None
-        session_id = MessageUtils.calculate_session_id(platform, user_id=user_id, group_id=group_id)
+        session_id = SessionUtils.calculate_session_id(platform, user_id=user_id, group_id=group_id)
         message.session_id = session_id  # 确保消息的session_id正确设置
         self.last_messages[session_id] = message
 
@@ -199,7 +199,7 @@ class ChatManager:
         Returns:
             return (Optional[BotChatSession]): 会话对象，如果不存在则返回None
         """
-        session_id = MessageUtils.calculate_session_id(platform, user_id=user_id, group_id=group_id)
+        session_id = SessionUtils.calculate_session_id(platform, user_id=user_id, group_id=group_id)
         return self.get_session_by_session_id(session_id)
 
     def get_session_by_session_id(self, session_id: str) -> Optional[BotChatSession]:

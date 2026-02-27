@@ -349,7 +349,7 @@ class TargetItem(ConfigBase):
             "x-icon": "hash",
         },
     )
-    """用户ID，与平台一起留空表示全局"""
+    """用户/群ID，与平台一起留空表示全局"""
 
     rule_type: Literal["group", "private"] = Field(
         default="group",
