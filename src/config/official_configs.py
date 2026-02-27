@@ -203,13 +203,16 @@ class ChatConfig(ConfigBase):
     """聊天频率，越小越沉默，范围0-1"""
 
     mentioned_bot_reply: bool = Field(
-        default=True,
+        default=False,
         json_schema_extra={
             "x-widget": "switch",
             "x-icon": "at-sign",
         },
     )
     """是否启用提及必回复"""
+
+    inevitable_at_reply: bool = Field(default=True)
+    """是否启用at必回复"""
 
     max_context_size: int = Field(
         default=30,
