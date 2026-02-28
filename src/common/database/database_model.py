@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Literal
 from sqlalchemy import Column, Float, Enum as SQLEnum, DateTime
 from sqlmodel import SQLModel, Field, LargeBinary
 from enum import Enum
@@ -171,7 +171,7 @@ class Expression(SQLModel, table=True):
     style: str = Field(index=True, max_length=255, primary_key=True)  # 风格
 
     context: str  # 上下文
-    up_content: str
+    # up_content: str
 
     content_list: str  # 内容列表，JSON格式存储
     count: int = Field(default=0)  # 使用次数
@@ -180,6 +180,10 @@ class Expression(SQLModel, table=True):
     )  # 上次使用时间
     create_time: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime))  # 创建时间
     session_id: Optional[str] = Field(default=None, max_length=255, nullable=True)  # 会话ID，区分是否为全局表达方式
+
+    checked: bool = Field(default=False)  # 是否已经被检查过
+    rejected: bool = Field(default=False)  # 是否被拒绝但是未更新
+    modified_by: Optional[Literal["ai", "user"]] = Field(default=None)  # 最后修改者，标记用户或AI，为空表示未检查
 
 
 class Jargon(SQLModel, table=True):
