@@ -1,5 +1,7 @@
-import time
+from dataclasses import dataclass
 from typing import Optional, Dict, Any
+
+import time
 
 from src.config.config import global_config
 from src.common.logger import get_logger
@@ -11,6 +13,13 @@ from src.common.message_repository import count_messages
 
 logger = get_logger(__name__)
 
+@dataclass
+class CyclePlanInfo:
+    ...
+    
+@dataclass
+class CycleActionInfo:
+    ...
 
 class CycleDetail:
     """循环信息记录类"""
@@ -22,8 +31,8 @@ class CycleDetail:
         self.end_time: Optional[float] = None
         self.timers: Dict[str, float] = {}
 
-        self.loop_plan_info: Dict[str, Any] = {}
-        self.loop_action_info: Dict[str, Any] = {}
+        self.loop_plan_info: CyclePlanInfo = CyclePlanInfo()
+        self.loop_action_info: CycleActionInfo = CycleActionInfo()
 
     def to_dict(self) -> Dict[str, Any]:
         """将循环信息转换为字典格式"""
