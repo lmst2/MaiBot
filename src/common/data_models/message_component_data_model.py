@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from maim_message import Seg, UserInfo, MessageBase, BaseMessageInfo
-from typing import Optional, List, Union, Dict, Any, Sequence
+from typing import Optional, List, Union, Dict, Any
 
 import asyncio
 import hashlib
@@ -239,7 +239,7 @@ class ForwardComponent(BaseMessageComponentModel):
         self,
         user_nickname: str,
         message_id: str,
-        content: Sequence[StandardMessageComponents],
+        content: List[StandardMessageComponents],
         user_id: Optional[str] = None,
         user_cardname: Optional[str] = None,
     ):
@@ -247,7 +247,7 @@ class ForwardComponent(BaseMessageComponentModel):
         """转发节点的发送者昵称"""
         self.message_id: str = message_id
         """转发节点的消息ID"""
-        self.content: Sequence[StandardMessageComponents] = content
+        self.content: List[StandardMessageComponents] = content
         """消息内容"""
         self.user_id: Optional[str] = user_id
         """转发节点的发送者ID，可能为 None"""
@@ -264,7 +264,7 @@ class ForwardComponent(BaseMessageComponentModel):
 class MessageSequence:
     """消息组件序列，包含一个消息中的所有组件，按照顺序排列"""
 
-    def __init__(self, components: Sequence[StandardMessageComponents]):
+    def __init__(self, components: List[StandardMessageComponents]):
         """
         创建一个消息组件序列
 
@@ -274,7 +274,42 @@ class MessageSequence:
         因此也可以包含多个`ReplyComponent`组件（例如回复多条消息）。
         如果需要对组件进行去重或校验，还请在使用时自行处理。
         """
-        self.components: Sequence[StandardMessageComponents] = components
+        self.components: List[StandardMessageComponents] = components
+
+    """链式调用的接口，方便在创建消息组件序列时逐步追加组件"""
+
+    def text(self, text: str) -> "MessageSequence":
+        """在消息组件序列末尾追加一个文本组件"""
+        self.components.append(TextComponent(text))
+        return self
+
+    def image(self, binary_data: bytes, content: Optional[str] = None):
+        """在消息组件序列末尾追加一个图片组件"""
+        hash_str = hashlib.sha256(binary_data).hexdigest()
+        self.components.append(ImageComponent(binary_hash=hash_str, content=content, binary_data=binary_data))
+        return self
+
+    def emoji(self, binary_data: bytes, content: Optional[str] = None):
+        """在消息组件序列末尾追加一个表情组件"""
+        hash_str = hashlib.sha256(binary_data).hexdigest()
+        self.components.append(EmojiComponent(binary_hash=hash_str, content=content, binary_data=binary_data))
+        return self
+
+    def voice(self, binary_data: bytes, content: Optional[str] = None):
+        """在消息组件序列末尾追加一个语音组件"""
+        hash_str = hashlib.sha256(binary_data).hexdigest()
+        self.components.append(VoiceComponent(binary_hash=hash_str, content=content, binary_data=binary_data))
+        return self
+
+    def at(self, target_user_id: str):
+        """在消息组件序列末尾追加一个@组件"""
+        self.components.append(AtComponent(target_user_id))
+        return self
+
+    def reply(self, target_message_id: str):
+        """在消息组件序列末尾追加一个回复组件"""
+        self.components.append(ReplyComponent(target_message_id=target_message_id))
+        return self
 
     def to_dict(self) -> List[Dict[str, Any]]:
         """将消息序列转换为字典列表格式，便于存储或传输"""
@@ -283,7 +318,7 @@ class MessageSequence:
     @classmethod
     def from_dict(cls, data: List[Dict[str, Any]]):
         """从字典列表格式创建消息序列实例"""
-        components: Sequence[StandardMessageComponents] = []
+        components: List[StandardMessageComponents] = []
         components.extend(cls._dict_2_item(item) for item in data)
         return cls(components=components)
 
