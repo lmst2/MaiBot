@@ -194,10 +194,6 @@ export function useAutoSave(
         }
         setHasUnsavedChanges(false)
         onSaveSuccess?.()
-        setAutoSaving(true)
-        await updateBotConfigSection(sectionName, sectionData)
-        setHasUnsavedChanges(false)
-        onSaveSuccess?.()
       } catch (error) {
         console.error(`自动保存 ${sectionName} 失败:`, error)
         setHasUnsavedChanges(true)
