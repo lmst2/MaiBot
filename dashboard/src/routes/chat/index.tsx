@@ -1,277 +1,19 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { fetchWithAuth } from '@/lib/fetch-with-auth'
-import { ScrollArea } from '@/components/ui/scroll-area'
+
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-// Card 组件已移除，改用更简洁的全屏布局
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Send, Bot, User, Loader2, WifiOff, Wifi, RefreshCw, Edit2, Users, Search, X, UserCircle2, Globe, Plus, MessageSquare } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { useToast } from '@/hooks/use-toast'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
+import { fetchWithAuth } from '@/lib/fetch-with-auth'
+import { cn } from '@/lib/utils'
+import { Bot, Edit2, Loader2, RefreshCw, User, Send, Wifi, WifiOff, UserCircle2 } from 'lucide-react'
 
-// 生成唯一用户 ID
-function generateUserId(): string {
-  return 'webui_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now().toString(36)
-}
-
-// 从 localStorage 获取或生成用户 ID
-function getOrCreateUserId(): string {
-  const storageKey = 'maibot_webui_user_id'
-  let userId = localStorage.getItem(storageKey)
-  if (!userId) {
-    userId = generateUserId()
-    localStorage.setItem(storageKey, userId)
-  }
-  return userId
-}
-
-// 从 localStorage 获取用户昵称
-function getStoredUserName(): string {
-  return localStorage.getItem('maibot_webui_user_name') || 'WebUI用户'
-}
-
-// 保存用户昵称到 localStorage
-function saveUserName(name: string): void {
-  localStorage.setItem('maibot_webui_user_name', name)
-}
-
-// 虚拟标签页持久化存储 key
-const VIRTUAL_TABS_STORAGE_KEY = 'maibot_webui_virtual_tabs'
-
-// 保存的虚拟标签页配置
-interface SavedVirtualTab {
-  id: string
-  label: string
-  virtualConfig: VirtualIdentityConfig
-  createdAt: number
-}
-
-// 从 localStorage 获取保存的虚拟标签页
-function getSavedVirtualTabs(): SavedVirtualTab[] {
-  try {
-    const saved = localStorage.getItem(VIRTUAL_TABS_STORAGE_KEY)
-    if (saved) {
-      return JSON.parse(saved)
-    }
-  } catch (e) {
-    console.error('[Chat] 加载虚拟标签页失败:', e)
-  }
-  return []
-}
-
-// 保存虚拟标签页到 localStorage
-function saveVirtualTabs(tabs: SavedVirtualTab[]): void {
-  try {
-    localStorage.setItem(VIRTUAL_TABS_STORAGE_KEY, JSON.stringify(tabs))
-  } catch (e) {
-    console.error('[Chat] 保存虚拟标签页失败:', e)
-  }
-}
-
-// 平台信息类型
-interface PlatformInfo {
-  platform: string
-  count: number
-}
-
-// 用户信息类型（从后端获取的人物信息）
-interface PersonInfo {
-  person_id: string
-  user_id: string
-  person_name: string
-  nickname: string | null
-  platform: string
-  is_known: boolean
-}
-
-// 虚拟身份配置
-interface VirtualIdentityConfig {
-  platform: string
-  personId: string
-  userId: string
-  userName: string
-  groupName: string
-  groupId: string  // 虚拟群 ID，用于持久化历史记录
-}
-
-// 聊天标签页
-interface ChatTab {
-  id: string
-  type: 'webui' | 'virtual'
-  label: string
-  virtualConfig?: VirtualIdentityConfig
-  messages: ChatMessage[]
-  isConnected: boolean
-  isTyping: boolean
-  sessionInfo: {
-    session_id?: string
-    user_id?: string
-    user_name?: string
-    bot_name?: string
-  }
-}
-
-// 消息段类型
-interface MessageSegment {
-  type: 'text' | 'image' | 'emoji' | 'face' | 'voice' | 'video' | 'music' | 'file' | 'reply' | 'forward' | 'unknown'
-  data: string | number | object
-  original_type?: string
-}
-
-// 消息类型
-interface ChatMessage {
-  id: string
-  type: 'user' | 'bot' | 'system' | 'error' | 'thinking'
-  content: string
-  timestamp: number
-  message_type?: 'text' | 'rich'  // 消息格式类型
-  segments?: MessageSegment[]  // 富文本消息段
-  sender?: {
-    name: string
-    user_id?: string
-    is_bot?: boolean
-  }
-}
-
-// WebSocket 消息类型
-interface WsMessage {
-  type: string
-  content?: string
-  message_id?: string
-  timestamp?: number
-  is_typing?: boolean
-  session_id?: string
-  user_id?: string
-  user_name?: string
-  bot_name?: string
-  sender?: {
-    name: string
-    user_id?: string
-    is_bot?: boolean
-  }
-  // 历史消息列表（用于 type: 'history'）
-  messages?: Array<{
-    id?: string
-    content: string
-    timestamp: number
-    sender_name?: string
-    sender_id?: string
-    is_bot?: boolean
-  }>
-  group_id?: string
-  // 富文本消息
-  message_type?: string
-  segments?: MessageSegment[]
-}
-
-// 渲染单个消息段
-function RenderMessageSegment({ segment }: { segment: MessageSegment }) {
-  switch (segment.type) {
-    case 'text':
-      return <span className="whitespace-pre-wrap">{String(segment.data)}</span>
-    
-    case 'image':
-    case 'emoji':
-      return (
-        <img 
-          src={String(segment.data)} 
-          alt={segment.type === 'emoji' ? '表情包' : '图片'}
-          className={cn(
-            "rounded-lg max-w-full",
-            segment.type === 'emoji' ? "max-h-32" : "max-h-64"
-          )}
-          loading="lazy"
-          onError={(e) => {
-            // 图片加载失败时显示占位符
-            const target = e.target as HTMLImageElement
-            target.style.display = 'none'
-            target.parentElement?.insertAdjacentHTML(
-              'beforeend',
-              `<span class="text-muted-foreground text-xs">[${segment.type === 'emoji' ? '表情包' : '图片'}加载失败]</span>`
-            )
-          }}
-        />
-      )
-    
-    case 'voice':
-      return (
-        <div className="flex items-center gap-2">
-          <audio 
-            controls 
-            src={String(segment.data)} 
-            className="max-w-[200px] h-8"
-          >
-            您的浏览器不支持音频播放
-          </audio>
-        </div>
-      )
-    
-    case 'video':
-      return (
-        <video 
-          controls 
-          src={String(segment.data)} 
-          className="rounded-lg max-w-full max-h-64"
-        >
-          您的浏览器不支持视频播放
-        </video>
-      )
-    
-    case 'face':
-      // QQ 原生表情，显示为文本
-      return <span className="text-muted-foreground">[表情:{String(segment.data)}]</span>
-    
-    case 'music':
-      return <span className="text-muted-foreground">[音乐分享]</span>
-    
-    case 'file':
-      return <span className="text-muted-foreground">[文件: {String(segment.data)}]</span>
-    
-    case 'reply':
-      return <span className="text-muted-foreground text-xs">[回复消息]</span>
-    
-    case 'forward':
-      return <span className="text-muted-foreground">[转发消息]</span>
-    
-    case 'unknown':
-    default:
-      return <span className="text-muted-foreground">[{segment.original_type || '未知消息'}]</span>
-  }
-}
-
-// 渲染消息内容（支持富文本）
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function RenderMessageContent({ message, isBot: _isBot }: { message: ChatMessage; isBot: boolean }) {
-  // 如果是富文本消息，渲染消息段
-  if (message.message_type === 'rich' && message.segments && message.segments.length > 0) {
-    return (
-      <div className="flex flex-col gap-2">
-        {message.segments.map((segment, index) => (
-          <RenderMessageSegment key={index} segment={segment} />
-        ))}
-      </div>
-    )
-  }
-  
-  // 普通文本消息
-  return <span className="whitespace-pre-wrap">{message.content}</span>
-}
+import { ChatTabBar } from './ChatTabBar'
+import { RenderMessageContent } from './MessageRenderer'
+import type { ChatTab, ChatMessage, PersonInfo, PlatformInfo, SavedVirtualTab, VirtualIdentityConfig, WsMessage } from './types'
+import { getOrCreateUserId, getStoredUserName, getSavedVirtualTabs, saveUserName, saveVirtualTabs } from './utils'
+import { VirtualIdentityDialog } from './VirtualIdentityDialog'
 
 export function ChatPage() {
   // 默认 WebUI 标签页
@@ -685,7 +427,7 @@ export function ChatPage() {
                   type: 'bot',
                   content: data.content || '',
                   message_type: (data.message_type === 'rich' ? 'rich' : 'text') as 'text' | 'rich',
-                  segments: data.segments as MessageSegment[] | undefined,
+                  segments: data.segments,
                   timestamp: data.timestamp || Date.now() / 1000,
                   sender: data.sender,
                 }
@@ -1129,214 +871,29 @@ export function ChatPage() {
   return (
     <div className="h-full flex flex-col">
       {/* 虚拟身份配置对话框 */}
-      <Dialog open={showVirtualConfig} onOpenChange={setShowVirtualConfig}>
-        <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <UserCircle2 className="h-5 w-5" />
-              新建虚拟身份对话
-            </DialogTitle>
-            <DialogDescription>
-              选择一个麦麦已认识的用户，以该用户的身份与麦麦对话。麦麦将使用她对该用户的记忆和认知来回应。
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
-            {/* 平台选择 */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                <Globe className="h-4 w-4" />
-                选择平台
-              </Label>
-              <Select
-                value={tempVirtualConfig.platform}
-                onValueChange={(value) => {
-                  setTempVirtualConfig(prev => ({
-                    ...prev,
-                    platform: value,
-                    personId: '',
-                    userId: '',
-                    userName: '',
-                  }))
-                  setPersons([])
-                }}
-              >
-                <SelectTrigger disabled={isLoadingPlatforms}>
-                  <SelectValue placeholder={isLoadingPlatforms ? "加载中..." : "选择平台"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {platforms.map((p) => (
-                    <SelectItem key={p.platform} value={p.platform}>
-                      {p.platform} ({p.count} 人)
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 用户搜索和选择 */}
-            {tempVirtualConfig.platform && (
-              <div className="space-y-2 flex-1 overflow-hidden flex flex-col">
-                <Label className="flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  选择用户
-                </Label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="搜索用户名..."
-                    value={personSearchQuery}
-                    onChange={(e) => setPersonSearchQuery(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-                <ScrollArea className="h-[250px] border rounded-md">
-                  <div className="p-2">
-                    {isLoadingPersons ? (
-                      <div className="flex items-center justify-center py-8">
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : persons.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                        <Users className="h-8 w-8 mb-2 opacity-50" />
-                        <p className="text-sm">没有找到用户</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-1">
-                        {persons.map((person) => (
-                          <button
-                            key={person.person_id}
-                            onClick={() => selectPerson(person)}
-                            className={cn(
-                              "w-full flex items-center gap-3 p-2 rounded-md text-left transition-colors",
-                              tempVirtualConfig.personId === person.person_id
-                                ? "bg-primary text-primary-foreground"
-                                : "hover:bg-muted"
-                            )}
-                          >
-                            <Avatar className="h-8 w-8 shrink-0">
-                              <AvatarFallback className={cn(
-                                "text-xs",
-                                tempVirtualConfig.personId === person.person_id
-                                  ? "bg-primary-foreground/20"
-                                  : "bg-muted"
-                              )}>
-                                {(person.nickname || person.person_name || '?').charAt(0)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="min-w-0 flex-1">
-                              <div className="font-medium truncate">
-                                {person.nickname || person.person_name}
-                              </div>
-                              <div className={cn(
-                                "text-xs truncate",
-                                tempVirtualConfig.personId === person.person_id
-                                  ? "text-primary-foreground/70"
-                                  : "text-muted-foreground"
-                              )}>
-                                ID: {person.user_id}
-                                {person.is_known && " · 已认识"}
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </ScrollArea>
-              </div>
-            )}
-
-            {/* 虚拟群名配置 */}
-            {tempVirtualConfig.personId && (
-              <div className="space-y-2">
-                <Label>虚拟群名（可选）</Label>
-                <Input
-                  placeholder="WebUI虚拟群聊"
-                  value={tempVirtualConfig.groupName}
-                  onChange={(e) => setTempVirtualConfig(prev => ({
-                    ...prev,
-                    groupName: e.target.value
-                  }))}
-                />
-                <p className="text-xs text-muted-foreground">
-                  麦麦会认为这是一个名为此名称的群聊
-                </p>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setShowVirtualConfig(false)}>
-              取消
-            </Button>
-            <Button 
-              onClick={createVirtualTab}
-              disabled={!tempVirtualConfig.platform || !tempVirtualConfig.personId}
-            >
-              创建对话
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <VirtualIdentityDialog
+        open={showVirtualConfig}
+        onOpenChange={setShowVirtualConfig}
+        platforms={platforms}
+        persons={persons}
+        isLoadingPlatforms={isLoadingPlatforms}
+        isLoadingPersons={isLoadingPersons}
+        personSearchQuery={personSearchQuery}
+        setPersonSearchQuery={setPersonSearchQuery}
+        tempVirtualConfig={tempVirtualConfig}
+        setTempVirtualConfig={setTempVirtualConfig}
+        onSelectPerson={selectPerson}
+        onCreateVirtualTab={createVirtualTab}
+      />
 
       {/* 标签页栏 */}
-      <div className="shrink-0 border-b bg-muted/30">
-        <div className="max-w-4xl mx-auto px-2 sm:px-4">
-          <div className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-thin">
-            {tabs.map((tab) => (
-              <div
-                key={tab.id}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer",
-                  "hover:bg-muted",
-                  activeTabId === tab.id
-                    ? "bg-background shadow-sm border"
-                    : "text-muted-foreground"
-                )}
-                onClick={() => switchTab(tab.id)}
-              >
-                {tab.type === 'webui' ? (
-                  <MessageSquare className="h-3.5 w-3.5" />
-                ) : (
-                  <UserCircle2 className="h-3.5 w-3.5" />
-                )}
-                <span className="max-w-[100px] truncate">{tab.label}</span>
-                {/* 连接状态指示器 */}
-                <span className={cn(
-                  "w-1.5 h-1.5 rounded-full",
-                  tab.isConnected ? "bg-green-500" : "bg-muted-foreground/50"
-                )} />
-                {/* 关闭按钮（非默认标签页） */}
-                {tab.id !== 'webui-default' && (
-                  <span
-                    onClick={(e) => closeTab(tab.id, e)}
-                    className="ml-0.5 p-0.5 rounded hover:bg-muted-foreground/20 cursor-pointer"
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        closeTab(tab.id, e as any)
-                      }
-                    }}
-                  >
-                    <X className="h-3 w-3" />
-                  </span>
-                )}
-              </div>
-            ))}
-            {/* 新建虚拟身份标签页按钮 */}
-            <button
-              onClick={openVirtualConfig}
-              className="flex items-center gap-1 px-2 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              title="新建虚拟身份对话"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-      </div>
+      <ChatTabBar
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onSwitch={switchTab}
+        onClose={closeTab}
+        onAddVirtual={openVirtualConfig}
+      />
 
       {/* 头部信息栏 */}
       <div className="shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
