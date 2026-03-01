@@ -1,4 +1,6 @@
 import type { FieldHookComponent } from '@/lib/field-hooks'
+
+import type { BotConfig } from '../types'
 import { BotInfoSection } from '../sections/BotInfoSection'
 
 /**
@@ -8,7 +10,7 @@ import { BotInfoSection } from '../sections/BotInfoSection'
 export const BotInfoSectionHook: FieldHookComponent = ({ value, onChange }) => {
   return (
     <BotInfoSection
-      config={value as any}
+      config={value as BotConfig}
       onChange={(newConfig) => onChange?.(newConfig)}
     />
   )

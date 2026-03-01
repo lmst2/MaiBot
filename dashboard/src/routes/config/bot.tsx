@@ -1,20 +1,7 @@
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  BotInfoSection,
-  PersonalitySection,
-  DreamSection,
-  LPMMSection,
-  LogSection,
-  DebugSection,
-  ExperimentalSection,
-  MaimMessageSection,
-  TelemetrySection,
-  FeaturesSection,
-  ExpressionSection,
-  ProcessingSection,
-  MessageReceiveSection,
-  WebUISection,
-} from './bot/sections'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { parse as parseToml } from 'smol-toml'
+
+import { AlertDescription, Alert } from '@/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,53 +13,60 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Save, Power, Code2, Layout } from 'lucide-react'
-import { getBotConfig, updateBotConfig, getBotConfigRaw, updateBotConfigRaw } from '@/lib/config-api'
-import { useToast } from '@/hooks/use-toast'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Info } from 'lucide-react'
-import { RestartOverlay } from '@/components/restart-overlay'
-import { RestartProvider, useRestart } from '@/lib/restart-context'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CodeEditor } from '@/components'
-import { parse as parseToml } from 'smol-toml'
+import { DynamicConfigForm } from '@/components/dynamic-form'
+import { RestartOverlay } from '@/components/restart-overlay'
+import { useToast } from '@/hooks/use-toast'
+import { getBotConfig, getBotConfigRaw, updateBotConfig, updateBotConfigRaw } from '@/lib/config-api'
+import { fieldHooks } from '@/lib/field-hooks'
+import { RestartProvider, useRestart } from '@/lib/restart-context'
 
-// 导入模块化的类型定义
+import { Code2, Info, Layout, Power, Save } from 'lucide-react'
+
 import type {
   BotConfig,
-  PersonalityConfig,
   ChatConfig,
-  ExpressionConfig,
+  ChineseTypoConfig,
+  DebugConfig,
+  DreamConfig,
   EmojiConfig,
+  ExperimentalConfig,
+  ExpressionConfig,
+  KeywordReactionConfig,
+  LogConfig,
+  LPMMKnowledgeConfig,
+  MaimMessageConfig,
   MemoryConfig,
+  MessageReceiveConfig,
+  PersonalityConfig,
+  ResponsePostProcessConfig,
+  ResponseSplitterConfig,
+  TelemetryConfig,
   ToolConfig,
   VoiceConfig,
-  MessageReceiveConfig,
-  DreamConfig,
-  LPMMKnowledgeConfig,
-  KeywordReactionConfig,
-  ResponsePostProcessConfig,
-  ChineseTypoConfig,
-  ResponseSplitterConfig,
-  LogConfig,
-  DebugConfig,
-  ExperimentalConfig,
-  MaimMessageConfig,
-  TelemetryConfig,
   WebUIConfig,
 } from './bot/types'
-
-// 导入 useAutoSave hook
 import { useAutoSave, useConfigAutoSave } from './bot/hooks'
-
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button } from '@/components/ui/button'
-
-// 导入动态表单和 Hook 系统
-import { DynamicConfigForm } from '@/components/dynamic-form'
-import { fieldHooks } from '@/lib/field-hooks'
-import { ChatSectionHook } from '@/routes/config/bot/hooks'
-
+import { ChatSectionHook } from './bot/hooks'
+import {
+  BotInfoSection,
+  DebugSection,
+  DreamSection,
+  ExperimentalSection,
+  ExpressionSection,
+  FeaturesSection,
+  LogSection,
+  LPMMSection,
+  MaimMessageSection,
+  MessageReceiveSection,
+  PersonalitySection,
+  ProcessingSection,
+  TelemetrySection,
+  WebUISection,
+} from './bot/sections'
 // ==================== 常量定义 ====================
 /** Toast 显示前的延迟时间 (毫秒) */
 const TOAST_DISPLAY_DELAY = 500

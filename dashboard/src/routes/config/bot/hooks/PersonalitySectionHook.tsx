@@ -1,4 +1,6 @@
 import type { FieldHookComponent } from '@/lib/field-hooks'
+
+import type { PersonalityConfig } from '../types'
 import { PersonalitySection } from '../sections/PersonalitySection'
 
 /**
@@ -8,7 +10,7 @@ import { PersonalitySection } from '../sections/PersonalitySection'
 export const PersonalitySectionHook: FieldHookComponent = ({ value, onChange }) => {
   return (
     <PersonalitySection
-      config={value as any}
+      config={value as PersonalityConfig}
       onChange={(newConfig) => onChange?.(newConfig)}
     />
   )
