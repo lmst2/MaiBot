@@ -45,6 +45,14 @@ export interface InstalledPlugin {
   }
   path: string
 }
+/**
+ * 旧版本插件格式(直接包含 version 字段)
+ */
+export interface LegacyInstalledPlugin {
+  id: string
+  version: string
+  path: string
+}
 
 /**
  * 插件加载进度

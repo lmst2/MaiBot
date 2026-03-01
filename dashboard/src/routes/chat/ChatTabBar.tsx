@@ -7,7 +7,7 @@ interface ChatTabBarProps {
   tabs: ChatTab[]
   activeTabId: string
   onSwitch: (tabId: string) => void
-  onClose: (tabId: string, e?: React.MouseEvent) => void
+  onClose: (tabId: string, e?: React.MouseEvent | React.KeyboardEvent) => void
   onAddVirtual: () => void
 }
 
@@ -55,7 +55,7 @@ export function ChatTabBar({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
-                      onClose(tab.id, e as any)
+                      onClose(tab.id, e)
                     }
                   }}
                 >

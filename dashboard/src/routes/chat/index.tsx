@@ -806,7 +806,7 @@ export function ChatPage() {
   }
 
   // 关闭标签页
-  const closeTab = (tabId: string, e?: React.MouseEvent) => {
+  const closeTab = (tabId: string, e?: React.MouseEvent | React.KeyboardEvent) => {
     e?.stopPropagation()
     
     // 不能关闭默认 WebUI 标签页

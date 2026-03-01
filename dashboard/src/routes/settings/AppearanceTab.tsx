@@ -54,6 +54,25 @@ import {
 import { ThemeOption } from './ThemeOption'
 import { hslToHex } from './types'
 
+
+/**
+ * 安全访问 tokenOverrides 中的子属性值
+ * @param overrides - Partial<ThemeTokens>
+ * @param section - 如 'typography', 'visual', 'layout', 'animation'
+ * @param key - token 键名，如 'font-family-base'
+ * @param defaultValue - 默认值
+ */
+function getTokenValue<T>(
+  overrides: Partial<ThemeTokens> | undefined,
+  section: keyof ThemeTokens,
+  key: string,
+  defaultValue: T
+): T {
+  if (!overrides || !overrides[section]) return defaultValue
+  const sectionTokens = overrides[section] as Record<string, unknown> | undefined
+  if (!sectionTokens || !(key in sectionTokens)) return defaultValue
+  return (sectionTokens[key] ?? defaultValue) as T
+}
 export function AppearanceTab() {
   const { theme, setTheme, themeConfig, updateThemeConfig, resolvedTheme, resetTheme } = useTheme()
   const { enableAnimations, setEnableAnimations, enableWavesBackground, setEnableWavesBackground } = useAnimation()
@@ -313,9 +332,13 @@ export function AppearanceTab() {
                 <div className="space-y-2">
                   <Label>字体族 (Font Family)</Label>
                   <Select
-                    value={(themeConfig.tokenOverrides?.typography as any)?.['font-family-base']?.includes('ui-serif') ? 'serif' : 
-                           (themeConfig.tokenOverrides?.typography as any)?.['font-family-base']?.includes('ui-monospace') ? 'mono' : 
-                           (themeConfig.tokenOverrides?.typography as any)?.['font-family-base'] ? 'sans' : 'system'}
+                    value={(() => {
+                      const fontFamily = getTokenValue(themeConfig.tokenOverrides, 'typography', 'font-family-base', '')
+                      if (fontFamily.includes('ui-serif')) return 'serif'
+                      if (fontFamily.includes('ui-monospace')) return 'mono'
+                      if (fontFamily) return 'sans'
+                      return 'system'
+                    })()}
                     onValueChange={(val) => {
                       let fontVal = defaultLightTokens.typography['font-family-base']
                       if (val === 'serif') fontVal = 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif'
@@ -343,12 +366,12 @@ export function AppearanceTab() {
                   <div className="flex justify-between">
                     <Label>基准字体大小 (Base Size)</Label>
                     <span className="text-sm text-muted-foreground">
-                      {parseFloat((themeConfig.tokenOverrides?.typography as any)?.['font-size-base'] || '1') * 16}px
+                      {parseFloat(getTokenValue(themeConfig.tokenOverrides, 'typography', 'font-size-base', '1')) * 16}px
                     </span>
                   </div>
                   <Slider
                     defaultValue={[16]}
-                    value={[parseFloat((themeConfig.tokenOverrides?.typography as any)?.['font-size-base'] || '1') * 16]}
+                    value={[parseFloat(getTokenValue(themeConfig.tokenOverrides, 'typography', 'font-size-base', '1')) * 16]}
                     min={12}
                     max={20}
                     step={1}
@@ -363,7 +386,7 @@ export function AppearanceTab() {
                 <div className="space-y-2">
                   <Label>行高 (Line Height)</Label>
                   <Select
-                    value={String((themeConfig.tokenOverrides?.typography as any)?.['line-height-normal'] || '1.5')}
+                    value={String(getTokenValue(themeConfig.tokenOverrides, 'typography', 'line-height-normal', 1.5))}
                     onValueChange={(val) => {
                       updateTokenSection('typography', {
                         'line-height-normal': parseFloat(val),
@@ -406,12 +429,12 @@ export function AppearanceTab() {
                   <div className="flex justify-between">
                     <Label>圆角大小 (Radius)</Label>
                     <span className="text-sm text-muted-foreground">
-                      {Math.round(parseFloat((themeConfig.tokenOverrides?.visual as any)?.['radius-md'] || '0.375') * 16)}px
+                      {Math.round(parseFloat(getTokenValue(themeConfig.tokenOverrides, 'visual', 'radius-md', '0.375')) * 16)}px
                     </span>
                   </div>
                   <Slider
                     defaultValue={[6]}
-                    value={[Math.round(parseFloat((themeConfig.tokenOverrides?.visual as any)?.['radius-md'] || '0.375') * 16)]}
+                    value={[Math.round(parseFloat(getTokenValue(themeConfig.tokenOverrides, 'visual', 'radius-md', '0.375')) * 16)]}
                     min={0}
                     max={24}
                     step={1}
@@ -426,10 +449,14 @@ export function AppearanceTab() {
                 <div className="space-y-2">
                   <Label>阴影强度 (Shadow)</Label>
                   <Select
-                    value={(themeConfig.tokenOverrides?.visual as any)?.['shadow-md'] === 'none' ? 'none' :
-                           (themeConfig.tokenOverrides?.visual as any)?.['shadow-md'] === defaultLightTokens.visual['shadow-sm'] ? 'sm' :
-                           (themeConfig.tokenOverrides?.visual as any)?.['shadow-md'] === defaultLightTokens.visual['shadow-lg'] ? 'lg' :
-                           (themeConfig.tokenOverrides?.visual as any)?.['shadow-md'] === defaultLightTokens.visual['shadow-xl'] ? 'xl' : 'md'}
+                    value={(() => {
+                      const shadowMd = String(getTokenValue(themeConfig.tokenOverrides, 'visual', 'shadow-md', ''))
+                      if (shadowMd === 'none') return 'none'
+                      if (shadowMd === defaultLightTokens.visual['shadow-sm']) return 'sm'
+                      if (shadowMd === defaultLightTokens.visual['shadow-lg']) return 'lg'
+                      if (shadowMd === defaultLightTokens.visual['shadow-xl']) return 'xl'
+                      return 'md'
+                    })()}
                     onValueChange={(val) => {
                       let shadowVal = defaultLightTokens.visual['shadow-md']
                       if (val === 'none') shadowVal = 'none'
@@ -459,7 +486,7 @@ export function AppearanceTab() {
                   <Label htmlFor="blur-switch">模糊效果 (Blur)</Label>
                   <Switch
                     id="blur-switch"
-                    checked={(themeConfig.tokenOverrides?.visual as any)?.['blur-md'] !== '0px'}
+                    checked={getTokenValue(themeConfig.tokenOverrides, 'visual', 'blur-md', '0px') !== '0px'}
                     onCheckedChange={(checked) => {
                       updateTokenSection('visual', {
                         'blur-md': checked ? defaultLightTokens.visual['blur-md'] : '0px',
@@ -493,12 +520,12 @@ export function AppearanceTab() {
                   <div className="flex justify-between">
                     <Label>侧边栏宽度 (Sidebar Width)</Label>
                     <span className="text-sm text-muted-foreground">
-                      {(themeConfig.tokenOverrides?.layout as any)?.['sidebar-width'] || '16rem'}
+                      {getTokenValue(themeConfig.tokenOverrides, 'layout', 'sidebar-width', '16rem')}
                     </span>
                   </div>
                   <Slider
                     defaultValue={[16]}
-                    value={[parseFloat((themeConfig.tokenOverrides?.layout as any)?.['sidebar-width'] || '16')]}
+                    value={[parseFloat(getTokenValue(themeConfig.tokenOverrides, 'layout', 'sidebar-width', '16'))]}
                     min={12}
                     max={24}
                     step={0.5}
@@ -514,12 +541,12 @@ export function AppearanceTab() {
                   <div className="flex justify-between">
                     <Label>内容区最大宽度 (Max Width)</Label>
                     <span className="text-sm text-muted-foreground">
-                      {(themeConfig.tokenOverrides?.layout as any)?.['max-content-width'] || '1280px'}
+                      {getTokenValue(themeConfig.tokenOverrides, 'layout', 'max-content-width', '1280px')}
                     </span>
                   </div>
                   <Slider
                     defaultValue={[1280]}
-                    value={[parseFloat(((themeConfig.tokenOverrides?.layout as any)?.['max-content-width'] || '1280').replace('px', ''))]}
+                    value={[parseFloat(getTokenValue(themeConfig.tokenOverrides, 'layout', 'max-content-width', '1280').replace('px', ''))]}
                     min={960}
                     max={1600}
                     step={10}
@@ -535,12 +562,12 @@ export function AppearanceTab() {
                   <div className="flex justify-between">
                     <Label>基准间距 (Spacing Unit)</Label>
                     <span className="text-sm text-muted-foreground">
-                      {(themeConfig.tokenOverrides?.layout as any)?.['space-unit'] || '0.25rem'}
+                      {getTokenValue(themeConfig.tokenOverrides, 'layout', 'space-unit', '0.25rem')}
                     </span>
                   </div>
                   <Slider
                     defaultValue={[0.25]}
-                    value={[parseFloat(((themeConfig.tokenOverrides?.layout as any)?.['space-unit'] || '0.25').replace('rem', ''))]}
+                    value={[parseFloat(getTokenValue(themeConfig.tokenOverrides, 'layout', 'space-unit', '0.25').replace('rem', ''))]}
                     min={0.2}
                     max={0.4}
                     step={0.01}
@@ -576,9 +603,13 @@ export function AppearanceTab() {
                 <div className="space-y-2">
                   <Label>动画速度 (Speed)</Label>
                   <Select
-                    value={(themeConfig.tokenOverrides?.animation as any)?.['anim-duration-normal'] === '100ms' ? 'fast' :
-                           (themeConfig.tokenOverrides?.animation as any)?.['anim-duration-normal'] === '500ms' ? 'slow' :
-                           (themeConfig.tokenOverrides?.animation as any)?.['anim-duration-normal'] === '0ms' ? 'off' : 'normal'}
+                    value={(() => {
+                      const duration = String(getTokenValue(themeConfig.tokenOverrides, 'animation', 'anim-duration-normal', '300ms'))
+                      if (duration === '100ms') return 'fast'
+                      if (duration === '500ms') return 'slow'
+                      if (duration === '0ms') return 'off'
+                      return 'normal'
+                    })()}
                     onValueChange={(val) => {
                       let duration = '300ms'
                       if (val === 'fast') duration = '100ms'

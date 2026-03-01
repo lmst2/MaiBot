@@ -19,6 +19,15 @@ import { ProviderList } from './ProviderList'
 import type { APIProvider, DeleteConfirmState } from './types'
 import { cleanProviderData } from './utils'
 
+/**
+ * ModelConfig 接口定义
+ */
+interface ModelConfig extends Record<string, unknown> {
+  api_providers?: unknown[]
+  models?: unknown[]
+  model_task_config?: Record<string, unknown>
+}
+
 export function ModelProviderConfigPage() {
   return (
     <RestartProvider>
@@ -140,8 +149,8 @@ function ModelProviderConfigPageContent() {
         setLoading(false)
         return
       }
-      const config = result.data
-      setProviders((config.api_providers as APIProvider[]) || [])
+      const config = result.data as ModelConfig
+      setProviders(Array.isArray(config.api_providers) ? config.api_providers as APIProvider[] : [])
       setHasUnsavedChanges(false)
       initialLoadRef.current = false
     } catch (error) {
@@ -185,12 +194,12 @@ function ModelProviderConfigPageContent() {
         setSaving(false)
         return
       }
-      const config = resultGet.data
+      const config = resultGet.data as ModelConfig
 
       const validProviderNames = new Set(cleanedProviders.map(p => p.name))
-      const originalModels = (config.models as any[]) || []
-      const filteredModels = originalModels.filter((model: any) => {
-        return validProviderNames.has(model.api_provider)
+      const originalModels = Array.isArray(config.models) ? config.models : []
+      const filteredModels = originalModels.filter((model: unknown) => {
+        return typeof model === 'object' && model !== null && 'api_provider' in model && validProviderNames.has((model as Record<string, unknown>).api_provider as string)
       })
 
       config.api_providers = cleanedProviders
@@ -245,9 +254,9 @@ function ModelProviderConfigPageContent() {
         return { shouldProceed: true, providers: newProviders }
       }
 
-      const models = (config.models as any[]) || []
-      const affected = models.filter((m: any) =>
-        deletedProviders.includes(m.api_provider)
+      const models = Array.isArray(config.models) ? config.models : []
+      const affected = models.filter((m: unknown) =>
+        typeof m === 'object' && m !== null && 'api_provider' in m && deletedProviders.includes((m as Record<string, unknown>).api_provider as string)
       )
 
       if (affected.length === 0) {
@@ -287,27 +296,30 @@ function ModelProviderConfigPageContent() {
         savingFlag(false)
         return
       }
-      const config = resultGet.data
+      const config = resultGet.data as ModelConfig
 
       const cleanedProviders = deleteConfirmState.pendingProviders.map(cleanProviderData)
       const validProviderNames = new Set(cleanedProviders.map(p => p.name))
-      const originalModels = (config.models as any[]) || []
-      const filteredModels = originalModels.filter((model: any) => {
-        return validProviderNames.has(model.api_provider)
+      const originalModels = Array.isArray(config.models) ? config.models : []
+      const filteredModels = originalModels.filter((model: unknown) => {
+        return typeof model === 'object' && model !== null && 'api_provider' in model && validProviderNames.has((model as Record<string, unknown>).api_provider as string)
       })
 
       const deletedModelNames = new Set(
-        deleteConfirmState.affectedModels.map((m: any) => m.name)
+        deleteConfirmState.affectedModels.map((m: unknown) => typeof m === 'object' && m !== null && 'name' in m ? (m as Record<string, unknown>).name as string : '')
       )
 
-      const modelTaskConfig = config.model_task_config as any
-      if (modelTaskConfig) {
+      const modelTaskConfig = config.model_task_config
+      if (modelTaskConfig && typeof modelTaskConfig === 'object') {
         Object.keys(modelTaskConfig).forEach(taskName => {
-          const task = modelTaskConfig[taskName]
-          if (task && Array.isArray(task.model_list)) {
-            task.model_list = task.model_list.filter(
-              (modelName: string) => !deletedModelNames.has(modelName)
-            )
+          const task = (modelTaskConfig as Record<string, unknown>)[taskName]
+          if (task && typeof task === 'object' && 'model_list' in task) {
+            const taskObj = task as Record<string, unknown>
+            if (Array.isArray(taskObj.model_list)) {
+              taskObj.model_list = taskObj.model_list.filter(
+                (modelName: unknown) => typeof modelName === 'string' && !deletedModelNames.has(modelName)
+              )
+            }
           }
         })
       }
@@ -463,14 +475,16 @@ function ModelProviderConfigPageContent() {
         setSaving(false)
         return
       }
-      const config = resultGet.data
+      const config = resultGet.data as ModelConfig
 
       const validProviderNames = new Set(cleanedProviders.map(p => p.name))
-      const originalModels = (config.models as any[]) || []
-      const filteredModels = originalModels.filter((model: any) => {
-        const isValid = validProviderNames.has(model.api_provider)
+      const originalModels = Array.isArray(config.models) ? config.models : []
+      const filteredModels = originalModels.filter((model: unknown) => {
+        if (typeof model !== 'object' || model === null || !('api_provider' in model)) return false
+        const modelObj = model as Record<string, unknown>
+        const isValid = validProviderNames.has(modelObj.api_provider as string)
         if (!isValid) {
-          console.warn(`模型 "${model.name}" 引用了已删除的提供商 "${model.api_provider}"、将被移除`)
+          console.warn(`模型 "${modelObj.name}" 引用了已删除的提供商 "${modelObj.api_provider}"、将被移除`)
         }
         return isValid
       })
