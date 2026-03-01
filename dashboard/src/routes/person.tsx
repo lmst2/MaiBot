@@ -1,28 +1,20 @@
-import { Users, Search, Edit, Trash2, Eye, User, MessageSquare, Hash, Clock, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { useState, useEffect, useMemo } from 'react'
-import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { useToast } from '@/hooks/use-toast'
-import { Checkbox } from '@/components/ui/checkbox'
+
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Edit,
+  Eye,
+  Hash,
+  Search,
+  Trash2,
+  User,
+  Users,
+} from 'lucide-react'
+import { Clock, MessageSquare } from 'lucide-react'
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +25,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -41,9 +46,29 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+
+import { useToast } from '@/hooks/use-toast'
+
+import {
+  batchDeletePersons,
+  deletePerson,
+  getPersonDetail,
+  getPersonList,
+  getPersonStats,
+  updatePerson,
+} from '@/lib/person-api'
+import { cn } from '@/lib/utils'
+
 import type { PersonInfo, PersonUpdateRequest } from '@/types/person'
-import { getPersonList, getPersonDetail, updatePerson, deletePerson, getPersonStats, batchDeletePersons } from '@/lib/person-api'
 
 export function PersonManagementPage() {
   const [persons, setPersons] = useState<PersonInfo[]>([])

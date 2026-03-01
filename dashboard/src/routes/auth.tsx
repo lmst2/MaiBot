@@ -1,18 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Key, Lock, AlertCircle, Moon, Sun, HelpCircle, FileText, Terminal, Zap } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog'
+  AlertCircle,
+  FileText,
+  HelpCircle,
+  Key,
+  Lock,
+  Moon,
+  Sun,
+  Terminal,
+  Zap,
+} from 'lucide-react'
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,12 +24,34 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { WavesBackground } from '@/components/waves-background'
-import { useAnimation } from '@/hooks/use-animation'
 import { useTheme } from '@/components/use-theme'
+
+import { useAnimation } from '@/hooks/use-animation'
+
+import { parseResponse } from '@/lib/api-helpers'
 import { checkAuthStatus } from '@/lib/fetch-with-auth'
 import { cn } from '@/lib/utils'
 import { APP_FULL_NAME } from '@/lib/version'
+
 
 export function AuthPage() {
   const [token, setToken] = useState('')
@@ -83,7 +105,7 @@ export function AuthPage() {
     }
 
     setIsValidating(true)
-    
+
     console.log('开始验证 token...')
 
     try {
@@ -98,22 +120,34 @@ export function AuthPage() {
       })
 
       console.log('Token 验证响应状态:', response.status)
-      
-      const data = await response.json()
+
+      const result = await parseResponse<{
+        valid: boolean
+        is_first_setup?: boolean
+        message?: string
+      }>(response)
+
+      if (!result.success) {
+        console.error('Token 验证失败:', result.error)
+        setError(result.error)
+        return
+      }
+
+      const data = result.data
       console.log('Token 验证响应数据:', data)
 
-      if (response.ok && data.valid) {
+      if (data.valid) {
         console.log('Token 验证成功，准备跳转...')
         console.log('is_first_setup:', data.is_first_setup)
-        
+
         // Token 验证成功，Cookie 已由后端设置
         // 等待一小段时间确保 Cookie 已设置
-        await new Promise(resolve => setTimeout(resolve, 100))
-        
+        await new Promise((resolve) => setTimeout(resolve, 100))
+
         // 再次检查认证状态
         const authCheck = await checkAuthStatus()
         console.log('跳转前认证状态检查:', authCheck)
-        
+
         // 直接使用验证响应中的 is_first_setup 字段，避免额外请求
         if (data.is_first_setup) {
           console.log('跳转到首次配置页面')
@@ -130,7 +164,9 @@ export function AuthPage() {
       }
     } catch (err) {
       console.error('Token 验证错误:', err)
-      setError('连接服务器失败，请检查网络连接')
+      setError(
+        err instanceof Error ? err.message : '连接服务器失败，请检查网络连接'
+      )
     } finally {
       setIsValidating(false)
     }
