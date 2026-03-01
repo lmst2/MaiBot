@@ -191,9 +191,8 @@
     --chart-4: var(--color-chart-4);
     --chart-5: var(--color-chart-5);
   }
-}
 
-@layer base {
+
   * {
     @apply border-border;
   }
