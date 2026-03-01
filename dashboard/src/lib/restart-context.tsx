@@ -310,9 +310,9 @@ export function RestartProvider({
   }
 
   return (
-    <RestartContext.Provider value={contextValue}>
+    <RestartContext value={contextValue}>
       {children}
-    </RestartContext.Provider>
+    </RestartContext>
   )
 }
 
