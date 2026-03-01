@@ -206,7 +206,17 @@ function ModelProviderConfigPageContent() {
   const loadConfig = async () => {
     try {
       setLoading(true)
-      const config = await getModelConfig()
+      const result = await getModelConfig()
+      if (!result.success) {
+        toast({
+          title: '加载失败',
+          description: result.error,
+          variant: 'destructive',
+        })
+        setLoading(false)
+        return
+      }
+      const config = result.data
       setProviders((config.api_providers as APIProvider[]) || [])
       setHasUnsavedChanges(false)
       initialLoadRef.current = false
@@ -246,7 +256,17 @@ function ModelProviderConfigPageContent() {
         return
       }
       
-      const config = await getModelConfig()
+      const resultGet = await getModelConfig()
+      if (!resultGet.success) {
+        toast({
+          title: '保存失败',
+          description: resultGet.error,
+          variant: 'destructive',
+        })
+        setSaving(false)
+        return
+      }
+      const config = resultGet.data
       
       // 获取所有有效的 provider 名称
       const validProviderNames = new Set(cleanedProviders.map(p => p.name))
@@ -260,7 +280,16 @@ function ModelProviderConfigPageContent() {
       config.api_providers = cleanedProviders
       config.models = filteredModels
       
-      await updateModelConfig(config)
+      const resultUpdate = await updateModelConfig(config)
+      if (!resultUpdate.success) {
+        toast({
+          title: '保存失败',
+          description: resultUpdate.error,
+          variant: 'destructive',
+        })
+        setSaving(false)
+        return
+      }
       setHasUnsavedChanges(false)
       toast({
         title: '保存成功',
@@ -284,7 +313,12 @@ function ModelProviderConfigPageContent() {
     context: 'auto' | 'manual' | 'restart' = 'auto'
   ) => {
     try {
-      const config = await getModelConfig()
+      const result = await getModelConfig()
+      if (!result.success) {
+        console.error('加载配置失败:', result.error)
+        return { shouldProceed: true, providers: newProviders }
+      }
+      const config = result.data
       const oldProviderNames = new Set(providers.map(p => p.name))
       const newProviderNames = new Set(newProviders.map(p => p.name))
       
@@ -334,7 +368,17 @@ function ModelProviderConfigPageContent() {
       
       setDeleteConfirmState(prev => ({ ...prev, isOpen: false }))
       
-      const config = await getModelConfig()
+      const resultGet = await getModelConfig()
+      if (!resultGet.success) {
+        toast({
+          title: '加载失败',
+          description: resultGet.error,
+          variant: 'destructive',
+        })
+        savingFlag(false)
+        return
+      }
+      const config = resultGet.data
       
       // 清理 providers 数据
       const cleanedProviders = deleteConfirmState.pendingProviders.map(cleanProviderData)
@@ -348,7 +392,7 @@ function ModelProviderConfigPageContent() {
         return validProviderNames.has(model.api_provider)
       })
       
-      // 获取被删除的模型名称
+      // 获取被削除的模型名称
       const deletedModelNames = new Set(
         deleteConfirmState.affectedModels.map((m: any) => m.name)
       )
@@ -371,7 +415,16 @@ function ModelProviderConfigPageContent() {
       config.models = filteredModels
       config.model_task_config = modelTaskConfig
       
-      await updateModelConfig(config)
+      const resultUpdate = await updateModelConfig(config)
+      if (!resultUpdate.success) {
+        toast({
+          title: '保存失败',
+          description: resultUpdate.error,
+          variant: 'destructive',
+        })
+        savingFlag(false)
+        return
+      }
       
       // 更新本地状态
       setProviders(deleteConfirmState.pendingProviders)
@@ -449,7 +502,17 @@ function ModelProviderConfigPageContent() {
       setAutoSaving(true)
       // 清理 providers 数据：将 null 值转换为默认值
       const cleanedProviders = newProviders.map(cleanProviderData)
-      await updateModelConfigSection('api_providers', cleanedProviders)
+      const result = await updateModelConfigSection('api_providers', cleanedProviders)
+      if (!result.success) {
+        console.error('自动保存失败:', result.error)
+        toast({
+          title: '自动保存失败',
+          description: result.error,
+          variant: 'destructive',
+        })
+        setHasUnsavedChanges(true)
+        return
+      }
       setHasUnsavedChanges(false)
     } catch (error) {
       console.error('自动保存失败:', error)
@@ -509,7 +572,17 @@ function ModelProviderConfigPageContent() {
         return
       }
 
-      const config = await getModelConfig()
+      const resultGet = await getModelConfig()
+      if (!resultGet.success) {
+        toast({
+          title: '保存失败',
+          description: resultGet.error,
+          variant: 'destructive',
+        })
+        setSaving(false)
+        return
+      }
+      const config = resultGet.data
       
       // 获取所有有效的 provider 名称
       const validProviderNames = new Set(cleanedProviders.map(p => p.name))
@@ -519,12 +592,12 @@ function ModelProviderConfigPageContent() {
       const filteredModels = originalModels.filter((model: any) => {
         const isValid = validProviderNames.has(model.api_provider)
         if (!isValid) {
-          console.warn(`模型 "${model.name}" 引用了已删除的提供商 "${model.api_provider}"，将被移除`)
+          console.warn(`模型 "${model.name}" 引用了已删除的提供商 "${model.api_provider}"、将被移除`)
         }
         return isValid
       })
       
-      // 如果有模型被移除，显示警告
+      // 如果有模型被移除、显示警告
       if (originalModels.length !== filteredModels.length) {
         const removedCount = originalModels.length - filteredModels.length
         toast({
@@ -539,7 +612,16 @@ function ModelProviderConfigPageContent() {
       config.models = filteredModels
       console.log('完整配置数据:', config)
       
-      await updateModelConfig(config)
+      const resultUpdate = await updateModelConfig(config)
+      if (!resultUpdate.success) {
+        toast({
+          title: '保存失败',
+          description: resultUpdate.error,
+          variant: 'destructive',
+        })
+        setSaving(false)
+        return
+      }
       setHasUnsavedChanges(false)
       toast({
         title: '保存成功',
@@ -804,31 +886,40 @@ function ModelProviderConfigPageContent() {
     
     try {
       const result = await testProviderConnection(providerName)
-      setTestResults(prev => new Map(prev).set(providerName, result))
-      
+      if (!result.success) {
+        toast({
+          title: '测试失败',
+          description: result.error,
+          variant: 'destructive',
+        })
+        return
+      }
+      const testResult = result.data
+      setTestResults(prev => new Map(prev).set(providerName, testResult))
+
       // 显示结果 toast
-      if (result.network_ok) {
-        if (result.api_key_valid === true) {
+      if (testResult.network_ok) {
+        if (testResult.api_key_valid === true) {
           toast({
             title: '连接正常',
-            description: `${providerName} 网络连接正常，API Key 有效 (${result.latency_ms}ms)`,
+            description: `${providerName} 网络连接正常、API Key 有效 (${testResult.latency_ms}ms)`,
           })
-        } else if (result.api_key_valid === false) {
+        } else if (testResult.api_key_valid === false) {
           toast({
             title: '连接正常但 Key 无效',
-            description: `${providerName} 网络连接正常，但 API Key 无效或已过期`,
+            description: `${providerName} 网络连接正常、但 API Key 无效或已过期`,
             variant: 'destructive',
           })
         } else {
           toast({
             title: '网络连接正常',
-            description: `${providerName} 可以访问 (${result.latency_ms}ms)`,
+            description: `${providerName} 可以访问 (${testResult.latency_ms}ms)`,
           })
         }
       } else {
         toast({
           title: '连接失败',
-          description: result.error || '无法连接到提供商',
+          description: testResult.error || '无法连接到提供商',
           variant: 'destructive',
         })
       }

@@ -179,7 +179,17 @@ function ModelConfigPageContent() {
   const loadConfig = useCallback(async () => {
     try {
       setLoading(true)
-      const config = await getModelConfig()
+      const result = await getModelConfig()
+      if (!result.success) {
+        toast({
+          title: '加载失败',
+          description: result.error,
+          variant: 'destructive',
+        })
+        setLoading(false)
+        return
+      }
+      const config = result.data
       const modelList = (config.models as ModelInfo[]) || []
       setModels(modelList)
       
@@ -288,11 +298,30 @@ function ModelConfigPageContent() {
     try {
       setSaving(true)
       clearAutoSaveTimers()
-      const config = await getModelConfig()
+      const resultGet = await getModelConfig()
+      if (!resultGet.success) {
+        toast({
+          title: '保存失败',
+          description: resultGet.error,
+          variant: 'destructive',
+        })
+        setSaving(false)
+        return
+      }
+      const config = resultGet.data
       // 清理每个模型中的 null 值
       config.models = models.map(cleanModelForSave)
       config.model_task_config = taskConfig
-      await updateModelConfig(config)
+      const resultUpdate = await updateModelConfig(config)
+      if (!resultUpdate.success) {
+        toast({
+          title: '保存失败',
+          description: resultUpdate.error,
+          variant: 'destructive',
+        })
+        setSaving(false)
+        return
+      }
       setHasUnsavedChanges(false)
       toast({
         title: '保存成功',
@@ -318,11 +347,30 @@ function ModelConfigPageContent() {
       // 先取消自动保存定时器
       clearAutoSaveTimers()
 
-      const config = await getModelConfig()
+      const resultGet = await getModelConfig()
+      if (!resultGet.success) {
+        toast({
+          title: '保存失败',
+          description: resultGet.error,
+          variant: 'destructive',
+        })
+        setSaving(false)
+        return
+      }
+      const config = resultGet.data
       // 清理每个模型中的 null 值
       config.models = models.map(cleanModelForSave)
       config.model_task_config = taskConfig
-      await updateModelConfig(config)
+      const resultUpdate = await updateModelConfig(config)
+      if (!resultUpdate.success) {
+        toast({
+          title: '保存失败',
+          description: resultUpdate.error,
+          variant: 'destructive',
+        })
+        setSaving(false)
+        return
+      }
       setHasUnsavedChanges(false)
       toast({
         title: '保存成功',

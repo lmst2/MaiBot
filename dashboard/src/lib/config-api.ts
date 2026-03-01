@@ -2,146 +2,96 @@
  * 配置API客户端
  */
 
+import { parseResponse } from '@/lib/api-helpers'
 import { fetchWithAuth } from '@/lib/fetch-with-auth'
-import type {
-  ConfigSchema,
-  ConfigSchemaResponse,
-  ConfigDataResponse,
-  ConfigUpdateResponse,
-} from '@/types/config-schema'
+import type { ApiResponse } from '@/types/api'
+import type { ConfigSchema } from '@/types/config-schema'
 
 const API_BASE = '/api/webui/config'
 
 /**
  * 获取麦麦主程序配置架构
  */
-export async function getBotConfigSchema(): Promise<ConfigSchema> {
+export async function getBotConfigSchema(): Promise<ApiResponse<ConfigSchema>> {
   const response = await fetchWithAuth(`${API_BASE}/schema/bot`)
-  const data: ConfigSchemaResponse = await response.json()
-  
-  if (!data.success) {
-    throw new Error('获取配置架构失败')
-  }
-  
-  return data.schema
+  return parseResponse<ConfigSchema>(response)
 }
 
 /**
  * 获取模型配置架构
  */
-export async function getModelConfigSchema(): Promise<ConfigSchema> {
+export async function getModelConfigSchema(): Promise<ApiResponse<ConfigSchema>> {
   const response = await fetchWithAuth(`${API_BASE}/schema/model`)
-  const data: ConfigSchemaResponse = await response.json()
-  
-  if (!data.success) {
-    throw new Error('获取模型配置架构失败')
-  }
-  
-  return data.schema
+  return parseResponse<ConfigSchema>(response)
 }
 
 /**
  * 获取指定配置节的架构
  */
-export async function getConfigSectionSchema(sectionName: string): Promise<ConfigSchema> {
+export async function getConfigSectionSchema(sectionName: string): Promise<ApiResponse<ConfigSchema>> {
   const response = await fetchWithAuth(`${API_BASE}/schema/section/${sectionName}`)
-  const data: ConfigSchemaResponse = await response.json()
-  
-  if (!data.success) {
-    throw new Error(`获取配置节 ${sectionName} 架构失败`)
-  }
-  
-  return data.schema
+  return parseResponse<ConfigSchema>(response)
 }
 
 /**
  * 获取麦麦主程序配置数据
  */
-export async function getBotConfig(): Promise<Record<string, unknown>> {
+export async function getBotConfig(): Promise<ApiResponse<Record<string, unknown>>> {
   const response = await fetchWithAuth(`${API_BASE}/bot`)
-  const data: ConfigDataResponse = await response.json()
-  
-  if (!data.success) {
-    throw new Error('获取配置数据失败')
-  }
-  
-  return data.config
+  return parseResponse<Record<string, unknown>>(response)
 }
 
 /**
  * 获取模型配置数据
  */
-export async function getModelConfig(): Promise<Record<string, unknown>> {
+export async function getModelConfig(): Promise<ApiResponse<Record<string, unknown>>> {
   const response = await fetchWithAuth(`${API_BASE}/model`)
-  const data: ConfigDataResponse = await response.json()
-  
-  if (!data.success) {
-    throw new Error('获取模型配置数据失败')
-  }
-  
-  return data.config
+  return parseResponse<Record<string, unknown>>(response)
 }
 
 /**
  * 更新麦麦主程序配置
  */
-export async function updateBotConfig(config: Record<string, unknown>): Promise<void> {
+export async function updateBotConfig(
+  config: Record<string, unknown>
+): Promise<ApiResponse<Record<string, unknown>>> {
   const response = await fetchWithAuth(`${API_BASE}/bot`, {
     method: 'POST',
     body: JSON.stringify(config),
   })
-  
-  const data: ConfigUpdateResponse = await response.json()
-  
-  if (!data.success) {
-    throw new Error(data.message || '保存配置失败')
-  }
+  return parseResponse<Record<string, unknown>>(response)
 }
 
 /**
  * 获取麦麦主程序配置的原始 TOML 内容
  */
-export async function getBotConfigRaw(): Promise<string> {
+export async function getBotConfigRaw(): Promise<ApiResponse<string>> {
   const response = await fetchWithAuth(`${API_BASE}/bot/raw`)
-  const data: { success: boolean; content: string } = await response.json()
-  
-  if (!data.success) {
-    throw new Error('获取配置源代码失败')
-  }
-  
-  return data.content
+  return parseResponse<string>(response)
 }
 
 /**
  * 更新麦麦主程序配置（原始 TOML 内容）
  */
-export async function updateBotConfigRaw(rawContent: string): Promise<void> {
+export async function updateBotConfigRaw(rawContent: string): Promise<ApiResponse<Record<string, unknown>>> {
   const response = await fetchWithAuth(`${API_BASE}/bot/raw`, {
     method: 'POST',
     body: JSON.stringify({ raw_content: rawContent }),
   })
-  
-  const data: ConfigUpdateResponse = await response.json()
-  
-  if (!data.success) {
-    throw new Error(data.message || '保存配置失败')
-  }
+  return parseResponse<Record<string, unknown>>(response)
 }
 
 /**
  * 更新模型配置
  */
-export async function updateModelConfig(config: Record<string, unknown>): Promise<void> {
+export async function updateModelConfig(
+  config: Record<string, unknown>
+): Promise<ApiResponse<Record<string, unknown>>> {
   const response = await fetchWithAuth(`${API_BASE}/model`, {
     method: 'POST',
     body: JSON.stringify(config),
   })
-  
-  const data: ConfigUpdateResponse = await response.json()
-  
-  if (!data.success) {
-    throw new Error(data.message || '保存配置失败')
-  }
+  return parseResponse<Record<string, unknown>>(response)
 }
 
 /**
@@ -150,17 +100,12 @@ export async function updateModelConfig(config: Record<string, unknown>): Promis
 export async function updateBotConfigSection(
   sectionName: string,
   sectionData: unknown
-): Promise<void> {
+): Promise<ApiResponse<Record<string, unknown>>> {
   const response = await fetchWithAuth(`${API_BASE}/bot/section/${sectionName}`, {
     method: 'POST',
     body: JSON.stringify(sectionData),
   })
-  
-  const data: ConfigUpdateResponse = await response.json()
-  
-  if (!data.success) {
-    throw new Error(data.message || `保存配置节 ${sectionName} 失败`)
-  }
+  return parseResponse<Record<string, unknown>>(response)
 }
 
 /**
@@ -169,17 +114,12 @@ export async function updateBotConfigSection(
 export async function updateModelConfigSection(
   sectionName: string,
   sectionData: unknown
-): Promise<void> {
+): Promise<ApiResponse<Record<string, unknown>>> {
   const response = await fetchWithAuth(`${API_BASE}/model/section/${sectionName}`, {
     method: 'POST',
     body: JSON.stringify(sectionData),
   })
-  
-  const data: ConfigUpdateResponse = await response.json()
-  
-  if (!data.success) {
-    throw new Error(data.message || `保存配置节 ${sectionName} 失败`)
-  }
+  return parseResponse<Record<string, unknown>>(response)
 }
 
 /**
@@ -211,28 +151,14 @@ export async function fetchProviderModels(
   providerName: string,
   parser: 'openai' | 'gemini' = 'openai',
   endpoint: string = '/models'
-): Promise<ModelListItem[]> {
+): Promise<ApiResponse<ModelListItem[]>> {
   const params = new URLSearchParams({
     provider_name: providerName,
     parser,
     endpoint,
   })
-  
   const response = await fetchWithAuth(`/api/webui/models/list?${params}`)
-  
-  // 处理非 2xx 响应
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    throw new Error(errorData.detail || `获取模型列表失败 (${response.status})`)
-  }
-  
-  const data: FetchModelsResponse = await response.json()
-  
-  if (!data.success) {
-    throw new Error('获取模型列表失败')
-  }
-  
-  return data.models
+  return parseResponse<ModelListItem[]>(response)
 }
 
 /**
@@ -250,20 +176,14 @@ export interface TestConnectionResult {
  * 测试提供商连接状态（通过提供商名称）
  * @param providerName 提供商名称
  */
-export async function testProviderConnection(providerName: string): Promise<TestConnectionResult> {
+export async function testProviderConnection(
+  providerName: string
+): Promise<ApiResponse<TestConnectionResult>> {
   const params = new URLSearchParams({
     provider_name: providerName,
   })
-  
   const response = await fetchWithAuth(`/api/webui/models/test-connection-by-name?${params}`, {
     method: 'POST',
   })
-  
-  // 处理非 2xx 响应
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    throw new Error(errorData.detail || `测试连接失败 (${response.status})`)
-  }
-  
-  return await response.json()
+  return parseResponse<TestConnectionResult>(response)
 }
