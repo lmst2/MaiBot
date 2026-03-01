@@ -180,34 +180,71 @@ function PluginsPageContent() {
 
       // 3. 检查 Git 状态
       if (!isUnmounted) {
-        const status = await checkGitStatus()
-        setGitStatus(status)
-        
-        if (!status.installed) {
+        const statusResult = await checkGitStatus()
+        if (!statusResult.success) {
           toast({
-            title: 'Git 未安装',
-            description: status.error || '请先安装 Git 才能使用插件安装功能',
+            title: 'Git 状态检查失败',
+            description: statusResult.error,
             variant: 'destructive',
           })
+          setGitStatus({ installed: false, error: statusResult.error })
+        } else {
+          setGitStatus(statusResult.data)
+          
+          if (!statusResult.data.installed) {
+            toast({
+              title: 'Git 未安装',
+              description: statusResult.data.error || '请先安装 Git 才能使用插件安装功能',
+              variant: 'destructive',
+            })
+          }
         }
       }
 
       // 4. 获取麦麦版本
       if (!isUnmounted) {
-        const version = await getMaimaiVersion()
-        setMaimaiVersion(version)
+        const versionResult = await getMaimaiVersion()
+        if (!versionResult.success) {
+          toast({
+            title: '版本获取失败',
+            description: versionResult.error,
+            variant: 'destructive',
+          })
+        } else {
+          setMaimaiVersion(versionResult.data)
+        }
       }
-
       // 5. 加载插件列表（包含已安装信息）
       if (!isUnmounted) {
         try {
           setLoading(true)
           setError(null)
-          const data = await fetchPluginList()
+          const apiResult = await fetchPluginList()
+          if (!apiResult.success) {
+            if (!isUnmounted) {
+              setError(apiResult.error)
+              toast({
+                title: '加载失败',
+                description: apiResult.error,
+                variant: 'destructive',
+              })
+            }
+            return
+          }
+          const data = apiResult.data
           
           if (!isUnmounted) {
             // 获取已安装插件列表
-            const installed = await getInstalledPlugins()
+            const installedResult = await getInstalledPlugins()
+            if (!installedResult.success) {
+              toast({
+                title: '获取已安装插件失败',
+                description: installedResult.error,
+                variant: 'destructive',
+              })
+              return
+            }
+            const installed = installedResult.data
             setInstalledPlugins(installed)
             
             // 将已安装信息合并到插件数据中
@@ -260,16 +297,6 @@ function PluginsPageContent() {
             
             // 6. 加载所有插件的统计数据
             loadPluginStats(mergedData)
-          }
-        } catch (err) {
-          if (!isUnmounted) {
-            const errorMessage = err instanceof Error ? err.message : '加载插件列表失败'
-            setError(errorMessage)
-            toast({
-              title: '加载失败',
-              description: errorMessage,
-              variant: 'destructive',
-            })
           }
         } finally {
           if (!isUnmounted) {
@@ -463,11 +490,20 @@ function PluginsPageContent() {
     try {
       setInstallDialogOpen(false)
       
-      await installPlugin(
+      const installResult = await installPlugin(
         installingPlugin.id,
         installingPlugin.manifest.repository_url || '',
         branch
       )
+      
+      if (!installResult.success) {
+        toast({
+          title: '安装失败',
+          description: installResult.error,
+          variant: 'destructive',
+        })
+        return
+      }
       
       // 记录下载统计
       recordPluginDownload(installingPlugin.id).catch(err => {
@@ -480,7 +516,16 @@ function PluginsPageContent() {
       })
       
       // 重新加载已安装插件列表
-      const installed = await getInstalledPlugins()
+      const installedResult = await getInstalledPlugins()
+      if (!installedResult.success) {
+        toast({
+          title: '获取已安装插件失败',
+          description: installedResult.error,
+          variant: 'destructive',
+        })
+        return
+      }
+      const installed = installedResult.data
       setInstalledPlugins(installed)
       
       // 重新合并已安装信息到插件列表
@@ -513,7 +558,16 @@ function PluginsPageContent() {
   // 卸载插件处理
   const handleUninstall = async (plugin: PluginInfo) => {
     try {
-      await uninstallPlugin(plugin.id)
+      const uninstallResult = await uninstallPlugin(plugin.id)
+      
+      if (!uninstallResult.success) {
+        toast({
+          title: '卸载失败',
+          description: uninstallResult.error,
+          variant: 'destructive',
+        })
+        return
+      }
       
       toast({
         title: '卸载成功',
@@ -521,7 +575,16 @@ function PluginsPageContent() {
       })
       
       // 重新加载已安装插件列表
-      const installed = await getInstalledPlugins()
+      const installedResult = await getInstalledPlugins()
+      if (!installedResult.success) {
+        toast({
+          title: '获取已安装插件失败',
+          description: installedResult.error,
+          variant: 'destructive',
+        })
+        return
+      }
+      const installed = installedResult.data
       setInstalledPlugins(installed)
       
       // 重新合并已安装信息到插件列表
@@ -561,19 +624,37 @@ function PluginsPageContent() {
     }
 
     try {
-      const result = await updatePlugin(
+      const updateResult = await updatePlugin(
         plugin.id,
         plugin.manifest.repository_url || '',
         'main'
       )
       
+      if (!updateResult.success) {
+        toast({
+          title: '更新失败',
+          description: updateResult.error,
+          variant: 'destructive',
+        })
+        return
+      }
+      
       toast({
         title: '更新成功',
-        description: `${plugin.manifest.name} 已从 ${result.old_version} 更新到 ${result.new_version}`,
+        description: `${plugin.manifest.name} 已从 ${updateResult.data.old_version} 更新到 ${updateResult.data.new_version}`,
       })
       
       // 重新加载已安装插件列表
-      const installed = await getInstalledPlugins()
+      const installedResult = await getInstalledPlugins()
+      if (!installedResult.success) {
+        toast({
+          title: '获取已安装插件失败',
+          description: installedResult.error,
+          variant: 'destructive',
+        })
+        return
+      }
+      const installed = installedResult.data
       setInstalledPlugins(installed)
       
       // 重新合并已安装信息到插件列表

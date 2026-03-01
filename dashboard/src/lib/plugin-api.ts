@@ -1,6 +1,8 @@
-import { fetchWithAuth, getAuthHeaders } from '@/lib/fetch-with-auth'
+import type { ApiResponse } from '@/types/api'
 import type { PluginInfo } from '@/types/plugin'
 
+import { fetchWithAuth, getAuthHeaders } from '@/lib/fetch-with-auth'
+import { parseResponse } from './api-helpers'
 import { createReconnectingWebSocket } from './ws-utils'
 
 /**
@@ -106,124 +108,118 @@ interface PluginApiResponse {
 /**
  * 从远程获取插件列表（通过后端代理避免 CORS）
  */
-export async function fetchPluginList(): Promise<PluginInfo[]> {
-  try {
-    // 通过后端 API 获取 Raw 文件
-    const response = await fetchWithAuth('/api/webui/plugins/fetch-raw', {
-      method: 'POST',
-      
-      body: JSON.stringify({
-        owner: PLUGIN_REPO_OWNER,
-        repo: PLUGIN_REPO_NAME,
-        branch: PLUGIN_REPO_BRANCH,
-        file_path: PLUGIN_DETAILS_FILE
-      })
+export async function fetchPluginList(): Promise<ApiResponse<PluginInfo[]>> {
+  const response = await fetchWithAuth('/api/webui/plugins/fetch-raw', {
+    method: 'POST',
+    body: JSON.stringify({
+      owner: PLUGIN_REPO_OWNER,
+      repo: PLUGIN_REPO_NAME,
+      branch: PLUGIN_REPO_BRANCH,
+      file_path: PLUGIN_DETAILS_FILE
     })
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
+  })
+  
+  const apiResult = await parseResponse<{ success: boolean; data: string; error?: string }>(response)
+  
+  if (!apiResult.success) {
+    return apiResult
+  }
+  
+  const result = apiResult.data
+  if (!result.success || !result.data) {
+    return {
+      success: false,
+      error: result.error || '获取插件列表失败'
     }
-    
-    const result = await response.json()
-    
-    // 检查后端返回的结果
-    if (!result.success || !result.data) {
-      throw new Error(result.error || '获取插件列表失败')
-    }
-    
-    const data: PluginApiResponse[] = JSON.parse(result.data)
-    
-    // 转换为 PluginInfo 格式，并过滤掉无效数据
-    const pluginList = data
-      .filter(item => {
-        // 验证必需字段
-        if (!item?.id || !item?.manifest) {
-          console.warn('跳过无效插件数据:', item)
-          return false
-        }
-        if (!item.manifest.name || !item.manifest.version) {
-          console.warn('跳过缺少必需字段的插件:', item.id)
-          return false
-        }
-        return true
-      })
-      .map((item) => ({
-        id: item.id,
-        manifest: {
-          manifest_version: item.manifest.manifest_version || 1,
-          name: item.manifest.name,
-          version: item.manifest.version,
-          description: item.manifest.description || '',
-          author: item.manifest.author || { name: 'Unknown' },
-          license: item.manifest.license || 'Unknown',
-          host_application: item.manifest.host_application || { min_version: '0.0.0' },
-          homepage_url: item.manifest.homepage_url,
-          repository_url: item.manifest.repository_url,
-          keywords: item.manifest.keywords || [],
-          categories: item.manifest.categories || [],
-          default_locale: item.manifest.default_locale || 'zh-CN',
-          locales_path: item.manifest.locales_path,
-        },
-        // 默认值，这些信息可能需要从其他 API 获取
-        downloads: 0,
-        rating: 0,
-        review_count: 0,
-        installed: false,
-        published_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }))
-    
-    return pluginList
-  } catch (error) {
-    console.error('Failed to fetch plugin list:', error)
-    throw error
+  }
+  
+  const data: PluginApiResponse[] = JSON.parse(result.data)
+  
+  const pluginList = data
+    .filter(item => {
+      if (!item?.id || !item?.manifest) {
+        console.warn('跳过无效插件数据:', item)
+        return false
+      }
+      if (!item.manifest.name || !item.manifest.version) {
+        console.warn('跳过缺少必需字段的插件:', item.id)
+        return false
+      }
+      return true
+    })
+    .map((item) => ({
+      id: item.id,
+      manifest: {
+        manifest_version: item.manifest.manifest_version || 1,
+        name: item.manifest.name,
+        version: item.manifest.version,
+        description: item.manifest.description || '',
+        author: item.manifest.author || { name: 'Unknown' },
+        license: item.manifest.license || 'Unknown',
+        host_application: item.manifest.host_application || { min_version: '0.0.0' },
+        homepage_url: item.manifest.homepage_url,
+        repository_url: item.manifest.repository_url,
+        keywords: item.manifest.keywords || [],
+        categories: item.manifest.categories || [],
+        default_locale: item.manifest.default_locale || 'zh-CN',
+        locales_path: item.manifest.locales_path,
+      },
+      downloads: 0,
+      rating: 0,
+      review_count: 0,
+      installed: false,
+      published_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }))
+  
+  return {
+    success: true,
+    data: pluginList
   }
 }
 
 /**
  * 检查本机 Git 安装状态
  */
-export async function checkGitStatus(): Promise<GitStatus> {
-  try {
-    const response = await fetchWithAuth('/api/webui/plugins/git-status')
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    
-    return await response.json()
-  } catch (error) {
-    console.error('Failed to check Git status:', error)
-    // 返回未安装状态
+export async function checkGitStatus(): Promise<ApiResponse<GitStatus>> {
+  const response = await fetchWithAuth('/api/webui/plugins/git-status')
+  
+  const apiResult = await parseResponse<GitStatus>(response)
+  
+  if (!apiResult.success) {
     return {
-      installed: false,
-      error: '无法检测 Git 安装状态'
+      success: true,
+      data: {
+        installed: false,
+        error: '无法检测 Git 安装状态'
+      }
     }
   }
+  
+  return apiResult
 }
 
 /**
  * 获取麦麦版本信息
  */
-export async function getMaimaiVersion(): Promise<MaimaiVersion> {
-  try {
-    const response = await fetchWithAuth('/api/webui/plugins/version')
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    
-    return await response.json()
-  } catch (error) {
-    console.error('Failed to get Maimai version:', error)
-    // 返回默认版本
+export async function getMaimaiVersion(): Promise<ApiResponse<MaimaiVersion>> {
+  const response = await fetchWithAuth('/api/webui/plugins/version')
+  
+  const apiResult = await parseResponse<MaimaiVersion>(response)
+  
+  if (!apiResult.success) {
     return {
-      version: '0.0.0',
-      version_major: 0,
-      version_minor: 0,
-      version_patch: 0
+      success: true,
+      data: {
+        version: '0.0.0',
+        version_major: 0,
+        version_minor: 0,
+        version_patch: 0
+      }
     }
   }
+  
+  return apiResult
 }
 
 /**
@@ -318,26 +314,31 @@ export async function connectPluginProgressWebSocket(
 /**
  * 获取已安装插件列表
  */
-export async function getInstalledPlugins(): Promise<InstalledPlugin[]> {
-  try {
-    const response = await fetchWithAuth('/api/webui/plugins/installed', {
-      headers: getAuthHeaders()
-    })
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
+export async function getInstalledPlugins(): Promise<ApiResponse<InstalledPlugin[]>> {
+  const response = await fetchWithAuth('/api/webui/plugins/installed', {
+    headers: getAuthHeaders()
+  })
+  
+  const apiResult = await parseResponse<{ success: boolean; plugins?: InstalledPlugin[]; message?: string }>(response)
+  
+  if (!apiResult.success) {
+    return {
+      success: true,
+      data: []
     }
-    
-    const result = await response.json()
-    
-    if (!result.success) {
-      throw new Error(result.message || '获取已安装插件列表失败')
+  }
+  
+  const result = apiResult.data
+  if (!result.success) {
+    return {
+      success: true,
+      data: []
     }
-    
-    return result.plugins || []
-  } catch (error) {
-    console.error('Failed to get installed plugins:', error)
-    return []
+  }
+  
+  return {
+    success: true,
+    data: result.plugins || []
   }
 }
 
@@ -363,10 +364,9 @@ export function getInstalledPluginVersion(pluginId: string, installedPlugins: In
 /**
  * 安装插件
  */
-export async function installPlugin(pluginId: string, repositoryUrl: string, branch: string = 'main'): Promise<{ success: boolean; message: string }> {
+export async function installPlugin(pluginId: string, repositoryUrl: string, branch: string = 'main'): Promise<ApiResponse<{ success: boolean; message: string }>> {
   const response = await fetchWithAuth('/api/webui/plugins/install', {
     method: 'POST',
-    
     body: JSON.stringify({
       plugin_id: pluginId,
       repository_url: repositoryUrl,
@@ -374,41 +374,29 @@ export async function installPlugin(pluginId: string, repositoryUrl: string, bra
     })
   })
   
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.detail || '安装失败')
-  }
-  
-  return await response.json()
+  return await parseResponse<{ success: boolean; message: string }>(response)
 }
 
 /**
  * 卸载插件
  */
-export async function uninstallPlugin(pluginId: string): Promise<{ success: boolean; message: string }> {
+export async function uninstallPlugin(pluginId: string): Promise<ApiResponse<{ success: boolean; message: string }>> {
   const response = await fetchWithAuth('/api/webui/plugins/uninstall', {
     method: 'POST',
-    
     body: JSON.stringify({
       plugin_id: pluginId
     })
   })
   
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.detail || '卸载失败')
-  }
-  
-  return await response.json()
+  return await parseResponse<{ success: boolean; message: string }>(response)
 }
 
 /**
  * 更新插件
  */
-export async function updatePlugin(pluginId: string, repositoryUrl: string, branch: string = 'main'): Promise<{ success: boolean; message: string; old_version: string; new_version: string }> {
+export async function updatePlugin(pluginId: string, repositoryUrl: string, branch: string = 'main'): Promise<ApiResponse<{ success: boolean; message: string; old_version: string; new_version: string }>> {
   const response = await fetchWithAuth('/api/webui/plugins/update', {
     method: 'POST',
-    
     body: JSON.stringify({
       plugin_id: pluginId,
       repository_url: repositoryUrl,
@@ -416,12 +404,7 @@ export async function updatePlugin(pluginId: string, repositoryUrl: string, bran
     })
   })
   
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.detail || '更新失败')
-  }
-  
-  return await response.json()
+  return await parseResponse<{ success: boolean; message: string; old_version: string; new_version: string }>(response)
 }
 
 
@@ -525,82 +508,85 @@ export interface PluginConfigSchema {
 /**
  * 获取插件配置 Schema
  */
-export async function getPluginConfigSchema(pluginId: string): Promise<PluginConfigSchema> {
+export async function getPluginConfigSchema(pluginId: string): Promise<ApiResponse<PluginConfigSchema>> {
   const response = await fetchWithAuth(`/api/webui/plugins/config/${pluginId}/schema`, {
     headers: getAuthHeaders()
   })
   
-  if (!response.ok) {
-    const text = await response.text()
-    try {
-      const error = JSON.parse(text)
-      throw new Error(error.detail || '获取配置 Schema 失败')
-    } catch {
-      throw new Error(`获取配置 Schema 失败 (${response.status})`)
+  const apiResult = await parseResponse<{ success: boolean; schema?: PluginConfigSchema; message?: string }>(response)
+  
+  if (!apiResult.success) {
+    return apiResult
+  }
+  
+  const result = apiResult.data
+  if (!result.success || !result.schema) {
+    return {
+      success: false,
+      error: result.message || '获取配置 Schema 失败'
     }
   }
   
-  const result = await response.json()
-  
-  if (!result.success) {
-    throw new Error(result.message || '获取配置 Schema 失败')
+  return {
+    success: true,
+    data: result.schema
   }
-  
-  return result.schema
 }
 
 /**
  * 获取插件当前配置值
  */
-export async function getPluginConfig(pluginId: string): Promise<Record<string, unknown>> {
+export async function getPluginConfig(pluginId: string): Promise<ApiResponse<Record<string, unknown>>> {
   const response = await fetchWithAuth(`/api/webui/plugins/config/${pluginId}`, {
     headers: getAuthHeaders()
   })
   
-  if (!response.ok) {
-    const text = await response.text()
-    try {
-      const error = JSON.parse(text)
-      throw new Error(error.detail || '获取配置失败')
-    } catch {
-      throw new Error(`获取配置失败 (${response.status})`)
+  const apiResult = await parseResponse<{ success: boolean; config?: Record<string, unknown>; message?: string }>(response)
+  
+  if (!apiResult.success) {
+    return apiResult
+  }
+  
+  const result = apiResult.data
+  if (!result.success || !result.config) {
+    return {
+      success: false,
+      error: result.message || '获取配置失败'
     }
   }
   
-  const result = await response.json()
-  
-  if (!result.success) {
-    throw new Error(result.message || '获取配置失败')
+  return {
+    success: true,
+    data: result.config
   }
-  
-  return result.config
 }
 
 /**
  * 获取插件原始 TOML 配置
  */
-export async function getPluginConfigRaw(pluginId: string): Promise<string> {
+export async function getPluginConfigRaw(pluginId: string): Promise<ApiResponse<string>> {
   const response = await fetchWithAuth(`/api/webui/plugins/config/${pluginId}/raw`, {
     headers: getAuthHeaders()
   })
   
-  if (!response.ok) {
-    const text = await response.text()
-    try {
-      const error = JSON.parse(text)
-      throw new Error(error.detail || '获取配置失败')
-    } catch {
-      throw new Error(`获取配置失败 (${response.status})`)
+  const apiResult = await parseResponse<{ success: boolean; config?: string; message?: string }>(response)
+  
+  if (!apiResult.success) {
+    return apiResult
+  }
+  
+  const result = apiResult.data
+  if (!result.success || !result.config) {
+    return {
+      success: false,
+      error: result.message || '获取配置失败'
     }
   }
   
-  const result = await response.json()
-  
-  if (!result.success) {
-    throw new Error(result.message || '获取配置失败')
+  return {
+    success: true,
+    data: result.config
   }
-  
-  return result.config
 }
 
 /**
@@ -609,19 +595,14 @@ export async function getPluginConfigRaw(pluginId: string): Promise<string> {
 export async function updatePluginConfig(
   pluginId: string,
   config: Record<string, unknown>
-): Promise<{ success: boolean; message: string; note?: string }> {
+): Promise<ApiResponse<{ success: boolean; message: string; note?: string }>> {
   const response = await fetchWithAuth(`/api/webui/plugins/config/${pluginId}`, {
     method: 'PUT',
     headers: getAuthHeaders(),
     body: JSON.stringify({ config })
   })
   
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.detail || '保存配置失败')
-  }
-  
-  return await response.json()
+  return await parseResponse<{ success: boolean; message: string; note?: string }>(response)
 }
 
 /**
@@ -630,19 +611,14 @@ export async function updatePluginConfig(
 export async function updatePluginConfigRaw(
   pluginId: string,
   configToml: string
-): Promise<{ success: boolean; message: string; note?: string }> {
+): Promise<ApiResponse<{ success: boolean; message: string; note?: string }>> {
   const response = await fetchWithAuth(`/api/webui/plugins/config/${pluginId}/raw`, {
     method: 'PUT',
     headers: getAuthHeaders(),
     body: JSON.stringify({ config: configToml })
   })
   
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.detail || '保存配置失败')
-  }
-  
-  return await response.json()
+  return await parseResponse<{ success: boolean; message: string; note?: string }>(response)
 }
 
 /**
@@ -650,18 +626,13 @@ export async function updatePluginConfigRaw(
  */
 export async function resetPluginConfig(
   pluginId: string
-): Promise<{ success: boolean; message: string; backup?: string }> {
+): Promise<ApiResponse<{ success: boolean; message: string; backup?: string }>> {
   const response = await fetchWithAuth(`/api/webui/plugins/config/${pluginId}/reset`, {
     method: 'POST',
     headers: getAuthHeaders()
   })
   
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.detail || '重置配置失败')
-  }
-  
-  return await response.json()
+  return await parseResponse<{ success: boolean; message: string; backup?: string }>(response)
 }
 
 /**
@@ -669,16 +640,11 @@ export async function resetPluginConfig(
  */
 export async function togglePlugin(
   pluginId: string
-): Promise<{ success: boolean; enabled: boolean; message: string; note?: string }> {
+): Promise<ApiResponse<{ success: boolean; enabled: boolean; message: string; note?: string }>> {
   const response = await fetchWithAuth(`/api/webui/plugins/config/${pluginId}/toggle`, {
     method: 'POST',
     headers: getAuthHeaders()
   })
   
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.detail || '切换状态失败')
-  }
-  
-  return await response.json()
+  return await parseResponse<{ success: boolean; enabled: boolean; message: string; note?: string }>(response)
 }
