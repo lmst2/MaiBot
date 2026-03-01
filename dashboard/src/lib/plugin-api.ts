@@ -1,6 +1,8 @@
 import { fetchWithAuth, getAuthHeaders } from '@/lib/fetch-with-auth'
 import type { PluginInfo } from '@/types/plugin'
 
+import { createReconnectingWebSocket } from './ws-utils'
+
 /**
  * Git 安装状态
  */
@@ -268,27 +270,6 @@ export function isPluginCompatible(
 }
 
 /**
- * 获取 WebSocket 临时认证 token
- */
-async function getWsToken(): Promise<string | null> {
-  try {
-    const response = await fetchWithAuth('/api/webui/ws-token')
-    if (!response.ok) {
-      console.error('获取 WebSocket token 失败:', response.status)
-      return null
-    }
-    const data = await response.json()
-    if (data.success && data.token) {
-      return data.token
-    }
-    return null
-  } catch (error) {
-    console.error('获取 WebSocket token 失败:', error)
-    return null
-  }
-}
-
-/**
  * 连接插件加载进度 WebSocket
  * 
  * 使用临时 token 进行认证，异步获取 token 后连接
@@ -297,60 +278,41 @@ export async function connectPluginProgressWebSocket(
   onProgress: (progress: PluginLoadProgress) => void,
   onError?: (error: Event) => void
 ): Promise<WebSocket | null> {
-  // 先获取临时 token
-  const wsToken = await getWsToken()
-  if (!wsToken) {
-    console.warn('无法获取 WebSocket token，可能未登录')
-    return null
-  }
-  
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const host = window.location.host
-  const wsUrl = `${protocol}//${host}/api/webui/ws/plugin-progress?token=${encodeURIComponent(wsToken)}`
+  const wsUrl = `${protocol}//${host}/api/webui/ws/plugin-progress`
   
-  try {
-    const ws = new WebSocket(wsUrl)
-    
-    ws.onopen = () => {
-      console.log('Plugin progress WebSocket connected')
-      // 发送心跳
-      const heartbeat = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send('ping')
-        } else {
-          clearInterval(heartbeat)
-        }
-      }, 30000)
-    }
-    
-    ws.onmessage = (event) => {
+  // 使用 ws-utils 创建 WebSocket
+  const wsControl = createReconnectingWebSocket(wsUrl, {
+    onMessage: (data: string) => {
       try {
-        // 忽略心跳响应
-        if (event.data === 'pong') {
-          return
-        }
-        
-        const data = JSON.parse(event.data) as PluginLoadProgress
-        onProgress(data)
+        const progressData = JSON.parse(data) as PluginLoadProgress
+        onProgress(progressData)
       } catch (error) {
         console.error('Failed to parse progress data:', error)
       }
-    }
-    
-    ws.onerror = (error) => {
+    },
+    onOpen: () => {
+      console.log('Plugin progress WebSocket connected')
+    },
+    onClose: () => {
+      console.log('Plugin progress WebSocket disconnected')
+    },
+    onError: (error) => {
       console.error('Plugin progress WebSocket error:', error)
       onError?.(error)
-    }
-    
-    ws.onclose = () => {
-      console.log('Plugin progress WebSocket disconnected')
-    }
-    
-    return ws
-  } catch (error) {
-    console.error('创建 WebSocket 连接失败:', error)
-    return null
-  }
+    },
+    heartbeatInterval: 30000,
+    maxRetries: 10,
+    backoffBase: 1000,
+    maxBackoff: 30000,
+  })
+  
+  // 启动连接
+  await wsControl.connect()
+  
+  // 返回 WebSocket 实例（用于外部检查连接状态）
+  return wsControl.getWebSocket()
 }
 
 /**

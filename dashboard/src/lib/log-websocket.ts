@@ -3,8 +3,9 @@
  * 确保整个应用只有一个 WebSocket 连接
  */
 
-import { fetchWithAuth, checkAuthStatus } from './fetch-with-auth'
+import { checkAuthStatus } from './fetch-with-auth'
 import { getSetting } from './settings-manager'
+import { createReconnectingWebSocket } from './ws-utils'
 
 export interface LogEntry {
   id: string
@@ -18,10 +19,7 @@ type LogCallback = (log: LogEntry) => void
 type ConnectionCallback = (connected: boolean) => void
 
 class LogWebSocketManager {
-  private ws: WebSocket | null = null
-  private reconnectTimeout: number | null = null
-  private reconnectAttempts = 0
-  private heartbeatInterval: number | null = null
+  private wsControl: ReturnType<typeof createReconnectingWebSocket> | null = null
   
   // 订阅者
   private logCallbacks: Set<LogCallback> = new Set()
@@ -54,9 +52,9 @@ class LogWebSocketManager {
   }
 
   /**
-   * 获取 WebSocket URL
+   * 获取 WebSocket URL（不含 token 参数）
    */
-  private getWebSocketUrl(token?: string): string {
+  private getWebSocketUrl(): string {
     let baseUrl: string
     if (import.meta.env.DEV) {
       // 开发模式：连接到 WebUI 后端服务器
@@ -67,49 +65,13 @@ class LogWebSocketManager {
       const host = window.location.host
       baseUrl = `${protocol}//${host}/ws/logs`
     }
-    
-    // 如果有 token，添加到 URL 参数
-    if (token) {
-      return `${baseUrl}?token=${encodeURIComponent(token)}`
-    }
     return baseUrl
-  }
-
-  /**
-   * 获取 WebSocket 临时认证 token
-   */
-  private async getWsToken(): Promise<string | null> {
-    try {
-      // 使用相对路径，让前端代理处理请求，避免 CORS 问题
-      const response = await fetchWithAuth('/api/webui/ws-token', {
-        method: 'GET',
-        credentials: 'include', // 携带 Cookie
-      })
-      
-      if (!response.ok) {
-        console.error('获取 WebSocket token 失败:', response.status)
-        return null
-      }
-      
-      const data = await response.json()
-      if (data.success && data.token) {
-        return data.token
-      }
-      return null
-    } catch (error) {
-      console.error('获取 WebSocket token 失败:', error)
-      return null
-    }
   }
 
   /**
    * 连接 WebSocket（会先检查登录状态）
    */
   async connect() {
-    if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
-      return
-    }
-
     // 检查是否在登录页面
     if (window.location.pathname === '/auth') {
       console.log('📡 在登录页面，跳过 WebSocket 连接')
@@ -123,114 +85,51 @@ class LogWebSocketManager {
       return
     }
 
-    // 先获取临时认证 token
-    const wsToken = await this.getWsToken()
-    if (!wsToken) {
-      console.log('📡 无法获取 WebSocket token，跳过连接')
-      return
-    }
-    
-    const wsUrl = this.getWebSocketUrl(wsToken)
+    const wsUrl = this.getWebSocketUrl()
 
-    try {
-      this.ws = new WebSocket(wsUrl)
-
-      this.ws.onopen = () => {
-        this.isConnected = true
-        this.reconnectAttempts = 0
-        this.notifyConnection(true)
-        this.startHeartbeat()
-      }
-
-      this.ws.onmessage = (event) => {
+    // 使用 ws-utils 创建 WebSocket
+    this.wsControl = createReconnectingWebSocket(wsUrl, {
+      onMessage: (data: string) => {
         try {
-          // 忽略心跳响应
-          if (event.data === 'pong') {
-            return
-          }
-          
-          const log: LogEntry = JSON.parse(event.data)
+          const log: LogEntry = JSON.parse(data)
           this.notifyLog(log)
         } catch (error) {
           console.error('解析日志消息失败:', error)
         }
-      }
-
-      this.ws.onerror = (error) => {
+      },
+      onOpen: () => {
+        this.isConnected = true
+        this.notifyConnection(true)
+      },
+      onClose: () => {
+        this.isConnected = false
+        this.notifyConnection(false)
+      },
+      onError: (error) => {
         console.error('❌ WebSocket 错误:', error)
         this.isConnected = false
         this.notifyConnection(false)
-      }
+      },
+      heartbeatInterval: 30000,
+      maxRetries: this.getMaxReconnectAttempts(),
+      backoffBase: this.getReconnectInterval(),
+      maxBackoff: 30000,
+    })
 
-      this.ws.onclose = () => {
-        this.isConnected = false
-        this.notifyConnection(false)
-        this.stopHeartbeat()
-        this.attemptReconnect()
-      }
-    } catch (error) {
-      console.error('创建 WebSocket 连接失败:', error)
-      this.attemptReconnect()
-    }
-  }
-
-  /**
-   * 尝试重连
-   */
-  private attemptReconnect() {
-    const maxAttempts = this.getMaxReconnectAttempts()
-    if (this.reconnectAttempts >= maxAttempts) {
-      return
-    }
-
-    this.reconnectAttempts += 1
-    const baseInterval = this.getReconnectInterval()
-    const delay = Math.min(baseInterval * this.reconnectAttempts, 30000)
-
-    this.reconnectTimeout = window.setTimeout(() => {
-      this.connect() // connect 是 async 但这里不需要 await，它内部会处理错误
-    }, delay)
-  }
-
-  /**
-   * 启动心跳
-   */
-  private startHeartbeat() {
-    this.heartbeatInterval = window.setInterval(() => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send('ping')
-      }
-    }, 30000) // 每30秒发送一次心跳
-  }
-
-  /**
-   * 停止心跳
-   */
-  private stopHeartbeat() {
-    if (this.heartbeatInterval !== null) {
-      clearInterval(this.heartbeatInterval)
-      this.heartbeatInterval = null
-    }
+    // 启动连接
+    await this.wsControl.connect()
   }
 
   /**
    * 断开连接
    */
   disconnect() {
-    if (this.reconnectTimeout !== null) {
-      clearTimeout(this.reconnectTimeout)
-      this.reconnectTimeout = null
-    }
-
-    this.stopHeartbeat()
-
-    if (this.ws) {
-      this.ws.close()
-      this.ws = null
+    if (this.wsControl) {
+      this.wsControl.disconnect()
+      this.wsControl = null
     }
 
     this.isConnected = false
-    this.reconnectAttempts = 0
   }
 
   /**
