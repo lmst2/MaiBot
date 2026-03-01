@@ -161,9 +161,9 @@ function IndexPageContent() {
   // 获取审核统计
   const fetchReviewStats = useCallback(async () => {
     try {
-      const data = await getReviewStats()
-      if (isMountedRef.current) {
-        setUncheckedCount(data.unchecked)
+      const result = await getReviewStats()
+      if (result.success && isMountedRef.current) {
+        setUncheckedCount(result.data.unchecked)
       }
     } catch (error) {
       console.error('获取审核统计失败:', error)

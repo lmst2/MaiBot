@@ -72,13 +72,21 @@ export function ExpressionManagementPage() {
   const loadExpressions = async () => {
     try {
       setLoading(true)
-      const response = await getExpressionList({
+      const result = await getExpressionList({
         page,
         page_size: pageSize,
         search: search || undefined,
       })
-      setExpressions(response.data)
-      setTotal(response.total)
+      if (result.success) {
+        setExpressions(result.data.data)
+        setTotal(result.data.total)
+      } else {
+        toast({
+          title: '加载失败',
+          description: result.error,
+          variant: 'destructive',
+        })
+      }
     } catch (error) {
       toast({
         title: '加载失败',
@@ -93,9 +101,11 @@ export function ExpressionManagementPage() {
   // 加载统计数据
   const loadStats = async () => {
     try {
-      const response = await getExpressionStats()
-      if (response?.data) {
-        setStats(response.data)
+      const result = await getExpressionStats()
+      if (result.success) {
+        setStats(result.data)
+      } else {
+        console.error('加载统计数据失败:', result.error)
       }
     } catch (error) {
       console.error('加载统计数据失败:', error)
@@ -105,28 +115,30 @@ export function ExpressionManagementPage() {
   // 加载审核统计
   const loadReviewStats = async () => {
     try {
-      const data = await getReviewStats()
-      setUncheckedCount(data.unchecked)
+      const result = await getReviewStats()
+      if (result.success) {
+        setUncheckedCount(result.data.unchecked)
+      }
     } catch (error) {
       console.error('加载审核统计失败:', error)
     }
   }
 
-  // 加载聊天列表
+  // 加载聚天列表
   const loadChatList = async () => {
     try {
-      const response = await getChatList()
-      if (response?.data) {
-        setChatList(response.data)
-        // 构建聊天ID到名称的映射
+      const result = await getChatList()
+      if (result.success) {
+        setChatList(result.data)
+        // 构建聚天ID到名称的映射
         const nameMap = new Map<string, string>()
-        response.data.forEach((chat) => {
+        result.data.forEach((chat: ChatInfo) => {
           nameMap.set(chat.chat_id, chat.chat_name)
         })
         setChatNameMap(nameMap)
       }
     } catch (error) {
-      console.error('加载聊天列表失败:', error)
+      console.error('加载聚天列表失败:', error)
     }
   }
 
@@ -147,9 +159,17 @@ export function ExpressionManagementPage() {
   // 查看详情
   const handleViewDetail = async (expression: Expression) => {
     try {
-      const response = await getExpressionDetail(expression.id)
-      setSelectedExpression(response.data)
-      setIsDetailDialogOpen(true)
+      const result = await getExpressionDetail(expression.id)
+      if (result.success) {
+        setSelectedExpression(result.data)
+        setIsDetailDialogOpen(true)
+      } else {
+        toast({
+          title: '加载详情失败',
+          description: result.error,
+          variant: 'destructive',
+        })
+      }
     } catch (error) {
       toast({
         title: '加载详情失败',
@@ -168,14 +188,22 @@ export function ExpressionManagementPage() {
   // 删除表达方式
   const handleDelete = async (expression: Expression) => {
     try {
-      await deleteExpression(expression.id)
-      toast({
-        title: '删除成功',
-        description: `已删除表达方式: ${expression.situation}`,
-      })
-      setDeleteConfirmExpression(null)
-      loadExpressions()
-      loadStats()
+      const result = await deleteExpression(expression.id)
+      if (result.success) {
+        toast({
+          title: '删除成功',
+          description: `已删除表达方式: ${expression.situation}`,
+        })
+        setDeleteConfirmExpression(null)
+        loadExpressions()
+        loadStats()
+      } else {
+        toast({
+          title: '删除失败',
+          description: result.error,
+          variant: 'destructive',
+        })
+      }
     } catch (error) {
       toast({
         title: '删除失败',
@@ -208,15 +236,23 @@ export function ExpressionManagementPage() {
   // 批量删除
   const handleBatchDelete = async () => {
     try {
-      await batchDeleteExpressions(Array.from(selectedIds))
-      toast({
-        title: '批量删除成功',
-        description: `已删除 ${selectedIds.size} 个表达方式`,
-      })
-      setSelectedIds(new Set())
-      setIsBatchDeleteDialogOpen(false)
-      loadExpressions()
-      loadStats()
+      const result = await batchDeleteExpressions(Array.from(selectedIds))
+      if (result.success) {
+        toast({
+          title: '批量删除成功',
+          description: `已删除 ${selectedIds.size} 个表达方式`,
+        })
+        setSelectedIds(new Set())
+        setIsBatchDeleteDialogOpen(false)
+        loadExpressions()
+        loadStats()
+      } else {
+        toast({
+          title: '批量删除失败',
+          description: result.error,
+          variant: 'destructive',
+        })
+      }
     } catch (error) {
       toast({
         title: '批量删除失败',
@@ -848,7 +884,7 @@ function ExpressionCreateDialog({
     if (!formData.situation || !formData.style || !formData.chat_id) {
       toast({
         title: '验证失败',
-        description: '请填写必填字段：情境、风格和聊天',
+        description: '请填写必填字段：情境、风格和聚天',
         variant: 'destructive',
       })
       return
@@ -856,18 +892,26 @@ function ExpressionCreateDialog({
 
     try {
       setSaving(true)
-      await createExpression(formData)
-      toast({
-        title: '创建成功',
-        description: '表达方式已创建',
-      })
-      // 重置表单
-      setFormData({
-        situation: '',
-        style: '',
-        chat_id: '',
-      })
-      onSuccess()
+      const result = await createExpression(formData)
+      if (result.success) {
+        toast({
+          title: '创建成功',
+          description: '表达方式已创建',
+        })
+        // 重置表单
+        setFormData({
+          situation: '',
+          style: '',
+          chat_id: '',
+        })
+        onSuccess()
+      } else {
+        toast({
+          title: '创建失败',
+          description: result.error,
+          variant: 'destructive',
+        })
+      }
     } catch (error) {
       toast({
         title: '创建失败',
@@ -988,12 +1032,20 @@ function ExpressionEditDialog({
 
     try {
       setSaving(true)
-      await updateExpression(expression.id, formData)
-      toast({
-        title: '保存成功',
-        description: '表达方式已更新',
-      })
-      onSuccess()
+      const result = await updateExpression(expression.id, formData)
+      if (result.success) {
+        toast({
+          title: '保存成功',
+          description: '表达方式已更新',
+        })
+        onSuccess()
+      } else {
+        toast({
+          title: '保存失败',
+          description: result.error,
+          variant: 'destructive',
+        })
+      }
     } catch (error) {
       toast({
         title: '保存失败',
