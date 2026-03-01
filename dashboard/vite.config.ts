@@ -110,7 +110,6 @@ export default defineConfig({
             'tailwind-merge',
             'class-variance-authority',
             'axios',
-            'jotai',
           ],
           
           // 其他

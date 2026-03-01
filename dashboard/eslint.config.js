@@ -28,7 +28,7 @@ export default tseslint.config(
         { allowConstantExport: true },
       ],
       // 关闭或降级其他规则
-      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': 'warn',
     },
   },
