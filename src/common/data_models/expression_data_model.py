@@ -1,9 +1,9 @@
 from datetime import datetime
-from typing import List, Optional, Literal
+from typing import List, Optional
 
 import json
 
-from src.common.database.database_model import Expression
+from src.common.database.database_model import Expression, ModifiedBy
 
 from . import BaseDatabaseDataModel
 
@@ -23,7 +23,7 @@ class MaiExpression(BaseDatabaseDataModel[Expression]):
         session_id: Optional[str] = None,
         checked: bool = False,
         rejected: bool = False,
-        modified_by: Optional[Literal["ai", "user"]] = None,
+        modified_by: Optional[ModifiedBy] = None,
     ):
         self.item_id = item_id
         """自增主键ID"""
@@ -45,7 +45,7 @@ class MaiExpression(BaseDatabaseDataModel[Expression]):
         """是否已经被检查过"""
         self.rejected: bool = rejected
         """是否被拒绝但是未更新"""
-        self.modified_by: Optional[Literal["ai", "user"]] = modified_by
+        self.modified_by: Optional[ModifiedBy] = modified_by
         """最后修改者，标记用户或AI，为空表示未检查"""
 
     @classmethod

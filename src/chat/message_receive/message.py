@@ -78,6 +78,7 @@ class SessionMessage(MaiMessage):
 
         content = f"[图片：{desc}]" if desc else "[一张图片，网卡了加载不出来]"
         component.content = content
+        component.binary_data = b""  # 处理完就丢掉二进制数据，节省内存
         return content
 
     async def process_emoji_component(self, component: EmojiComponent) -> str:
@@ -97,6 +98,7 @@ class SessionMessage(MaiMessage):
         else:
             content = "[一个表情，网卡了加载不出来]"
         component.content = content
+        component.binary_data = b""  # 处理完就丢掉二进制数据，节省内存
         return content
 
     async def process_at_component(self, component: AtComponent) -> str:
