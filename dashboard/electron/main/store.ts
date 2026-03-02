@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 
-import Store from 'electron-store'
+import Store, { type Schema } from 'electron-store'
 
 /**
  * Backend connection data model
@@ -31,7 +31,7 @@ export interface AppSettings {
 /**
  * JSON Schema for validating store contents
  */
-const SCHEMA: Store.Schema<AppSettings> = {
+const SCHEMA: Schema<AppSettings> = {
   backends: {
     type: 'array',
     items: {
