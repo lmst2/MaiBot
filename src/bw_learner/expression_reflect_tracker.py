@@ -1,7 +1,7 @@
 import json
 import re
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from json_repair import repair_json
 
@@ -56,8 +56,12 @@ class ReflectTracker:
             return (bool): 如果返回True，表示追踪完成，Tracker运行结束（运行状态置为`False`）；如果返回False，表示继续追踪
         """
         # 对于没有正在追踪的表达，直接返回False
-        if not self.tracking:
+        if not self.tracking or not self.expression:
             return False
+
+        # Type narrowing: expression is guaranteed non-None when tracking
+        assert self.expression is not None
+        expr = self.expression
 
         # 检查是否超时（无论是消息数量还是时间）
         if time.time() - self.tracking_start_time > self.max_duration:
@@ -75,7 +79,7 @@ class ReflectTracker:
 
         # 检查消息数量是否超限
         if current_msg_count > self.max_msg_count:
-            logger.info(f"ReflectTracker for expr {self.expression.item_id} timed out (message count).")
+            logger.info(f"ReflectTracker for expr {expr.item_id} timed out (message count).")
             self._reset_tracker()
             return True
 
@@ -97,8 +101,8 @@ class ReflectTracker:
         # LLM 判断
         try:
             prompt_template = prompt_manager.get_prompt("reflect_judge")
-            prompt_template.add_context("situation", str(self.expression.situation))
-            prompt_template.add_context("style", str(self.expression.style))
+            prompt_template.add_context("situation", str(expr.situation))
+            prompt_template.add_context("style", str(expr.style))
             prompt_template.add_context("context_block", context_block)
             prompt = await prompt_manager.render_prompt(prompt_template)
 
@@ -119,7 +123,7 @@ class ReflectTracker:
 
             if judgment == "Approve":
                 self._update_expression(checked=True, rejected=False, modified_by="ai")
-                logger.info(f"Expression {self.expression.item_id} approved by operator.")
+                logger.info(f"Expression {expr.item_id} approved by operator.")
                 self._reset_tracker()
                 return True
 
@@ -128,7 +132,7 @@ class ReflectTracker:
                 corrected_style = json_obj.get("corrected_style")
                 has_update = bool(corrected_situation or corrected_style)
 
-                update_kwargs = {"checked": True, "modified_by": "ai"}
+                update_kwargs: dict[str, Any] = {"checked": True, "modified_by": "ai"}
                 if corrected_situation:
                     update_kwargs["situation"] = corrected_situation
                 if corrected_style:
@@ -142,18 +146,18 @@ class ReflectTracker:
 
                 if has_update:
                     logger.info(
-                        f"Expression {self.expression.item_id} rejected and updated. "
+                        f"Expression {expr.item_id} rejected and updated. "
                         f"New situation: {corrected_situation}, New style: {corrected_style}"
                     )
                 else:
                     logger.info(
-                        f"Expression {self.expression.item_id} rejected but no correction provided, marked as rejected."
+                        f"Expression {expr.item_id} rejected but no correction provided, marked as rejected."
                     )
                 self._reset_tracker()
                 return True
 
             elif judgment == "Ignore":
-                logger.info(f"ReflectTracker for expr {self.expression.item_id} judged as Ignore.")
+                logger.info(f"ReflectTracker for expr {expr.item_id} judged as Ignore.")
                 return False
 
         except Exception as e:
@@ -162,7 +166,7 @@ class ReflectTracker:
 
         return False
 
-    def _update_expression(self, **kwargs):
+    def _update_expression(self, **kwargs: Any) -> None:
         """更新表达并持久化到数据库"""
         if not self.expression:
             return
