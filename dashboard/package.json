@@ -34,20 +34,29 @@
     "mac": {
       "category": "public.app-category.utilities",
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
       ],
       "icon": "electron/resources/icon.icns",
       "darkModeSupport": true
     },
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
       ],
       "icon": "electron/resources/icon.ico"
     },
     "linux": {
       "target": [
-        { "target": "AppImage", "arch": ["x64"] }
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        }
       ],
       "icon": "electron/resources/icon.png",
       "category": "Utility"
@@ -60,8 +69,16 @@
     },
     "dmg": {
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     }
   },
@@ -143,7 +160,7 @@
     "autoprefixer": "^10.4.22",
     "electron": "^40.6.1",
     "electron-builder": "^26.8.1",
-    "electron-store": "^8.1.0",
+    "electron-store": "11.0.2",
     "electron-vite": "^5.0.0",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
