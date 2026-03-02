@@ -2,7 +2,16 @@
  * 知识库 API
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/webui'
+import { getApiBaseUrl } from './api-base'
+import { isElectron } from './runtime'
+
+async function getKnowledgeApiBase(): Promise<string> {
+  if (isElectron()) {
+    const base = await getApiBaseUrl()
+    return base ? `${base}/api/webui` : '/api/webui'
+  }
+  return import.meta.env.VITE_API_BASE_URL || '/api/webui'
+}
 
 export interface KnowledgeNode {
   id: string
@@ -35,7 +44,7 @@ export interface KnowledgeStats {
  * 获取知识图谱数据
  */
 export async function getKnowledgeGraph(limit: number = 100, nodeType: 'all' | 'entity' | 'paragraph' = 'all'): Promise<KnowledgeGraph> {
-  const url = `${API_BASE_URL}/knowledge/graph?limit=${limit}&node_type=${nodeType}`
+  const url = `${await getKnowledgeApiBase()}/knowledge/graph?limit=${limit}&node_type=${nodeType}`
   
   const response = await fetch(url)
   
@@ -50,7 +59,7 @@ export async function getKnowledgeGraph(limit: number = 100, nodeType: 'all' | '
  * 获取知识图谱统计信息
  */
 export async function getKnowledgeStats(): Promise<KnowledgeStats> {
-  const response = await fetch(`${API_BASE_URL}/knowledge/stats`)
+  const response = await fetch(`${await getKnowledgeApiBase()}/knowledge/stats`)
   if (!response.ok) {
     throw new Error('获取知识图谱统计信息失败')
   }
@@ -61,7 +70,7 @@ export async function getKnowledgeStats(): Promise<KnowledgeStats> {
  * 搜索知识节点
  */
 export async function searchKnowledgeNode(query: string): Promise<KnowledgeNode[]> {
-  const response = await fetch(`${API_BASE_URL}/knowledge/search?query=${encodeURIComponent(query)}`)
+  const response = await fetch(`${await getKnowledgeApiBase()}/knowledge/search?query=${encodeURIComponent(query)}`)
   if (!response.ok) {
     throw new Error('搜索知识节点失败')
   }

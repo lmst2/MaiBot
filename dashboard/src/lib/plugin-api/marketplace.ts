@@ -1,9 +1,9 @@
 import type { ApiResponse } from '@/types/api'
 import type { PluginInfo } from '@/types/plugin'
 
+import { getWsBaseUrl } from '@/lib/api-base'
 import { fetchWithAuth } from '@/lib/fetch-with-auth'
 import { parseResponse } from '@/lib/api-helpers'
-
 import type { GitStatus, MaimaiVersion } from './types'
 
 /**
@@ -213,9 +213,8 @@ export async function connectPluginProgressWebSocket(
   onProgress: (progress: import('./types').PluginLoadProgress) => void,
   onError?: (error: Event) => void
 ): Promise<WebSocket | null> {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const host = window.location.host
-  const wsUrl = `${protocol}//${host}/api/webui/ws/plugin-progress`
+  const wsBase = await getWsBaseUrl()
+  const wsUrl = `${wsBase}/api/webui/ws/plugin-progress`
   
   // 使用 ws-utils 创建 WebSocket
   const { createReconnectingWebSocket } = await import('@/lib/ws-utils')
