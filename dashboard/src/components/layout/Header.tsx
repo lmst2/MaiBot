@@ -1,10 +1,13 @@
-import { BookOpen, ChevronLeft, LogOut, Menu, Moon, PieChart, Search, Sun } from 'lucide-react'
+import { BookOpen, ChevronLeft, LogOut, Menu, Moon, PieChart, Search, Server, Sun } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 
 import { BackgroundLayer } from '@/components/background-layer'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import { SearchDialog } from '@/components/search-dialog'
+import { useEffect, useState } from 'react'
+import { BackendManager } from '@/components/electron/BackendManager'
+import { isElectron } from '@/lib/runtime'
 import { cn } from '@/lib/utils'
 import { useBackground } from '@/hooks/use-background'
 import { logout } from '@/lib/fetch-with-auth'
@@ -32,6 +35,15 @@ export function Header({
   onThemeChange,
 }: HeaderProps) {
   const headerBg = useBackground('header')
+  const [backendManagerOpen, setBackendManagerOpen] = useState(false)
+  const [activeBackendName, setActiveBackendName] = useState<string>('')
+
+  useEffect(() => {
+    if (!isElectron()) return
+    window.electronAPI!.getActiveBackend().then((b) => {
+      setActiveBackendName(b?.name ?? '未连接')
+    })
+  }, [])
 
   const handleLogout = async () => {
     await logout()
@@ -62,6 +74,25 @@ export function Header({
       </div>
 
       <div className="flex items-center gap-2">
+        {/* 后端切换按钮（仅 Electron） */}
+        {isElectron() && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-2"
+              onClick={() => setBackendManagerOpen(true)}
+              title="切换后端连接"
+            >
+              <Server className="h-4 w-4" />
+              <span className="hidden sm:inline text-xs text-muted-foreground truncate max-w-[100px]">
+                {activeBackendName}
+              </span>
+            </Button>
+            <BackendManager open={backendManagerOpen} onOpenChange={setBackendManagerOpen} />
+            <div className="h-6 w-px bg-border" />
+          </>
+        )}
         {/* 年度总结入口 */}
         <Link to="/annual-report">
           <Button

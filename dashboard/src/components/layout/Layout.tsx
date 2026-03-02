@@ -8,6 +8,9 @@ import { useTheme } from '@/components/use-theme'
 import { useAuthGuard } from '@/hooks/use-auth'
 import { useBackground } from '@/hooks/use-background'
 
+import { TitleBar } from '@/components/electron/TitleBar'
+import { isElectron } from '@/lib/runtime'
+import { cn } from '@/lib/utils'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
 import type { LayoutProps } from './types'
@@ -70,7 +73,8 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <TooltipProvider delayDuration={300}>
-    <div className="flex h-screen overflow-hidden">
+      {isElectron() && <TitleBar />}
+      <div className={cn('flex h-screen overflow-hidden', isElectron() && 'pt-8')}>
       {/* Sidebar */}
       <Sidebar
         sidebarOpen={sidebarOpen}
@@ -113,7 +117,7 @@ export function Layout({ children }: LayoutProps) {
         {/* Back to Top Button */}
         <BackToTop />
       </div>
-    </div>
+      </div>
     </TooltipProvider>
   )
 }
