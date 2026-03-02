@@ -170,7 +170,7 @@ class Expression(SQLModel, table=True):
     situation: str = Field(index=True, max_length=255, primary_key=True)  # 情景
     style: str = Field(index=True, max_length=255, primary_key=True)  # 风格
 
-    context: str  # 上下文
+    # context: str  # 上下文
     # up_content: str
 
     content_list: str  # 内容列表，JSON格式存储

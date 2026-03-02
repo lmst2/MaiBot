@@ -14,7 +14,7 @@ class MaiExpression(BaseDatabaseDataModel[Expression]):
         item_id: int,
         situation: str,
         style: str,
-        context: str,
+        # context: str,
         # up_content: str,
         content: List[str],
         count: int,
@@ -31,8 +31,8 @@ class MaiExpression(BaseDatabaseDataModel[Expression]):
         """表达方式使用情景"""
         self.style = style
         """表达方式风格"""
-        self.context = context
-        """表达方式上下文"""
+        # self.context = context
+        # """表达方式上下文"""
         # self.up_content = up_content
         self.content: List[str] = content
         """内容列表"""
@@ -40,7 +40,7 @@ class MaiExpression(BaseDatabaseDataModel[Expression]):
         self.last_active_time: datetime = last_active_time or datetime.now()
         self.create_time: datetime = create_time or datetime.now()
         self.session_id: Optional[str] = session_id
-        
+
         self.checked: bool = checked
         """是否已经被检查过"""
         self.rejected: bool = rejected
@@ -58,7 +58,7 @@ class MaiExpression(BaseDatabaseDataModel[Expression]):
             item_id=db_record.id,  # type: ignore
             situation=db_record.situation,
             style=db_record.style,
-            context=db_record.context,
+            # context=db_record.context,
             content=content_list,
             count=db_record.count,
             last_active_time=db_record.last_active_time,
@@ -77,7 +77,7 @@ class MaiExpression(BaseDatabaseDataModel[Expression]):
             id=self.item_id,
             situation=self.situation,
             style=self.style,
-            context=self.context,
+            # context=self.context,
             content_list=json.dumps(self.content),
             count=self.count,
             last_active_time=self.last_active_time,

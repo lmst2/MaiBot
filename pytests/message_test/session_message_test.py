@@ -121,7 +121,7 @@ def setup_mocks(monkeypatch):
     db_mod = _stub_module("src.common.database.database")
     db_mod.get_db_session = get_db_session
     db_mod.get_manual_db_session = get_manual_db_session
-    
+
     db_model_mod = _stub_module("src.common.database.database_model")
     db_model_mod.Messages = None  # 可以根据需要添加更多的属性或方法
 

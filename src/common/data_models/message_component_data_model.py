@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from maim_message import Seg, UserInfo, MessageBase, BaseMessageInfo
+from pathlib import Path
+from sqlmodel import select
 from typing import Optional, List, Union, Dict, Any
 
 import asyncio
@@ -61,8 +63,21 @@ class ImageComponent(BaseMessageComponentModel, ByteComponent):
         return "image"
 
     async def load_image_binary(self):
-        if not self.binary_data:
-            raise NotImplementedError
+        if self.binary_data:
+            return
+        from src.common.database.database import get_db_session
+        from src.common.database.database_model import Images, ImageType
+
+        try:
+            with get_db_session() as db:
+                statement = select(Images).filter_by(image_hash=self.binary_hash, image_type=ImageType.IMAGE).limit(1)
+                if image_record := db.exec(statement).first():
+                    image_path = Path(image_record.full_path)
+                else:
+                    raise ValueError(f"无法通过 image_hash 加载图片二进制数据: {self.binary_hash}")
+            self.binary_data = await asyncio.to_thread(image_path.read_bytes)
+        except Exception as e:
+            raise ValueError(f"通过 image_hash 加载图片二进制数据时发生错误: {e}") from e
 
     async def to_seg(self) -> Seg:
         if not self.binary_data:
@@ -85,18 +100,21 @@ class EmojiComponent(BaseMessageComponentModel, ByteComponent):
             ValueError: 如果 binary_data 为空且缺少 emoji_hash
             ValueError: 如果无法通过 emoji_hash 加载表情二进制数据
         """
-        if not self.binary_data:
-            from src.chat.emoji_system.emoji_manager import emoji_manager
+        if self.binary_data:
+            return
+        from src.common.database.database import get_db_session
+        from src.common.database.database_model import Images, ImageType
 
-            if not (
-                emoji := emoji_manager.get_emoji_by_hash(self.binary_hash)
-                or emoji_manager.get_emoji_by_hash_from_db(self.binary_hash)
-            ):
-                raise ValueError(f"无法通过 emoji_hash 加载表情二进制数据: {self.binary_hash}")
-            try:
-                self.binary_data = await asyncio.to_thread(emoji.full_path.read_bytes)
-            except Exception as e:
-                raise ValueError(f"通过 emoji_hash 加载表情二进制数据时发生错误: {e}") from e
+        try:
+            with get_db_session() as db:
+                statement = select(Images).filter_by(image_hash=self.binary_hash, image_type=ImageType.EMOJI).limit(1)
+                if image_record := db.exec(statement).first():
+                    image_path = Path(image_record.full_path)
+                else:
+                    raise ValueError(f"无法通过 emoji_hash 加载表情二进制数据: {self.binary_hash}")
+            self.binary_data = await asyncio.to_thread(image_path.read_bytes)
+        except Exception as e:
+            raise ValueError(f"通过 emoji_hash 加载表情二进制数据时发生错误: {e}") from e
 
     async def to_seg(self) -> Seg:
         if not self.binary_data:
