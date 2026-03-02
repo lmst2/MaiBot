@@ -1,4 +1,4 @@
-from typing import Optional, Literal
+from typing import Optional
 from sqlalchemy import Column, Float, Enum as SQLEnum, DateTime
 from sqlmodel import SQLModel, Field, LargeBinary
 from enum import Enum
@@ -14,6 +14,9 @@ class ImageType(str, Enum):
     EMOJI = "emoji"
     IMAGE = "image"
 
+class ModifiedBy(str, Enum):
+    AI = "ai"
+    USER = "user"
 
 class Messages(SQLModel, table=True):
     __tablename__ = "mai_messages"  # type: ignore
@@ -183,7 +186,7 @@ class Expression(SQLModel, table=True):
 
     checked: bool = Field(default=False)  # 是否已经被检查过
     rejected: bool = Field(default=False)  # 是否被拒绝但是未更新
-    modified_by: Optional[Literal["ai", "user"]] = Field(default=None)  # 最后修改者，标记用户或AI，为空表示未检查
+    modified_by: Optional[ModifiedBy] = Field(sa_column=Column(SQLEnum(ModifiedBy), nullable=True))  # 最后修改者，标记用户或AI，为空表示未检查
 
 
 class Jargon(SQLModel, table=True):

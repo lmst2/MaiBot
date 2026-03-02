@@ -35,7 +35,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   const renderIcon = () => {
     if (!schema['x-icon']) return null
     
-    const IconComponent = (LucideIcons as any)[schema['x-icon']]
+    const IconComponent = LucideIcons[schema['x-icon'] as keyof typeof LucideIcons] as React.ComponentType<{ className?: string }> | undefined
     if (!IconComponent) return null
     
     return <IconComponent className="h-4 w-4" />

@@ -1,4 +1,6 @@
 import type { FieldHookComponent } from '@/lib/field-hooks'
+
+import type { DebugConfig } from '../types'
 import { DebugSection } from '../sections/DebugSection'
 
 /**
@@ -8,7 +10,7 @@ import { DebugSection } from '../sections/DebugSection'
 export const DebugSectionHook: FieldHookComponent = ({ value, onChange }) => {
   return (
     <DebugSection
-      config={value as any}
+      config={value as DebugConfig}
       onChange={(newConfig) => onChange?.(newConfig)}
     />
   )

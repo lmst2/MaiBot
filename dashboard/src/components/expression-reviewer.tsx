@@ -105,27 +105,43 @@ export function ExpressionReviewer({ open, onOpenChange }: ExpressionReviewerPro
   const loadStats = useCallback(async () => {
     try {
       setStatsLoading(true)
-      const data = await getReviewStats()
-      setStats(data)
+      const result = await getReviewStats()
+      if (result.success) {
+        setStats(result.data)
+      } else {
+        toast({
+          title: '错误',
+          description: result.error,
+          variant: 'destructive',
+        })
+      }
     } catch (error) {
       console.error('加载统计失败:', error)
     } finally {
       setStatsLoading(false)
     }
-  }, [])
+  }, [toast])
 
   // 加载列表
   const loadList = useCallback(async () => {
     try {
       setLoading(true)
-      const response = await getReviewList({
+      const result = await getReviewList({
         page,
         page_size: pageSize,
         filter_type: filterType,
         search: search || undefined,
       })
-      setExpressions(response.data)
-      setTotal(response.total)
+      if (result.success) {
+        setExpressions(result.data.data)
+        setTotal(result.data.total)
+      } else {
+        toast({
+          title: '加载失败',
+          description: result.error,
+          variant: 'destructive',
+        })
+      }
     } catch (error) {
       toast({
         title: '加载失败',
@@ -137,19 +153,19 @@ export function ExpressionReviewer({ open, onOpenChange }: ExpressionReviewerPro
     }
   }, [page, pageSize, filterType, search, toast])
 
-  // 加载聊天名称映射
+  // 加载聚天名称映射
   const loadChatNames = useCallback(async () => {
     try {
-      const response = await getChatList()
-      if (response?.data) {
+      const result = await getChatList()
+      if (result.success) {
         const nameMap = new Map<string, string>()
-        response.data.forEach((chat: ChatInfo) => {
+        result.data.forEach((chat: ChatInfo) => {
           nameMap.set(chat.chat_id, chat.chat_name)
         })
         setChatNameMap(nameMap)
       }
     } catch (error) {
-      console.error('加载聊天名称失败:', error)
+      console.error('加载聚天名称失败:', error)
     }
   }, [])
 
@@ -158,24 +174,32 @@ export function ExpressionReviewer({ open, onOpenChange }: ExpressionReviewerPro
     try {
       setQuickLoading(true)
       const pageToLoad = append ? quickPage + 1 : quickPage
-      const response = await getReviewList({
+      const result = await getReviewList({
         page: pageToLoad,
         page_size: 20,
         filter_type: quickFilterType,
       })
       
-      if (append) {
-        // 追加模式：拼接数据
-        setQuickExpressions(prev => [...prev, ...response.data])
-        setQuickPage(pageToLoad)
+      if (result.success) {
+        if (append) {
+          // 追加模式：拼接数据
+          setQuickExpressions(prev => [...prev, ...result.data.data])
+          setQuickPage(pageToLoad)
+        } else {
+          // 替换模式
+          setQuickExpressions(result.data.data)
+        }
+        
+        setQuickTotal(result.data.total)
+        if (resetIndex) {
+          setQuickCurrentIndex(0)
+        }
       } else {
-        // 替换模式
-        setQuickExpressions(response.data)
-      }
-      
-      setQuickTotal(response.total)
-      if (resetIndex) {
-        setQuickCurrentIndex(0)
+        toast({
+          title: '加载失败',
+          description: result.error,
+          variant: 'destructive',
+        })
       }
     } catch (error) {
       toast({
@@ -247,13 +271,22 @@ export function ExpressionReviewer({ open, onOpenChange }: ExpressionReviewerPro
     setSwipeOffset(rejected ? -400 : 400)
 
     try {
-      const response = await batchReviewExpressions([{
+      const result = await batchReviewExpressions([{
         id: currentExpr.id,
         rejected,
         require_unchecked: quickFilterType === 'unchecked',
       }])
 
-      if (response.results[0]?.success) {
+      if (!result.success) {
+        toast({
+          title: '操作失败',
+          description: result.error,
+          variant: 'destructive',
+        })
+        return
+      }
+
+      if (result.data.results[0]?.success) {
         toast({
           title: rejected ? '已拒绝' : '已通过',
           description: `表达方式 #${currentExpr.id} ${rejected ? '已拒绝' : '已通过'}`,
@@ -514,11 +547,20 @@ export function ExpressionReviewer({ open, onOpenChange }: ExpressionReviewerPro
     try {
       setProcessingIds((prev) => new Set(prev).add(id))
       
-      const response = await batchReviewExpressions([
+      const result = await batchReviewExpressions([
         { id, rejected, require_unchecked: filterType === 'unchecked' }
       ])
       
-      if (response.results[0]?.success) {
+      if (!result.success) {
+        toast({
+          title: '操作失败',
+          description: result.error,
+          variant: 'destructive',
+        })
+        return
+      }
+
+      if (result.data.results[0]?.success) {
         toast({
           title: rejected ? '已拒绝' : '已通过',
           description: `表达方式 #${id} ${rejected ? '已拒绝' : '已通过'}`,
@@ -529,7 +571,7 @@ export function ExpressionReviewer({ open, onOpenChange }: ExpressionReviewerPro
       } else {
         toast({
           title: '操作失败',
-          description: response.results[0]?.message || '未知错误',
+          description: result.data.results[0]?.message || '未知错误',
           variant: 'destructive',
         })
       }
@@ -568,12 +610,21 @@ export function ExpressionReviewer({ open, onOpenChange }: ExpressionReviewerPro
         require_unchecked: filterType === 'unchecked',
       }))
       
-      const response = await batchReviewExpressions(items)
+      const result = await batchReviewExpressions(items)
       
+      if (!result.success) {
+        toast({
+          title: '批量审核失败',
+          description: result.error,
+          variant: 'destructive',
+        })
+        return
+      }
+
       toast({
         title: '批量审核完成',
-        description: `成功 ${response.succeeded} 条，失败 ${response.failed} 条`,
-        variant: response.failed > 0 ? 'destructive' : 'default',
+        description: `成功 ${result.data.succeeded} 条，失败 ${result.data.failed} 条`,
+        variant: result.data.failed > 0 ? 'destructive' : 'default',
       })
       
       // 清空选择并刷新

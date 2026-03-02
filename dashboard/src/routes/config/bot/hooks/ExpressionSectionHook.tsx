@@ -1,4 +1,6 @@
 import type { FieldHookComponent } from '@/lib/field-hooks'
+
+import type { ExpressionConfig } from '../types'
 import { ExpressionSection } from '../sections/ExpressionSection'
 
 /**
@@ -8,7 +10,7 @@ import { ExpressionSection } from '../sections/ExpressionSection'
 export const ExpressionSectionHook: FieldHookComponent = ({ value, onChange }) => {
   return (
     <ExpressionSection
-      config={value as any}
+      config={value as ExpressionConfig}
       onChange={(newConfig) => onChange?.(newConfig)}
     />
   )

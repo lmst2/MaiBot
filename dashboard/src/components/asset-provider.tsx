@@ -52,7 +52,7 @@ export function AssetStoreProvider({ children }: AssetStoreProviderProps) {
     }
   }, [])
 
-  return <AssetStoreContext.Provider value={value}>{children}</AssetStoreContext.Provider>
+  return <AssetStoreContext value={value}>{children}</AssetStoreContext>
 }
 
 export function useAssetStore() {
