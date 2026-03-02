@@ -48,6 +48,7 @@ class ReflectTracker:
         self.tracking = False
         self.last_check_msg_count = 0
 
+    # TODO test it
     async def trigger_tracker(self) -> bool:
         """
         触发追踪检查
