@@ -1,6 +1,20 @@
-import { app, BrowserWindow, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, protocol, session } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
+
+import { registerAppProtocol } from './protocol'
+import {
+  addBackend,
+  getActiveBackend,
+  getBackends,
+  getWindowBounds,
+  isFirstLaunch,
+  markFirstLaunchComplete,
+  removeBackend,
+  setActiveBackend,
+  setWindowBounds,
+  updateBackend,
+} from './store'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -11,67 +25,151 @@ let mainWindow: BrowserWindow | null = null
  * Register app:// custom protocol BEFORE app.whenReady()
  * This is critical for electron-vite to work correctly
  */
-function registerAppProtocol() {
+function registerAppScheme() {
   protocol.registerSchemesAsPrivileged([
     {
       scheme: 'app',
       privileges: {
+        corsEnabled: true,
         secure: true,
-        standard: true,
         allowServiceWorkers: true,
+        standard: true,
+        supportFetchAPI: true,
+        stream: true,
       },
     },
   ])
 }
 
 /**
+ * Register all IPC handlers for window control and store CRUD
+ */
+function registerIpcHandlers() {
+  // ── Window control ───────────────────────────────────────────────────────
+  ipcMain.handle('electron:minimize-window', () => mainWindow?.minimize())
+  ipcMain.handle('electron:maximize-window', () => {
+    if (mainWindow?.isMaximized()) mainWindow.unmaximize()
+    else mainWindow?.maximize()
+  })
+  ipcMain.handle('electron:close-window', () => mainWindow?.close())
+  ipcMain.handle('electron:is-maximized', () => mainWindow?.isMaximized() ?? false)
+
+  // ── Backend CRUD ─────────────────────────────────────────────────────────
+  ipcMain.handle('electron:get-backends', () => getBackends())
+  ipcMain.handle('electron:add-backend', (_e, conn) => addBackend(conn))
+  ipcMain.handle('electron:update-backend', (_e, id, patch) => updateBackend(id, patch))
+  ipcMain.handle('electron:remove-backend', (_e, id) => removeBackend(id))
+  ipcMain.handle('electron:set-active-backend', (_e, id) => {
+    setActiveBackend(id)
+    const backend = getActiveBackend()
+    mainWindow?.webContents.send('electron:backend-changed', backend)
+  })
+  ipcMain.handle('electron:get-active-backend', () => getActiveBackend())
+  ipcMain.handle('electron:get-active-url', () => getActiveBackend()?.url ?? null)
+
+  // ── App state ────────────────────────────────────────────────────────────
+  ipcMain.handle('electron:is-first-launch', () => isFirstLaunch())
+  ipcMain.handle('electron:mark-first-launch-complete', () => markFirstLaunchComplete())
+  ipcMain.handle('electron:get-app-version', () => app.getVersion())
+}
+
+/**
  * Create the main application window
  */
 function createWindow() {
+  const isMac = process.platform === 'darwin'
+
+  // Restore window bounds from store
+  const bounds = getWindowBounds()
+
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
     minWidth: 800,
     minHeight: 600,
+    // macOS: hide native title bar but keep traffic light buttons
+    ...(isMac
+      ? {
+          titleBarStyle: 'hidden' as const,
+          trafficLightPosition: { x: 12, y: 8 },
+        }
+      : {}),
+    // Windows/Linux: overlay title bar (custom title bar integrated)
+    ...(!isMac
+      ? {
+          titleBarOverlay: {
+            color: '#00000000',
+            symbolColor: '#ffffff',
+            height: 32,
+          },
+        }
+      : {}),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
     },
   })
 
   // Load the app using app:// protocol
   // electron-vite will handle serving the renderer from app://host/index.html
-  if (process.env.VITE_DEV_SERVER_URL) {
+  if (process.env.ELECTRON_RENDERER_URL) {
     // Development: load from electron-vite dev server
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
+    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
     // Production: load from bundled renderer
     mainWindow.loadURL('app://host/index.html')
   }
 
+  // Persist window size/position on close
+  mainWindow.on('close', () => {
+    if (mainWindow) {
+      const { x, y, width, height } = mainWindow.getBounds()
+      setWindowBounds({ x, y, width, height })
+    }
+  })
+
   mainWindow.on('closed', () => {
     mainWindow = null
   })
-}
 
-/**
- * Register app:// protocol handler (for production)
- */
-function registerAppProtocolHandler() {
-  protocol.handle('app', (request) => {
-    const filePath = new URL(request.url).pathname
-    return new Response(
-      `Cannot handle app:// requests. Renderer should be served by electron-vite.`
-    )
+  // Push maximize/unmaximize events to renderer
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('electron:window-maximized')
+  })
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('electron:window-unmaximized')
   })
 }
 
 /**
  * App event: when app is ready
  */
-app.on('ready', () => {
-  registerAppProtocolHandler()
+app.whenReady().then(() => {
+  registerAppProtocol()
+
+  // Set Content Security Policy
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self' app:; " +
+          "script-src 'self' 'unsafe-inline' app:; " +
+          "style-src 'self' 'unsafe-inline' app:; " +
+          "img-src 'self' app: data: blob:; " +
+          "font-src 'self' app: data:; " +
+          "connect-src 'self' app: ws: wss: http: https:; " +
+          "worker-src 'self' blob:;"
+        ],
+      },
+    })
+  })
+
+  registerIpcHandlers()
   createWindow()
 })
 
@@ -94,5 +192,4 @@ app.on('activate', () => {
   }
 })
 
-// Register protocol BEFORE app.whenReady()
-registerAppProtocol()
+registerAppScheme()

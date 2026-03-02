@@ -1,34 +1,40 @@
-import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import { defineConfig } from 'electron-vite'
 import path from 'path'
 
 export default defineConfig({
   main: {
     entry: 'electron/main/index.ts',
-    vite: {
-      build: {
-        rollupOptions: {
-          external: ['electron'],
-        },
+    build: {
+      target: 'node18',
+      lib: {
+        entry: 'electron/main/index.ts',
       },
-      resolve: {
-        alias: {
-          '@': path.resolve(__dirname, './src'),
-        },
+      rollupOptions: {
+        external: ['electron', 'electron-store'],
+      },
+    },
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
       },
     },
   },
   preload: {
     entry: 'electron/preload/index.ts',
-    vite: {
-      build: {
-        rollupOptions: {
-          external: ['electron'],
+    build: {
+      target: 'node18',
+      rollupOptions: {
+        input: path.resolve(__dirname, 'electron/preload/index.ts'),
+        output: {
+          entryFileNames: '[name].js',
+          format: 'cjs',
         },
       },
     },
   },
   renderer: {
+    root: '.',
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
@@ -49,15 +55,13 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
+        input: path.resolve(__dirname, 'index.html'),
         output: {
           manualChunks: {
-            // React core
             'react-vendor': ['react', 'react-dom', 'react/jsx-runtime'],
 
-            // TanStack Router
             router: ['@tanstack/react-router', '@tanstack/react-virtual'],
 
-            // Radix UI core
             'radix-core': [
               '@radix-ui/react-dialog',
               '@radix-ui/react-select',
@@ -67,8 +71,6 @@ export default defineConfig({
               '@radix-ui/react-toast',
               '@radix-ui/react-tooltip',
             ],
-
-            // Radix UI extras
             'radix-extra': [
               '@radix-ui/react-alert-dialog',
               '@radix-ui/react-avatar',
@@ -83,13 +85,10 @@ export default defineConfig({
               '@radix-ui/react-tabs',
             ],
 
-            // Icons
             icons: ['lucide-react'],
 
-            // Charts
             charts: ['recharts'],
 
-            // CodeMirror
             codemirror: [
               '@uiw/react-codemirror',
               '@codemirror/lang-javascript',
@@ -99,10 +98,8 @@ export default defineConfig({
               '@codemirror/theme-one-dark',
             ],
 
-            // ReactFlow
             reactflow: ['reactflow', 'dagre'],
 
-            // Markdown
             markdown: [
               'react-markdown',
               'remark-gfm',
@@ -111,7 +108,6 @@ export default defineConfig({
               'katex',
             ],
 
-            // Uppy
             uppy: [
               '@uppy/core',
               '@uppy/dashboard',
@@ -119,14 +115,8 @@ export default defineConfig({
               '@uppy/xhr-upload',
             ],
 
-            // Drag and drop
-            dnd: [
-              '@dnd-kit/core',
-              '@dnd-kit/sortable',
-              '@dnd-kit/utilities',
-            ],
+            dnd: ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
 
-            // Utils
             utils: [
               'date-fns',
               'clsx',
@@ -135,12 +125,7 @@ export default defineConfig({
               'axios',
             ],
 
-            // Misc
-            misc: [
-              'react-joyride',
-              'react-day-picker',
-              'cmdk',
-            ],
+            misc: ['react-joyride', 'react-day-picker', 'cmdk'],
           },
         },
       },
