@@ -354,3 +354,4 @@ MaiBot.code-workspace
 *.lock
 actionlint
 .sisyphus/
+dist-electron/
