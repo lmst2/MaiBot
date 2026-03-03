@@ -1,4 +1,5 @@
 import { Link, useMatchRoute } from '@tanstack/react-router'
+import { useTranslation } from 'react-i18next'
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -13,6 +14,7 @@ interface NavItemProps {
 }
 
 export function NavItem({ item, sidebarOpen, tooltipsEnabled, onMobileMenuClose }: NavItemProps) {
+  const { t } = useTranslation()
   const matchRoute = useMatchRoute()
   const isActive = matchRoute({ to: item.path })
   const Icon = item.icon
@@ -42,7 +44,7 @@ export function NavItem({ item, sidebarOpen, tooltipsEnabled, onMobileMenuClose 
             ? 'opacity-100 max-w-[200px]' 
             : 'opacity-100 max-w-[200px] lg:opacity-0 lg:max-w-0 lg:overflow-hidden'
         )}>
-          {item.label}
+          {t(item.label)}
         </span>
       </div>
     </>
@@ -70,7 +72,7 @@ export function NavItem({ item, sidebarOpen, tooltipsEnabled, onMobileMenuClose 
         </TooltipTrigger>
         {tooltipsEnabled && (
           <TooltipContent side="right" className="hidden lg:block">
-            <p>{item.label}</p>
+            <p>{t(item.label)}</p>
           </TooltipContent>
         )}
       </Tooltip>

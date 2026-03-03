@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 import { BackgroundLayer } from '@/components/background-layer'
 import { BackToTop } from '@/components/back-to-top'
@@ -16,6 +17,7 @@ import { Sidebar } from './Sidebar'
 import type { LayoutProps } from './types'
 
 export function Layout({ children }: LayoutProps) {
+  const { t } = useTranslation()
   const { checking } = useAuthGuard() // 检查认证状态
   
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -55,7 +57,7 @@ export function Layout({ children }: LayoutProps) {
   if (checking) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
-        <div className="text-muted-foreground">正在验证登录状态...</div>
+        <div className="text-muted-foreground">{t('layout.verifyingLogin')}</div>
       </div>
     )
   }

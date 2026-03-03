@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { useBackground } from '@/hooks/use-background'
@@ -20,6 +22,7 @@ export function Sidebar({
   tooltipsEnabled, 
   onMobileMenuClose 
 }: SidebarProps) {
+  const { t } = useTranslation()
   const sidebarBg = useBackground('sidebar')
 
   return (
@@ -60,7 +63,7 @@ export function Sidebar({
                 !sidebarOpen && "lg:mb-1 lg:invisible"
               )}>
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/60 whitespace-nowrap">
-                  {section.title}
+                  {t(section.title)}
                 </h3>
               </div>
 

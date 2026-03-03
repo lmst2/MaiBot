@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 import { APP_NAME, APP_VERSION } from '@/lib/version'
@@ -6,6 +8,8 @@ import { cn } from '@/lib/utils'
 import { LibraryItem } from './LibraryItem'
 
 export function AboutTab() {
+  const { t } = useTranslation()
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* GitHub 开源地址 */}
@@ -27,10 +31,10 @@ export function AboutTab() {
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="text-lg sm:text-xl font-bold text-foreground mb-2">
-              开源项目
+              {t('settings.about.openSource')}
             </h3>
             <p className="text-sm sm:text-base text-muted-foreground mb-3">
-              本项目在 GitHub 开源，欢迎 Star ⭐ 支持！
+              {t('settings.about.openSourceDesc')}
             </p>
             <a
               href="https://github.com/Mai-with-u/MaiBot-Dashboard"
@@ -55,7 +59,7 @@ export function AboutTab() {
                   clipRule="evenodd"
                 />
               </svg>
-              前往 GitHub
+              {t('settings.about.visitGitHub')}
               <svg
                 className="h-4 w-4"
                 fill="none"
@@ -76,19 +80,19 @@ export function AboutTab() {
 
       {/* 应用信息 */}
       <div className="rounded-lg border bg-card p-4 sm:p-6">
-        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">关于 {APP_NAME}</h3>
+        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{t('settings.about.aboutApp')} {APP_NAME}</h3>
         <div className="space-y-2 text-xs sm:text-sm text-muted-foreground">
-          <p>版本: {APP_VERSION}</p>
-          <p>麦麦（MaiBot）的现代化 Web 管理界面</p>
+          <p>{t('settings.about.version')} {APP_VERSION}</p>
+          <p>{t('settings.about.appDesc')}</p>
         </div>
       </div>
 
       {/* 作者信息 */}
       <div className="rounded-lg border bg-card p-4 sm:p-6">
-        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">作者</h3>
+        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{t('settings.about.author')}</h3>
         <div className="space-y-3">
           <div className="space-y-1">
-            <p className="text-sm font-medium">MaiBot 核心</p>
+            <p className="text-sm font-medium">{t('settings.about.maimaiCore')}</p>
             <p className="text-xs sm:text-sm text-muted-foreground">Mai-with-u</p>
           </div>
           <div className="space-y-1">
@@ -100,10 +104,10 @@ export function AboutTab() {
 
       {/* 技术栈 */}
       <div className="rounded-lg border bg-card p-4 sm:p-6">
-        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">技术栈</h3>
+        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{t('settings.about.techStack')}</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm text-muted-foreground">
           <div className="space-y-1.5">
-            <p className="font-medium text-foreground">前端框架</p>
+            <p className="font-medium text-foreground">{t('settings.about.frontendFramework')}</p>
             <ul className="space-y-0.5 list-disc list-inside">
               <li>React 19.2.0</li>
               <li>TypeScript 5.7.2</li>
@@ -112,7 +116,7 @@ export function AboutTab() {
             </ul>
           </div>
           <div className="space-y-1.5">
-            <p className="font-medium text-foreground">UI 组件</p>
+            <p className="font-medium text-foreground">{t('settings.about.uiComponents')}</p>
             <ul className="space-y-0.5 list-disc list-inside">
               <li>shadcn/ui</li>
               <li>Radix UI</li>
@@ -121,7 +125,7 @@ export function AboutTab() {
             </ul>
           </div>
           <div className="space-y-1.5">
-            <p className="font-medium text-foreground">后端</p>
+            <p className="font-medium text-foreground">{t('settings.about.backend')}</p>
             <ul className="space-y-0.5 list-disc list-inside">
               <li>Python 3.12+</li>
               <li>FastAPI</li>
@@ -130,7 +134,7 @@ export function AboutTab() {
             </ul>
           </div>
           <div className="space-y-1.5">
-            <p className="font-medium text-foreground">构建工具</p>
+            <p className="font-medium text-foreground">{t('settings.about.buildTool')}</p>
             <ul className="space-y-0.5 list-disc list-inside">
               <li>Bun / npm</li>
               <li>ESLint 9.17.0</li>
@@ -142,81 +146,81 @@ export function AboutTab() {
 
       {/* 开源感谢 */}
       <div className="rounded-lg border bg-card p-4 sm:p-6">
-        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">开源库感谢</h3>
+        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{t('settings.about.openSourceThanks')}</h3>
         <p className="text-xs sm:text-sm text-muted-foreground mb-3">
-          本项目使用了以下优秀的开源库，感谢他们的贡献：
+          {t('settings.about.openSourceThanksDesc')}
         </p>
         <ScrollArea className="h-[300px] sm:h-[400px]">
           <div className="space-y-4 pr-4">
             {/* UI 框架 */}
             <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">UI 框架与组件</p>
+              <p className="text-sm font-medium text-foreground">{t('settings.about.uiFrameworkGroup')}</p>
               <div className="grid gap-2 text-xs sm:text-sm">
-                <LibraryItem name="React" description="用户界面构建库" license="MIT" />
-                <LibraryItem name="shadcn/ui" description="优雅的 React 组件库" license="MIT" />
-                <LibraryItem name="Radix UI" description="无样式的可访问组件库" license="MIT" />
-                <LibraryItem name="Tailwind CSS" description="实用优先的 CSS 框架" license="MIT" />
-                <LibraryItem name="Lucide React" description="精美的图标库" license="ISC" />
+                <LibraryItem name="React" description={t('settings.about.lib.react')} license="MIT" />
+                <LibraryItem name="shadcn/ui" description={t('settings.about.lib.shadcn')} license="MIT" />
+                <LibraryItem name="Radix UI" description={t('settings.about.lib.radix')} license="MIT" />
+                <LibraryItem name="Tailwind CSS" description={t('settings.about.lib.tailwind')} license="MIT" />
+                <LibraryItem name="Lucide React" description={t('settings.about.lib.lucide')} license="ISC" />
               </div>
             </div>
 
             {/* 路由与状态 */}
             <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">路由与状态管理</p>
+              <p className="text-sm font-medium text-foreground">{t('settings.about.routingStateGroup')}</p>
               <div className="grid gap-2 text-xs sm:text-sm">
-                <LibraryItem name="TanStack Router" description="类型安全的路由库" license="MIT" />
-                <LibraryItem name="Zustand" description="轻量级状态管理" license="MIT" />
+                <LibraryItem name="TanStack Router" description={t('settings.about.lib.tanstackRouter')} license="MIT" />
+                <LibraryItem name="Zustand" description={t('settings.about.lib.zustand')} license="MIT" />
               </div>
             </div>
 
             {/* 表单与验证 */}
             <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">表单处理</p>
+              <p className="text-sm font-medium text-foreground">{t('settings.about.formGroup')}</p>
               <div className="grid gap-2 text-xs sm:text-sm">
-                <LibraryItem name="React Hook Form" description="高性能表单库" license="MIT" />
-                <LibraryItem name="Zod" description="TypeScript 优先的 schema 验证" license="MIT" />
+                <LibraryItem name="React Hook Form" description={t('settings.about.lib.reactHookForm')} license="MIT" />
+                <LibraryItem name="Zod" description={t('settings.about.lib.zod')} license="MIT" />
               </div>
             </div>
 
             {/* 工具库 */}
             <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">工具库</p>
+              <p className="text-sm font-medium text-foreground">{t('settings.about.utilsGroup')}</p>
               <div className="grid gap-2 text-xs sm:text-sm">
-                <LibraryItem name="clsx" description="条件 className 构建工具" license="MIT" />
-                <LibraryItem name="tailwind-merge" description="Tailwind 类名合并工具" license="MIT" />
-                <LibraryItem name="class-variance-authority" description="组件变体管理" license="Apache-2.0" />
-                <LibraryItem name="date-fns" description="现代化日期处理库" license="MIT" />
+                <LibraryItem name="clsx" description={t('settings.about.lib.clsx')} license="MIT" />
+                <LibraryItem name="tailwind-merge" description={t('settings.about.lib.tailwindMerge')} license="MIT" />
+                <LibraryItem name="class-variance-authority" description={t('settings.about.lib.cva')} license="Apache-2.0" />
+                <LibraryItem name="date-fns" description={t('settings.about.lib.dateFns')} license="MIT" />
               </div>
             </div>
 
             {/* 动画 */}
             <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">动画效果</p>
+              <p className="text-sm font-medium text-foreground">{t('settings.about.animationGroup')}</p>
               <div className="grid gap-2 text-xs sm:text-sm">
-                <LibraryItem name="Framer Motion" description="React 动画库" license="MIT" />
-                <LibraryItem name="vaul" description="抽屉组件动画" license="MIT" />
+                <LibraryItem name="Framer Motion" description={t('settings.about.lib.framerMotion')} license="MIT" />
+                <LibraryItem name="vaul" description={t('settings.about.lib.vaul')} license="MIT" />
               </div>
             </div>
 
             {/* 后端相关 */}
             <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">后端框架</p>
+              <p className="text-sm font-medium text-foreground">{t('settings.about.backendGroup')}</p>
               <div className="grid gap-2 text-xs sm:text-sm">
-                <LibraryItem name="FastAPI" description="现代化 Python Web 框架" license="MIT" />
-                <LibraryItem name="Uvicorn" description="ASGI 服务器" license="BSD-3-Clause" />
-                <LibraryItem name="Pydantic" description="数据验证库" license="MIT" />
-                <LibraryItem name="python-multipart" description="文件上传支持" license="Apache-2.0" />
+                <LibraryItem name="FastAPI" description={t('settings.about.lib.fastapi')} license="MIT" />
+                <LibraryItem name="Uvicorn" description={t('settings.about.lib.uvicorn')} license="BSD-3-Clause" />
+                <LibraryItem name="Pydantic" description={t('settings.about.lib.pydantic')} license="MIT" />
+                <LibraryItem name="python-multipart" description={t('settings.about.lib.pythonMultipart')} license="Apache-2.0" />
               </div>
             </div>
 
             {/* 开发工具 */}
             <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">开发工具</p>
+              <p className="text-sm font-medium text-foreground">{t('settings.about.devToolsGroup')}</p>
               <div className="grid gap-2 text-xs sm:text-sm">
-                <LibraryItem name="TypeScript" description="JavaScript 的超集" license="Apache-2.0" />
-                <LibraryItem name="Vite" description="下一代前端构建工具" license="MIT" />
-                <LibraryItem name="ESLint" description="JavaScript 代码检查工具" license="MIT" />
-                <LibraryItem name="PostCSS" description="CSS 转换工具" license="MIT" />
+                <LibraryItem name="TypeScript" description={t('settings.about.lib.typescript')} license="Apache-2.0" />
+                <LibraryItem name="Vite" description={t('settings.about.lib.vite')} license="MIT" />
+                <LibraryItem name="ESLint" description={t('settings.about.lib.eslint')} license="MIT" />
+                <LibraryItem name="PostCSS" description={t('settings.about.lib.postcss')} license="MIT" />
               </div>
             </div>
           </div>
@@ -225,7 +229,7 @@ export function AboutTab() {
 
       {/* 许可证 */}
       <div className="rounded-lg border bg-card p-4 sm:p-6">
-        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">开源许可</h3>
+        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{t('settings.about.openSourceLicense')}</h3>
         <div className="space-y-3">
           <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 sm:p-4">
             <div className="flex items-start gap-2 sm:gap-3">
@@ -239,15 +243,13 @@ export function AboutTab() {
                   MaiBot WebUI
                 </p>
                 <p className="text-xs sm:text-sm text-muted-foreground">
-                  本项目采用 GNU General Public License v3.0 开源许可证。
-                  您可以自由地使用、修改和分发本软件，但必须保持相同的开源许可。
+                  {t('settings.about.licenseDesc')}
                 </p>
               </div>
             </div>
           </div>
           <p className="text-xs sm:text-sm text-muted-foreground">
-            本项目依赖的所有开源库均遵循各自的开源许可证（MIT、Apache-2.0、BSD 等）。
-            感谢所有开源贡献者的无私奉献。
+            {t('settings.about.licenseDeps')}
           </p>
         </div>
       </div>

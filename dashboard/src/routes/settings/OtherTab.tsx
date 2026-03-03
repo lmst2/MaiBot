@@ -1,5 +1,6 @@
 import { AlertTriangle, Database, Download, HardDrive, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react'
 import { useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useNavigate } from '@tanstack/react-router'
 
 import { cn } from '@/lib/utils'
@@ -14,6 +15,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 
 // 其他设置标签页
 export function OtherTab() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { toast } = useToast()
   const [isResetting, setIsResetting] = useState(false)
@@ -73,8 +75,8 @@ export function OtherTab() {
   const handleClearLogCache = () => {
     logWebSocket.clearLogs()
     toast({
-      title: '日志已清除',
-      description: '日志缓存已清空',
+      title: t('settings.other.logCleared'),
+      description: t('settings.other.logClearedDesc'),
     })
   }
 
@@ -83,8 +85,8 @@ export function OtherTab() {
     const result = clearLocalCache()
     refreshStorageUsage()
     toast({
-      title: '缓存已清除',
-      description: `已清除 ${result.clearedKeys.length} 项缓存数据`,
+      title: t('settings.other.cacheCleared'),
+      description: t('settings.other.cacheClearedDesc', { count: result.clearedKeys.length }),
     })
   }
 
@@ -104,14 +106,14 @@ export function OtherTab() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       toast({
-        title: '导出成功',
-        description: '设置已导出为 JSON 文件',
+        title: t('settings.other.exportSuccess'),
+        description: t('settings.other.exportSuccessDesc'),
       })
     } catch (error) {
       console.error('导出设置失败:', error)
       toast({
-        title: '导出失败',
-        description: '无法导出设置',
+        title: t('settings.other.exportFailed'),
+        description: t('settings.other.exportFailedDesc'),
         variant: 'destructive',
       })
     } finally {
@@ -141,29 +143,29 @@ export function OtherTab() {
           refreshStorageUsage()
           
           toast({
-            title: '导入成功',
-            description: `成功导入 ${result.imported.length} 项设置${result.skipped.length > 0 ? `，跳过 ${result.skipped.length} 项` : ''}`,
+            title: t('settings.other.importSuccess'),
+            description: t('settings.other.importSuccessDesc', { imported: result.imported.length }) + (result.skipped.length > 0 ? t('settings.other.importSkippedSuffix', { skipped: result.skipped.length }) : ''),
           })
           
           // 提示用户刷新页面以应用所有更改
           if (result.imported.includes('theme') || result.imported.includes('accentColor')) {
             toast({
-              title: '提示',
-              description: '部分设置需要刷新页面才能完全生效',
+              title: t('settings.other.importRefreshHint'),
+              description: t('settings.other.importRefreshHintDesc'),
             })
           }
         } else {
           toast({
-            title: '导入失败',
-            description: '没有有效的设置项可导入',
+            title: t('settings.other.importFailed'),
+            description: t('settings.other.importNoDataDesc'),
             variant: 'destructive',
           })
         }
       } catch (error) {
         console.error('导入设置失败:', error)
         toast({
-          title: '导入失败',
-          description: '文件格式无效',
+          title: t('settings.other.importFailed'),
+          description: t('settings.other.importInvalidDesc'),
           variant: 'destructive',
         })
       } finally {
@@ -187,8 +189,8 @@ export function OtherTab() {
     setDataSyncInterval(DEFAULT_SETTINGS.dataSyncInterval)
     refreshStorageUsage()
     toast({
-      title: '已重置',
-      description: '所有设置已恢复为默认值，刷新页面以应用更改',
+      title: t('settings.other.resetDone'),
+      description: t('settings.other.resetDoneDesc'),
     })
   }
 
@@ -205,8 +207,8 @@ export function OtherTab() {
 
       if (response.ok && data.success) {
         toast({
-          title: '重置成功',
-          description: '即将进入初次配置向导',
+          title: t('settings.other.resetSuccess'),
+          description: t('settings.other.clearStorageSuccess'),
         })
 
         // 延迟跳转到配置向导
@@ -215,16 +217,16 @@ export function OtherTab() {
         }, 1000)
       } else {
         toast({
-          title: '重置失败',
-          description: data.message || '无法重置配置状态',
+          title: t('settings.other.resetFailed'),
+          description: data.message || t('settings.other.clearStorageFailed'),
           variant: 'destructive',
         })
       }
     } catch (error) {
       console.error('重置配置状态错误:', error)
       toast({
-        title: '重置失败',
-        description: '连接服务器失败',
+        title: t('settings.other.resetFailed'),
+        description: t('settings.other.clearStorageFailed'),
         variant: 'destructive',
       })
     } finally {
@@ -238,7 +240,7 @@ export function OtherTab() {
       <div className="rounded-lg border bg-card p-4 sm:p-6">
         <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 flex items-center gap-2">
           <Database className="h-5 w-5" />
-          性能与存储
+          {t('settings.other.performance')}
         </h3>
         <div className="space-y-4 sm:space-y-5">
           {/* 存储使用情况 */}
@@ -246,21 +248,21 @@ export function OtherTab() {
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium flex items-center gap-2">
                 <HardDrive className="h-4 w-4" />
-                本地存储使用
+                {t('settings.other.localStorage')}
               </span>
               <Button variant="ghost" size="sm" onClick={refreshStorageUsage} className="h-7 px-2">
                 <RefreshCw className="h-3 w-3" />
               </Button>
             </div>
             <div className="text-2xl font-bold text-primary">{formatBytes(storageUsage.used)}</div>
-            <p className="text-xs text-muted-foreground mt-1">{storageUsage.items} 个存储项</p>
+            <p className="text-xs text-muted-foreground mt-1">{t('settings.other.storageItems', { count: storageUsage.items })}</p>
           </div>
 
           {/* 日志缓存大小 */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">日志缓存大小</Label>
-              <span className="text-sm text-muted-foreground">{logCacheSize} 条</span>
+              <Label className="text-sm font-medium">{t('settings.other.logCache')}</Label>
+              <span className="text-sm text-muted-foreground">{logCacheSize} {t('settings.other.logCacheSizeUnit')}</span>
             </div>
             <Slider
               value={[logCacheSize]}
@@ -271,15 +273,15 @@ export function OtherTab() {
               className="w-full"
             />
             <p className="text-xs text-muted-foreground">
-              控制日志查看器最多缓存的日志条数，较大的值会占用更多内存
+              {t('settings.other.logCacheSizeDesc')}
             </p>
           </div>
 
           {/* 数据刷新间隔 */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">首页数据刷新间隔</Label>
-              <span className="text-sm text-muted-foreground">{dataSyncInterval} 秒</span>
+              <Label className="text-sm font-medium">{t('settings.other.dataSyncIntervalLabel')}</Label>
+              <span className="text-sm text-muted-foreground">{dataSyncInterval} {t('settings.other.dataSyncIntervalUnit')}</span>
             </div>
             <Slider
               value={[dataSyncInterval]}
@@ -290,15 +292,15 @@ export function OtherTab() {
               className="w-full"
             />
             <p className="text-xs text-muted-foreground">
-              控制首页统计数据的自动刷新间隔
+              {t('settings.other.dataSyncIntervalDesc')}
             </p>
           </div>
 
           {/* WebSocket 重连间隔 */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">WebSocket 重连间隔</Label>
-              <span className="text-sm text-muted-foreground">{wsReconnectInterval / 1000} 秒</span>
+              <Label className="text-sm font-medium">{t('settings.other.wsReconnectLabel')}</Label>
+              <span className="text-sm text-muted-foreground">{wsReconnectInterval / 1000} {t('settings.other.wsReconnectUnit')}</span>
             </div>
             <Slider
               value={[wsReconnectInterval]}
@@ -309,15 +311,15 @@ export function OtherTab() {
               className="w-full"
             />
             <p className="text-xs text-muted-foreground">
-              日志 WebSocket 连接断开后的重连基础间隔
+              {t('settings.other.wsReconnectDesc')}
             </p>
           </div>
 
           {/* WebSocket 最大重连次数 */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">WebSocket 最大重连次数</Label>
-              <span className="text-sm text-muted-foreground">{wsMaxReconnectAttempts} 次</span>
+              <Label className="text-sm font-medium">{t('settings.other.wsMaxReconnectLabel')}</Label>
+              <span className="text-sm text-muted-foreground">{wsMaxReconnectAttempts} {t('settings.other.wsMaxReconnectUnit')}</span>
             </div>
             <Slider
               value={[wsMaxReconnectAttempts]}
@@ -328,7 +330,7 @@ export function OtherTab() {
               className="w-full"
             />
             <p className="text-xs text-muted-foreground">
-              连接失败后的最大重连尝试次数
+              {t('settings.other.wsMaxReconnectDesc')}
             </p>
           </div>
 
@@ -336,27 +338,26 @@ export function OtherTab() {
           <div className="flex flex-wrap gap-2 pt-2">
             <Button variant="outline" size="sm" onClick={handleClearLogCache} className="gap-2">
               <Trash2 className="h-4 w-4" />
-              清除日志缓存
+              {t('settings.other.clearLogCacheFn')}
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-2">
                   <Trash2 className="h-4 w-4" />
-                  清除本地缓存
+                  {t('settings.other.clearLocalCache')}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>确认清除本地缓存</AlertDialogTitle>
+                  <AlertDialogTitle>{t('settings.other.confirmClearCache')}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    这将清除所有本地缓存的设置和数据（不包括登录凭证）。
-                    您可能需要重新配置部分偏好设置。确定要继续吗？
+                    {t('settings.other.confirmClearCacheDesc')}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>取消</AlertDialogCancel>
+                  <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
                   <AlertDialogAction onClick={handleClearLocalCache}>
-                    确认清除
+                    {t('settings.other.confirmClear')}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -369,11 +370,11 @@ export function OtherTab() {
       <div className="rounded-lg border bg-card p-4 sm:p-6">
         <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 flex items-center gap-2">
           <Download className="h-5 w-5" />
-          导入/导出设置
+          {t('settings.other.importExport')}
         </h3>
         <div className="space-y-4">
           <p className="text-xs sm:text-sm text-muted-foreground">
-            导出当前的界面设置以便备份，或从之前导出的文件中恢复设置。
+            {t('settings.other.importExportDesc')}
           </p>
           
           <div className="flex flex-wrap gap-2">
@@ -384,7 +385,7 @@ export function OtherTab() {
               className="gap-2"
             >
               <Download className="h-4 w-4" />
-              {isExporting ? '导出中...' : '导出设置'}
+              {isExporting ? t('settings.other.exporting') : t('settings.other.exportSettings')}
             </Button>
             
             <input
@@ -401,7 +402,7 @@ export function OtherTab() {
               className="gap-2"
             >
               <Upload className="h-4 w-4" />
-              {isImporting ? '导入中...' : '导入设置'}
+              {isImporting ? t('settings.other.importing') : t('settings.other.importSettings')}
             </Button>
           </div>
 
@@ -411,21 +412,20 @@ export function OtherTab() {
               <AlertDialogTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive">
                   <RotateCcw className="h-4 w-4" />
-                  重置所有设置为默认值
+                  {t('settings.other.resetAllSettingsBtn')}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>确认重置所有设置</AlertDialogTitle>
+                  <AlertDialogTitle>{t('settings.other.confirmResetAll')}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    这将把所有界面设置恢复为默认值，包括主题、颜色、动画等偏好设置。
-                    此操作不会影响您的登录状态。确定要继续吗？
+                    {t('settings.other.confirmResetAllDesc')}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>取消</AlertDialogCancel>
+                  <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
                   <AlertDialogAction onClick={handleResetAllSettings}>
-                    确认重置
+                    {t('settings.other.resetAllSettingsConfirm')}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -436,31 +436,31 @@ export function OtherTab() {
 
       {/* 配置向导 */}
       <div className="rounded-lg border bg-card p-4 sm:p-6">
-        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">配置向导</h3>
+        <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">{t('settings.other.configWizard')}</h3>
         <div className="space-y-3 sm:space-y-4">
           <div className="space-y-2">
             <p className="text-xs sm:text-sm text-muted-foreground">
-              重新进行初次配置向导，可以帮助您重新设置系统的基础配置。
+              {t('settings.other.configWizardDesc')}
             </p>
           </div>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="outline" disabled={isResetting} className="gap-2">
                 <RotateCcw className={cn('h-4 w-4', isResetting && 'animate-spin')} />
-                重新进行初次配置
+                {t('settings.other.rerunSetup')}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>确认重新配置</AlertDialogTitle>
+                <AlertDialogTitle>{t('settings.other.confirmRerunSetup')}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  这将带您重新进入初次配置向导。您可以重新设置系统的基础配置项。确定要继续吗？
+                  {t('settings.other.confirmRerunSetupDesc')}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>取消</AlertDialogCancel>
+                <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
                 <AlertDialogAction onClick={handleResetSetup}>
-                  确认重置
+                  {t('settings.other.resetAllSettingsConfirm')}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -472,36 +472,35 @@ export function OtherTab() {
       <div className="rounded-lg border border-dashed border-yellow-500/50 bg-yellow-500/5 p-4 sm:p-6">
         <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 flex items-center gap-2">
           <AlertTriangle className="h-5 w-5 text-yellow-500" />
-          开发者工具
+          {t('settings.other.devTools')}
         </h3>
         <div className="space-y-3 sm:space-y-4">
           <div className="space-y-2">
             <p className="text-xs sm:text-sm text-muted-foreground">
-              以下功能仅供开发调试使用，可能会导致页面崩溃或异常。
+              {t('settings.other.devToolsDesc')}
             </p>
           </div>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="destructive" className="gap-2">
                 <AlertTriangle className="h-4 w-4" />
-                触发测试错误
+                {t('settings.other.triggerError')}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>确认触发错误</AlertDialogTitle>
+                <AlertDialogTitle>{t('settings.other.confirmTriggerError')}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  这将手动触发一个 React 错误，用于测试错误边界组件的显示效果。
-                  页面将显示错误界面，您可以通过刷新页面或点击返回首页来恢复。
+                  {t('settings.other.confirmTriggerErrorDesc')}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>取消</AlertDialogCancel>
+                <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
                 <AlertDialogAction 
                   onClick={() => setShouldThrowError(true)}
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 >
-                  确认触发
+                  {t('settings.other.confirmTrigger')}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
