@@ -16,6 +16,7 @@ from .payload_content.message import MessageBuilder, Message
 from .payload_content.resp_format import RespFormat, RespFormatType
 from .payload_content.tool_option import ToolOption, ToolCall, ToolOptionBuilder, ToolParamType
 from .model_client.base_client import BaseClient, APIResponse, client_registry
+from .model_client import ensure_configured_clients_loaded
 from .utils import compress_messages, llm_usage_recorder
 from .exceptions import (
     NetworkConnectionError,
@@ -44,23 +45,62 @@ class LLMRequest:
         self.task_name = request_type
         self.model_for_task = model_set
         self.request_type = request_type
+        self._task_config_signature = self._build_task_config_signature(model_set)
         self._task_config_name = self._resolve_task_config_name(model_set)
         self.model_usage: Dict[str, Tuple[int, int, int]] = {
             model: (0, 0, 0) for model in self.model_for_task.model_list
         }
         """模型使用量记录，用于进行负载均衡，对应为(total_tokens, penalty, usage_penalty)，惩罚值是为了能在某个模型请求不给力或正在被使用的时候进行调整"""
 
+    @staticmethod
+    def _build_task_config_signature(model_set: TaskConfig) -> tuple:
+        return (
+            tuple(model_set.model_list),
+            model_set.selection_strategy,
+            model_set.temperature,
+            model_set.max_tokens,
+            model_set.slow_threshold,
+        )
+
+    @staticmethod
+    def _iter_task_config_items(model_task_config: Any) -> list[tuple[str, TaskConfig]]:
+        cls = type(model_task_config)
+        if hasattr(cls, "model_fields"):
+            attrs = [name for name in cls.model_fields.keys() if not name.startswith("__")]
+        else:
+            attrs = [name for name in dir(model_task_config) if not name.startswith("__")]
+
+        items: list[tuple[str, TaskConfig]] = []
+        for attr in attrs:
+            value = getattr(model_task_config, attr, None)
+            if isinstance(value, TaskConfig):
+                items.append((attr, value))
+        return items
+
+    def _resolve_task_config_by_signature(self, model_set: TaskConfig) -> Optional[str]:
+        target_signature = self._build_task_config_signature(model_set)
+        model_task_config = config_manager.get_model_config().model_task_config
+        return next(
+            (
+                attr
+                for attr, value in self._iter_task_config_items(model_task_config)
+                if self._build_task_config_signature(value) == target_signature
+            ),
+            None,
+        )
+
     def _resolve_task_config_name(self, model_set: TaskConfig) -> Optional[str]:
         try:
             model_task_config = config_manager.get_model_config().model_task_config
         except Exception:
             return None
-        for attr in dir(model_task_config):
-            if attr.startswith("__"):
-                continue
-            value = getattr(model_task_config, attr, None)
-            if isinstance(value, TaskConfig) and value is model_set:
+        for attr, value in self._iter_task_config_items(model_task_config):
+            if value is model_set:
                 return attr
+        try:
+            return self._resolve_task_config_by_signature(model_set)
+        except Exception:
+            return None
         return None
 
     def _get_latest_task_config(self) -> TaskConfig:
@@ -72,12 +112,22 @@ class LLMRequest:
                     return value
             except Exception:
                 return self.model_for_task
+        try:
+            if resolved_name := self._resolve_task_config_by_signature(self.model_for_task):
+                self._task_config_name = resolved_name
+                model_task_config = config_manager.get_model_config().model_task_config
+                value = getattr(model_task_config, resolved_name, None)
+                if isinstance(value, TaskConfig):
+                    return value
+        except Exception:
+            return self.model_for_task
         return self.model_for_task
 
     def _refresh_task_config(self) -> TaskConfig:
         latest = self._get_latest_task_config()
         if latest is not self.model_for_task:
             self.model_for_task = latest
+            self._task_config_signature = self._build_task_config_signature(latest)
         if list(self.model_usage.keys()) != latest.model_list:
             self.model_usage = {model: self.model_usage.get(model, (0, 0, 0)) for model in latest.model_list}
         return self.model_for_task
@@ -416,6 +466,8 @@ class LLMRequest:
         }
         if not available_models:
             raise RuntimeError("没有可用的模型可供选择。所有模型均已尝试失败。")
+
+        ensure_configured_clients_loaded()
 
         strategy = self.model_for_task.selection_strategy.lower()
 

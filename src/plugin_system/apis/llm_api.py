@@ -13,7 +13,7 @@ from src.llm_models.payload_content.tool_option import ToolCall
 from src.llm_models.payload_content.message import Message
 from src.llm_models.model_client.base_client import BaseClient
 from src.llm_models.utils_model import LLMRequest
-from src.config.config import model_config
+from src.config.config import config_manager
 from src.config.model_configs import TaskConfig
 
 logger = get_logger("llm_api")
@@ -31,7 +31,7 @@ def get_available_models() -> Dict[str, TaskConfig]:
     """
     try:
         # 自动获取所有属性并转换为字典形式
-        models = model_config.model_task_config
+        models = config_manager.get_model_config().model_task_config
         attrs = dir(models)
         rets: Dict[str, TaskConfig] = {}
         for attr in attrs:
