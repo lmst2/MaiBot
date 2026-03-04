@@ -182,6 +182,10 @@ class ConfigManager:
         self._reload_lock: asyncio.Lock = asyncio.Lock()
         self._reload_callbacks: list[Callable[[], object]] = []
         self._file_watcher: FileWatcher | None = None
+        self._file_watcher_subscription_id: str | None = None
+        self._hot_reload_min_interval_s: float = 1.0
+        self._hot_reload_timeout_s: float = 20.0
+        self._last_hot_reload_monotonic: float = 0.0
 
     def initialize(self):
         logger.info(f"MaiCore当前版本: {MMC_VERSION}")
@@ -261,21 +265,53 @@ class ConfigManager:
     async def start_file_watcher(self) -> None:
         if self._file_watcher is not None and self._file_watcher.running:
             return
-        self._file_watcher = FileWatcher(paths=[self.bot_config_path, self.model_config_path])
-        await self._file_watcher.start(self._handle_file_changes)
+        self._file_watcher = FileWatcher(
+            paths=[self.bot_config_path, self.model_config_path],
+            debounce_ms=600,
+            callback_timeout_s=15.0,
+            callback_failure_threshold=3,
+            callback_cooldown_s=30.0,
+        )
+        self._file_watcher_subscription_id = self._file_watcher.subscribe(
+            self._handle_file_changes,
+            paths=[self.bot_config_path, self.model_config_path],
+        )
+        await self._file_watcher.start()
         logger.info("配置文件监视器已启动")
 
     async def stop_file_watcher(self) -> None:
         if self._file_watcher is None:
             return
+        if self._file_watcher_subscription_id is not None:
+            self._file_watcher.unsubscribe(self._file_watcher_subscription_id)
+            self._file_watcher_subscription_id = None
+        watcher_stats = self._file_watcher.stats
+        logger.info(
+            "配置文件监视器停止统计: "
+            f"batches={watcher_stats.batches_seen}, "
+            f"changes={watcher_stats.changes_seen}, "
+            f"ok={watcher_stats.callbacks_succeeded}, "
+            f"failed={watcher_stats.callbacks_failed}, "
+            f"timeout={watcher_stats.callbacks_timed_out}, "
+            f"cooldown_skip={watcher_stats.callbacks_skipped_cooldown}, "
+            f"restart={watcher_stats.restart_count}"
+        )
         await self._file_watcher.stop()
         self._file_watcher = None
 
     async def _handle_file_changes(self, changes: Sequence[FileChange]) -> None:
         if not changes:
             return
+        now_monotonic = asyncio.get_running_loop().time()
+        if now_monotonic - self._last_hot_reload_monotonic < self._hot_reload_min_interval_s:
+            logger.debug("文件变更触发过于频繁，已跳过本次重载")
+            return
+        self._last_hot_reload_monotonic = now_monotonic
         logger.info("检测到配置文件变更，触发热重载")
-        await self.reload_config()
+        try:
+            await asyncio.wait_for(self.reload_config(), timeout=self._hot_reload_timeout_s)
+        except asyncio.TimeoutError:
+            logger.error(f"配置热重载超时（>{self._hot_reload_timeout_s}s）")
 
 
 def generate_new_config_file(config_class: type[T], config_path: Path, inner_config_version: str) -> None:
