@@ -4,6 +4,7 @@ import traceback
 import importlib.metadata
 
 from src.common.logger import get_logger
+from src.common.utils.port_checker import assert_port_available
 from src.config.config import global_config
 from .server import get_global_server
 
@@ -47,16 +48,22 @@ def get_global_api() -> MessageServer:  # sourcery skip: extract-method
 
         # 如果启用了API Server，则初始化额外服务器
         if enable_api_server:
+            api_logger = get_logger("maim_message_api_server")
+            api_server_host = maim_message_config.api_server_host
+            api_server_port = maim_message_config.api_server_port
+            use_wss = maim_message_config.api_server_use_wss
+
+            assert_port_available(
+                host=api_server_host,
+                port=api_server_port,
+                service_name="Additional API Server",
+                logger=api_logger,
+                config_hint="maim_message.api_server_port (config/bot_config.toml)",
+            )
+
             try:
                 from maim_message.server import WebSocketServer, ServerConfig
                 from maim_message.message import APIMessageBase
-
-                api_logger = get_logger("maim_message_api_server")
-
-                # 1. Prepare Config
-                api_server_host = maim_message_config.api_server_host
-                api_server_port = maim_message_config.api_server_port
-                use_wss = maim_message_config.api_server_use_wss
 
                 server_config = ServerConfig(
                     host=api_server_host,

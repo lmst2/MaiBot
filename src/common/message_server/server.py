@@ -5,7 +5,12 @@ from rich.traceback import install
 from typing import Optional
 from uvicorn import Config, Server as UvicornServer
 
+from src.common.logger import get_logger
+from src.common.utils.port_checker import assert_port_available, is_port_conflict_error, log_port_conflict
+
 install(extra_lines=3)
+
+logger = get_logger("message_server")
 
 
 class Server:
@@ -49,6 +54,14 @@ class Server:
 
     async def run(self):
         """启动服务器"""
+        assert_port_available(
+            host=self._host,
+            port=self._port,
+            service_name="消息服务器",
+            logger=logger,
+            config_hint="maim_message.ws_server_port (config/bot_config.toml)",
+        )
+
         # 禁用 uvicorn 默认日志和访问日志
         # 设置 ws_max_size 为 100MB，支持大消息（如包含多张图片的转发消息）
         config = Config(
@@ -65,6 +78,17 @@ class Server:
         except KeyboardInterrupt:
             await self.shutdown()
             raise
+        except OSError as e:
+            if is_port_conflict_error(e):
+                log_port_conflict(
+                    logger,
+                    service_name="消息服务器",
+                    host=self._host,
+                    port=self._port,
+                    config_hint="maim_message.ws_server_port (config/bot_config.toml)",
+                )
+            await self.shutdown()
+            raise RuntimeError(f"服务器运行错误: {str(e)}") from e
         except Exception as e:
             await self.shutdown()
             raise RuntimeError(f"服务器运行错误: {str(e)}") from e
