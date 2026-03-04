@@ -1,4 +1,19 @@
+import { getApiBaseUrl } from './api-base'
+import { isElectron } from './runtime'
+
 // 带自动认证处理的 fetch 封装
+
+/**
+ * 将相对路径在 Electron 端转换为绝对路径
+ * 浏览器端直接返回原始 input，行为不变
+ */
+async function resolveUrl(input: RequestInfo | URL): Promise<RequestInfo | URL> {
+  if (isElectron() && typeof input === 'string' && input.startsWith('/')) {
+    const base = await getApiBaseUrl()
+    return base ? `${base}${input}` : input
+  }
+  return input
+}
 
 /**
  * 增强的 fetch 函数，自动处理 401 错误并跳转到登录页
@@ -25,7 +40,7 @@ export async function fetchWithAuth(
     headers,
   }
   
-  const response = await fetch(input, config)
+  const response = await fetch(await resolveUrl(input), config)
 
   // 检测 401 未授权错误
   if (response.status === 401) {
@@ -54,7 +69,7 @@ export function getAuthHeaders(): HeadersInit {
  */
 export async function logout(): Promise<void> {
   try {
-    await fetch('/api/webui/auth/logout', {
+    await fetch(await resolveUrl('/api/webui/auth/logout'), {
       method: 'POST',
       credentials: 'include',
     })
@@ -70,7 +85,7 @@ export async function logout(): Promise<void> {
  */
 export async function checkAuthStatus(): Promise<boolean> {
   try {
-    const response = await fetch('/api/webui/auth/check', {
+    const response = await fetch(await resolveUrl('/api/webui/auth/check'), {
       method: 'GET',
       credentials: 'include',
     })

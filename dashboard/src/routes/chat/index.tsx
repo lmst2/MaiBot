@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useToast } from '@/hooks/use-toast'
+import { getWsBaseUrl } from '@/lib/api-base'
 import { fetchWithAuth } from '@/lib/fetch-with-auth'
 import { cn } from '@/lib/utils'
 import { Bot, Edit2, Loader2, RefreshCw, User, Send, Wifi, WifiOff, UserCircle2 } from 'lucide-react'
@@ -299,7 +300,7 @@ export function ChatPage() {
       return
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsBase = await getWsBaseUrl()
     const params = new URLSearchParams()
     
     // 添加 token 到参数
@@ -320,7 +321,7 @@ export function ChatPage() {
       params.append('user_name', userName)
     }
     
-    const wsUrl = `${protocol}//${window.location.host}/api/chat/ws?${params.toString()}`
+    const wsUrl = `${wsBase}/api/chat/ws?${params.toString()}`
     console.log(`[Tab ${tabId}] 正在连接 WebSocket:`, wsUrl)
 
     try {

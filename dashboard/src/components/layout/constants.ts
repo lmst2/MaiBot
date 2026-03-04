@@ -4,46 +4,46 @@ import type { MenuSection } from './types'
 
 export const menuSections: MenuSection[] = [
   {
-    title: '概览',
+    title: 'sidebar.groups.overview',
     items: [
-      { icon: Home, label: '首页', path: '/' },
+      { icon: Home, label: 'sidebar.menu.home', path: '/' },
     ],
   },
   {
-    title: '麦麦配置编辑',
+    title: 'sidebar.groups.botConfig',
     items: [
-      { icon: FileText, label: '麦麦主程序配置', path: '/config/bot' },
-      { icon: Server, label: 'AI模型厂商配置', path: '/config/modelProvider', tourId: 'sidebar-model-provider' },
-      { icon: Boxes, label: '模型管理与分配', path: '/config/model', tourId: 'sidebar-model-management' },
-      { icon: Sliders, label: '麦麦适配器配置', path: '/config/adapter' },
+      { icon: FileText, label: 'sidebar.menu.botMainConfig', path: '/config/bot' },
+      { icon: Server, label: 'sidebar.menu.aiModelProvider', path: '/config/modelProvider', tourId: 'sidebar-model-provider' },
+      { icon: Boxes, label: 'sidebar.menu.modelManagement', path: '/config/model', tourId: 'sidebar-model-management' },
+      { icon: Sliders, label: 'sidebar.menu.adapterConfig', path: '/config/adapter' },
     ],
   },
   {
-    title: '麦麦资源管理',
+    title: 'sidebar.groups.botResources',
     items: [
-      { icon: Smile, label: '表情包管理', path: '/resource/emoji' },
-      { icon: MessageSquare, label: '表达方式管理', path: '/resource/expression' },
-      { icon: Hash, label: '黑话管理', path: '/resource/jargon' },
-      { icon: UserCircle, label: '人物信息管理', path: '/resource/person' },
-      { icon: Network, label: '知识库图谱可视化', path: '/resource/knowledge-graph' },
-      { icon: Database, label: '麦麦知识库管理', path: '/resource/knowledge-base' },
+      { icon: Smile, label: 'sidebar.menu.emojiManagement', path: '/resource/emoji' },
+      { icon: MessageSquare, label: 'sidebar.menu.expressionManagement', path: '/resource/expression' },
+      { icon: Hash, label: 'sidebar.menu.slangManagement', path: '/resource/jargon' },
+      { icon: UserCircle, label: 'sidebar.menu.personInfo', path: '/resource/person' },
+      { icon: Network, label: 'sidebar.menu.knowledgeGraph', path: '/resource/knowledge-graph' },
+      { icon: Database, label: 'sidebar.menu.knowledgeBase', path: '/resource/knowledge-base' },
     ],
   },
   {
-    title: '扩展与监控',
+    title: 'sidebar.groups.extensionsMonitor',
     items: [
-      { icon: Package, label: '插件市场', path: '/plugins' },
-      { icon: LayoutGrid, label: '配置模板市场', path: '/config/pack-market' },
-      { icon: Sliders, label: '插件配置', path: '/plugin-config' },
-      { icon: FileSearch, label: '日志查看器', path: '/logs' },
-      { icon: Activity, label: '计划器&回复器监控', path: '/planner-monitor' },
-      { icon: MessageSquare, label: '本地聊天室', path: '/chat' },
+      { icon: Package, label: 'sidebar.menu.pluginMarket', path: '/plugins' },
+      { icon: LayoutGrid, label: 'sidebar.menu.configTemplate', path: '/config/pack-market' },
+      { icon: Sliders, label: 'sidebar.menu.pluginConfig', path: '/plugin-config' },
+      { icon: FileSearch, label: 'sidebar.menu.logViewer', path: '/logs' },
+      { icon: Activity, label: 'sidebar.menu.plannerMonitor', path: '/planner-monitor' },
+      { icon: MessageSquare, label: 'sidebar.menu.localChat', path: '/chat' },
     ],
   },
   {
-    title: '系统',
+    title: 'sidebar.groups.system',
     items: [
-      { icon: Settings, label: '系统设置', path: '/settings' },
+      { icon: Settings, label: 'sidebar.menu.settings', path: '/settings' },
     ],
   },
 ]

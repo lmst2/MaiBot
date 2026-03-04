@@ -7,6 +7,8 @@ import { checkAuthStatus } from './fetch-with-auth'
 import { getSetting } from './settings-manager'
 import { createReconnectingWebSocket } from './ws-utils'
 
+import { getWsBaseUrl } from '@/lib/api-base'
+
 export interface LogEntry {
   id: string
   timestamp: string
@@ -54,18 +56,9 @@ class LogWebSocketManager {
   /**
    * 获取 WebSocket URL（不含 token 参数）
    */
-  private getWebSocketUrl(): string {
-    let baseUrl: string
-    if (import.meta.env.DEV) {
-      // 开发模式：连接到 WebUI 后端服务器
-      baseUrl = 'ws://127.0.0.1:8001/ws/logs'
-    } else {
-      // 生产模式：使用当前页面的 host
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const host = window.location.host
-      baseUrl = `${protocol}//${host}/ws/logs`
-    }
-    return baseUrl
+  private async getWebSocketUrl(): Promise<string> {
+    const wsBase = await getWsBaseUrl()
+    return `${wsBase}/ws/logs`
   }
 
   /**
@@ -85,7 +78,7 @@ class LogWebSocketManager {
       return
     }
 
-    const wsUrl = this.getWebSocketUrl()
+    const wsUrl = await this.getWebSocketUrl()
 
     // 使用 ws-utils 创建 WebSocket
     this.wsControl = createReconnectingWebSocket(wsUrl, {

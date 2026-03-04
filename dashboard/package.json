@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "main": "./out/main/index.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -10,7 +11,83 @@
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "test": "vitest",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "electron:dev": "electron-vite dev",
+    "electron:build": "electron-vite build",
+    "electron:preview": "electron-vite preview",
+    "electron:dist": "electron-vite build && electron-builder",
+    "electron:dist:mac": "electron-vite build && electron-builder --mac",
+    "electron:dist:win": "electron-vite build && electron-builder --win",
+    "electron:dist:linux": "electron-vite build && electron-builder --linux"
+  },
+  "build": {
+    "appId": "org.maibot.dashboard",
+    "productName": "MaiBot Dashboard",
+    "directories": {
+      "output": "dist-electron",
+      "buildResources": "electron/resources"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "electron/resources/icon.icns",
+      "darkModeSupport": true
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/resources/icon.ico"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "electron/resources/icon.png",
+      "category": "Utility"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
   },
   "dependencies": {
     "@codemirror/lang-css": "^6.3.1",
@@ -60,12 +137,15 @@
     "dagre": "^0.8.5",
     "date-fns": "^4.1.0",
     "html-to-image": "^1.11.13",
+    "i18next": "^25.8.13",
+    "i18next-browser-languagedetector": "^8.2.1",
     "idb": "^8.0.3",
     "katex": "^0.16.27",
     "lucide-react": "^0.556.0",
     "react": "^19.2.1",
     "react-day-picker": "^9.12.0",
     "react-dom": "^19.2.1",
+    "react-i18next": "^16.5.4",
     "react-joyride": "^2.9.3",
     "react-markdown": "^10.1.0",
     "reactflow": "^11.11.4",
@@ -88,6 +168,10 @@
     "@vitejs/plugin-react": "^5.1.2",
     "@vitest/ui": "^4.0.18",
     "autoprefixer": "^10.4.22",
+    "electron": "^40.6.1",
+    "electron-builder": "^26.8.1",
+    "electron-store": "11.0.2",
+    "electron-vite": "^5.0.0",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
