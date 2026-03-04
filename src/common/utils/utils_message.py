@@ -1,9 +1,10 @@
 from maim_message import MessageBase, Seg
-from typing import List, Tuple, Optional, TYPE_CHECKING
+from typing import List, Tuple, Optional, Dict, TYPE_CHECKING
 
 import base64
 import hashlib
 import msgpack
+import random
 import re
 
 from src.common.data_models.message_component_data_model import (
@@ -16,8 +17,12 @@ from src.common.data_models.message_component_data_model import (
     AtComponent,
     ReplyComponent,
     DictComponent,
+    UnknownUser,
+    ForwardNodeComponent,
 )
 from src.config.config import global_config
+
+from .math_utils import number_to_short_id
 
 if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
@@ -136,3 +141,307 @@ class MessageUtils:
         with get_db_session() as session:
             db_message = message.to_db_instance()
             session.add(db_message)
+
+    @staticmethod
+    async def build_readable_message(
+        messages: List["SessionMessage"],
+        anonymize: bool = False,
+        show_lineno: bool = False,
+        extract_pictures: bool = False,
+        replace_bot_name: bool = False,
+        target_bot_name: Optional[str] = None,
+    ) -> Tuple[str, Dict[str, Tuple[str, str]]]:
+        """
+        将消息构建为LLM可读的文本格式
+
+        Args:
+            messages (List[SessionMessage]): 消息列表
+            anonymize (bool): 是否匿名化用户信息
+            show_lineno (bool): 是否在每条消息前显示行号
+            extract_pictures (bool): 是否提取图片信息并在文本中显示占位符
+            replace_bot_name (bool): 是否将消息中的机器人名称替换为统一的占位符
+            target_bot_name (Optional[str]): 如果replace_bot_name为True，指定要替换的机器人名称
+        Returns:
+            return (Tuple[str, Dict[str, Tuple[str, str]]]): 构建后的消息文本，以及映射表（匿名ID, 原始名称）
+        """
+        msg_list: List["SessionMessage"] = messages
+        user_id_mapping: Dict[str, Tuple[str, str]] = {}  # user_id -> (匿名ID, 原始名称)
+        copied: bool = False  # 标记是否已经复制过消息列表，避免不必要的复制开销
+        img_map: Optional[Dict[str, Tuple[int, str]]] = None
+        emoji_map: Optional[Dict[str, Tuple[int, str]]] = None
+        if replace_bot_name and not target_bot_name:
+            raise ValueError("当replace_bot_name为True时，必须指定target_bot_name参数")
+        if anonymize or replace_bot_name:
+            user_id_mapping = {}  # 利用弱引用直接传入并得到修改结果
+            anonymous_messages: List["SessionMessage"] = []
+            salt_str = str(random.randint(100000, 999999))  # 每次调用生成一个随机盐，确保匿名ID不可预测
+            anonymous_messages.extend(
+                MessageUtils._process_usr_info(
+                    msg,
+                    user_id_mapping,
+                    salt_str,
+                    anonymize,
+                    replace_bot_name,
+                    target_bot_name,
+                )
+                for msg in messages
+            )
+            msg_list = anonymous_messages
+            copied = True
+
+        processed_plain_texts: List[str] = []
+        if extract_pictures:
+            img_map = {}  # binary_hash -> (图片ID, 描述信息)
+            emoji_map = {}  # binary_hash -> (表情ID, 描述信息)
+            msg_list = [
+                MessageUtils._extract_pictures_from_message(msg, img_map, emoji_map, copied) for msg in msg_list
+            ]
+            processed_plain_texts.extend(f"[图片{img_id}: {desc}]" for img_id, desc in img_map.values())
+            processed_plain_texts.append("")  # 图片和表情之间添加一个换行，避免连在一起
+            processed_plain_texts.extend(f"[表情{emoji_id}: {desc}]" for emoji_id, desc in emoji_map.values())
+            processed_plain_texts.append("")  # 表情和消息文本之间添加两个换行，避免连在一起
+
+        lineno_counter = 1
+        for msg in msg_list:
+            await msg.process()
+            plain_text: str = msg.processed_plain_text  # type: ignore
+            usr_info = msg.message_info.user_info
+            usr_name = usr_info.user_cardname or usr_info.user_nickname or "未知用户"
+            header = f"[{lineno_counter}] {usr_name}说：" if show_lineno else f"{usr_name}说："
+            lineno_counter += 1
+            processed_plain_texts.append("".join([header, plain_text]))
+
+        return "\n".join(processed_plain_texts), user_id_mapping
+
+    @staticmethod
+    def _process_usr_info(
+        message: "SessionMessage",
+        anonymize_mapping: Dict[str, Tuple[str, str]],
+        salt: str,
+        anonymize: bool,
+        replace_bot_name: bool,
+        target_bot_name: Optional[str] = None,
+    ):
+        """处理消息中的用户信息，进行匿名化显示"""
+        new_message = message.deepcopy()
+        new_component_list = [
+            MessageUtils._process_msg_component(
+                component,
+                anonymize_mapping,
+                salt,
+                anonymize,
+                replace_bot_name,
+                target_bot_name,
+            )
+            for component in new_message.raw_message.components
+        ]
+        new_message.raw_message.components = new_component_list
+        msg_usr_info = message.message_info.user_info
+        if anonymize:
+            if msg_usr_info.user_id not in anonymize_mapping:
+                num = len(anonymize_mapping) + 1
+                anonymous_id = number_to_short_id(num, salt, length=6)
+                original_name = msg_usr_info.user_cardname or msg_usr_info.user_nickname or msg_usr_info.user_id
+                anonymize_mapping[msg_usr_info.user_id] = (anonymous_id, original_name)
+            anonymous_name = anonymize_mapping[msg_usr_info.user_id][0]
+            new_message.message_info.user_info.user_nickname = anonymous_name
+            new_message.message_info.user_info.user_cardname = anonymous_name
+        if replace_bot_name and target_bot_name and is_bot_self(msg_usr_info.user_id):
+            new_message.message_info.user_info.user_nickname = target_bot_name
+            new_message.message_info.user_info.user_cardname = target_bot_name
+        return new_message
+
+    @staticmethod
+    def _process_msg_component(
+        component: StandardMessageComponents,
+        anonymize_mapping: Dict[str, Tuple[str, str]],
+        salt: str,
+        anonymize: bool,
+        replace_bot_name: bool,
+        target_bot_name: Optional[str] = None,
+    ) -> StandardMessageComponents:
+        """将消息组件中的用户信息匿名化"""
+        if isinstance(component, AtComponent):
+            return MessageUtils.__handle_at_component(
+                component,
+                anonymize_mapping,
+                salt,
+                anonymize,
+                replace_bot_name,
+                target_bot_name,
+            )
+        elif isinstance(component, ReplyComponent):
+            return MessageUtils.__handle_reply_component(
+                component,
+                anonymize_mapping,
+                salt,
+                anonymize,
+                replace_bot_name,
+                target_bot_name,
+            )
+        elif isinstance(component, ForwardNodeComponent):
+            return MessageUtils.__handle_forward_node_component(
+                component,
+                anonymize_mapping,
+                salt,
+                anonymize,
+                replace_bot_name,
+                target_bot_name,
+            )
+        return component
+
+    @staticmethod
+    def __handle_at_component(
+        component: AtComponent,
+        anonymize_mapping: Dict[str, Tuple[str, str]],
+        salt: str,
+        anonymize: bool,
+        replace_bot_name: bool,
+        target_bot_name: Optional[str] = None,
+    ):
+        user_id = component.target_user_id  # user_id一定存在
+        if anonymize:
+            if user_id not in anonymize_mapping:
+                # 新人物? 编号 + 1，生成一个新的匿名ID
+                num = len(anonymize_mapping) + 1
+                anonymous_id = number_to_short_id(num, salt, length=6)
+                original_name = component.target_user_cardname or component.target_user_nickname or user_id
+                anonymize_mapping[user_id] = (anonymous_id, original_name)
+            # 替换昵称和备注为匿名ID
+            anonymous_name = anonymize_mapping[user_id][0]
+            component.target_user_nickname = anonymous_name
+            component.target_user_cardname = anonymous_name
+        if replace_bot_name and target_bot_name and is_bot_self(user_id):
+            component.target_user_nickname = target_bot_name
+            component.target_user_cardname = target_bot_name
+        return component
+
+    @staticmethod
+    def __handle_forward_node_component(
+        component: ForwardNodeComponent,
+        anonymize_mapping: Dict[str, Tuple[str, str]],
+        salt: str,
+        anonymize: bool,
+        replace_bot_name: bool,
+        target_bot_name: Optional[str] = None,
+    ):
+        for comp in component.forward_components:
+            user_id = comp.user_id
+            if not user_id:  # 如果转发节点的用户ID不存在，直接设置为未知用户
+                comp.user_id = "unknown_user"
+                comp.user_cardname = "未知用户"
+                comp.user_nickname = "未知用户"
+                continue
+            if isinstance(user_id, UnknownUser):  # 如果用户ID是UnknownUser类型，直接设置为未知用户
+                comp.user_id = "unknown_user"
+                comp.user_cardname = "未知用户"
+                comp.user_nickname = "未知用户"
+                continue
+            if anonymize:
+                if user_id not in anonymize_mapping:
+                    num = len(anonymize_mapping) + 1
+                    anonymous_id = number_to_short_id(num, salt, length=6)
+                    original_name = comp.user_cardname or comp.user_nickname or user_id
+                    anonymize_mapping[user_id] = (anonymous_id, original_name)
+                anonymous_name = anonymize_mapping[user_id][0]
+                comp.user_nickname = anonymous_name
+                comp.user_cardname = anonymous_name
+            if replace_bot_name and target_bot_name and is_bot_self(user_id):
+                comp.user_nickname = target_bot_name
+                comp.user_cardname = target_bot_name
+            comp.content = [  # 递归处理转发消息中的组件
+                MessageUtils._process_msg_component(
+                    c,
+                    anonymize_mapping,
+                    salt,
+                    anonymize,
+                    replace_bot_name,
+                    target_bot_name,
+                )
+                for c in comp.content
+            ]
+        return component
+
+    @staticmethod
+    def __handle_reply_component(
+        component: ReplyComponent,
+        anonymize_mapping: Dict[str, Tuple[str, str]],
+        salt: str,
+        anonymize: bool,
+        replace_bot_name: bool,
+        target_bot_name: Optional[str] = None,
+    ):
+        if user_id := component.target_message_sender_id:
+            if anonymize:
+                if user_id not in anonymize_mapping:
+                    num = len(anonymize_mapping) + 1
+                    anonymous_id = number_to_short_id(num, salt, length=6)
+                    original_name = (
+                        component.target_message_sender_cardname or component.target_message_sender_nickname or user_id
+                    )
+                    anonymize_mapping[user_id] = (anonymous_id, original_name)
+                anonymous_name = anonymize_mapping[user_id][0]
+                component.target_message_sender_nickname = anonymous_name
+                component.target_message_sender_cardname = anonymous_name
+            if replace_bot_name and target_bot_name and is_bot_self(user_id):
+                component.target_message_sender_nickname = target_bot_name
+                component.target_message_sender_cardname = target_bot_name
+        else:
+            component.target_message_sender_nickname = "未知用户"  # 如果没有Reply消息的发送者ID，直接设置为未知用户
+            component.target_message_sender_cardname = "未知用户"
+        return component
+
+    @staticmethod
+    def _extract_pictures_from_message(
+        message: "SessionMessage",
+        img_map: Dict[str, Tuple[int, str]],
+        emoji_map: Dict[str, Tuple[int, str]],
+        copied: bool,
+    ):
+        """从消息中提取图片组件，返回列表包含(图片ID, 描述信息)"""
+        if not copied:
+            message = message.deepcopy()  # 避免修改原消息
+        new_component_list: List[StandardMessageComponents] = []
+        new_component_list.extend(
+            MessageUtils._extract_pictures_from_component(component, img_map, emoji_map)
+            for component in message.raw_message.components
+        )
+        message.raw_message.components = new_component_list
+        return message
+
+    @staticmethod
+    def _extract_pictures_from_component(
+        component: StandardMessageComponents,
+        img_map: Dict[str, Tuple[int, str]],
+        emoji_map: Dict[str, Tuple[int, str]],
+    ) -> StandardMessageComponents:
+        """从消息组件中提取图片信息"""
+        if isinstance(component, ImageComponent):
+            if component.binary_hash in img_map:
+                img_id, _ = img_map[component.binary_hash]
+            else:
+                img_id = len(img_map) + 1
+                img_map[component.binary_hash] = (img_id, component.content)
+            component.content = f"图片{img_id}"
+        elif isinstance(component, EmojiComponent):
+            if component.binary_hash in emoji_map:
+                emoji_id, _ = emoji_map[component.binary_hash]
+            else:
+                emoji_id = len(emoji_map) + 1
+                emoji_map[component.binary_hash] = (emoji_id, component.content)
+            component.content = f"表情{emoji_id}"
+        elif isinstance(component, ForwardNodeComponent):
+            for comp in component.forward_components:
+                comp.content = [
+                    MessageUtils._extract_pictures_from_component(c, img_map, emoji_map) for c in comp.content
+                ]
+        return component
+
+# TODO: 这个函数的实现非常临时，后续需要替换为更完善的实现，比如直接从配置文件中读取机器人自己的ID，或者通过API获取机器人自己的信息等
+def is_bot_self(user_id: str) -> bool:
+    """
+    判断用户ID是否是机器人自己
+
+    临时方法，后续会替换为更完善的实现
+    """
+    return user_id == "bot_self"

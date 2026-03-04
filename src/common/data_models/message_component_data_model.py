@@ -13,6 +13,7 @@ from src.common.logger import get_logger
 
 logger = get_logger("base_message_component_model")
 
+class UnknownUser(str): ...
 
 class BaseMessageComponentModel(ABC):
     @property
@@ -255,13 +256,13 @@ class ForwardComponent(BaseMessageComponentModel):
 
     def __init__(
         self,
-        user_nickname: str,
+        user_nickname: str | UnknownUser,
         message_id: str,
         content: List[StandardMessageComponents],
         user_id: Optional[str] = None,
         user_cardname: Optional[str] = None,
     ):
-        self.user_nickname: str = user_nickname
+        self.user_nickname: str | UnknownUser = user_nickname
         """转发节点的发送者昵称"""
         self.message_id: str = message_id
         """转发节点的消息ID"""
