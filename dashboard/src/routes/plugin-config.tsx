@@ -924,7 +924,10 @@ function PluginConfigPageContent() {
                   <div
                     key={plugin.id}
                     className="flex items-center justify-between p-4 rounded-lg border hover:bg-muted/50 cursor-pointer transition-colors"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setSelectedPlugin(plugin)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedPlugin(plugin) } }}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">

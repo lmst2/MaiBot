@@ -52,6 +52,7 @@ import { RestartProvider, useRestart } from '@/lib/restart-context'
 import { RestartOverlay } from '@/components/restart-overlay'
 import { ExpressionReviewer } from '@/components/expression-reviewer'
 import { getReviewStats } from '@/lib/expression-api'
+import { ZoomableChart } from '@/components/ui/zoomable-chart'
 
 // 主导出组件：包装 RestartProvider
 export function IndexPage() {
@@ -736,6 +737,7 @@ function IndexPageContent() {
               <CardDescription>最近{timeRange}小时的请求量变化</CardDescription>
             </CardHeader>
             <CardContent>
+              <ZoomableChart aria-label="每小时请求量趋势图，显示最近若干小时的请求次数变化">
               <ChartContainer config={chartConfig} className="h-[300px] sm:h-[400px] w-full aspect-auto">
                 <LineChart data={hourly_data}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-muted-foreground) / 0.2)" />
@@ -760,6 +762,7 @@ function IndexPageContent() {
                   />
                 </LineChart>
               </ChartContainer>
+              </ZoomableChart>
             </CardContent>
           </Card>
 
@@ -770,6 +773,7 @@ function IndexPageContent() {
                 <CardDescription>API调用成本变化</CardDescription>
               </CardHeader>
               <CardContent>
+                <ZoomableChart aria-label="API花费趋势图，显示最近若干小时的API调用成本变化">
                 <ChartContainer config={chartConfig} className="h-[250px] sm:h-[300px] w-full aspect-auto">
                   <BarChart data={hourly_data}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-muted-foreground) / 0.2)" />
@@ -789,6 +793,7 @@ function IndexPageContent() {
                     <Bar dataKey="cost" fill="var(--color-cost)" />
                   </BarChart>
                 </ChartContainer>
+                </ZoomableChart>
               </CardContent>
             </Card>
 
@@ -798,6 +803,7 @@ function IndexPageContent() {
                 <CardDescription>Token使用量变化</CardDescription>
               </CardHeader>
               <CardContent>
+                <ZoomableChart aria-label="Token消耗趋势图，显示最近若干小时的Token使用量变化">
                 <ChartContainer config={chartConfig} className="h-[250px] sm:h-[300px] w-full aspect-auto">
                   <BarChart data={hourly_data}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--color-muted-foreground) / 0.2)" />
@@ -817,6 +823,7 @@ function IndexPageContent() {
                     <Bar dataKey="tokens" fill="var(--color-tokens)" />
                   </BarChart>
                 </ChartContainer>
+                </ZoomableChart>
               </CardContent>
             </Card>
           </div>

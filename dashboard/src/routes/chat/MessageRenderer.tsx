@@ -39,6 +39,7 @@ export function RenderMessageSegment({ segment }: { segment: MessageSegment }) {
             src={String(segment.data)} 
             className="max-w-[200px] h-8"
           >
+            <track kind="captions" src="" label="无字幕" default />
             您的浏览器不支持音频播放
           </audio>
         </div>
@@ -51,6 +52,7 @@ export function RenderMessageSegment({ segment }: { segment: MessageSegment }) {
           src={String(segment.data)} 
           className="rounded-lg max-w-full max-h-64"
         >
+          <track kind="captions" src="" label="无字幕" default />
           您的浏览器不支持视频播放
         </video>
       )

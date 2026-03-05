@@ -35,7 +35,7 @@ interface HeaderProps {
 
 export function Header({
   sidebarOpen,
-  // mobileMenuOpen, // unused - kept in props for API compatibility
+  mobileMenuOpen,
   searchOpen,
   actualTheme,
   onSidebarToggle,
@@ -67,6 +67,8 @@ export function Header({
         {/* 移动端菜单按钮 */}
         <button
           onClick={onMobileMenuToggle}
+          aria-label={t('a11y.closeMenu')}
+          aria-expanded={mobileMenuOpen}
           className="rounded-lg p-2 hover:bg-accent lg:hidden"
         >
           <Menu className="h-5 w-5" />
@@ -75,8 +77,9 @@ export function Header({
         {/* 桌面端侧边栏收起/展开按钮 */}
         <button
           onClick={onSidebarToggle}
+          aria-label={sidebarOpen ? t('header.collapseSidebar') : t('header.expandSidebar')}
+          aria-expanded={sidebarOpen}
           className="hidden rounded-lg p-2 hover:bg-accent lg:block"
-          title={sidebarOpen ? t('header.collapseSidebar') : t('header.expandSidebar')}
         >
           <ChevronLeft
             className={cn('h-5 w-5 transition-transform', !sidebarOpen && 'rotate-180')}
@@ -120,9 +123,10 @@ export function Header({
         {/* 搜索框 */}
         <button
           onClick={() => onSearchOpenChange(true)}
+          aria-label={t('header.searchPlaceholder')}
           className="relative hidden md:flex items-center w-64 h-9 pl-9 pr-16 bg-background/50 border rounded-md hover:bg-accent/50 transition-colors text-left"
         >
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <span className="text-sm text-muted-foreground">{t('header.searchPlaceholder')}</span>
           <Kbd size="sm" className="absolute right-2 top-1/2 -translate-y-1/2">
             <span className="text-xs">⌘</span>K
@@ -179,8 +183,8 @@ export function Header({
             const newTheme = actualTheme === 'dark' ? 'light' : 'dark'
             toggleThemeWithTransition(newTheme, onThemeChange, e)
           }}
+          aria-label={actualTheme === 'dark' ? t('header.switchToLight') : t('header.switchToDark')}
           className="rounded-lg p-2 hover:bg-accent"
-          title={actualTheme === 'dark' ? t('header.switchToLight') : t('header.switchToDark')}
         >
           {actualTheme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
         </button>

@@ -76,7 +76,10 @@ export function EmojiList({
                 ? 'ring-2 ring-primary bg-primary/5'
                 : ''
             }`}
+            role="button"
+            tabIndex={0}
             onClick={() => onToggleSelect(emoji.id)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleSelect(emoji.id) } }}
           >
             {/* 选中指示器 */}
             <div

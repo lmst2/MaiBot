@@ -130,53 +130,67 @@ export function GraphVisualization({ graphData, onNodeClick, onEdgeClick, loadin
   }
 
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      onNodesChange={onNodesChange}
-      onEdgesChange={onEdgesChange}
-      onNodeClick={onNodeClick}
-      onEdgeClick={onEdgeClick}
-      nodeTypes={nodeTypes}
-      fitView
-      minZoom={0.05}
-      maxZoom={1.5}
-      defaultViewport={{ x: 0, y: 0, zoom: 0.5 }}
-      elevateNodesOnSelect={nodeCount <= 500}
-      nodesDraggable={nodeCount <= 1000}
-      attributionPosition="bottom-left"
+    <div
+      style={{ touchAction: 'none' }}
+      role="img"
+      aria-label={`知识图谱可视化，共 ${nodeCount} 个节点，${edges.length} 条关系`}
+      className="w-full h-full"
     >
-      <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
-      <Controls />
-      {nodeCount <= 500 && (
-        <MiniMap
-          nodeColor={miniMapNodeColor}
-          nodeBorderRadius={8}
-          pannable
-          zoomable
-        />
-      )}
+      <span className="sr-only">
+        {`知识图谱包含 ${nodeCount} 个节点和 ${edges.length} 条关系。`}
+      </span>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onNodeClick={onNodeClick}
+        onEdgeClick={onEdgeClick}
+        nodeTypes={nodeTypes}
+        fitView
+        minZoom={0.05}
+        maxZoom={1.5}
+        defaultViewport={{ x: 0, y: 0, zoom: 0.5 }}
+        elevateNodesOnSelect={nodeCount <= 500}
+        nodesDraggable={nodeCount <= 1000}
+        attributionPosition="bottom-left"
+        panOnScroll
+        panOnScrollMode={undefined}
+        panOnDrag
+        zoomOnPinch
+      >
+        <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
+        <Controls />
+        {nodeCount <= 500 && (
+          <MiniMap
+            nodeColor={miniMapNodeColor}
+            nodeBorderRadius={8}
+            pannable
+            zoomable
+          />
+        )}
 
-      <Panel position="top-right" className="bg-background/95 backdrop-blur-sm rounded-lg border p-3 shadow-lg">
-        <div className="text-sm font-semibold mb-2">图例</div>
-        <div className="space-y-2 text-xs">
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded bg-gradient-to-br from-blue-500 to-blue-600 border-2 border-blue-700" />
-            <span>实体节点</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded bg-gradient-to-br from-green-500 to-green-600 border-2 border-green-700" />
-            <span>段落节点</span>
-          </div>
-          {nodeCount > 200 && (
-            <div className="mt-2 pt-2 border-t text-yellow-600 dark:text-yellow-500">
-              <div className="font-semibold">性能模式</div>
-              <div>已禁用动画</div>
-              {nodeCount > 500 && <div>已禁用缩略图</div>}
+        <Panel position="top-right" className="bg-background/95 backdrop-blur-sm rounded-lg border p-3 shadow-lg">
+          <div className="text-sm font-semibold mb-2">图例</div>
+          <div className="space-y-2 text-xs">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-gradient-to-br from-blue-500 to-blue-600 border-2 border-blue-700" aria-hidden="true" />
+              <span>实体节点</span>
             </div>
-          )}
-        </div>
-      </Panel>
-    </ReactFlow>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-gradient-to-br from-green-500 to-green-600 border-2 border-green-700" aria-hidden="true" />
+              <span>段落节点</span>
+            </div>
+            {nodeCount > 200 && (
+              <div className="mt-2 pt-2 border-t text-yellow-600 dark:text-yellow-500">
+                <div className="font-semibold">性能模式</div>
+                <div>已禁用动画</div>
+                {nodeCount > 500 && <div>已禁用缩略图</div>}
+              </div>
+            )}
+          </div>
+        </Panel>
+      </ReactFlow>
+    </div>
   )
 }

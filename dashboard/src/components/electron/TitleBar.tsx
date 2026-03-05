@@ -34,6 +34,7 @@ export function TitleBar() {
             onClick={minimize}
             tabIndex={-1}
             type="button"
+            aria-label="最小化"
           >
             <Minus className="h-3.5 w-3.5" />
           </button>
@@ -42,6 +43,7 @@ export function TitleBar() {
             onClick={toggleMaximize}
             tabIndex={-1}
             type="button"
+            aria-label={isMaximized ? "还原窗口" : "最大化"}
           >
             {isMaximized ? (
               <Copy className="h-3.5 w-3.5" />
@@ -54,6 +56,7 @@ export function TitleBar() {
             onClick={close}
             tabIndex={-1}
             type="button"
+            aria-label="关闭窗口"
           >
             <X className="h-3.5 w-3.5" />
           </button>

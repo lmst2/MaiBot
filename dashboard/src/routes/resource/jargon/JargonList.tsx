@@ -74,7 +74,7 @@ export function JargonList({
     <div className="rounded-lg border bg-card">
       {/* 桁面端表格视图 */}
       <div className="hidden md:block">
-        <Table>
+        <Table aria-label="黑话列表">
           <TableHeader>
             <TableRow>
               <TableHead className="w-12">

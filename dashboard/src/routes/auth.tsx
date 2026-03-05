@@ -237,13 +237,15 @@ export function AuthPage() {
                   disabled={isValidating}
                   autoFocus
                   autoComplete="off"
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? 'token-error' : undefined}
                 />
               </div>
             </div>
 
             {/* 错误提示 */}
             {error && (
-              <div className="flex items-center gap-2 rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400">
+              <div id="token-error" role="alert" className="flex items-center gap-2 rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-950/50 dark:text-red-400">
                 <AlertCircle className="h-4 w-4 flex-shrink-0" strokeWidth={2} fill="none" />
                 <span>{error}</span>
               </div>

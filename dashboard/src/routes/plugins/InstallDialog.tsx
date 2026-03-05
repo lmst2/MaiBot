@@ -74,6 +74,7 @@ export function InstallDialog({ open, plugin, onOpenChange, onInstall }: Install
           {showAdvancedOptions && (
             <div className="space-y-4 p-4 border rounded-lg">
               <div className="space-y-2">
+                {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- section heading above Tabs, not a form label */}
                 <label className="text-sm font-medium">分支选择</label>
                 
                 <Tabs value={branchInputMode} onValueChange={(value) => setBranchInputMode(value as 'preset' | 'custom')}>

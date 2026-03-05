@@ -170,7 +170,7 @@ export function ProviderList({
       {/* 桌面端表格视图 */}
       <div className="hidden md:block rounded-lg border bg-card overflow-hidden">
         <div className="overflow-x-auto">
-          <Table>
+          <Table aria-label="AI 模型提供商列表">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12">

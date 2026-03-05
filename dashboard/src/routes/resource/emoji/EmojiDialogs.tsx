@@ -773,6 +773,14 @@ export function EmojiUploadDialog({
                   <div
                     key={file.id}
                     onClick={() => setSelectedFileId(file.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedFileId(file.id) } }}
+                    className={`
+                      flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all
+                      ${isSelected ? 'ring-2 ring-primary' : ''}
+                      ${complete ? 'border-green-500 bg-green-50 dark:bg-green-950/20' : 'border-border hover:border-muted-foreground/50'}
+                    `}
                     className={`
                       flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all
                       ${isSelected ? 'ring-2 ring-primary' : ''}

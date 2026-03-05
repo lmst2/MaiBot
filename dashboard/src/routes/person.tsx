@@ -415,7 +415,7 @@ export function PersonManagementPage() {
       <div className="rounded-lg border bg-card">
         {/* 桌面端表格视图 */}
         <div className="hidden md:block">
-          <Table>
+          <Table aria-label="人物信息列表">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12">

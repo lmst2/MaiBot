@@ -143,12 +143,20 @@ function createWindow() {
   mainWindow.on('unmaximize', () => {
     mainWindow?.webContents.send('electron:window-unmaximized')
   })
+
+  // 窗口获得焦点时确保焦点传递到 webContents，支持屏幕阅读器正确工作
+  mainWindow.on('focus', () => {
+    mainWindow?.webContents.focus()
+  })
 }
 
 /**
  * App event: when app is ready
  */
 app.whenReady().then(() => {
+  // 确保 Chromium a11y tree 始终激活（供屏幕阅读器使用）
+  app.setAccessibilitySupportEnabled(true)
+
   registerAppProtocol()
 
   // Set Content Security Policy

@@ -23,7 +23,7 @@ export function ChatTabBar({
       <div className="max-w-4xl mx-auto px-2 sm:px-4">
         <div className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-thin">
           {tabs.map((tab) => (
-            <div
+            <button
               key={tab.id}
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer",
@@ -32,6 +32,7 @@ export function ChatTabBar({
                   ? "bg-background shadow-sm border"
                   : "text-muted-foreground"
               )}
+              type="button"
               onClick={() => onSwitch(tab.id)}
             >
               {tab.type === 'webui' ? (
@@ -62,7 +63,7 @@ export function ChatTabBar({
                   <X className="h-3 w-3" />
                 </span>
               )}
-            </div>
+            </button>
           ))}
           {/* 新建虚拟身份标签页按钮 */}
           <button

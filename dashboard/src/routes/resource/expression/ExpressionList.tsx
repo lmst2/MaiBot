@@ -74,7 +74,7 @@ export function ExpressionList({
     <div className="rounded-lg border bg-card">
       {/* 桌面端表格视图 */}
       <div className="hidden md:block">
-        <Table>
+        <Table aria-label="表达方式列表">
           <TableHeader>
             <TableRow>
               <TableHead className="w-12">

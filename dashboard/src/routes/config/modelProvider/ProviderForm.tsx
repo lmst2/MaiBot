@@ -209,10 +209,12 @@ export function ProviderForm({
                   }
                 }}
                 placeholder="例如: DeepSeek, SiliconFlow"
+                aria-invalid={formErrors.name ? true : undefined}
+                aria-describedby={formErrors.name ? 'name-error' : undefined}
                 className={formErrors.name ? 'border-destructive focus-visible:ring-destructive' : ''}
               />
               {formErrors.name && (
-                <p className="text-xs text-destructive">{formErrors.name}</p>
+                <p id="name-error" role="alert" className="text-xs text-destructive">{formErrors.name}</p>
               )}
             </div>
 
@@ -249,10 +251,12 @@ export function ProviderForm({
                 }}
                 placeholder="https://api.example.com/v1"
                 disabled={isUsingTemplate}
+                aria-invalid={formErrors.base_url ? true : undefined}
+                aria-describedby={formErrors.base_url ? 'base-url-error' : undefined}
                 className={`${isUsingTemplate ? 'bg-muted cursor-not-allowed' : ''} ${formErrors.base_url ? 'border-destructive focus-visible:ring-destructive' : ''}`}
               />
               {formErrors.base_url && (
-                <p className="text-xs text-destructive">{formErrors.base_url}</p>
+                <p id="base-url-error" role="alert" className="text-xs text-destructive">{formErrors.base_url}</p>
               )}
               {isUsingTemplate && !formErrors.base_url && (
                 <p className="text-xs text-muted-foreground">
@@ -295,6 +299,8 @@ export function ProviderForm({
                     }
                   }}
                   placeholder="sk-..."
+                  aria-invalid={formErrors.api_key ? true : undefined}
+                  aria-describedby={formErrors.api_key ? 'api-key-error' : undefined}
                   className={`flex-1 ${formErrors.api_key ? 'border-destructive focus-visible:ring-destructive' : ''}`}
                 />
                 <Button
@@ -321,7 +327,7 @@ export function ProviderForm({
                 </Button>
               </div>
               {formErrors.api_key && (
-                <p className="text-xs text-destructive">{formErrors.api_key}</p>
+                <p id="api-key-error" role="alert" className="text-xs text-destructive">{formErrors.api_key}</p>
               )}
             </div>
 

@@ -28,7 +28,7 @@ export function NodeDetailDialog({ open, onOpenChange, selectedNodeData }: NodeD
             <div className="space-y-4 pb-2">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-muted-foreground">类型</label>
+                  <p className="text-sm font-medium text-muted-foreground">类型</p>
                   <div className="mt-1">
                     <Badge variant={selectedNodeData.type === 'entity' ? 'default' : 'secondary'}>
                       {selectedNodeData.type === 'entity' ? '🏷️ 实体' : '📄 段落'}
@@ -38,14 +38,14 @@ export function NodeDetailDialog({ open, onOpenChange, selectedNodeData }: NodeD
               </div>
 
               <div>
-                <label className="text-sm font-medium text-muted-foreground">ID</label>
+                <p className="text-sm font-medium text-muted-foreground">ID</p>
                 <code className="mt-1 block p-2 bg-muted rounded text-xs break-all">
                   {selectedNodeData.id}
                 </code>
               </div>
 
               <div>
-                <label className="text-sm font-medium text-muted-foreground">内容</label>
+                <p className="text-sm font-medium text-muted-foreground">内容</p>
                 <div className="mt-1 p-3 bg-muted rounded border">
                   <p className="text-sm whitespace-pre-wrap break-words">{selectedNodeData.content}</p>
                 </div>
@@ -106,7 +106,7 @@ export function EdgeDetailDialog({ open, onOpenChange, selectedEdgeData }: EdgeD
               </div>
 
               <div>
-                <label className="text-sm font-medium text-muted-foreground">权重</label>
+                <p className="text-sm font-medium text-muted-foreground">权重</p>
                 <div className="mt-1">
                   <Badge variant="outline" className="text-base font-mono">
                     {selectedEdgeData.edge.weight.toFixed(4)}

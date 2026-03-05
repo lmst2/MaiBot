@@ -44,7 +44,9 @@ export function Sidebar({
         "flex-1 overflow-x-hidden",
         !sidebarOpen && "lg:w-16"
       )}>
-        <nav className={cn(
+        <nav
+          aria-label={t('a11y.sidebarNav')}
+          className={cn(
           "p-4",
           !sidebarOpen && "lg:p-2 lg:w-16"
         )}>
