@@ -355,3 +355,4 @@ MaiBot.code-workspace
 actionlint
 .sisyphus/
 dist-electron/
+packages/
