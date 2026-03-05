@@ -468,10 +468,9 @@
       "settingsDesc": "시스템 설정 구성"
     }
   },
-  "httpWarning": {
-    "title": "보안 경고:",
-    "message": "HTTP를 통해 MaiBot WebUI에 접속하고 있습니다",
-    "description": "이것이 공개 서버인 경우, 데이터(Token, 채팅 기록 등)가 전송 중에 가로챔질 수 있습니다. HTTPS를 사용하거나 로컈 네트워크에서만 접속하는 것을 강력히 권장합니다.",
-    "dismiss": "경고 닫기"
-}
+  "a11y": {
+    "skipToContent": "메인 콘텐츠로 건너뀐기",
+    "sidebarNav": "메인 내비게이션",
+    "closeMenu": "메뉴 닫기",
+    "navigatedTo": "{{page}}으로 이동했습니다"
 }

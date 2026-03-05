@@ -20,10 +20,10 @@
     --color-secondary: 210 40% 96.1%;
     --color-secondary-foreground: 222.2 47.4% 11.2%;
     --color-muted: 210 40% 96.1%;
-    --color-muted-foreground: 215.4 16.3% 46.9%;
+    --color-muted-foreground: 215.4 16.3% 40%;
     --color-accent: 210 40% 96.1%;
     --color-accent-foreground: 222.2 47.4% 11.2%;
-    --color-destructive: 0 84.2% 60.2%;
+    --color-destructive: 0 84.2% 45%;
     --color-destructive-foreground: 210 40% 98%;
     --color-background: 0 0% 100%;
     --color-foreground: 222.2 84% 4.9%;
@@ -320,3 +320,111 @@
 }
 
 
+
+/* ============================================================
+ * Touch & Pointer 优化 (Task 4)
+ * ============================================================ */
+
+/* 1. 全局 touch-action — 允许浏览器默认滚动/缩放，防止 300ms 延迟 */
+* {
+  touch-action: manipulation;
+}
+
+/* 可滚动容器恢复双向滚动 */
+.overflow-auto,
+.overflow-scroll,
+.overflow-x-auto,
+.overflow-x-scroll,
+.overflow-y-auto,
+.overflow-y-scroll {
+  touch-action: pan-x pan-y;
+}
+
+/* 图表/可视化区域：允许 pinch-zoom（Task 8 的 @use-gesture 也需要此配合）*/
+.recharts-wrapper,
+.react-flow__renderer {
+  touch-action: none;
+}
+
+/* 2. 触控目标最小尺寸 44×44px（WCAG 2.5.8）
+   pointer: coarse = 触控设备（手指精度低）*/
+@media (pointer: coarse) {
+  button,
+  [role="button"],
+  a,
+  input[type="checkbox"],
+  input[type="radio"],
+  select,
+  [role="menuitem"],
+  [role="option"],
+  [role="tab"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* 3. hover-only 反馈降级
+   hover: none = 设备主要输入不支持 hover（触控屏等）*/
+@media (hover: none) {
+  /* 触控设备上隐藏纯 hover 触发的视觉效果（如 tooltip 触发区）*/
+  .hover-only-visible {
+    display: none;
+  }
+}
+
+/* 4. 精细指针设备（鼠标）才启用的 hover 样式钩子 */
+@media (hover: hover) and (pointer: fine) {
+  /* 鼠标设备：保留原有 hover 效果，无需额外处理 */
+  .touch-device-only {
+    display: none;
+  }
+}
+/* ============================================================
+ * Touch 目标尺寸补丁 (Task 10)
+ * 对小型交互元素用 ::before 伪元素扩大触控区，视觉不变。
+ * ============================================================ */
+
+@media (pointer: coarse) {
+  /* Radix Checkbox: h-4 w-4 (16px) → 触控区拖展到 44px */
+  [data-radix-collection-item],
+  button[role='checkbox'],
+  [role='checkbox'] {
+    position: relative;
+  }
+  [data-radix-collection-item]::before,
+  button[role='checkbox']::before,
+  [role='checkbox']::before {
+    content: '';
+    position: absolute;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Radix Switch: h-5 w-9 (20px) → 触控区拖展到 44px */
+  [role='switch'] {
+    position: relative;
+  }
+  [role='switch']::before {
+    content: '';
+    position: absolute;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Radix Slider 拇指 */
+  [role='slider'] {
+    position: relative;
+  }
+  [role='slider']::before {
+    content: '';
+    position: absolute;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

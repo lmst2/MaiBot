@@ -468,10 +468,9 @@
       "settingsDesc": "Configure system settings"
     }
   },
-  "httpWarning": {
-    "title": "Security Warning:",
-    "message": "You are accessing MaiBot WebUI via HTTP",
-    "description": "If this is a public server, your data (including Token, chat history, etc.) may be intercepted in transit. It is strongly recommended to use HTTPS or access only from a local network.",
-    "dismiss": "Dismiss warning"
-}
+  "a11y": {
+    "skipToContent": "Skip to main content",
+    "sidebarNav": "Main navigation",
+    "closeMenu": "Close menu",
+    "navigatedTo": "Navigated to {{page}}"
 }

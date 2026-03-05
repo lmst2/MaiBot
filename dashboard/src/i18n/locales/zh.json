@@ -468,10 +468,9 @@
       "settingsDesc": "配置系统参数"
     }
   },
-  "httpWarning": {
-    "title": "安全警告：",
-    "message": "您正在使用 HTTP 访问 MaiBot WebUI",
-    "description": "如果这是公网服务器，您的数据（包括 Token、聊天记录等）可能在传输过程中被窃取。强烈建议使用 HTTPS 访问或仅在本地网络使用。",
-    "dismiss": "关闭警告"
-}
+  "a11y": {
+    "skipToContent": "跳过导航，直达主内容",
+    "sidebarNav": "主导航",
+    "closeMenu": "关闭菜单",
+    "navigatedTo": "已导航至 {{page}}"
 }

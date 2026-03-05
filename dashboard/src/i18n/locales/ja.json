@@ -468,10 +468,9 @@
       "settingsDesc": "システム設定を構成"
     }
   },
-  "httpWarning": {
-    "title": "セキュリティ警告：",
-    "message": "HTTP で MaiBot WebUI にアクセスしています",
-    "description": "これが公開サーバーの場合、データ（Token、チャット履歴など）が転送中に傍受される可能性があります。HTTPS を使用するか、ローカルネットワークからのみアクセスすることを強くお勧めします。",
-    "dismiss": "警告を閉じる"
-}
+  "a11y": {
+    "skipToContent": "メインコンテンツにスキップ",
+    "sidebarNav": "メインナビゲーション",
+    "closeMenu": "メニューを閉じる",
+    "navigatedTo": "{{page}} に移動しました"
 }
