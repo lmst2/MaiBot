@@ -18,6 +18,8 @@
 
 import { useRef } from 'react'
 import { animated, useSpring } from '@react-spring/web'
+
+const AnimatedDiv = animated('div')
 import { usePinch } from '@use-gesture/react'
 
 import { cn } from '@/lib/utils'
@@ -82,9 +84,9 @@ export function ZoomableChart({
       className={cn('overflow-hidden touch-none select-none', className)}
       style={{ touchAction: 'none' }}
     >
-      <animated.div style={style} className="w-full h-full origin-center">
+      <AnimatedDiv style={style} className="w-full h-full origin-center">
         {children}
-      </animated.div>
+      </AnimatedDiv>
     </div>
   )
 }

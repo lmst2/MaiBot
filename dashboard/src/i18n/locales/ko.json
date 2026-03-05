@@ -473,4 +473,5 @@
     "sidebarNav": "메인 내비게이션",
     "closeMenu": "메뉴 닫기",
     "navigatedTo": "{{page}}으로 이동했습니다"
+  }
 }

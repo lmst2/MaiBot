@@ -9,6 +9,8 @@
  */
 
 import { animated, useSpring } from '@react-spring/web'
+
+const AnimatedDiv = animated('div')
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Dialog,
@@ -1443,7 +1445,6 @@ export function ExpressionReviewer({ open, onOpenChange }: ExpressionReviewerPro
                     aria-label="待审核的表达方式"
                     aria-activedescendant={quickExpressions[quickCurrentIndex] ? `quick-expr-${quickExpressions[quickCurrentIndex].id}` : undefined}
                   >
-                  <div className="relative w-full max-w-md h-[400px] flex items-center justify-center">
                     {quickExpressions
                       .slice(quickCurrentIndex, quickCurrentIndex + 5)
                       .reverse()
@@ -1504,7 +1505,7 @@ if (isCurrent) {
                         }
 
                         return isCurrent ? (
-                          <animated.div
+                          <AnimatedDiv
                             key={expr.id}
                             ref={cardRef}
                             role="option"
@@ -1588,7 +1589,7 @@ if (isCurrent) {
                               </div>
                               <span className="font-mono">{formatTime(expr.create_date)}</span>
                             </div>
-                          </animated.div>
+                          </AnimatedDiv>
                         ) : (
                           <div
                             key={expr.id}

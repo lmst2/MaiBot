@@ -473,4 +473,5 @@
     "sidebarNav": "主导航",
     "closeMenu": "关闭菜单",
     "navigatedTo": "已导航至 {{page}}"
+  }
 }

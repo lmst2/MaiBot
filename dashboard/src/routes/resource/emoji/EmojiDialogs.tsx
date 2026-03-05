@@ -781,11 +781,6 @@ export function EmojiUploadDialog({
                       ${isSelected ? 'ring-2 ring-primary' : ''}
                       ${complete ? 'border-green-500 bg-green-50 dark:bg-green-950/20' : 'border-border hover:border-muted-foreground/50'}
                     `}
-                    className={`
-                      flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all
-                      ${isSelected ? 'ring-2 ring-primary' : ''}
-                      ${complete ? 'border-green-500 bg-green-50 dark:bg-green-950/20' : 'border-border hover:border-muted-foreground/50'}
-                    `}
                   >
                     <div className="w-12 h-12 rounded border overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center">
                       <img
