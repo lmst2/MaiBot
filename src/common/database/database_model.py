@@ -208,7 +208,6 @@ class Jargon(SQLModel, table=True):
 
     count: int = Field(default=0)  # 使用次数
     is_jargon: Optional[bool] = Field(default=True)  # 是否为黑话，False表示为白话
-    is_global: bool = Field(default=False)  # 是否为全局黑话
     is_complete: bool = Field(default=False)  # 是否为已经完成全部推断（count > 100后不再推断）
     inference_with_context: Optional[str] = Field(default=None, nullable=True)  # 带上下文的推断结果，JSON格式
     inference_with_content_only: Optional[str] = Field(default=None, nullable=True)  # 只基于词条的推断结果，JSON格式

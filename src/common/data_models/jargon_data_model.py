@@ -16,21 +16,28 @@ class MaiJargon(BaseDatabaseDataModel[Jargon]):
         session_id: Optional[str] = None,
         count: int = 0,
         is_jargon: Optional[bool] = True,
-        is_global: bool = False,
         is_complete: bool = False,
         inference_with_context: Optional[str] = None,
         inference_with_content_only: Optional[str] = None,
     ):
         self.content = content
+        """黑话内容"""
         self.raw_content = raw_content
+        """原始内容，未处理的黑话内容"""
         self.meaning = meaning
+        """黑话含义"""
         self.session_id = session_id
+        """会话ID，区分是否为全局黑话"""
         self.count = count
+        """使用次数"""
         self.is_jargon = is_jargon
-        self.is_global = is_global
+        """是否为黑话，False表示为白话"""
         self.is_complete = is_complete
+        """是否为已经完成全部推断（count > 100后不再推断）"""
         self.inference_with_context = inference_with_context
+        """带上下文的推断结果，JSON格式"""
         self.inference_with_content_only = inference_with_content_only
+        """只基于词条的推断结果，JSON格式"""
 
     @classmethod
     def from_db_instance(cls, db_record: Jargon) -> "MaiJargon":
@@ -42,7 +49,6 @@ class MaiJargon(BaseDatabaseDataModel[Jargon]):
             session_id=db_record.session_id,
             count=db_record.count,
             is_jargon=db_record.is_jargon,
-            is_global=db_record.is_global,
             is_complete=db_record.is_complete,
             inference_with_context=db_record.inference_with_context,
             inference_with_content_only=db_record.inference_with_content_only,
@@ -57,7 +63,6 @@ class MaiJargon(BaseDatabaseDataModel[Jargon]):
             session_id=self.session_id,
             count=self.count,
             is_jargon=self.is_jargon,
-            is_global=self.is_global,
             is_complete=self.is_complete,
             inference_with_context=self.inference_with_context,
             inference_with_content_only=self.inference_with_content_only,
