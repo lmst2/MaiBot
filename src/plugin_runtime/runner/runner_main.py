@@ -11,6 +11,7 @@
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import os
 import signal
@@ -43,15 +44,15 @@ class PluginRunner:
         host_address: str,
         session_token: str,
         plugin_dirs: list[str],
-    ):
-        self._host_address = host_address
-        self._session_token = session_token
-        self._plugin_dirs = plugin_dirs
+    ) -> None:
+        self._host_address: str = host_address
+        self._session_token: str = session_token
+        self._plugin_dirs: list[str] = plugin_dirs
 
-        self._rpc_client = RPCClient(host_address, session_token)
-        self._loader = PluginLoader()
-        self._start_time = time.monotonic()
-        self._shutting_down = False
+        self._rpc_client: RPCClient = RPCClient(host_address, session_token)
+        self._loader: PluginLoader = PluginLoader()
+        self._start_time: float = time.monotonic()
+        self._shutting_down: bool = False
 
     async def run(self) -> None:
         """Runner 主入口"""
@@ -113,7 +114,7 @@ class PluginRunner:
     async def _register_plugin(self, meta: PluginMeta) -> None:
         """向 Host 注册单个插件"""
         # 收集插件组件声明
-        components = []
+        components: list[ComponentDeclaration] = []
         instance = meta.instance
 
         # 从插件实例获取组件声明（SDK 插件须实现 get_components 方法）
@@ -176,7 +177,7 @@ class PluginRunner:
             )
 
         try:
-            result = await handler_method(**invoke.args) if asyncio.iscoroutinefunction(handler_method) else handler_method(**invoke.args)
+            result = await handler_method(**invoke.args) if inspect.iscoroutinefunction(handler_method) else handler_method(**invoke.args)
             resp_payload = InvokeResultPayload(success=True, result=result)
             return envelope.make_response(payload=resp_payload.model_dump())
         except Exception as e:
@@ -214,7 +215,7 @@ class PluginRunner:
             )
 
         try:
-            raw = await handler_method(**invoke.args) if asyncio.iscoroutinefunction(handler_method) else handler_method(**invoke.args)
+            raw = await handler_method(**invoke.args) if inspect.iscoroutinefunction(handler_method) else handler_method(**invoke.args)
 
             # 规范化返回值
             if isinstance(raw, str):
