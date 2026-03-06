@@ -7,7 +7,7 @@ from src.llm_models.utils_model import LLMRequest
 from src.llm_models.payload_content import ToolCall
 from src.config.config import global_config, model_config
 from src.prompt.prompt_manager import prompt_manager
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.common.logger import get_logger
 
 logger = get_logger("tool_use")
@@ -28,8 +28,8 @@ class ToolExecutor:
             cache_ttl: 缓存生存时间（周期数）
         """
         self.chat_id = chat_id
-        self.chat_stream = get_chat_manager().get_stream(self.chat_id)
-        self.log_prefix = f"[{get_chat_manager().get_stream_name(self.chat_id) or self.chat_id}]"
+        self.chat_stream = _chat_manager.get_session_by_session_id(self.chat_id)
+        self.log_prefix = f"[{_chat_manager.get_session_name(self.chat_id) or self.chat_id}]"
 
         self.llm_model = LLMRequest(model_set=model_config.model_task_config.tool_use, request_type="tool_executor")
 

@@ -61,9 +61,12 @@ class TempMethodsExpression:
             str: 生成的聊天流ID（哈希值）
         """
         try:
-            from src.chat.message_receive.chat_stream import get_chat_manager
+            from src.common.utils.utils_session import SessionUtils
 
-            return get_chat_manager().get_stream_id(platform, str(id_str), is_group=is_group)
+            if is_group:
+                return SessionUtils.calculate_session_id(platform, group_id=str(id_str))
+            else:
+                return SessionUtils.calculate_session_id(platform, user_id=str(id_str))
         except Exception as e:
             logger.error(f"生成聊天流ID失败: {e}")
             return None

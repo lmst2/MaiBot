@@ -6,7 +6,7 @@ from src.common.logger import get_logger
 from src.plugin_system.base.component_types import ComponentType, ToolInfo, ToolParamType
 
 if TYPE_CHECKING:
-    from src.chat.message_receive.chat_stream import ChatStream
+    from src.chat.message_receive.chat_manager import BotChatSession
 
 install(extra_lines=3)
 
@@ -32,7 +32,7 @@ class BaseTool(ABC):
     available_for_llm: bool = False
     """是否可供LLM使用"""
 
-    def __init__(self, plugin_config: Optional[dict] = None, chat_stream: Optional["ChatStream"] = None):
+    def __init__(self, plugin_config: Optional[dict] = None, chat_stream: Optional["BotChatSession"] = None):
         """初始化工具基类
 
         Args:
@@ -47,7 +47,7 @@ class BaseTool(ABC):
 
         # 获取聊天流对象
         self.chat_stream = chat_stream
-        self.chat_id = self.chat_stream.stream_id if self.chat_stream else None
+        self.chat_id = self.chat_stream.session_id if self.chat_stream else None
         self.platform = getattr(self.chat_stream, "platform", None) if self.chat_stream else None
 
     @classmethod

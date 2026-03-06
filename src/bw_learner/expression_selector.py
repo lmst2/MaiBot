@@ -10,7 +10,7 @@ from src.common.logger import get_logger
 from src.common.database.database_model import Expression
 from src.prompt.prompt_manager import prompt_manager
 from src.bw_learner.learner_utils import weighted_sample
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.common.utils.utils_session import SessionUtils
 from src.chat.utils.common_utils import TempMethodsExpression
 
 logger = get_logger("expression_selector")
@@ -50,8 +50,9 @@ class ExpressionSelector:
             id_str = parts[1]
             stream_type = parts[2]
             is_group = stream_type == "group"
-            # 统一通过 chat_manager 生成 stream_id，避免各处自行实现哈希逻辑
-            return get_chat_manager().get_stream_id(platform, str(id_str), is_group=is_group)
+            return SessionUtils.calculate_session_id(
+                platform, group_id=str(id_str) if is_group else None, user_id=None if is_group else str(id_str)
+            )
         except Exception:
             return None
 
@@ -127,8 +128,7 @@ class ExpressionSelector:
                     logger.info(f"聊天流 {chat_id} 没有满足 count > 1 且未被拒绝的表达方式，简单模式不进行选择")
                     # 完全没有高 count 样本时，退化为全量随机抽样（不进入LLM流程）
                     fallback_num = min(3, max_num) if max_num > 0 else 3
-                    fallback_selected = self._random_expressions(chat_id, fallback_num)
-                    if fallback_selected:
+                    if fallback_selected := self._random_expressions(chat_id, fallback_num):
                         self.update_expressions_last_active_time(fallback_selected)
                         selected_ids = [expr["id"] for expr in fallback_selected]
                         logger.info(
@@ -199,12 +199,7 @@ class ExpressionSelector:
             ]
 
             # 随机抽样
-            if style_exprs:
-                selected_style = weighted_sample(style_exprs, total_num)
-            else:
-                selected_style = []
-
-            return selected_style
+            return weighted_sample(style_exprs, total_num) if style_exprs else []
 
         except Exception as e:
             logger.error(f"随机选择表达方式失败: {e}")

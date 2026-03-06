@@ -16,7 +16,7 @@ from src.common.database.database import get_db_session
 from src.common.database.database_model import PersonInfo
 from src.llm_models.utils_model import LLMRequest
 from src.config.config import global_config, model_config
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 
 
 logger = get_logger("person_info")
@@ -818,22 +818,22 @@ async def store_person_memory_from_answer(person_name: str, memory_content: str,
         chat_id: 聊天ID
     """
     try:
-        # 从chat_id获取chat_stream
-        chat_stream = get_chat_manager().get_stream(chat_id)
-        if not chat_stream:
-            logger.warning(f"无法获取chat_stream for chat_id: {chat_id}")
+        # 从 chat_id 获取 session
+        session = _chat_manager.get_session_by_session_id(chat_id)
+        if not session:
+            logger.warning(f"无法获取session for chat_id: {chat_id}")
             return
 
-        platform = chat_stream.platform
+        platform = session.platform
 
         # 尝试从person_name查找person_id
         # 首先尝试通过person_name查找
         person_id = get_person_id_by_person_name(person_name)
 
         if not person_id:
-            # 如果通过person_name找不到，尝试从chat_stream获取user_info
-            if platform and chat_stream.user_info and chat_stream.user_info.user_id:
-                user_id = chat_stream.user_info.user_id
+            # 如果通过person_name找不到，尝试从 session 获取 user_id
+            if platform and session.user_id:
+                user_id = session.user_id
                 person_id = get_person_id(platform, user_id)
             else:
                 logger.warning(f"无法确定person_id for person_name: {person_name}, chat_id: {chat_id}")

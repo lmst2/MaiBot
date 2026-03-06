@@ -1,4 +1,6 @@
+from pathlib import Path
 from PIL import Image as PILImage, ImageSequence
+from typing import Optional, Union
 
 import base64
 import io
@@ -102,3 +104,30 @@ class ImageUtils:
             logger.error("输入的图片字节数据无效")
             raise ValueError("输入的图片字节数据无效")
         return base64.b64encode(image_bytes).decode("utf-8")
+
+    @staticmethod
+    def image_path_to_base64(image_path: Union[str, Path]) -> Optional[str]:
+        """读取图片文件并转换为 Base64 编码字符串"""
+        try:
+            path = Path(image_path)
+            if not path.exists():
+                logger.error(f"图片文件不存在: {path}")
+                return None
+            image_bytes = path.read_bytes()
+            return base64.b64encode(image_bytes).decode("utf-8")
+        except Exception as e:
+            logger.error(f"读取图片文件失败: {e}")
+            return None
+
+    @staticmethod
+    def base64_to_image(base64_str: str, save_path: Union[str, Path]) -> bool:
+        """将 Base64 编码字符串解码并保存为图片文件"""
+        try:
+            image_bytes = base64.b64decode(base64_str)
+            path = Path(save_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(image_bytes)
+            return True
+        except Exception as e:
+            logger.error(f"保存图片文件失败: {e}")
+            return False

@@ -26,10 +26,12 @@ from typing import Optional, Union, Dict, List, TYPE_CHECKING, Tuple
 from src.common.logger import get_logger
 from src.common.data_models.message_data_model import ReplyContentType
 from src.config.config import global_config
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.chat.message_receive.uni_message_sender import UniversalMessageSender
-from src.chat.message_receive.message import MessageSending, MessageRecv
-from maim_message import Seg, UserInfo, MessageBase, BaseMessageInfo
+from maim_message import Seg
+
+from src.common.data_models.mai_message_data_model import MaiMessage, UserInfo
+from src.chat.message_receive.message import MessageSending
 
 if TYPE_CHECKING:
     from src.common.data_models.database_data_model import DatabaseMessages
@@ -77,7 +79,7 @@ async def _send_to_target(
             logger.debug(f"[SendAPI] 发送{message_segment.type}消息到 {stream_id}")
 
         # 查找目标聊天流
-        target_stream = get_chat_manager().get_stream(stream_id)
+        target_stream = _chat_manager.get_session_by_session_id(stream_id)
         if not target_stream:
             logger.error(f"[SendAPI] 未找到聊天流: {stream_id}")
             return False
@@ -93,27 +95,29 @@ async def _send_to_target(
         bot_user_info = UserInfo(
             user_id=global_config.bot.qq_account,
             user_nickname=global_config.bot.nickname,
-            platform=target_stream.platform,
         )
 
         reply_to_platform_id = ""
-        anchor_message: Union["MessageRecv", None] = None
+        anchor_message: Optional[MaiMessage] = None
         if reply_message:
-            anchor_message = db_message_to_message_recv(reply_message)
-            logger.debug(f"[SendAPI] 找到匹配的回复消息，发送者: {anchor_message.message_info.user_info.user_id}")  # type: ignore
+            anchor_message = db_message_to_mai_message(reply_message)
             if anchor_message:
-                anchor_message.update_chat_stream(target_stream)
-                assert anchor_message.message_info.user_info, "用户信息缺失"
+                logger.debug(f"[SendAPI] 找到匹配的回复消息，发送者: {anchor_message.message_info.user_info.user_id}")
                 reply_to_platform_id = (
-                    f"{anchor_message.message_info.platform}:{anchor_message.message_info.user_info.user_id}"
+                    f"{anchor_message.platform}:{anchor_message.message_info.user_info.user_id}"
                 )
+
+        # 构建 sender_info（私聊时为接收者信息）
+        sender_info = None
+        if target_stream.context and target_stream.context.message:
+            sender_info = target_stream.context.message.message_info.user_info
 
         # 构建发送消息对象
         bot_message = MessageSending(
             message_id=message_id,
-            chat_stream=target_stream,
+            session=target_stream,
             bot_user_info=bot_user_info,
-            sender_info=target_stream.user_info,
+            sender_info=sender_info,
             message_segment=message_segment,
             display_message=display_message,
             reply=anchor_message,
@@ -146,51 +150,43 @@ async def _send_to_target(
         return False
 
 
-def db_message_to_message_recv(message_obj: "DatabaseMessages") -> MessageRecv:
-    """将数据库dict重建为MessageRecv对象
+def db_message_to_mai_message(message_obj: "DatabaseMessages") -> Optional[MaiMessage]:
+    """将数据库消息重建为 MaiMessage 对象，用于回复引用。
+
     Args:
-        message_dict: 消息字典
+        message_obj: 插件系统的 DatabaseMessages 数据对象
 
     Returns:
-        Optional[MessageRecv]: 找到的消息，如果没找到则返回None
+        Optional[MaiMessage]: 构建的消息对象，如果信息不足则返回 None
     """
-    # 构建MessageRecv对象
-    user_info = {
-        "platform": message_obj.user_info.platform or "",
-        "user_id": message_obj.user_info.user_id or "",
-        "user_nickname": message_obj.user_info.user_nickname or "",
-        "user_cardname": message_obj.user_info.user_cardname or "",
-    }
+    from datetime import datetime
+    from src.common.data_models.mai_message_data_model import GroupInfo, MessageInfo
+    from src.common.data_models.message_component_data_model import MessageSequence
 
-    group_info = {}
+    user_info = UserInfo(
+        user_id=message_obj.user_info.user_id or "",
+        user_nickname=message_obj.user_info.user_nickname or "",
+        user_cardname=message_obj.user_info.user_cardname,
+    )
+
+    group_info = None
     if message_obj.chat_info.group_info:
-        group_info = {
-            "platform": message_obj.chat_info.group_info.group_platform or "",
-            "group_id": message_obj.chat_info.group_info.group_id or "",
-            "group_name": message_obj.chat_info.group_info.group_name or "",
-        }
+        group_info = GroupInfo(
+            group_id=message_obj.chat_info.group_info.group_id or "",
+            group_name=message_obj.chat_info.group_info.group_name or "",
+        )
 
-    format_info = {"content_format": "", "accept_format": ""}
-    template_info = {"template_items": {}}
-
-    message_info = {
-        "platform": message_obj.chat_info.platform or "",
-        "message_id": message_obj.message_id,
-        "time": message_obj.time,
-        "group_info": group_info,
-        "user_info": user_info,
-        "additional_config": message_obj.additional_config,
-        "format_info": format_info,
-        "template_info": template_info,
-    }
-
-    message_dict_recv = {
-        "message_info": message_info,
-        "raw_message": message_obj.processed_plain_text,
-        "processed_plain_text": message_obj.processed_plain_text,
-    }
-
-    return MessageRecv(message_dict_recv)
+    msg = MaiMessage(
+        message_id=message_obj.message_id,
+        timestamp=datetime.fromtimestamp(message_obj.time) if message_obj.time else datetime.now(),
+    )
+    msg.message_info = MessageInfo(user_info=user_info, group_info=group_info)
+    msg.platform = message_obj.chat_info.platform or ""
+    msg.session_id = message_obj.chat_info.stream_id or ""
+    msg.processed_plain_text = message_obj.processed_plain_text
+    msg.raw_message = MessageSequence(components=[])
+    msg.initialized = True
+    return msg
 
 
 # =============================================================================

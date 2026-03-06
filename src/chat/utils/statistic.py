@@ -1051,18 +1051,13 @@ class StatisticOutputTask(AsyncTask):
         """从chat_id获取显示名称"""
         try:
             # 首先尝试从chat_stream获取真实群组名称
-            from src.chat.message_receive.chat_stream import get_chat_manager
+            from src.chat.message_receive.chat_manager import chat_manager as _stat_chat_manager
 
-            chat_manager = get_chat_manager()
-
-            if chat_id in chat_manager.streams:
-                stream = chat_manager.streams[chat_id]
-                if stream.group_info and hasattr(stream.group_info, "group_name"):
-                    group_name = stream.group_info.group_name
-                    if group_name and group_name.strip():
-                        return group_name.strip()
-                elif stream.user_info and hasattr(stream.user_info, "user_nickname"):
-                    user_name = stream.user_info.user_nickname
+            if chat_id in _stat_chat_manager.sessions:
+                session = _stat_chat_manager.sessions[chat_id]
+                name = _stat_chat_manager.get_session_name(chat_id)
+                if name and name.strip():
+                    return name.strip()
                     if user_name and user_name.strip():
                         return user_name.strip()
 

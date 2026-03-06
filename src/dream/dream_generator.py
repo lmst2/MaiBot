@@ -7,7 +7,7 @@ from src.config.config import global_config, model_config
 from src.llm_models.payload_content.message import RoleType, Message
 from src.prompt.prompt_manager import prompt_manager
 from src.llm_models.utils_model import LLMRequest
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.common.utils.utils_session import SessionUtils
 from src.plugin_system.apis import send_api
 
 logger = get_logger("dream_generator")
@@ -178,10 +178,9 @@ async def generate_dream_summary(
                             logger.warning(f"[dream][梦境总结] dream_send 平台或用户ID为空，当前值: {dream_send_raw!r}")
                         else:
                             # 默认为私聊会话
-                            stream_id = get_chat_manager().get_stream_id(
+                            stream_id = SessionUtils.calculate_session_id(
                                 platform=platform,
-                                id=str(user_id),
-                                is_group=False,
+                                user_id=str(user_id),
                             )
                             if not stream_id:
                                 logger.error(

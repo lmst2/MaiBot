@@ -23,7 +23,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.common.logger import initialize_logging, get_logger
 from src.common.database.database import db
 from src.common.database.database_model import LLMUsage
-from src.chat.message_receive.chat_stream import ChatStream
+from src.chat.message_receive.chat_manager import BotChatSession
 from maim_message import UserInfo, GroupInfo
 
 logger = get_logger("test_memory_retrieval")

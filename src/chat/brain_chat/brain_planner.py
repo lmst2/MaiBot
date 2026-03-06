@@ -22,7 +22,7 @@ from src.chat.utils.chat_message_builder import (
 )
 from src.chat.utils.utils import get_chat_type_and_target_info
 from src.chat.planner_actions.action_manager import ActionManager
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.plugin_system.base.component_types import ActionInfo, ComponentType, ActionActivationType
 from src.plugin_system.core.component_registry import component_registry
 
@@ -38,7 +38,7 @@ install(extra_lines=3)
 class BrainPlanner:
     def __init__(self, chat_id: str, action_manager: ActionManager):
         self.chat_id = chat_id
-        self.log_prefix = f"[{get_chat_manager().get_stream_name(chat_id) or chat_id}]"
+        self.log_prefix = f"[{_chat_manager.get_session_name(chat_id) or chat_id}]"
         self.action_manager = action_manager
         # LLM规划器配置
         self.planner_llm = LLMRequest(

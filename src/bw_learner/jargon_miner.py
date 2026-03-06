@@ -10,7 +10,7 @@ from src.common.logger import get_logger
 from src.common.database.database_model import Jargon
 from src.llm_models.utils_model import LLMRequest
 from src.config.config import model_config, global_config
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.prompt.prompt_manager import prompt_manager
 from src.bw_learner.learner_utils import (
     parse_chat_id_list,
@@ -99,9 +99,9 @@ class JargonMiner:
         )
 
         # 初始化stream_name作为类属性，避免重复提取
-        chat_manager = get_chat_manager()
-        stream_name = chat_manager.get_stream_name(self.chat_id)
-        self.stream_name = stream_name if stream_name else self.chat_id
+        chat_manager = _chat_manager
+        stream_name = chat_manager.get_session_name(self.chat_id)
+        self.stream_name = stream_name or self.chat_id
         self.cache_limit = 50
         self.cache: OrderedDict[str, None] = OrderedDict()
 

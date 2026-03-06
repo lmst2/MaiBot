@@ -1,6 +1,6 @@
 from typing import Dict, Optional, Type
 
-from src.chat.message_receive.chat_stream import ChatStream
+from src.chat.message_receive.chat_manager import BotChatSession
 from src.common.logger import get_logger
 from src.common.data_models.database_data_model import DatabaseMessages
 from src.plugin_system.core.component_registry import component_registry
@@ -35,7 +35,7 @@ class ActionManager:
         action_reasoning: str,
         cycle_timers: dict,
         thinking_id: str,
-        chat_stream: ChatStream,
+        chat_stream: BotChatSession,
         log_prefix: str,
         shutting_down: bool = False,
         action_message: Optional[DatabaseMessages] = None,

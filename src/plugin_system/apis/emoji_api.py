@@ -16,7 +16,7 @@ import uuid
 from typing import Optional, Tuple, List, Dict, Any
 from src.common.logger import get_logger
 from src.chat.emoji_system.emoji_manager import emoji_manager, EMOJI_DIR
-from src.chat.utils.utils_image import image_path_to_base64, base64_to_image
+from src.common.utils.utils_image import ImageUtils
 from src.config.config import global_config
 
 logger = get_logger("emoji_api")
@@ -56,7 +56,7 @@ async def get_by_description(description: str) -> Optional[Tuple[str, str, str]]
         emoji_path = str(emoji_obj.full_path)
         emoji_description = emoji_obj.description
         matched_emotion = random.choice(emoji_obj.emotion) if emoji_obj.emotion else ""
-        emoji_base64 = image_path_to_base64(emoji_path)
+        emoji_base64 = ImageUtils.image_path_to_base64(emoji_path)
 
         if not emoji_base64:
             logger.error(f"[EmojiAPI] 无法将表情包文件转换为base64: {emoji_path}")
@@ -115,7 +115,7 @@ async def get_random(count: Optional[int] = 1) -> List[Tuple[str, str, str]]:
 
         results = []
         for selected_emoji in selected_emojis:
-            emoji_base64 = image_path_to_base64(str(selected_emoji.full_path))
+            emoji_base64 = ImageUtils.image_path_to_base64(str(selected_emoji.full_path))
 
             if not emoji_base64:
                 logger.error(f"[EmojiAPI] 无法转换表情包为base64: {selected_emoji.full_path}")
@@ -174,7 +174,7 @@ async def get_by_emotion(emotion: str) -> Optional[Tuple[str, str, str]]:
 
         # 随机选择匹配的表情包
         selected_emoji = random.choice(matching_emojis)
-        emoji_base64 = image_path_to_base64(selected_emoji.full_path)
+        emoji_base64 = ImageUtils.image_path_to_base64(selected_emoji.full_path)
 
         if not emoji_base64:
             logger.error(f"[EmojiAPI] 无法转换表情包为base64: {selected_emoji.full_path}")
@@ -263,7 +263,7 @@ async def get_all() -> List[Tuple[str, str, str]]:
             if emoji_obj.is_deleted:
                 continue
 
-            emoji_base64 = image_path_to_base64(str(emoji_obj.full_path))
+            emoji_base64 = ImageUtils.image_path_to_base64(str(emoji_obj.full_path))
 
             if not emoji_base64:
                 logger.error(f"[EmojiAPI] 无法转换表情包为base64: {emoji_obj.full_path}")
@@ -429,7 +429,7 @@ async def register_emoji(image_base64: str, filename: Optional[str] = None) -> D
 
         try:
             # 解码base64并保存图片
-            if not base64_to_image(image_base64, temp_file_path):
+            if not ImageUtils.base64_to_image(image_base64, temp_file_path):
                 logger.error(f"[EmojiAPI] 无法保存base64图片到文件: {temp_file_path}")
                 return {
                     "success": False,

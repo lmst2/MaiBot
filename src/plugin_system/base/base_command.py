@@ -3,7 +3,7 @@ from typing import Dict, Tuple, Optional, TYPE_CHECKING, List
 from src.common.logger import get_logger
 from src.common.data_models.message_data_model import ReplyContentType, ReplyContent, ReplySetModel, ForwardNode
 from src.plugin_system.base.component_types import CommandInfo, ComponentType
-from src.chat.message_receive.message import MessageRecv
+from src.chat.message_receive.message import SessionMessage
 from src.plugin_system.apis import send_api
 
 if TYPE_CHECKING:
@@ -31,7 +31,7 @@ class BaseCommand(ABC):
     command_pattern: str = r""
     """命令匹配的正则表达式"""
 
-    def __init__(self, message: MessageRecv, plugin_config: Optional[dict] = None):
+    def __init__(self, message: SessionMessage, plugin_config: Optional[dict] = None):
         """初始化Command组件
 
         Args:
@@ -107,14 +107,14 @@ class BaseCommand(ABC):
             bool: 是否发送成功
         """
         # 获取聊天流信息
-        chat_stream = self.message.chat_stream
-        if not chat_stream or not hasattr(chat_stream, "stream_id"):
-            logger.error(f"{self.log_prefix} 缺少聊天流或stream_id")
+        session_id = self.message.session_id
+        if not session_id:
+            logger.error(f"{self.log_prefix} 缺少session_id")
             return False
 
         return await send_api.text_to_stream(
             text=content,
-            stream_id=chat_stream.stream_id,
+            stream_id=session_id,
             set_reply=set_reply,
             reply_message=reply_message,
             storage_message=storage_message,
@@ -135,14 +135,14 @@ class BaseCommand(ABC):
         Returns:
             bool: 是否发送成功
         """
-        chat_stream = self.message.chat_stream
-        if not chat_stream or not hasattr(chat_stream, "stream_id"):
-            logger.error(f"{self.log_prefix} 缺少聊天流或stream_id")
+        session_id = self.message.session_id
+        if not session_id:
+            logger.error(f"{self.log_prefix} 缺少session_id")
             return False
 
         return await send_api.image_to_stream(
             image_base64,
-            chat_stream.stream_id,
+            session_id,
             set_reply=set_reply,
             reply_message=reply_message,
             storage_message=storage_message,
@@ -166,13 +166,13 @@ class BaseCommand(ABC):
         Returns:
             bool: 是否发送成功
         """
-        chat_stream = self.message.chat_stream
-        if not chat_stream or not hasattr(chat_stream, "stream_id"):
-            logger.error(f"{self.log_prefix} 缺少聊天流或stream_id")
+        session_id = self.message.session_id
+        if not session_id:
+            logger.error(f"{self.log_prefix} 缺少session_id")
             return False
 
         return await send_api.emoji_to_stream(
-            emoji_base64, chat_stream.stream_id, set_reply=set_reply, reply_message=reply_message
+            emoji_base64, session_id, set_reply=set_reply, reply_message=reply_message
         )
 
     async def send_command(
@@ -195,9 +195,9 @@ class BaseCommand(ABC):
         """
         try:
             # 获取聊天流信息
-            chat_stream = self.message.chat_stream
-            if not chat_stream or not hasattr(chat_stream, "stream_id"):
-                logger.error(f"{self.log_prefix} 缺少聊天流或stream_id")
+            session_id = self.message.session_id
+            if not session_id:
+                logger.error(f"{self.log_prefix} 缺少session_id")
                 return False
 
             # 构造命令数据
@@ -205,7 +205,7 @@ class BaseCommand(ABC):
 
             success = await send_api.command_to_stream(
                 command=command_data,
-                stream_id=chat_stream.stream_id,
+                stream_id=session_id,
                 storage_message=storage_message,
                 display_message=display_message,
             )
@@ -229,15 +229,15 @@ class BaseCommand(ABC):
         Returns:
             bool: 是否发送成功
         """
-        chat_stream = self.message.chat_stream
-        if not chat_stream or not hasattr(chat_stream, "stream_id"):
-            logger.error(f"{self.log_prefix} 缺少聊天流或stream_id")
+        session_id = self.message.session_id
+        if not session_id:
+            logger.error(f"{self.log_prefix} 缺少session_id")
             return False
 
         return await send_api.custom_to_stream(
             message_type="voice",
             content=voice_base64,
-            stream_id=chat_stream.stream_id,
+            stream_id=session_id,
             typing=False,
             set_reply=False,
             reply_message=None,
@@ -262,15 +262,15 @@ class BaseCommand(ABC):
             reply_message: 回复的消息对象
             storage_message: 是否存储消息到数据库
         """
-        chat_stream = self.message.chat_stream
-        if not chat_stream or not hasattr(chat_stream, "stream_id"):
-            logger.error(f"{self.log_prefix} 缺少聊天流或stream_id")
+        session_id = self.message.session_id
+        if not session_id:
+            logger.error(f"{self.log_prefix} 缺少session_id")
             return False
         reply_set = ReplySetModel()
         reply_set.add_hybrid_content_by_raw(message_tuple_list)
         return await send_api.custom_reply_set_to_stream(
             reply_set=reply_set,
-            stream_id=chat_stream.stream_id,
+            stream_id=session_id,
             typing=typing,
             set_reply=set_reply,
             reply_message=reply_message,
@@ -293,9 +293,9 @@ class BaseCommand(ABC):
         Returns:
             bool: 是否发送成功
         """
-        chat_stream = self.message.chat_stream
-        if not chat_stream or not hasattr(chat_stream, "stream_id"):
-            logger.error(f"{self.log_prefix} 缺少聊天流或stream_id")
+        session_id = self.message.session_id
+        if not session_id:
+            logger.error(f"{self.log_prefix} 缺少session_id")
             return False
         reply_set = ReplySetModel()
         forward_message_nodes: List[ForwardNode] = []
@@ -318,7 +318,7 @@ class BaseCommand(ABC):
         reply_set.add_forward_content(forward_message_nodes)
         return await send_api.custom_reply_set_to_stream(
             reply_set=reply_set,
-            stream_id=chat_stream.stream_id,
+            stream_id=session_id,
             storage_message=storage_message,
             set_reply=False,
             reply_message=None,
@@ -349,15 +349,15 @@ class BaseCommand(ABC):
             bool: 是否发送成功
         """
         # 获取聊天流信息
-        chat_stream = self.message.chat_stream
-        if not chat_stream or not hasattr(chat_stream, "stream_id"):
-            logger.error(f"{self.log_prefix} 缺少聊天流或stream_id")
+        session_id = self.message.session_id
+        if not session_id:
+            logger.error(f"{self.log_prefix} 缺少session_id")
             return False
 
         return await send_api.custom_to_stream(
             message_type=message_type,
             content=content,
-            stream_id=chat_stream.stream_id,
+            stream_id=session_id,
             display_message=display_message,
             typing=typing,
             set_reply=set_reply,

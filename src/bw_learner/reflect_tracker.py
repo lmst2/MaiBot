@@ -5,20 +5,19 @@ from src.common.database.database_model import Expression
 from src.llm_models.utils_model import LLMRequest
 from src.prompt.prompt_manager import prompt_manager
 from src.config.config import model_config
-from src.chat.message_receive.chat_stream import ChatStream
+from src.chat.message_receive.chat_manager import BotChatSession
 from src.chat.utils.chat_message_builder import (
     get_raw_msg_by_timestamp_with_chat,
     build_readable_messages,
 )
 
-if TYPE_CHECKING:
-    pass
+
 
 logger = get_logger("reflect_tracker")
 
 
 class ReflectTracker:
-    def __init__(self, chat_stream: ChatStream, expression: Expression, created_time: float):
+    def __init__(self, chat_stream: BotChatSession, expression: Expression, created_time: float):
         self.chat_stream = chat_stream
         self.expression = expression
         self.created_time = created_time
@@ -42,7 +41,7 @@ class ReflectTracker:
 
         # Fetch messages since creation
         msg_list = get_raw_msg_by_timestamp_with_chat(
-            chat_id=self.chat_stream.stream_id,
+            chat_id=self.chat_stream.session_id,
             timestamp_start=self.created_time,
             timestamp_end=time.time(),
         )
@@ -90,10 +89,7 @@ class ReflectTracker:
             from json_repair import repair_json
 
             json_pattern = r"```json\s*(.*?)\s*```"
-            matches = re.findall(json_pattern, response, re.DOTALL)
-            if not matches:
-                # Try to parse raw response if no code block
-                matches = [response]
+            matches = re.findall(json_pattern, response, re.DOTALL) or [response]
 
             json_obj = json.loads(repair_json(matches[0]))
 
@@ -122,10 +118,7 @@ class ReflectTracker:
                     self.expression.style = corrected_style
 
                 # 如果拒绝但未更新，标记为 rejected=1
-                if not has_update:
-                    self.expression.rejected = True
-                else:
-                    self.expression.rejected = False
+                self.expression.rejected = not has_update
 
                 self.expression.save()
 

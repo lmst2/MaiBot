@@ -11,7 +11,7 @@ from sqlmodel import col, select, delete
 from src.common.logger import get_logger
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Expression
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.webui.core import verify_auth_token_from_cookie_or_header
 
 logger = get_logger("webui.expression")
@@ -118,14 +118,11 @@ def expression_to_response(expression: Expression) -> ExpressionResponse:
 def get_chat_name(chat_id: str) -> str:
     """根据 chat_id 获取聊天名称"""
     try:
-        chat_stream = get_chat_manager().get_stream(chat_id)
-        if not chat_stream:
+        session = _chat_manager.get_session_by_session_id(chat_id)
+        if not session:
             return chat_id
-        if chat_stream.group_info and chat_stream.group_info.group_name:
-            return chat_stream.group_info.group_name
-        if chat_stream.user_info and chat_stream.user_info.user_nickname:
-            return chat_stream.user_info.user_nickname
-        return chat_id
+        name = _chat_manager.get_session_name(chat_id)
+        return name or chat_id
     except Exception:
         return chat_id
 
@@ -134,15 +131,9 @@ def get_chat_names_batch(chat_ids: List[str]) -> Dict[str, str]:
     """批量获取聊天名称"""
     result = {cid: cid for cid in chat_ids}  # 默认值为原始ID
     try:
-        chat_manager = get_chat_manager()
         for chat_id in chat_ids:
-            chat_stream = chat_manager.get_stream(chat_id)
-            if not chat_stream:
-                continue
-            if chat_stream.group_info and chat_stream.group_info.group_name:
-                result[chat_id] = chat_stream.group_info.group_name
-            elif chat_stream.user_info and chat_stream.user_info.user_nickname:
-                result[chat_id] = chat_stream.user_info.user_nickname
+            if name := _chat_manager.get_session_name(chat_id):
+                result[chat_id] = name
     except Exception as e:
         logger.warning(f"批量获取聊天名称失败: {e}")
     return result
@@ -179,17 +170,14 @@ async def get_chat_list(maibot_session: Optional[str] = Cookie(None), authorizat
         verify_auth_token(maibot_session, authorization)
 
         chat_list = []
-        for stream_id, stream in get_chat_manager().streams.items():
-            chat_name = stream.group_info.group_name if stream.group_info and stream.group_info.group_name else None
-            if not chat_name and stream.user_info and stream.user_info.user_nickname:
-                chat_name = stream.user_info.user_nickname
-            chat_name = chat_name or stream_id
+        for session_id, session in _chat_manager.sessions.items():
+            chat_name = _chat_manager.get_session_name(session_id) or session_id
             chat_list.append(
                 ChatInfo(
-                    chat_id=stream_id,
+                    chat_id=session_id,
                     chat_name=chat_name,
-                    platform=stream.platform,
-                    is_group=bool(stream.group_info and stream.group_info.group_id),
+                    platform=session.platform,
+                    is_group=session.is_group_session,
                 )
             )
 
@@ -495,11 +483,10 @@ async def batch_delete_expressions(
         # 查找所有要删除的表达方式
         with get_db_session() as session:
             statements = select(Expression.id).where(col(Expression.id).in_(request.ids))
-            found_ids = [expr_id for expr_id in session.exec(statements).all()]
+            found_ids = list(session.exec(statements).all())
 
         # 检查是否有未找到的ID
-        not_found_ids = set(request.ids) - set(found_ids)
-        if not_found_ids:
+        if not_found_ids := set(request.ids) - set(found_ids):
             logger.warning(f"部分表达方式未找到: {not_found_ids}")
 
         # 执行批量删除
@@ -800,7 +787,7 @@ async def batch_review_expressions(
                     session.add(db_expression)
 
                 results.append(
-                    BatchReviewResultItem(id=item.id, success=True, message="通过" if not item.rejected else "拒绝")
+                    BatchReviewResultItem(id=item.id, success=True, message="拒绝" if item.rejected else "通过")
                 )
                 succeeded += 1
 

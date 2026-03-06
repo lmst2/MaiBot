@@ -8,7 +8,7 @@ from src.chat.utils.statistic import OnlineTimeRecordTask, StatisticOutputTask
 
 # from src.chat.utils.token_statistics import TokenStatisticsTask
 from src.chat.emoji_system.emoji_manager import emoji_manager
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.chat.message_receive.chat_manager import chat_manager
 from src.config.config import config_manager, global_config
 from src.chat.message_receive.bot import chat_bot
 from src.common.logger import get_logger
@@ -119,8 +119,8 @@ class MainSystem:
         logger.info("表情包管理器初始化成功")
 
         # 初始化聊天管理器
-        await get_chat_manager()._initialize()
-        asyncio.create_task(get_chat_manager()._auto_save_task())
+        await chat_manager.initialize()
+        asyncio.create_task(chat_manager.regularly_save_sessions())
 
         logger.info("聊天管理器初始化成功")
 

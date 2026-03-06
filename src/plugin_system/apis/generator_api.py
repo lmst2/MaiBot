@@ -16,7 +16,7 @@ from src.common.logger import get_logger
 from src.common.data_models.message_data_model import ReplySetModel
 from src.chat.replyer.group_generator import DefaultReplyer
 from src.chat.replyer.private_generator import PrivateReplyer
-from src.chat.message_receive.chat_stream import ChatStream
+from src.chat.message_receive.chat_manager import BotChatSession
 from src.chat.utils.utils import process_llm_response
 from src.chat.replyer.replyer_manager import replyer_manager
 from src.plugin_system.base.component_types import ActionInfo
@@ -38,7 +38,7 @@ logger = get_logger("generator_api")
 
 
 def get_replyer(
-    chat_stream: Optional[ChatStream] = None,
+    chat_stream: Optional[BotChatSession] = None,
     chat_id: Optional[str] = None,
     request_type: str = "replyer",
 ) -> Optional[DefaultReplyer | PrivateReplyer]:
@@ -79,7 +79,7 @@ def get_replyer(
 
 
 async def generate_reply(
-    chat_stream: Optional[ChatStream] = None,
+    chat_stream: Optional[BotChatSession] = None,
     chat_id: Optional[str] = None,
     action_data: Optional[Dict[str, Any]] = None,
     reply_message: Optional["DatabaseMessages"] = None,
@@ -161,7 +161,7 @@ async def generate_reply(
             unknown_words=unknown_words,
             think_level=think_level,
             from_plugin=from_plugin,
-            stream_id=chat_stream.stream_id if chat_stream else chat_id,
+            stream_id=chat_stream.session_id if chat_stream else chat_id,
             reply_time_point=reply_time_point,
             log_reply=False,
         )
@@ -181,7 +181,7 @@ async def generate_reply(
         # 统一在这里记录最终回复日志（包含分割后的 processed_output）
         try:
             PlanReplyLogger.log_reply(
-                chat_id=chat_stream.stream_id if chat_stream else (chat_id or ""),
+                chat_id=chat_stream.session_id if chat_stream else (chat_id or ""),
                 prompt=llm_response.prompt or "",
                 output=llm_response.content,
                 processed_output=llm_response.processed_output,
@@ -210,7 +210,7 @@ async def generate_reply(
 
 
 async def rewrite_reply(
-    chat_stream: Optional[ChatStream] = None,
+    chat_stream: Optional[BotChatSession] = None,
     reply_data: Optional[Dict[str, Any]] = None,
     chat_id: Optional[str] = None,
     enable_splitter: bool = True,
@@ -302,7 +302,7 @@ def process_human_text(content: str, enable_splitter: bool, enable_chinese_typo:
 
 
 async def generate_response_custom(
-    chat_stream: Optional[ChatStream] = None,
+    chat_stream: Optional[BotChatSession] = None,
     chat_id: Optional[str] = None,
     request_type: str = "generator_api",
     prompt: str = "",

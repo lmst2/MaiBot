@@ -6,8 +6,8 @@ from maim_message import Seg
 
 from src.common.message_server.api import get_global_api
 from src.common.logger import get_logger
+from src.common.database.database import get_db_session
 from src.chat.message_receive.message import MessageSending
-from src.chat.message_receive.storage import MessageStorage
 from src.chat.utils.utils import truncate_message
 from src.chat.utils.utils import calculate_typing_time
 
@@ -130,8 +130,8 @@ def parse_message_segments(segment) -> list:
 async def _send_message(message: MessageSending, show_log=True) -> bool:
     """合并后的消息发送函数，包含WS发送和日志记录"""
     message_preview = truncate_message(message.processed_plain_text, max_length=200)
-    platform = message.message_info.platform
-    group_id = message.message_info.group_info.group_id if message.message_info.group_info else None
+    platform = message.platform
+    group_id = message.session.group_id
 
     try:
         # 检查是否是 WebUI 平台的消息，或者是 WebUI 虚拟群的消息
@@ -221,33 +221,14 @@ async def _send_message(message: MessageSending, show_log=True) -> bool:
                         raise legacy_exception
                     return False
 
-                # 使用 MessageConverter 转换 Legacy MessageBase 到 APIMessageBase
-                # 发送场景：MaiMBot 发送回复消息给外部用户
-                # group_info/user_info 是消息接收者信息，放入 receiver_info
+                # 使用 MessageConverter 转换为 API 消息
                 from maim_message import MessageConverter
 
-                # 修复 API Server Fallback 模式下的 user_info 问题
-                # 在 Legacy 模式下，MessageSending.to_dict() 的第 454 行会将 user_info 替换为 chat_stream.user_info
-                # 但在 API Server Fallback 模式下，MessageConverter.to_api_send() 直接访问 message 对象，不调用 to_dict()
-                # 需要手动应用相同的变通方案：在私聊场景下，user_info 应该是接收者（sender_info）
-                message_for_conversion = message
-                if hasattr(message, "message_info") and message.message_info.group_info is None:
-                    # 私聊场景：group_info 为 None
-                    # user_info 应该是接收者，从 chat_stream.user_info 或 sender_info 获取
-                    temp_dict = message.to_dict()
-                    if (
-                        hasattr(message, "chat_stream")
-                        and message.chat_stream
-                        and hasattr(message.chat_stream, "user_info")
-                    ):
-                        temp_dict["message_info"]["user_info"] = message.chat_stream.user_info.to_dict()
-                    # 重新构建 MessageBase 对象（不保留 sender_info 等扩展属性）
-                    from maim_message import MessageBase
-
-                    message_for_conversion = MessageBase.from_dict(temp_dict)
+                # 新架构：通过 to_maim_message() 转换，内部已处理私聊/群聊的 user_info 差异
+                message_base = await message.to_maim_message()
 
                 api_message = MessageConverter.to_api_send(
-                    message=message_for_conversion,
+                    message=message_base,
                     api_key=target_api_key,
                     platform=platform,
                 )
@@ -278,10 +259,11 @@ async def _send_message(message: MessageSending, show_log=True) -> bool:
             return False
 
         try:
-            send_result = await get_global_api().send_message(message)
+            message_base = await message.to_maim_message()
+            send_result = await get_global_api().send_message(message_base)
             if send_result:
                 if show_log:
-                    logger.info(f"已将消息  '{message_preview}'  发往平台'{message.message_info.platform}'")
+                    logger.info(f"已将消息  '{message_preview}'  发往平台'{message.platform}'")
                 return True
             else:
                 # Legacy API 返回 False (发送失败但未报错)，尝试 Fallback
@@ -297,7 +279,7 @@ async def _send_message(message: MessageSending, show_log=True) -> bool:
             return await send_with_new_api(legacy_exception=legacy_e)
 
     except Exception as e:
-        logger.error(f"发送消息   '{message_preview}'   发往平台'{message.message_info.platform}' 失败: {str(e)}")
+        logger.error(f"发送消息   '{message_preview}'   发往平台'{message.platform}' 失败: {str(e)}")
         traceback.print_exc()
         raise e  # 重新抛出其他异常
 
@@ -306,7 +288,7 @@ class UniversalMessageSender:
     """管理消息的注册、即时处理、发送和存储，并跟踪思考状态。"""
 
     def __init__(self):
-        self.storage = MessageStorage()
+        pass
 
     async def send_message(
         self, message: MessageSending, typing=False, set_reply=False, storage_message=True, show_log=True
@@ -321,15 +303,15 @@ class UniversalMessageSender:
         用法：
             - typing=True 时，发送前会有打字等待。
         """
-        if not message.chat_stream:
-            logger.error("消息缺少 chat_stream，无法发送")
-            raise ValueError("消息缺少 chat_stream，无法发送")
-        if not message.message_info or not message.message_info.message_id:
-            logger.error("消息缺少 message_info 或 message_id，无法发送")
-            raise ValueError("消息缺少 message_info 或 message_id，无法发送")
+        if not message.session:
+            logger.error("消息缺少 session，无法发送")
+            raise ValueError("消息缺少 session，无法发送")
+        if not message.message_id:
+            logger.error("消息缺少 message_id，无法发送")
+            raise ValueError("消息缺少 message_id，无法发送")
 
-        chat_id = message.chat_stream.stream_id
-        message_id = message.message_info.message_id
+        chat_id = message.session_id
+        message_id = message.message_id
 
         try:
             if set_reply:
@@ -391,7 +373,8 @@ class UniversalMessageSender:
                     message.processed_plain_text = modified_message.plain_text
 
             if storage_message:
-                await self.storage.store_message(message, message.chat_stream)
+                with get_db_session() as db_session:
+                    db_session.add(message.to_db_instance())
 
             return sent_msg
 

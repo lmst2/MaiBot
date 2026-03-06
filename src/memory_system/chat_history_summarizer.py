@@ -21,7 +21,7 @@ from src.plugin_system.apis import message_api
 from src.chat.utils.chat_message_builder import build_readable_messages
 from src.chat.utils.utils import is_bot_self
 from src.person_info.person_info import Person
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.prompt.prompt_manager import prompt_manager
 
 logger = get_logger("chat_history_summarizer")
@@ -100,7 +100,7 @@ class ChatHistorySummarizer:
     def _get_chat_display_name(self) -> str:
         """获取聊天显示名称"""
         try:
-            chat_name = get_chat_manager().get_stream_name(self.chat_id)
+            chat_name = _chat_manager.get_session_name(self.chat_id)
             if chat_name:
                 return chat_name
             # 如果获取失败，使用简化的chat_id显示

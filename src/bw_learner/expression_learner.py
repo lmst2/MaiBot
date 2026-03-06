@@ -12,7 +12,7 @@ from src.chat.utils.chat_message_builder import (
     build_anonymous_messages,
 )
 from src.prompt.prompt_manager import prompt_manager
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.bw_learner.learner_utils import (
     filter_message_content,
     is_bot_message,
@@ -42,8 +42,8 @@ class ExpressionLearner:
         )
         self.check_model: Optional[LLMRequest] = None  # 检查用的 LLM 实例，延迟初始化
         self.chat_id = chat_id
-        self.chat_stream = get_chat_manager().get_stream(chat_id)
-        self.chat_name = get_chat_manager().get_stream_name(chat_id) or chat_id
+        self.chat_stream = _chat_manager.get_session_by_session_id(chat_id)
+        self.chat_name = _chat_manager.get_session_name(chat_id) or chat_id
 
         # 学习锁，防止并发执行学习任务
         self._learning_lock = asyncio.Lock()

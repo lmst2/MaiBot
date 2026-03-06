@@ -5,12 +5,12 @@ from src.plugin_system.base.component_types import ComponentType
 from src.common.logger import get_logger
 
 if TYPE_CHECKING:
-    from src.chat.message_receive.chat_stream import ChatStream
+    from src.chat.message_receive.chat_manager import BotChatSession
 
 logger = get_logger("tool_api")
 
 
-def get_tool_instance(tool_name: str, chat_stream: Optional["ChatStream"] = None) -> Optional[BaseTool]:
+def get_tool_instance(tool_name: str, chat_stream: Optional["BotChatSession"] = None) -> Optional[BaseTool]:
     """获取公开工具实例
 
     Args:

@@ -30,9 +30,8 @@ def _parse_blacklist_to_chat_ids(blacklist: list[str]) -> Set[str]:
         return chat_ids
 
     try:
-        from src.chat.message_receive.chat_stream import get_chat_manager
+        from src.common.utils.utils_session import SessionUtils
 
-        chat_manager = get_chat_manager()
         for blacklist_item in blacklist:
             if not isinstance(blacklist_item, str):
                 continue
@@ -51,7 +50,10 @@ def _parse_blacklist_to_chat_ids(blacklist: list[str]) -> Set[str]:
                 is_group = stream_type == "group"
 
                 # 转换为chat_id
-                chat_id = chat_manager.get_stream_id(platform, str(id_str), is_group=is_group)
+                if is_group:
+                    chat_id = SessionUtils.calculate_session_id(platform, group_id=str(id_str))
+                else:
+                    chat_id = SessionUtils.calculate_session_id(platform, user_id=str(id_str))
                 if chat_id:
                     chat_ids.add(chat_id)
                 else:
@@ -225,9 +227,9 @@ async def search_chat_history(
             if keyword:
                 keyword_matched = False
                 # 解析多个关键词（支持空格、逗号等分隔符）
-                keywords_list = parse_keywords_string(keyword)
-                if not keywords_list:
-                    keywords_list = [keyword.strip()] if keyword.strip() else []
+                keywords_list = parse_keywords_string(keyword) or (
+                    [keyword.strip()] if keyword.strip() else []
+                )
 
                 # 转换为小写以便匹配
                 keywords_lower = [kw.lower() for kw in keywords_list if kw.strip()]

@@ -4,10 +4,10 @@ MaiBot模块系统
 """
 
 from src.chat.emoji_system.emoji_manager import emoji_manager
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.chat.message_receive.chat_manager import chat_manager
 
 # 导出主要组件供外部使用
 __all__ = [
-    "get_chat_manager",
+    "chat_manager",
     "emoji_manager",
 ]

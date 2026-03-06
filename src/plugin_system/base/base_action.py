@@ -6,7 +6,7 @@ from typing import Tuple, Optional, TYPE_CHECKING, Dict, List
 
 from src.common.logger import get_logger
 from src.common.data_models.message_data_model import ReplyContentType, ReplyContent, ReplySetModel, ForwardNode
-from src.chat.message_receive.chat_stream import ChatStream
+from src.chat.message_receive.chat_manager import BotChatSession
 from src.plugin_system.base.component_types import ActionActivationType, ActionInfo, ComponentType
 from src.plugin_system.apis import send_api, database_api, message_api
 
@@ -36,7 +36,7 @@ class BaseAction(ABC):
         action_reasoning: str,
         cycle_timers: dict,
         thinking_id: str,
-        chat_stream: ChatStream,
+        chat_stream: BotChatSession,
         plugin_config: Optional[dict] = None,
         action_message: Optional["DatabaseMessages"] = None,
         **kwargs,
@@ -92,7 +92,7 @@ class BaseAction(ABC):
 
         # 获取聊天流对象
         self.chat_stream = chat_stream or kwargs.get("chat_stream")
-        self.chat_id = self.chat_stream.stream_id
+        self.chat_id = self.chat_stream.session_id
         self.platform = getattr(self.chat_stream, "platform", None)
 
         # 初始化基础信息（带类型注解）

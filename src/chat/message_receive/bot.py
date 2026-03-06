@@ -8,7 +8,6 @@ from typing import Dict, Any
 from src.common.logger import get_logger
 from src.common.utils.utils_message import MessageUtils
 from src.common.utils.utils_session import SessionUtils
-from src.chat.message_receive.message_old import MessageRecv
 from src.chat.heart_flow.heartflow_message_processor import HeartFCMessageReceiver
 from src.chat.brain_chat.PFC.pfc_manager import PFCManager
 from src.chat.utils.prompt_builder import Prompt, global_prompt_manager
@@ -41,14 +40,14 @@ class ChatBot:
 
             self._started = True
 
-    async def _create_pfc_chat(self, message: MessageRecv):
+    async def _create_pfc_chat(self, message: SessionMessage):
         """创建或获取PFC对话实例
 
         Args:
             message: 消息对象
         """
         try:
-            chat_id = str(message.chat_stream.stream_id)
+            chat_id = message.session_id
             private_name = str(message.message_info.user_info.user_nickname)
 
             logger.debug(f"[私聊][{private_name}]创建或获取PFC对话: {chat_id}")
@@ -177,12 +176,12 @@ class ChatBot:
             logger.error(f"[新运行时] 执行命令 {matched.full_name} 异常: {e}", exc_info=True)
             return True, str(e), True
 
-    async def handle_notice_message(self, message: MessageRecv):
-        if message.message_info.message_id == "notice":
+    async def handle_notice_message(self, message: SessionMessage):
+        if message.message_id == "notice":
             message.is_notify = True
             logger.debug("notice消息")
             try:
-                seg = message.message_segment
+                seg = getattr(message, "message_segment", None)  # SessionMessage 没有 message_segment
                 mi = message.message_info
                 sub_type = None
                 scene = None
@@ -246,10 +245,8 @@ class ChatBot:
             return
         mmc_message_id = message_data.get("echo")
         actual_message_id = message_data.get("actual_id")
-        if MessageStorage.update_message(mmc_message_id, actual_message_id):
-            logger.debug(f"更新消息ID成功: {mmc_message_id} -> {actual_message_id}")
-        else:
-            logger.warning(f"更新消息ID失败: {mmc_message_id} -> {actual_message_id}")
+        # TODO: Implement message ID update in new architecture
+        logger.debug(f"收到回送消息ID: {mmc_message_id} -> {actual_message_id}")
 
     async def message_process(self, message_data: Dict[str, Any]) -> None:
         """处理转化后的统一格式消息

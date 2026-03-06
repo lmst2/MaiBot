@@ -3,6 +3,7 @@ import time
 import traceback
 import random
 import re
+import contextlib
 from typing import Dict, Optional, Tuple, List, TYPE_CHECKING, Union
 from collections import OrderedDict
 from rich.traceback import install
@@ -21,7 +22,7 @@ from src.chat.utils.chat_message_builder import (
 )
 from src.chat.utils.utils import get_chat_type_and_target_info, is_bot_self
 from src.chat.planner_actions.action_manager import ActionManager
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.plugin_system.base.component_types import ActionInfo, ComponentType, ActionActivationType
 from src.plugin_system.core.component_registry import component_registry
 from src.plugin_system.apis.message_api import translate_pid_to_description
@@ -39,7 +40,7 @@ install(extra_lines=3)
 class ActionPlanner:
     def __init__(self, chat_id: str, action_manager: ActionManager):
         self.chat_id = chat_id
-        self.log_prefix = f"[{get_chat_manager().get_stream_name(chat_id) or chat_id}]"
+        self.log_prefix = f"[{_chat_manager.get_session_name(chat_id) or chat_id}]"
         self.action_manager = action_manager
         # LLM规划器配置
         self.planner_llm = LLMRequest(
@@ -80,7 +81,7 @@ class ActionPlanner:
         if not text:
             return text
 
-        id_to_message = {msg_id: msg for msg_id, msg in message_id_list}
+        id_to_message = dict(message_id_list)
 
         # 匹配m后带2-4位数字，前后不是字母数字下划线
         pattern = r"(?<![A-Za-z0-9_])m\d{2,4}(?![A-Za-z0-9_])"
@@ -223,7 +224,7 @@ class ActionPlanner:
                     action_data=action_data,
                     action_message=target_message,
                     available_actions=available_actions_dict,
-                    action_reasoning=extracted_reasoning if extracted_reasoning else None,
+                    action_reasoning=extracted_reasoning or None,
                 )
             )
 
@@ -238,7 +239,7 @@ class ActionPlanner:
                     action_data={},
                     action_message=None,
                     available_actions=available_actions_dict,
-                    action_reasoning=extracted_reasoning if extracted_reasoning else None,
+                    action_reasoning=extracted_reasoning or None,
                 )
             )
 
@@ -292,8 +293,7 @@ class ActionPlanner:
         if new_words:
             for word in new_words:
                 if isinstance(word, str):
-                    word = word.strip()
-                    if word:
+                    if word := word.strip():
                         cleaned_new_words.append(word)
 
         # 获取缓存中的黑话列表
@@ -351,10 +351,9 @@ class ActionPlanner:
                     break
 
         # 如果当前 plan 的 reply 没有提取，移除最老的1个
-        if not has_extracted_unknown_words:
-            if len(self.unknown_words_cache) > 0:
-                self.unknown_words_cache.popitem(last=False)
-                logger.debug(f"{self.log_prefix}当前 plan 的 reply 没有提取黑话，移除最老的1个缓存")
+        if not has_extracted_unknown_words and len(self.unknown_words_cache) > 0:
+            self.unknown_words_cache.popitem(last=False)
+            logger.debug(f"{self.log_prefix}当前 plan 的 reply 没有提取黑话，移除最老的1个缓存")
 
         # 对于每个 reply action，合并缓存和新提取的黑话
         for action in actions:
@@ -363,10 +362,7 @@ class ActionPlanner:
                 new_words = action_data.get("unknown_words")
 
                 # 合并新提取的和缓存的黑话列表
-                merged_words = self._merge_unknown_words_with_cache(new_words)
-
-                # 更新 action_data
-                if merged_words:
+                if merged_words := self._merge_unknown_words_with_cache(new_words):
                     action_data["unknown_words"] = merged_words
                     logger.debug(
                         f"{self.log_prefix}合并黑话：新提取 {len(new_words) if new_words else 0} 个，"
@@ -449,15 +445,12 @@ class ActionPlanner:
         # 如果有强制回复消息，确保回复该消息
         if force_reply_message:
             # 检查是否已经有回复该消息的 action
-            has_reply_to_force_message = False
-            for action in actions:
-                if (
-                    action.action_type == "reply"
-                    and action.action_message
-                    and action.action_message.message_id == force_reply_message.message_id
-                ):
-                    has_reply_to_force_message = True
-                    break
+            has_reply_to_force_message = any(
+                action.action_type == "reply"
+                and action.action_message
+                and action.action_message.message_id == force_reply_message.message_id
+                for action in actions
+            )
 
             # 如果没有回复该消息，强制添加回复 action
             if not has_reply_to_force_message:
@@ -532,13 +525,10 @@ class ActionPlanner:
         # 从后往前遍历，收集最新的记录
         for reasoning, timestamp, content in reversed(self.plan_log):
             if isinstance(content, list) and all(isinstance(action, ActionPlannerInfo) for action in content):
-                # 这是action记录
                 if len(action_records) < max_action_records:
                     action_records.append((reasoning, timestamp, content, "action"))
-            else:
-                # 这是执行结果记录
-                if len(execution_records) < max_execution_records:
-                    execution_records.append((reasoning, timestamp, content, "execution"))
+            elif len(execution_records) < max_execution_records:
+                execution_records.append((reasoning, timestamp, content, "execution"))
 
         # 合并所有记录并按时间戳排序
         all_records = action_records + execution_records
@@ -700,15 +690,9 @@ class ActionPlanner:
                 param_text = param_text.rstrip("\n")
 
             # 构建要求文本
-            require_text = ""
-            for require_item in action_info.action_require:
-                require_text += f"- {require_item}\n"
-            require_text = require_text.rstrip("\n")
+            require_text = "\n".join(f"- {require_item}" for require_item in action_info.action_require)
 
-            if not action_info.parallel_action:
-                parallel_text = "(当选择这个动作时，请不要选择其他动作)"
-            else:
-                parallel_text = ""
+            parallel_text = "" if action_info.parallel_action else "(当选择这个动作时，请不要选择其他动作)"
 
             # 获取动作提示模板并填充
             using_action_prompt = prompt_manager.get_prompt("action")
@@ -864,20 +848,15 @@ class ActionPlanner:
                     # 尝试按行分割，每行可能是一个JSON对象
                     lines = [line.strip() for line in json_str.split("\n") if line.strip()]
                     for line in lines:
-                        try:
-                            # 尝试解析每一行作为独立的JSON对象
+                        with contextlib.suppress(json.JSONDecodeError):
                             json_obj = json.loads(repair_json(line))
                             if isinstance(json_obj, dict):
-                                # 过滤掉空字典，避免单个 { 字符被错误修复为 {} 的情况
                                 if json_obj:
                                     json_objects.append(json_obj)
                             elif isinstance(json_obj, list):
                                 for item in json_obj:
                                     if isinstance(item, dict) and item:
                                         json_objects.append(item)
-                        except json.JSONDecodeError:
-                            # 如果单行解析失败，尝试将整个块作为一个JSON对象或数组
-                            pass
 
                     # 如果按行解析没有成功（或只得到空字典），尝试将整个块作为一个JSON对象或数组
                     if not json_objects:

@@ -9,7 +9,7 @@ from src.config.config import global_config
 from src.common.logger import get_logger
 from src.common.data_models.info_data_model import ActionPlannerInfo
 from src.common.data_models.message_data_model import ReplyContentType
-from src.chat.message_receive.chat_stream import ChatStream, get_chat_manager
+from src.chat.message_receive.chat_manager import BotChatSession, chat_manager as _chat_manager
 from src.chat.utils.prompt_builder import global_prompt_manager
 from src.chat.utils.timer_calculator import Timer
 from src.chat.brain_chat.brain_planner import BrainPlanner
@@ -73,10 +73,10 @@ class BrainChatting:
         """
         # 基础属性
         self.stream_id: str = chat_id  # 聊天流ID
-        self.chat_stream: ChatStream = get_chat_manager().get_stream(self.stream_id)  # type: ignore
+        self.chat_stream: BotChatSession = _chat_manager.get_session_by_session_id(self.stream_id)  # type: ignore
         if not self.chat_stream:
             raise ValueError(f"无法找到聊天流: {self.stream_id}")
-        self.log_prefix = f"[{get_chat_manager().get_stream_name(self.stream_id) or self.stream_id}]"
+        self.log_prefix = f"[{_chat_manager.get_session_name(self.stream_id) or self.stream_id}]"
 
         self.expression_learner = expression_learner_manager.get_expression_learner(self.stream_id)
 

@@ -2,7 +2,7 @@ import time
 import asyncio
 from typing import List, Any
 from src.common.logger import get_logger
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.chat.utils.chat_message_builder import get_raw_msg_by_timestamp_with_chat_inclusive
 from src.chat.utils.common_utils import TempMethodsExpression
 from src.bw_learner.expression_learner import expression_learner_manager
@@ -18,8 +18,8 @@ class MessageRecorder:
 
     def __init__(self, chat_id: str) -> None:
         self.chat_id = chat_id
-        self.chat_stream = get_chat_manager().get_stream(chat_id)
-        self.chat_name = get_chat_manager().get_stream_name(chat_id) or chat_id
+        self.chat_stream = _chat_manager.get_session_by_session_id(chat_id)
+        self.chat_name = _chat_manager.get_session_name(chat_id) or chat_id
 
         # 维护每个chat的上次提取时间
         self.last_extraction_time: float = time.time()

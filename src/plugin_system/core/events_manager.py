@@ -2,8 +2,8 @@ import asyncio
 import contextlib
 from typing import List, Dict, Optional, Type, Tuple, TYPE_CHECKING
 
-from src.chat.message_receive.message import MessageRecv, MessageSending
-from src.chat.message_receive.chat_stream import get_chat_manager
+from src.chat.message_receive.message import MessageSending, SessionMessage
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.common.logger import get_logger
 from src.plugin_system.base.component_types import EventType, EventHandlerInfo, MaiMessages, CustomEventHandlerResult
 from src.plugin_system.base.base_events_handler import BaseEventHandler
@@ -72,7 +72,7 @@ class EventsManager:
     async def handle_mai_events(
         self,
         event_type: EventType | str,
-        message: Optional[MessageRecv | MessageSending | MaiMessages] = None,
+        message: Optional[SessionMessage | MessageSending | MaiMessages] = None,
         llm_prompt: Optional[str] = None,
         llm_response: Optional["LLMGenerationDataModel"] = None,
         stream_id: Optional[str] = None,
@@ -87,7 +87,7 @@ class EventsManager:
 
         # 1. 准备消息
         transformed_message = self._prepare_message(
-            event_type, message, llm_prompt, llm_response, stream_id, action_usage
+            event_type, message, llm_prompt, llm_response, stream_id, action_usage  # type: ignore[arg-type]
         )
         if transformed_message:
             transformed_message = transformed_message.deepcopy()
@@ -134,7 +134,7 @@ class EventsManager:
 
     async def handle_workflow_message(
         self,
-        message: Optional[MessageRecv | MessageSending | MaiMessages] = None,
+        message: Optional[SessionMessage | MessageSending | MaiMessages] = None,
         stream_id: Optional[str] = None,
         action_usage: Optional[List[str]] = None,
         context: Optional[WorkflowContext] = None,
@@ -248,11 +248,13 @@ class EventsManager:
 
     def _transform_event_message(
         self,
-        message: MessageRecv | MessageSending,
+        message: SessionMessage | MessageSending,
         llm_prompt: Optional[str] = None,
         llm_response: Optional["LLMGenerationDataModel"] = None,
     ) -> MaiMessages:
         """转换事件消息格式"""
+        from maim_message import Seg
+
         # 直接赋值部分内容
         transformed_message = MaiMessages(
             llm_prompt=llm_prompt,
@@ -260,45 +262,62 @@ class EventsManager:
             llm_response_reasoning=llm_response.reasoning if llm_response else None,
             llm_response_model=llm_response.model if llm_response else None,
             llm_response_tool_call=llm_response.tool_calls if llm_response else None,
-            raw_message=message.raw_message,
-            additional_data=message.message_info.additional_config or {},
+            raw_message=message.processed_plain_text or "",
+            additional_data={},
         )
 
         # 消息段处理
-        if message.message_segment.type == "seglist":
-            transformed_message.message_segments = list(message.message_segment.data)  # type: ignore
+        if isinstance(message, MessageSending):
+            if message.message_segment.type == "seglist":
+                transformed_message.message_segments = list(message.message_segment.data)  # type: ignore
+            else:
+                transformed_message.message_segments = [message.message_segment]
         else:
-            transformed_message.message_segments = [message.message_segment]
+            # SessionMessage: 使用 processed_plain_text 构造简单段
+            transformed_message.message_segments = [Seg(type="text", data=message.processed_plain_text or "")]
 
         # stream_id 处理
-        if hasattr(message, "chat_stream") and message.chat_stream:
-            transformed_message.stream_id = message.chat_stream.stream_id
+        transformed_message.stream_id = message.session_id if hasattr(message, "session_id") else ""
 
         # 处理后文本
         transformed_message.plain_text = message.processed_plain_text
 
         # 基本信息
-        if hasattr(message, "message_info") and message.message_info:
-            if message.message_info.platform:
-                transformed_message.message_base_info["platform"] = message.message_info.platform
+        if isinstance(message, MessageSending):
+            transformed_message.message_base_info["platform"] = message.platform
+            if message.session.group_id:
+                transformed_message.is_group_message = True
+                group_name = ""
+                if message.session.context and message.session.context.message and message.session.context.message.message_info.group_info:
+                    group_name = message.session.context.message.message_info.group_info.group_name
+                transformed_message.message_base_info.update({
+                    "group_id": message.session.group_id,
+                    "group_name": group_name,
+                })
+            transformed_message.message_base_info.update({
+                "user_id": message.bot_user_info.user_id,
+                "user_cardname": message.bot_user_info.user_cardname,
+                "user_nickname": message.bot_user_info.user_nickname,
+            })
+            if not transformed_message.is_group_message:
+                transformed_message.is_private_message = True
+        elif hasattr(message, "message_info") and message.message_info:
+            if message.platform:
+                transformed_message.message_base_info["platform"] = message.platform
             if message.message_info.group_info:
                 transformed_message.is_group_message = True
-                transformed_message.message_base_info.update(
-                    {
-                        "group_id": message.message_info.group_info.group_id,
-                        "group_name": message.message_info.group_info.group_name,
-                    }
-                )
+                transformed_message.message_base_info.update({
+                    "group_id": message.message_info.group_info.group_id,
+                    "group_name": message.message_info.group_info.group_name,
+                })
             if message.message_info.user_info:
                 if not transformed_message.is_group_message:
                     transformed_message.is_private_message = True
-                transformed_message.message_base_info.update(
-                    {
-                        "user_id": message.message_info.user_info.user_id,
-                        "user_cardname": message.message_info.user_info.user_cardname,  # 用户群昵称
-                        "user_nickname": message.message_info.user_info.user_nickname,  # 用户昵称（用户名）
-                    }
-                )
+                transformed_message.message_base_info.update({
+                    "user_id": message.message_info.user_info.user_id,
+                    "user_cardname": message.message_info.user_info.user_cardname,
+                    "user_nickname": message.message_info.user_info.user_nickname,
+                })
 
         return transformed_message
 
@@ -306,9 +325,9 @@ class EventsManager:
         self, stream_id: str, llm_prompt: Optional[str] = None, llm_response: Optional["LLMGenerationDataModel"] = None
     ) -> MaiMessages:
         """从流ID构建消息"""
-        chat_stream = get_chat_manager().get_stream(stream_id)
-        assert chat_stream, f"未找到流ID为 {stream_id} 的聊天流"
-        message = chat_stream.context.get_last_message()
+        session = _chat_manager.get_session_by_session_id(stream_id)
+        assert session, f"未找到流ID为 {stream_id} 的会话"
+        message = session.context.message
         return self._transform_event_message(message, llm_prompt, llm_response)
 
     def _transform_event_without_message(
@@ -319,8 +338,8 @@ class EventsManager:
         action_usage: Optional[List[str]] = None,
     ) -> MaiMessages:
         """没有message对象时进行转换"""
-        chat_stream = get_chat_manager().get_stream(stream_id)
-        assert chat_stream, f"未找到流ID为 {stream_id} 的聊天流"
+        session = _chat_manager.get_session_by_session_id(stream_id)
+        assert session, f"未找到流ID为 {stream_id} 的会话"
         return MaiMessages(
             stream_id=stream_id,
             llm_prompt=llm_prompt,
@@ -328,8 +347,8 @@ class EventsManager:
             llm_response_reasoning=(llm_response.reasoning if llm_response else None),
             llm_response_model=(llm_response.model if llm_response else None),
             llm_response_tool_call=(llm_response.tool_calls if llm_response else None),
-            is_group_message=(not (not chat_stream.group_info)),
-            is_private_message=(not chat_stream.group_info),
+            is_group_message=session.is_group_session,
+            is_private_message=not session.is_group_session,
             action_usage=action_usage,
             additional_data={"response_is_processed": True},
         )
@@ -373,7 +392,7 @@ class EventsManager:
     def _prepare_message(
         self,
         event_type: EventType | str,
-        message: Optional[MessageRecv | MessageSending | MaiMessages] = None,
+        message: Optional[SessionMessage | MessageSending | MaiMessages] = None,
         llm_prompt: Optional[str] = None,
         llm_response: Optional["LLMGenerationDataModel"] = None,
         stream_id: Optional[str] = None,
