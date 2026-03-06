@@ -7,7 +7,7 @@
 4. 事件结果历史记录
 """
 
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable
 
 import asyncio
 import logging
@@ -15,6 +15,9 @@ import logging
 from src.plugin_runtime.host.component_registry import ComponentRegistry, RegisteredComponent
 
 logger = logging.getLogger("plugin_runtime.host.event_dispatcher")
+
+# invoke_fn 类型: async (plugin_id, component_name, args) -> response_payload dict
+InvokeFn = Callable[[str, str, dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
 class EventResult:
@@ -44,8 +47,8 @@ class EventDispatcher:
     再通过提供的 invoke_fn 回调 RPC 到 Runner 执行。
     """
 
-    def __init__(self, registry: ComponentRegistry):
-        self._registry = registry
+    def __init__(self, registry: ComponentRegistry) -> None:
+        self._registry: ComponentRegistry = registry
         self._result_history: dict[str, list[EventResult]] = {}
         self._history_enabled: set[str] = set()
 
@@ -63,10 +66,10 @@ class EventDispatcher:
     async def dispatch_event(
         self,
         event_type: str,
-        invoke_fn,  # async (plugin_id, component_name, args) -> dict  — Supervisor.invoke_plugin wrapper
+        invoke_fn: InvokeFn,
         message: dict[str, Any] | None = None,
         extra_args: dict[str, Any] | None = None,
-    ) -> tuple[bool, Optional[dict[str, Any]]]:
+    ) -> tuple[bool, dict[str, Any] | None]:
         """分发事件到所有对应 handler。
 
         Args:
@@ -117,7 +120,7 @@ class EventDispatcher:
 
     async def _invoke_handler(
         self,
-        invoke_fn,
+        invoke_fn: InvokeFn,
         handler: RegisteredComponent,
         args: dict[str, Any],
         event_type: str,

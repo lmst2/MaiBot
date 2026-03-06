@@ -9,8 +9,6 @@
 6. 转发插件的能力调用到 Host
 """
 
-from typing import Any
-
 import asyncio
 import contextlib
 import logging
@@ -26,10 +24,9 @@ from src.plugin_runtime.protocol.envelope import (
     InvokePayload,
     InvokeResultPayload,
     RegisterComponentsPayload,
-    ShutdownPayload,
 )
 from src.plugin_runtime.protocol.errors import ErrorCode
-from src.plugin_runtime.runner.plugin_loader import PluginLoader
+from src.plugin_runtime.runner.plugin_loader import PluginLoader, PluginMeta
 from src.plugin_runtime.runner.rpc_client import RPCClient
 
 logger = logging.getLogger("plugin_runtime.runner.main")
@@ -113,7 +110,7 @@ class PluginRunner:
         self._rpc_client.register_method("plugin.shutdown", self._handle_shutdown)
         self._rpc_client.register_method("plugin.config_updated", self._handle_config_updated)
 
-    async def _register_plugin(self, meta) -> None:
+    async def _register_plugin(self, meta: PluginMeta) -> None:
         """向 Host 注册单个插件"""
         # 收集插件组件声明
         components = []
@@ -139,7 +136,7 @@ class PluginRunner:
         )
 
         try:
-            resp = await self._rpc_client.send_request(
+            _resp = await self._rpc_client.send_request(
                 "plugin.register_components",
                 plugin_id=meta.plugin_id,
                 payload=reg_payload.model_dump(),

@@ -63,10 +63,10 @@ class RPCServer:
         self._pending_requests: dict[int, asyncio.Future] = {}
 
         # 发送队列（背压控制）
-        self._send_queue: asyncio.Queue | None = None
+        self._send_queue: asyncio.Queue[bytes] | None = None
 
         # 运行状态
-        self._running = False
+        self._running: bool = False
         self._tasks: list[asyncio.Task] = []
 
     @property
