@@ -42,8 +42,7 @@ class RegisteredComponent:
         # 预编译命令正则（仅 command 类型）
         self._compiled_pattern: re.Pattern | None = None
         if component_type == "command":
-            pattern = metadata.get("command_pattern", "")
-            if pattern:
+            if pattern := metadata.get("command_pattern", ""):
                 try:
                     self._compiled_pattern = re.compile(pattern)
                 except re.error as e:
@@ -120,8 +119,7 @@ class ComponentRegistry:
         comps = self._by_plugin.pop(plugin_id, [])
         for comp in comps:
             self._components.pop(comp.full_name, None)
-            type_dict = self._by_type.get(comp.component_type)
-            if type_dict:
+            if type_dict := self._by_type.get(comp.component_type):
                 type_dict.pop(comp.full_name, None)
         return len(comps)
 
@@ -162,9 +160,7 @@ class ComponentRegistry:
     ) -> list[RegisteredComponent]:
         """按插件查询。"""
         comps = self._by_plugin.get(plugin_id, [])
-        if enabled_only:
-            return [c for c in comps if c.enabled]
-        return list(comps)
+        return [c for c in comps if c.enabled] if enabled_only else list(comps)
 
     def find_command_by_text(self, text: str) -> RegisteredComponent | None:
         """通过文本匹配命令正则，返回第一个匹配的 command 组件。"""

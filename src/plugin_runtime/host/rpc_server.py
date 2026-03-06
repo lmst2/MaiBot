@@ -93,7 +93,7 @@ class RPCServer:
         self._running = False
 
         # 取消所有 pending 请求
-        for req_id, future in self._pending_requests.items():
+        for future in self._pending_requests.values():
             if not future.done():
                 future.set_exception(RPCError(ErrorCode.E_TIMEOUT, "服务器关闭"))
         self._pending_requests.clear()
@@ -162,16 +162,15 @@ class RPCServer:
 
             # 等待响应
             timeout_sec = timeout_ms / 1000.0
-            response = await asyncio.wait_for(future, timeout=timeout_sec)
-            return response
+            return await asyncio.wait_for(future, timeout=timeout_sec)
         except asyncio.TimeoutError:
             self._pending_requests.pop(request_id, None)
-            raise RPCError(ErrorCode.E_TIMEOUT, f"请求 {method} 超时 ({timeout_ms}ms)")
+            raise RPCError(ErrorCode.E_TIMEOUT, f"请求 {method} 超时 ({timeout_ms}ms)") from None
         except Exception as e:
             self._pending_requests.pop(request_id, None)
             if isinstance(e, RPCError):
                 raise
-            raise RPCError(ErrorCode.E_UNKNOWN, str(e))
+            raise RPCError(ErrorCode.E_UNKNOWN, str(e)) from e
 
     async def send_event(self, method: str, plugin_id: str = "", payload: dict[str, Any] | None = None) -> None:
         """向 Runner 发送单向事件（不等待响应）"""
@@ -338,8 +337,7 @@ class RPCServer:
 
     async def _handle_event(self, envelope: Envelope) -> None:
         """处理来自 Runner 的事件"""
-        handler = self._method_handlers.get(envelope.method)
-        if handler:
+        if handler := self._method_handlers.get(envelope.method):
             try:
                 await handler(envelope)
             except Exception as e:

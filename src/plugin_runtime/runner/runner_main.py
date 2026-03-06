@@ -12,6 +12,7 @@
 from typing import Any
 
 import asyncio
+import contextlib
 import logging
 import os
 import signal
@@ -92,11 +93,9 @@ class PluginRunner:
             await self._register_plugin(meta)
 
         # 5. 等待直到收到关停信号
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             while not self._shutting_down:
                 await asyncio.sleep(1.0)
-        except asyncio.CancelledError:
-            pass
 
         # 6. 断开连接
         await self._rpc_client.disconnect()
@@ -122,13 +121,15 @@ class PluginRunner:
 
         # 从插件实例获取组件声明（SDK 插件须实现 get_components 方法）
         if hasattr(instance, "get_components"):
-            for comp_info in instance.get_components():
-                components.append(ComponentDeclaration(
+            components.extend(
+                ComponentDeclaration(
                     name=comp_info.get("name", ""),
                     component_type=comp_info.get("type", ""),
                     plugin_id=meta.plugin_id,
                     metadata=comp_info.get("metadata", {}),
-                ))
+                )
+                for comp_info in instance.get_components()
+            )
 
         reg_payload = RegisterComponentsPayload(
             plugin_id=meta.plugin_id,
@@ -219,10 +220,7 @@ class PluginRunner:
             raw = await handler_method(**invoke.args) if asyncio.iscoroutinefunction(handler_method) else handler_method(**invoke.args)
 
             # 规范化返回值
-            if raw is None:
-                result = {"hook_result": "continue"}
-            elif isinstance(raw, str):
-                # 允许直接返回 hook_result 字符串
+            if isinstance(raw, str):
                 result = {"hook_result": raw}
             elif isinstance(raw, dict):
                 result = raw
@@ -298,8 +296,7 @@ def _isolate_sys_path(plugin_dirs: list[str]) -> None:
     # 保留: 标准库路径 + site-packages（含 SDK 和依赖）
     stdlib_paths = set()
     for key in ("stdlib", "platstdlib", "purelib", "platlib"):
-        path = sysconfig.get_path(key)
-        if path:
+        if path := sysconfig.get_path(key):
             stdlib_paths.add(os.path.normpath(path))
 
     allowed = set()

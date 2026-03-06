@@ -11,12 +11,12 @@
 from typing import Any, Callable, Awaitable
 
 import asyncio
+import contextlib
 import logging
 import uuid
 
 from src.plugin_runtime.protocol.codec import Codec, MsgPackCodec
 from src.plugin_runtime.protocol.envelope import (
-    PROTOCOL_VERSION,
     Envelope,
     HelloPayload,
     HelloResponsePayload,
@@ -129,10 +129,8 @@ class RPCClient:
         self._running = False
         if self._recv_task:
             self._recv_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._recv_task
-            except asyncio.CancelledError:
-                pass
             self._recv_task = None
 
         # 取消所有 pending 请求
@@ -176,16 +174,15 @@ class RPCClient:
             await self._connection.send_frame(data)
 
             timeout_sec = timeout_ms / 1000.0
-            response = await asyncio.wait_for(future, timeout=timeout_sec)
-            return response
+            return await asyncio.wait_for(future, timeout=timeout_sec)
         except asyncio.TimeoutError:
             self._pending_requests.pop(request_id, None)
-            raise RPCError(ErrorCode.E_TIMEOUT, f"请求 {method} 超时 ({timeout_ms}ms)")
+            raise RPCError(ErrorCode.E_TIMEOUT, f"请求 {method} 超时 ({timeout_ms}ms)") from None
         except Exception as e:
             self._pending_requests.pop(request_id, None)
             if isinstance(e, RPCError):
                 raise
-            raise RPCError(ErrorCode.E_UNKNOWN, str(e))
+            raise RPCError(ErrorCode.E_UNKNOWN, str(e)) from e
 
     # ─── 内部方法 ──────────────────────────────────────────────
 
@@ -249,8 +246,7 @@ class RPCClient:
 
     async def _handle_event(self, envelope: Envelope) -> None:
         """处理来自 Host 的事件"""
-        handler = self._method_handlers.get(envelope.method)
-        if handler:
+        if handler := self._method_handlers.get(envelope.method):
             try:
                 await handler(envelope)
             except Exception as e:

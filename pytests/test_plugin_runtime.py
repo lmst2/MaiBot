@@ -886,7 +886,7 @@ class TestWorkflowExecutor:
         await executor.execute(
             mock_invoke, message={"plain_text": "hi", "chat_type": "group"}
         )
-        assert call_log == []
+        assert not call_log
 
         # 匹配 filter —— hook 应被调用
         await executor.execute(

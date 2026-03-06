@@ -46,8 +46,7 @@ class PluginMeta:
             if isinstance(dep, str):
                 result.append(dep.strip())
             elif isinstance(dep, dict):
-                name = str(dep.get("name", "")).strip()
-                if name:
+                if name := str(dep.get("name", "")).strip():
                     result.append(name)
         return result
 
@@ -121,8 +120,7 @@ class PluginLoader:
         for plugin_id in load_order:
             plugin_dir, manifest, plugin_path = candidates[plugin_id]
             try:
-                meta = self._load_single_plugin(plugin_id, plugin_dir, manifest, plugin_path)
-                if meta:
+                if meta := self._load_single_plugin(plugin_id, plugin_dir, manifest, plugin_path):
                     self._loaded_plugins[meta.plugin_id] = meta
                     results.append(meta)
             except Exception as e:

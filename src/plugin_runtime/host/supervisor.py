@@ -203,19 +203,15 @@ class PluginSupervisor:
 
         由主进程业务逻辑调用，通过 RPC 转发给 Runner。
         """
-        try:
-            response = await self._rpc_server.send_request(
-                method=method,
-                plugin_id=plugin_id,
-                payload={
-                    "component_name": component_name,
-                    "args": args or {},
-                },
-                timeout_ms=timeout_ms,
-            )
-            return response
-        except RPCError:
-            raise
+        return await self._rpc_server.send_request(
+            method=method,
+            plugin_id=plugin_id,
+            payload={
+                "component_name": component_name,
+                "args": args or {},
+            },
+            timeout_ms=timeout_ms,
+        )
 
     async def reload_plugins(self, reason: str = "manual") -> None:
         """热重载所有插件（进程级 generation 切换）

@@ -17,7 +17,7 @@
 - modification_log: 消息修改审计
 """
 
-from typing import Any, Callable, Awaitable, Optional
+from typing import Any, Awaitable, Callable
 
 import asyncio
 import logging
@@ -273,10 +273,9 @@ class WorkflowExecutor:
         """
         for key, expected in filter_cond.items():
             actual = message.get(key)
-            if isinstance(expected, list):
-                if actual not in expected:
-                    return False
-            elif actual != expected:
+            if (isinstance(expected, list) and actual not in expected) or (
+                not isinstance(expected, list) and actual != expected
+            ):
                 return False
         return True
 
@@ -376,12 +375,11 @@ class WorkflowExecutor:
         logger.info(f"[{ctx.trace_id}] 命令匹配: {matched.full_name}")
 
         try:
-            resp = await invoke_fn(matched.plugin_id, matched.name, {
+            return await invoke_fn(matched.plugin_id, matched.name, {
                 "text": plain_text,
                 "message": message,
                 "trace_id": ctx.trace_id,
             })
-            return resp
         except Exception as e:
             logger.error(f"[{ctx.trace_id}] 命令 {matched.full_name} 执行失败: {e}", exc_info=True)
             ctx.errors.append(f"command:{matched.full_name}: {e}")
@@ -390,8 +388,4 @@ class WorkflowExecutor:
 
 def _diff_keys(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
     """返回 new 中与 old 不同的 key 列表。"""
-    changed = []
-    for k in new:
-        if k not in old or old[k] != new[k]:
-            changed.append(k)
-    return changed
+    return [k for k, v in new.items() if k not in old or old[k] != v]
