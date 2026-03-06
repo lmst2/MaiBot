@@ -13,7 +13,7 @@ import asyncio
 import logging
 import secrets
 
-from src.plugin_runtime.protocol.codec import Codec, create_codec
+from src.plugin_runtime.protocol.codec import Codec, MsgPackCodec
 from src.plugin_runtime.protocol.envelope import (
     PROTOCOL_VERSION,
     MIN_SDK_VERSION,
@@ -48,7 +48,7 @@ class RPCServer:
     ):
         self._transport = transport
         self._session_token = session_token or secrets.token_hex(32)
-        self._codec = codec or create_codec()
+        self._codec = codec or MsgPackCodec()
         self._send_queue_size = send_queue_size
 
         self._id_gen = RequestIdGenerator()

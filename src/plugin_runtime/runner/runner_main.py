@@ -71,7 +71,23 @@ class PluginRunner:
         plugins = self._loader.discover_and_load(self._plugin_dirs)
         logger.info(f"已加载 {len(plugins)} 个插件")
 
-        # 4. 向 Host 注册所有插件的组件
+        # 4. 调用 on_load 生命周期钩子 + 注入 RPC 客户端供 SDK context 使用
+        for meta in plugins:
+            instance = meta.instance
+            # 注入 _rpc_client 以便 PluginContext 可以发起能力调用
+            if hasattr(instance, "_ctx"):
+                ctx = instance._ctx
+                if hasattr(ctx, "_set_rpc_client"):
+                    ctx._set_rpc_client(self._rpc_client)
+            if hasattr(instance, "on_load"):
+                try:
+                    ret = instance.on_load()
+                    if asyncio.iscoroutine(ret):
+                        await ret
+                except Exception as e:
+                    logger.error(f"插件 {meta.plugin_id} on_load 失败: {e}", exc_info=True)
+
+        # 5. 向 Host 注册所有插件的组件
         for meta in plugins:
             await self._register_plugin(meta)
 
@@ -92,6 +108,7 @@ class PluginRunner:
         self._rpc_client.register_method("plugin.invoke_action", self._handle_invoke)
         self._rpc_client.register_method("plugin.invoke_tool", self._handle_invoke)
         self._rpc_client.register_method("plugin.emit_event", self._handle_invoke)
+        self._rpc_client.register_method("plugin.invoke_workflow_step", self._handle_workflow_step)
         self._rpc_client.register_method("plugin.health", self._handle_health)
         self._rpc_client.register_method("plugin.prepare_shutdown", self._handle_prepare_shutdown)
         self._rpc_client.register_method("plugin.shutdown", self._handle_shutdown)
@@ -169,6 +186,57 @@ class PluginRunner:
             resp_payload = InvokeResultPayload(success=False, result=str(e))
             return envelope.make_response(payload=resp_payload.model_dump())
 
+    async def _handle_workflow_step(self, envelope: Envelope) -> Envelope:
+        """处理 WorkflowStep 调用请求
+
+        与通用 invoke 不同，会将返回值规范化为
+        {hook_result, modified_message, stage_output} 格式。
+        """
+        try:
+            invoke = InvokePayload.model_validate(envelope.payload)
+        except Exception as e:
+            return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(e))
+
+        plugin_id = envelope.plugin_id
+        meta = self._loader.get_plugin(plugin_id)
+        if meta is None:
+            return envelope.make_error_response(
+                ErrorCode.E_PLUGIN_NOT_FOUND.value,
+                f"插件 {plugin_id} 未加载",
+            )
+
+        instance = meta.instance
+        component_name = invoke.component_name
+        handler_method = getattr(instance, f"handle_{component_name}", None) or getattr(instance, component_name, None)
+
+        if handler_method is None or not callable(handler_method):
+            return envelope.make_error_response(
+                ErrorCode.E_METHOD_NOT_ALLOWED.value,
+                f"插件 {plugin_id} 无组件: {component_name}",
+            )
+
+        try:
+            raw = await handler_method(**invoke.args) if asyncio.iscoroutinefunction(handler_method) else handler_method(**invoke.args)
+
+            # 规范化返回值
+            if raw is None:
+                result = {"hook_result": "continue"}
+            elif isinstance(raw, str):
+                # 允许直接返回 hook_result 字符串
+                result = {"hook_result": raw}
+            elif isinstance(raw, dict):
+                result = raw
+                result.setdefault("hook_result", "continue")
+            else:
+                result = {"hook_result": "continue"}
+
+            resp_payload = InvokeResultPayload(success=True, result=result)
+            return envelope.make_response(payload=resp_payload.model_dump())
+        except Exception as e:
+            logger.error(f"插件 {plugin_id} workflow_step {component_name} 执行异常: {e}", exc_info=True)
+            resp_payload = InvokeResultPayload(success=False, result=str(e))
+            return envelope.make_response(payload=resp_payload.model_dump())
+
     async def _handle_health(self, envelope: Envelope) -> Envelope:
         """处理健康检查"""
         uptime_ms = int((time.monotonic() - self._start_time) * 1000)
@@ -185,8 +253,17 @@ class PluginRunner:
         return envelope.make_response(payload={"acknowledged": True})
 
     async def _handle_shutdown(self, envelope: Envelope) -> Envelope:
-        """处理关停"""
-        logger.info("收到 shutdown 信号，准备退出")
+        """处理关停 — 调用所有插件的 on_unload 后退出"""
+        logger.info("收到 shutdown 信号，开始调用 on_unload")
+        for plugin_id in self._loader.list_plugins():
+            meta = self._loader.get_plugin(plugin_id)
+            if meta and hasattr(meta.instance, "on_unload"):
+                try:
+                    ret = meta.instance.on_unload()
+                    if asyncio.iscoroutine(ret):
+                        await ret
+                except Exception as e:
+                    logger.error(f"插件 {plugin_id} on_unload 失败: {e}", exc_info=True)
         self._shutting_down = True
         return envelope.make_response(payload={"acknowledged": True})
 
@@ -209,6 +286,43 @@ class PluginRunner:
         return self._rpc_client
 
 
+# ─── sys.path 隔离 ────────────────────────────────────────
+
+def _isolate_sys_path(plugin_dirs: list[str]) -> None:
+    """清理 sys.path，限制 Runner 子进程只能访问标准库、SDK 和插件目录。
+
+    防止插件代码 import 主程序模块读取运行时数据。
+    """
+    import sysconfig
+
+    # 保留: 标准库路径 + site-packages（含 SDK 和依赖）
+    stdlib_paths = set()
+    for key in ("stdlib", "platstdlib", "purelib", "platlib"):
+        path = sysconfig.get_path(key)
+        if path:
+            stdlib_paths.add(os.path.normpath(path))
+
+    allowed = set()
+    for p in sys.path:
+        norm = os.path.normpath(p)
+        # 保留标准库和 site-packages
+        if any(norm.startswith(sp) for sp in stdlib_paths):
+            allowed.add(p)
+        # 保留 site-packages（第三方库 + SDK）
+        if "site-packages" in norm or "dist-packages" in norm:
+            allowed.add(p)
+
+    # 添加插件目录
+    for d in plugin_dirs:
+        allowed.add(os.path.normpath(d))
+
+    # 添加当前 runner 模块所在路径（使得 src.plugin_runtime 可导入）
+    runtime_root = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    allowed.add(runtime_root)
+
+    sys.path[:] = [p for p in sys.path if p in allowed]
+
+
 # ─── 进程入口 ──────────────────────────────────────────────
 
 async def _async_main() -> None:
@@ -222,6 +336,9 @@ async def _async_main() -> None:
         sys.exit(1)
 
     plugin_dirs = [d for d in plugin_dirs_str.split(os.pathsep) if d]
+
+    # sys.path 隔离: 只保留标准库、SDK 包、插件目录
+    _isolate_sys_path(plugin_dirs)
 
     runner = PluginRunner(host_address, session_token, plugin_dirs)
 

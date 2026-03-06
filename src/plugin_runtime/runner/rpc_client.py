@@ -14,7 +14,7 @@ import asyncio
 import logging
 import uuid
 
-from src.plugin_runtime.protocol.codec import Codec, create_codec
+from src.plugin_runtime.protocol.codec import Codec, MsgPackCodec
 from src.plugin_runtime.protocol.envelope import (
     PROTOCOL_VERSION,
     Envelope,
@@ -49,7 +49,7 @@ class RPCClient:
     ):
         self._host_address = host_address
         self._session_token = session_token
-        self._codec = codec or create_codec()
+        self._codec = codec or MsgPackCodec()
 
         self._id_gen = RequestIdGenerator()
         self._connection: Connection | None = None

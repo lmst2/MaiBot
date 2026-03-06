@@ -2,10 +2,9 @@
 
 负责：
 1. 拉起 Runner 子进程
-2. 健康检查
-3. 熔断与恢复
-4. 代码热重载（generation 切换）
-5. 优雅关停
+2. 健康检查 + 崩溃自动重启
+3. 代码热重载（generation 切换）
+4. 优雅关停
 """
 
 from typing import Any
@@ -16,9 +15,11 @@ import os
 import sys
 
 from src.plugin_runtime.host.capability_service import CapabilityService
-from src.plugin_runtime.host.circuit_breaker import CircuitBreakerRegistry
+from src.plugin_runtime.host.component_registry import ComponentRegistry
+from src.plugin_runtime.host.event_dispatcher import EventDispatcher
 from src.plugin_runtime.host.policy_engine import PolicyEngine
 from src.plugin_runtime.host.rpc_server import RPCServer
+from src.plugin_runtime.host.workflow_executor import WorkflowExecutor, WorkflowContext, WorkflowResult
 from src.plugin_runtime.protocol.envelope import (
     Envelope,
     HealthPayload,
@@ -42,7 +43,6 @@ class PluginSupervisor:
         plugin_dirs: list[str] | None = None,
         socket_path: str | None = None,
         health_check_interval_sec: float = 30.0,
-        use_json_codec: bool = False,
     ):
         self._plugin_dirs = plugin_dirs or []
         self._health_interval = health_check_interval_sec
@@ -50,12 +50,14 @@ class PluginSupervisor:
         # 基础设施
         self._transport = create_transport_server(socket_path=socket_path)
         self._policy = PolicyEngine()
-        self._breakers = CircuitBreakerRegistry()
         self._capability_service = CapabilityService(self._policy)
+        self._component_registry = ComponentRegistry()
+        self._event_dispatcher = EventDispatcher(self._component_registry)
+        self._workflow_executor = WorkflowExecutor(self._component_registry)
 
         # 编解码
-        from src.plugin_runtime.protocol.codec import create_codec
-        codec = create_codec(use_json=use_json_codec)
+        from src.plugin_runtime.protocol.codec import MsgPackCodec
+        codec = MsgPackCodec()
 
         self._rpc_server = RPCServer(
             transport=self._transport,
@@ -65,6 +67,8 @@ class PluginSupervisor:
         # Runner 子进程
         self._runner_process: asyncio.subprocess.Process | None = None
         self._runner_generation: int = 0
+        self._max_restart_attempts: int = 3
+        self._restart_count: int = 0
 
         # 已注册的插件组件信息
         self._registered_plugins: dict[str, RegisterComponentsPayload] = {}
@@ -85,8 +89,70 @@ class PluginSupervisor:
         return self._capability_service
 
     @property
+    def component_registry(self) -> ComponentRegistry:
+        return self._component_registry
+
+    @property
+    def event_dispatcher(self) -> EventDispatcher:
+        return self._event_dispatcher
+
+    @property
+    def workflow_executor(self) -> WorkflowExecutor:
+        return self._workflow_executor
+
+    @property
     def rpc_server(self) -> RPCServer:
         return self._rpc_server
+
+    async def dispatch_event(
+        self,
+        event_type: str,
+        message: dict[str, Any] | None = None,
+        extra_args: dict[str, Any] | None = None,
+    ) -> tuple[bool, dict[str, Any] | None]:
+        """分发事件到所有对应 handler 的快捷方法。"""
+        async def _invoke(plugin_id: str, component_name: str, args: dict[str, Any]) -> dict[str, Any]:
+            resp = await self.invoke_plugin(
+                method="plugin.emit_event",
+                plugin_id=plugin_id,
+                component_name=component_name,
+                args=args,
+            )
+            return resp.payload
+
+        return await self._event_dispatcher.dispatch_event(
+            event_type=event_type,
+            invoke_fn=_invoke,
+            message=message,
+            extra_args=extra_args,
+        )
+
+    async def execute_workflow(
+        self,
+        message: dict[str, Any] | None = None,
+        stream_id: str | None = None,
+        context: WorkflowContext | None = None,
+    ) -> tuple[WorkflowResult, dict[str, Any] | None, WorkflowContext]:
+        """执行 Workflow Pipeline 的快捷方法。"""
+        async def _invoke(plugin_id: str, component_name: str, args: dict[str, Any]) -> dict[str, Any]:
+            resp = await self.invoke_plugin(
+                method="plugin.invoke_workflow_step",
+                plugin_id=plugin_id,
+                component_name=component_name,
+                args=args,
+            )
+            payload = resp.payload
+            if payload.get("success"):
+                result = payload.get("result")
+                return result if isinstance(result, dict) else {}
+            raise RuntimeError(payload.get("result", "workflow step invoke failed"))
+
+        return await self._workflow_executor.execute(
+            invoke_fn=_invoke,
+            message=message,
+            stream_id=stream_id,
+            context=context,
+        )
 
     async def start(self) -> None:
         """启动 Supervisor
@@ -137,11 +203,6 @@ class PluginSupervisor:
 
         由主进程业务逻辑调用，通过 RPC 转发给 Runner。
         """
-        # 熔断检查
-        breaker = self._breakers.get(plugin_id)
-        if not breaker.allow_request():
-            raise RPCError(ErrorCode.E_PLUGIN_CRASHED, f"插件 {plugin_id} 已被熔断")
-
         try:
             response = await self._rpc_server.send_request(
                 method=method,
@@ -152,10 +213,8 @@ class PluginSupervisor:
                 },
                 timeout_ms=timeout_ms,
             )
-            breaker.record_success()
             return response
         except RPCError:
-            breaker.record_failure()
             raise
 
     async def reload_plugins(self, reason: str = "manual") -> None:
@@ -232,12 +291,20 @@ class PluginSupervisor:
         self._policy.register_plugin(
             plugin_id=reg.plugin_id,
             generation=envelope.generation,
-            capabilities=reg.capabilities_required,
+            capabilities=reg.capabilities_required or [],
         )
 
+        # 在 ComponentRegistry 中注册组件
+        self._component_registry.register_plugin_components(
+            plugin_id=reg.plugin_id,
+            components=[c.model_dump() for c in reg.components],
+        )
+
+        stats = self._component_registry.get_stats()
         logger.info(
             f"插件 {reg.plugin_id} v{reg.plugin_version} 注册成功，"
-            f"组件数: {len(reg.components)}, 能力需求: {reg.capabilities_required}"
+            f"组件数: {len(reg.components)}, 能力需求: {reg.capabilities_required}，"
+            f"注册表总计: {stats}"
         )
 
         return envelope.make_response(payload={"accepted": True})
@@ -294,9 +361,31 @@ class PluginSupervisor:
             await self._runner_process.wait()
 
     async def _health_check_loop(self) -> None:
-        """周期性健康检查"""
+        """周期性健康检查 + 崩溃自动重启"""
         while self._running:
             await asyncio.sleep(self._health_interval)
+
+            # 检查 Runner 进程是否意外退出
+            if self._runner_process and self._runner_process.returncode is not None:
+                exit_code = self._runner_process.returncode
+                logger.warning(f"Runner 进程已退出 (exit_code={exit_code})")
+
+                if self._restart_count < self._max_restart_attempts:
+                    self._restart_count += 1
+                    logger.info(f"尝试重启 Runner ({self._restart_count}/{self._max_restart_attempts})")
+                    # 清理旧的组件注册
+                    for plugin_id in list(self._registered_plugins.keys()):
+                        self._component_registry.remove_components_by_plugin(plugin_id)
+                        self._policy.revoke_plugin(plugin_id)
+                    self._registered_plugins.clear()
+
+                    try:
+                        await self._spawn_runner()
+                    except Exception as e:
+                        logger.error(f"Runner 重启失败: {e}", exc_info=True)
+                else:
+                    logger.error(f"Runner 连续崩溃 {self._max_restart_attempts} 次，停止重启")
+                continue
 
             if not self._rpc_server.is_connected:
                 logger.warning("Runner 未连接，跳过健康检查")
@@ -307,6 +396,9 @@ class PluginSupervisor:
                 health = HealthPayload.model_validate(resp.payload)
                 if not health.healthy:
                     logger.warning(f"Runner 健康检查异常: {health}")
+                else:
+                    # 健康检查成功，重置重启计数
+                    self._restart_count = 0
             except RPCError as e:
                 logger.error(f"健康检查失败: {e}")
             except asyncio.CancelledError:

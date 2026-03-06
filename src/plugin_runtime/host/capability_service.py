@@ -73,15 +73,7 @@ class CapabilityService:
                 reason,
             )
 
-        # 2. 限流校验
-        allowed, reason = self._policy.check_rate_limit(plugin_id)
-        if not allowed:
-            return envelope.make_error_response(
-                ErrorCode.E_BACKPRESSURE.value,
-                reason,
-            )
-
-        # 3. 查找实现
+        # 2. 查找实现
         impl = self._implementations.get(capability)
         if impl is None:
             return envelope.make_error_response(
@@ -89,7 +81,7 @@ class CapabilityService:
                 f"未注册的能力: {capability}",
             )
 
-        # 4. 执行
+        # 3. 执行
         try:
             result = await impl(plugin_id, capability, req.args)
             resp_payload = CapabilityResponsePayload(success=True, result=result)
