@@ -11,10 +11,10 @@
 
 from typing import Any
 
-import logging
+from src.common.logger import get_logger
 import re
 
-logger = logging.getLogger("plugin_runtime.host.component_registry")
+logger = get_logger("plugin_runtime.host.component_registry")
 
 
 class RegisteredComponent:

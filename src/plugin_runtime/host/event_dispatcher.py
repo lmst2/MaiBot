@@ -10,11 +10,11 @@
 from typing import Any, Awaitable, Callable
 
 import asyncio
-import logging
 
+from src.common.logger import get_logger
 from src.plugin_runtime.host.component_registry import ComponentRegistry, RegisteredComponent
 
-logger = logging.getLogger("plugin_runtime.host.event_dispatcher")
+logger = get_logger("plugin_runtime.host.event_dispatcher")
 
 # invoke_fn 类型: async (plugin_id, component_name, args) -> response_payload dict
 InvokeFn = Callable[[str, str, dict[str, Any]], Awaitable[dict[str, Any]]]

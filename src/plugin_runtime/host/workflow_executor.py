@@ -20,13 +20,13 @@
 from typing import Any, Awaitable, Callable
 
 import asyncio
-import logging
 import time
 import uuid
 
+from src.common.logger import get_logger
 from src.plugin_runtime.host.component_registry import ComponentRegistry, RegisteredComponent
 
-logger = logging.getLogger("plugin_runtime.host.workflow_executor")
+logger = get_logger("plugin_runtime.host.workflow_executor")
 
 # 阶段顺序
 STAGE_SEQUENCE: list[str] = [

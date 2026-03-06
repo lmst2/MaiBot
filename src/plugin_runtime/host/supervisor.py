@@ -10,10 +10,10 @@
 from typing import Any
 
 import asyncio
-import logging
 import os
 import sys
 
+from src.common.logger import get_logger
 from src.plugin_runtime.host.capability_service import CapabilityService
 from src.plugin_runtime.host.component_registry import ComponentRegistry
 from src.plugin_runtime.host.event_dispatcher import EventDispatcher
@@ -29,7 +29,7 @@ from src.plugin_runtime.protocol.envelope import (
 from src.plugin_runtime.protocol.errors import ErrorCode, RPCError
 from src.plugin_runtime.transport.factory import create_transport_server
 
-logger = logging.getLogger("plugin_runtime.host.supervisor")
+logger = get_logger("plugin_runtime.host.supervisor")
 
 
 class PluginSupervisor:

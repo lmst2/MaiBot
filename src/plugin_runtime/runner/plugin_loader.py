@@ -11,13 +11,13 @@ from typing import Any
 import importlib
 import importlib.util
 import json
-import logging
 import os
 import sys
 
+from src.common.logger import get_logger
 from src.plugin_runtime.runner.manifest_validator import ManifestValidator
 
-logger = logging.getLogger("plugin_runtime.runner.plugin_loader")
+logger = get_logger("plugin_runtime.runner.plugin_loader")
 
 
 class PluginMeta:

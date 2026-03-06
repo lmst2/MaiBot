@@ -12,9 +12,9 @@ from typing import Any, Callable, Awaitable
 
 import asyncio
 import contextlib
-import logging
 import uuid
 
+from src.common.logger import get_logger
 from src.plugin_runtime.protocol.codec import Codec, MsgPackCodec
 from src.plugin_runtime.protocol.envelope import (
     Envelope,
@@ -27,7 +27,7 @@ from src.plugin_runtime.protocol.errors import ErrorCode, RPCError
 from src.plugin_runtime.transport.base import Connection
 from src.plugin_runtime.transport.factory import create_transport_client
 
-logger = logging.getLogger("plugin_runtime.runner.rpc_client")
+logger = get_logger("plugin_runtime.runner.rpc_client")
 
 # RPC 方法处理器类型
 MethodHandler = Callable[[Envelope], Awaitable[Envelope]]

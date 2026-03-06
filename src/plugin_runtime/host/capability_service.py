@@ -6,7 +6,7 @@ Host 端实现的能力服务，处理来自插件的 cap.* 请求。
 
 from typing import Any, Callable, Awaitable
 
-import logging
+from src.common.logger import get_logger
 
 from src.plugin_runtime.protocol.envelope import (
     CapabilityRequestPayload,
@@ -16,7 +16,7 @@ from src.plugin_runtime.protocol.envelope import (
 from src.plugin_runtime.protocol.errors import ErrorCode, RPCError
 from src.plugin_runtime.host.policy_engine import PolicyEngine
 
-logger = logging.getLogger("plugin_runtime.host.capability_service")
+logger = get_logger("plugin_runtime.host.capability_service")
 
 # 能力实现函数类型: (plugin_id, capability, args) -> result
 CapabilityImpl = Callable[[str, str, dict[str, Any]], Awaitable[Any]]

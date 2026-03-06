@@ -12,12 +12,12 @@
 import asyncio
 import contextlib
 import inspect
-import logging
 import os
 import signal
 import sys
 import time
 
+from src.common.logger import get_logger, initialize_logging
 from src.plugin_runtime.protocol.envelope import (
     ComponentDeclaration,
     Envelope,
@@ -30,7 +30,7 @@ from src.plugin_runtime.protocol.errors import ErrorCode
 from src.plugin_runtime.runner.plugin_loader import PluginLoader, PluginMeta
 from src.plugin_runtime.runner.rpc_client import RPCClient
 
-logger = logging.getLogger("plugin_runtime.runner.main")
+logger = get_logger("plugin_runtime.runner.main")
 
 
 class PluginRunner:
@@ -347,10 +347,7 @@ async def _async_main() -> None:
 
 def main() -> None:
     """进程入口（python -m src.plugin_runtime.runner.runner_main）"""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    )
+    initialize_logging(verbose=False)
     asyncio.run(_async_main())
 
 

@@ -117,12 +117,65 @@ class ChatBot:
                     # 命令出错时，根据命令的拦截设置决定是否继续处理消息
                     return True, str(e), False  # 出错时继续处理消息
 
-            # 没有找到命令，继续处理消息
+            # 没有找到旧系统命令，尝试新版本插件运行时
+            new_cmd_result = await self._process_new_runtime_command(message)
+            if new_cmd_result is not None:
+                return new_cmd_result
+
+            # 新旧系统都没找到命令，继续处理消息
             return False, None, True
 
         except Exception as e:
             logger.error(f"处理命令时出错: {e}")
             return False, None, True  # 出错时继续处理消息
+
+    async def _process_new_runtime_command(self, message: SessionMessage):
+        """尝试在新版本插件运行时中查找并执行命令
+
+        Returns:
+            (found, response, continue_processing) 三元组，
+            或 None 表示新运行时中也未找到匹配命令。
+        """
+        from src.plugin_runtime.integration import get_plugin_runtime_manager
+
+        prm = get_plugin_runtime_manager()
+        if not prm.is_running or prm.supervisor is None:
+            return None
+
+        matched = prm.supervisor.component_registry.find_command_by_text(message.processed_plain_text)
+        if matched is None:
+            return None
+
+        message.is_command = True
+        logger.info(f"[新运行时] 匹配命令: {matched.full_name}")
+
+        try:
+            resp = await prm.supervisor.invoke_plugin(
+                method="plugin.invoke_command",
+                plugin_id=matched.plugin_id,
+                component_name=matched.name,
+                args={
+                    "text": message.processed_plain_text,
+                    "stream_id": message.session_id or "",
+                },
+                timeout_ms=30000,
+            )
+
+            payload = resp.payload
+            success = payload.get("success", False)
+            result = payload.get("result", "")
+            intercept = bool(matched.metadata.get("intercept_message_level", 0))
+
+            if success:
+                logger.info(f"[新运行时] 命令执行成功: {matched.full_name}")
+            else:
+                logger.warning(f"[新运行时] 命令执行失败: {matched.full_name} - {result}")
+
+            return True, result, not intercept
+
+        except Exception as e:
+            logger.error(f"[新运行时] 执行命令 {matched.full_name} 异常: {e}", exc_info=True)
+            return True, str(e), True
 
     async def handle_notice_message(self, message: MessageRecv):
         if message.message_info.message_id == "notice":

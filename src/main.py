@@ -21,6 +21,9 @@ from rich.traceback import install
 # 导入新的插件管理器
 from src.plugin_system.core.plugin_manager import plugin_manager
 
+# 导入新版本插件运行时
+from src.plugin_runtime.integration import get_plugin_runtime_manager
+
 # 导入消息API和traceback模块
 from src.common.message_server import get_global_api
 from src.dream.dream_agent import start_dream_scheduler
@@ -108,6 +111,9 @@ class MainSystem:
         # 加载所有actions，包括默认的和插件的
         plugin_manager.load_all_plugins()
 
+        # 启动新版本插件运行时（与旧系统并行运行）
+        await get_plugin_runtime_manager().start()
+
         # 初始化表情管理器
         emoji_manager.load_emojis_from_db()
         logger.info("表情包管理器初始化成功")
@@ -131,6 +137,9 @@ class MainSystem:
         from src.plugin_system.base.component_types import EventType
 
         await events_manager.handle_mai_events(event_type=EventType.ON_START)
+
+        # 桥接 ON_START 事件到新版本插件运行时
+        await get_plugin_runtime_manager().bridge_event("on_start")
         # logger.info("已触发 ON_START 事件")
         try:
             init_time = int(1000 * (time.time() - init_start_time))

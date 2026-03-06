@@ -125,6 +125,11 @@ class EventsManager:
                 # 异步执行，不阻塞
                 self._dispatch_handler_task(handler, event_type, transformed_message)
 
+        # 桥接到新版本插件运行时
+        continue_flag, modified_message = await self._bridge_to_new_runtime(
+            event_type, continue_flag, modified_message or transformed_message
+        )
+
         return continue_flag, modified_message
 
     async def handle_workflow_message(
@@ -328,6 +333,42 @@ class EventsManager:
             action_usage=action_usage,
             additional_data={"response_is_processed": True},
         )
+
+    async def _bridge_to_new_runtime(
+        self,
+        event_type: EventType | str,
+        continue_flag: bool,
+        message: Optional[MaiMessages],
+    ) -> Tuple[bool, Optional[MaiMessages]]:
+        """将事件桥接到新版本插件运行时
+
+        如果旧 handler 已经 abort（continue_flag=False），直接跳过。
+        """
+        if not continue_flag:
+            return continue_flag, message
+
+        try:
+            from src.plugin_runtime.integration import get_plugin_runtime_manager
+
+            prm = get_plugin_runtime_manager()
+            if not prm.is_running:
+                return continue_flag, message
+
+            event_value = event_type.value if isinstance(event_type, EventType) else str(event_type)
+            message_dict = message.to_dict() if message and hasattr(message, "to_dict") else None
+
+            new_continue, new_msg_dict = await prm.bridge_event(
+                event_type_value=event_value,
+                message_dict=message_dict,
+            )
+            # 新运行时返回 abort 则合并
+            if not new_continue:
+                continue_flag = False
+
+        except Exception as e:
+            logger.warning(f"桥接事件到新运行时失败: {e}")
+
+        return continue_flag, message
 
     def _prepare_message(
         self,

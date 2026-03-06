@@ -6,10 +6,11 @@
 
 from typing import Any
 
-import logging
 import re
 
-logger = logging.getLogger("plugin_runtime.runner.manifest_validator")
+from src.common.logger import get_logger
+
+logger = get_logger("plugin_runtime.runner.manifest_validator")
 
 
 class VersionComparator:
