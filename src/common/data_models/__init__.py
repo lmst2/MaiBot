@@ -15,7 +15,7 @@ class BaseDataModel:
         return copy.deepcopy(self)
 
 
-class BaseDatabaseDataModel(ABC, Generic[T]):
+class BaseDatabaseDataModel(ABC, Generic[T], BaseDataModel):
     @classmethod
     @abstractmethod
     def from_db_instance(cls, db_record: T) -> Self:
