@@ -473,5 +473,96 @@
     "sidebarNav": "메인 내비게이션",
     "closeMenu": "메뉴 닫기",
     "navigatedTo": "{{page}}으로 이동했습니다"
+  },
+  "home": {
+    "title": "실시간 모니터",
+    "subtitle": "MaiBot 실행 상태 및 통계 데이터 개요",
+    "loading": "통계 데이터 로딩 중...",
+    "loadingHint": "MaiBot 실행 데이터를 가져오는 중",
+    "timeRange": {
+      "24h": "24시간",
+      "7d": "7일",
+      "30d": "30일"
+    },
+    "autoRefresh": "자동 새로고침",
+    "botStatus": {
+      "title": "MaiBot 상태",
+      "running": "실행 중",
+      "stopped": "중지됨",
+      "uptime": "가동 {{time}}"
+    },
+    "quickActions": {
+      "title": "빠른 작업",
+      "restart": "MaiBot 재시작",
+      "restarting": "재시작 중...",
+      "expressionReview": "표현 검토",
+      "viewLogs": "로그 보기",
+      "pluginManage": "플러그인 관리",
+      "systemSettings": "시스템 설정"
+    },
+    "survey": {
+      "title": "피드백 설문",
+      "description": "제품 경험 개선에 도움을 주세요",
+      "webui": "WebUI 피드백",
+      "maibot": "MaiBot 피드백"
+    },
+    "stats": {
+      "totalRequests": "총 요청 수",
+      "totalCost": "총 비용",
+      "tokenUsage": "토큰 소비",
+      "avgResponse": "평균 응답",
+      "avgResponseDesc": "API 평균 지연",
+      "onlineTime": "온라인 시간",
+      "messageProcessing": "메시지 처리",
+      "costEfficiency": "비용 효율",
+      "recentPeriod": "최근 {{range}}",
+      "perHour": "{{value}}/시간",
+      "noData": "데이터 없음",
+      "replied": "답장 {{num}}건",
+      "per100Messages": "100건당",
+      "seconds": "초",
+      "hours": "시간",
+      "days": "일"
+    },
+    "charts": {
+      "tabs": {
+        "trends": "트렌드",
+        "models": "모델",
+        "activity": "활동",
+        "daily": "일간 통계"
+      },
+      "requestTrend": "요청 트렌드",
+      "requestTrendDesc": "최근 {{hours}}시간의 요청량 변화",
+      "costTrend": "비용 트렌드",
+      "costTrendDesc": "API 호출 비용 변화",
+      "tokenUsage": "토큰 소비",
+      "tokenUsageDesc": "토큰 사용량 변화",
+      "modelDistribution": "모델 요청 분포",
+      "modelDistributionDesc": "모델별 사용 비율 ({{count}}개 모델)",
+      "modelDetails": "모델 상세 통계",
+      "modelDetailsDesc": "요청 수, 비용 및 성능",
+      "recentActivity": "최근 활동",
+      "recentActivityDesc": "최신 API 호출 기록",
+      "dailyStats": "일간 통계",
+      "dailyStatsDesc": "최근 7일 데이터 요약",
+      "requests": "요청 수",
+      "cost": "비용(¥)",
+      "requestCount": "요청 수",
+      "costLabel": "비용",
+      "avgTime": "평균 소요",
+      "timeCost": "소요 시간",
+      "status": "상태"
+    },
+    "time": {
+      "hoursMinutes": "{{hours}}시간 {{minutes}}분"
+    },
+    "hitokotoFallback": "인생은 초콜릿 상자와 같아서, 다음에 무엇이 나올지 모릅니다.",
+    "hitokotoFallbackFrom": "포레스트 검프",
+    "unknownSource": "알 수 없음",
+    "ariaLabel": {
+      "requestTrend": "시간별 요청 트렌드 차트, 최근 시간대별 요청 수 변화 표시",
+      "costTrend": "API 비용 트렌드 차트, 최근 시간대별 API 호출 비용 변화 표시",
+      "tokenUsage": "토큰 소비 트렌드 차트, 최근 시간대별 토큰 사용량 변화 표시"
+    }
   }
 }

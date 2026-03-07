@@ -473,5 +473,96 @@
     "sidebarNav": "Main navigation",
     "closeMenu": "Close menu",
     "navigatedTo": "Navigated to {{page}}"
+  },
+  "home": {
+    "title": "Live Monitor",
+    "subtitle": "MaiBot runtime status and statistics overview",
+    "loading": "Loading statistics...",
+    "loadingHint": "Fetching MaiBot runtime data",
+    "timeRange": {
+      "24h": "24 Hours",
+      "7d": "7 Days",
+      "30d": "30 Days"
+    },
+    "autoRefresh": "Auto Refresh",
+    "botStatus": {
+      "title": "MaiBot Status",
+      "running": "Running",
+      "stopped": "Stopped",
+      "uptime": "Up {{time}}"
+    },
+    "quickActions": {
+      "title": "Quick Actions",
+      "restart": "Restart MaiBot",
+      "restarting": "Restarting...",
+      "expressionReview": "Expression Review",
+      "viewLogs": "View Logs",
+      "pluginManage": "Plugins",
+      "systemSettings": "Settings"
+    },
+    "survey": {
+      "title": "Feedback Survey",
+      "description": "Help us improve the experience",
+      "webui": "WebUI Feedback",
+      "maibot": "MaiBot Feedback"
+    },
+    "stats": {
+      "totalRequests": "Total Requests",
+      "totalCost": "Total Cost",
+      "tokenUsage": "Token Usage",
+      "avgResponse": "Avg Response",
+      "avgResponseDesc": "Avg API latency",
+      "onlineTime": "Online Time",
+      "messageProcessing": "Messages",
+      "costEfficiency": "Cost Efficiency",
+      "recentPeriod": "Last {{range}}",
+      "perHour": "{{value}}/hr",
+      "noData": "No data",
+      "replied": "{{num}} replies",
+      "per100Messages": "Per 100 messages",
+      "seconds": "sec",
+      "hours": "hours",
+      "days": "days"
+    },
+    "charts": {
+      "tabs": {
+        "trends": "Trends",
+        "models": "Models",
+        "activity": "Activity",
+        "daily": "Daily"
+      },
+      "requestTrend": "Request Trend",
+      "requestTrendDesc": "Request volume over the last {{hours}} hours",
+      "costTrend": "Cost Trend",
+      "costTrendDesc": "API call cost over time",
+      "tokenUsage": "Token Usage",
+      "tokenUsageDesc": "Token consumption over time",
+      "modelDistribution": "Model Request Distribution",
+      "modelDistributionDesc": "Usage share per model ({{count}} models)",
+      "modelDetails": "Model Details",
+      "modelDetailsDesc": "Requests, cost and performance",
+      "recentActivity": "Recent Activity",
+      "recentActivityDesc": "Latest API call records",
+      "dailyStats": "Daily Statistics",
+      "dailyStatsDesc": "Data summary for the last 7 days",
+      "requests": "Requests",
+      "cost": "Cost (¥)",
+      "requestCount": "Requests",
+      "costLabel": "Cost",
+      "avgTime": "Avg Time",
+      "timeCost": "Duration",
+      "status": "Status"
+    },
+    "time": {
+      "hoursMinutes": "{{hours}}h {{minutes}}m"
+    },
+    "hitokotoFallback": "Life is like a box of chocolates, you never know what you're gonna get.",
+    "hitokotoFallbackFrom": "Forrest Gump",
+    "unknownSource": "Unknown",
+    "ariaLabel": {
+      "requestTrend": "Hourly request trend chart showing request count changes over recent hours",
+      "costTrend": "API cost trend chart showing API call cost changes over recent hours",
+      "tokenUsage": "Token usage trend chart showing token consumption over recent hours"
+    }
   }
 }

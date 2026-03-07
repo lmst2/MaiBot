@@ -473,5 +473,96 @@
     "sidebarNav": "メインナビゲーション",
     "closeMenu": "メニューを閉じる",
     "navigatedTo": "{{page}} に移動しました"
+  },
+  "home": {
+    "title": "リアルタイムモニター",
+    "subtitle": "MaiBotの稼働状況と統計データの一覧",
+    "loading": "統計データを読み込み中...",
+    "loadingHint": "MaiBotの稼働データを取得しています",
+    "timeRange": {
+      "24h": "24時間",
+      "7d": "7日間",
+      "30d": "30日間"
+    },
+    "autoRefresh": "自動更新",
+    "botStatus": {
+      "title": "MaiBot ステータス",
+      "running": "稼働中",
+      "stopped": "停止中",
+      "uptime": "稼働 {{time}}"
+    },
+    "quickActions": {
+      "title": "クイック操作",
+      "restart": "MaiBotを再起動",
+      "restarting": "再起動中...",
+      "expressionReview": "表現レビュー",
+      "viewLogs": "ログを見る",
+      "pluginManage": "プラグイン管理",
+      "systemSettings": "システム設定"
+    },
+    "survey": {
+      "title": "フィードバック",
+      "description": "製品体験の改善にご協力ください",
+      "webui": "WebUI フィードバック",
+      "maibot": "MaiBot フィードバック"
+    },
+    "stats": {
+      "totalRequests": "総リクエスト数",
+      "totalCost": "総コスト",
+      "tokenUsage": "トークン消費",
+      "avgResponse": "平均応答",
+      "avgResponseDesc": "API平均レイテンシ",
+      "onlineTime": "オンライン時間",
+      "messageProcessing": "メッセージ処理",
+      "costEfficiency": "コスト効率",
+      "recentPeriod": "直近{{range}}",
+      "perHour": "{{value}}/時",
+      "noData": "データなし",
+      "replied": "返信 {{num}} 件",
+      "per100Messages": "100メッセージあたり",
+      "seconds": "秒",
+      "hours": "時間",
+      "days": "日"
+    },
+    "charts": {
+      "tabs": {
+        "trends": "トレンド",
+        "models": "モデル",
+        "activity": "アクティビティ",
+        "daily": "日次統計"
+      },
+      "requestTrend": "リクエストトレンド",
+      "requestTrendDesc": "直近{{hours}}時間のリクエスト量の変化",
+      "costTrend": "コストトレンド",
+      "costTrendDesc": "API呼び出しコストの変化",
+      "tokenUsage": "トークン消費",
+      "tokenUsageDesc": "トークン使用量の変化",
+      "modelDistribution": "モデルリクエスト分布",
+      "modelDistributionDesc": "各モデルの使用割合（{{count}}モデル）",
+      "modelDetails": "モデル詳細統計",
+      "modelDetailsDesc": "リクエスト数、コスト、パフォーマンス",
+      "recentActivity": "最近のアクティビティ",
+      "recentActivityDesc": "最新のAPI呼び出し記録",
+      "dailyStats": "日次統計",
+      "dailyStatsDesc": "直近7日間のデータサマリー",
+      "requests": "リクエスト数",
+      "cost": "コスト(¥)",
+      "requestCount": "リクエスト数",
+      "costLabel": "コスト",
+      "avgTime": "平均所要時間",
+      "timeCost": "所要時間",
+      "status": "ステータス"
+    },
+    "time": {
+      "hoursMinutes": "{{hours}}時間{{minutes}}分"
+    },
+    "hitokotoFallback": "人生はチョコレートの箱のようなもの、次に何が出てくるか分からない。",
+    "hitokotoFallbackFrom": "フォレスト・ガンプ",
+    "unknownSource": "不明",
+    "ariaLabel": {
+      "requestTrend": "時間ごとのリクエスト数トレンドチャート、直近のリクエスト数変化を表示",
+      "costTrend": "APIコストトレンドチャート、直近のAPI呼び出しコスト変化を表示",
+      "tokenUsage": "Token消費トレンドチャート、直近のToken使用量変化を表示"
+    }
   }
 }
