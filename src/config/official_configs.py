@@ -19,6 +19,9 @@ class ExampleConfig(ConfigBase):
 class BotConfig(ConfigBase):
     """机器人配置类"""
 
+    __ui_label__ = "基本信息"
+    __ui_icon__ = "bot"
+
     platform: str = Field(
         default="",
         json_schema_extra={
@@ -67,6 +70,9 @@ class BotConfig(ConfigBase):
 
 class PersonalityConfig(ConfigBase):
     """人格配置类"""
+
+    __ui_label__ = "人格"
+    __ui_icon__ = "user-circle"
 
     personality: str = Field(
         default="是一个大二在读女大学生，现在正在上网和群友聊天，有时有点攻击性，有时比较温柔",
@@ -160,6 +166,8 @@ class PersonalityConfig(ConfigBase):
 class RelationshipConfig(ConfigBase):
     """关系配置类"""
 
+    __ui_parent__ = "debug"
+
     enable_relationship: bool = Field(
         default=True,
         json_schema_extra={
@@ -189,6 +197,9 @@ class TalkRulesItem(ConfigBase):
 
 class ChatConfig(ConfigBase):
     """聊天配置类"""
+
+    __ui_label__ = "聊天"
+    __ui_icon__ = "message-square"
 
     talk_value: float = Field(
         default=1,
@@ -293,6 +304,8 @@ class ChatConfig(ConfigBase):
 class MessageReceiveConfig(ConfigBase):
     """消息接收配置类"""
 
+    __ui_parent__ = "response_post_process"
+
     image_parse_threshold: int = Field(
         default=5,
         json_schema_extra={
@@ -363,6 +376,8 @@ class TargetItem(ConfigBase):
 
 class MemoryConfig(ConfigBase):
     """记忆配置类"""
+
+    __ui_parent__ = "emoji"
 
     max_agent_iterations: int = Field(
         default=5,
@@ -551,6 +566,9 @@ class ExpressionGroup(ConfigBase):
 class ExpressionConfig(ConfigBase):
     """表达配置类"""
 
+    __ui_label__ = "表达"
+    __ui_icon__ = "pen-tool"
+
     learning_list: list[LearningItem] = Field(
         default_factory=lambda: [
             LearningItem(
@@ -687,6 +705,8 @@ class ExpressionConfig(ConfigBase):
 class ToolConfig(ConfigBase):
     """工具配置类"""
 
+    __ui_parent__ = "emoji"
+
     enable_tool: bool = Field(
         default=False,
         json_schema_extra={
@@ -700,6 +720,8 @@ class ToolConfig(ConfigBase):
 class VoiceConfig(ConfigBase):
     """语音识别配置类"""
 
+    __ui_parent__ = "emoji"
+
     enable_asr: bool = Field(
         default=False,
         json_schema_extra={
@@ -712,6 +734,9 @@ class VoiceConfig(ConfigBase):
 
 class EmojiConfig(ConfigBase):
     """表情包配置类"""
+
+    __ui_label__ = "功能"
+    __ui_icon__ = "puzzle"
 
     emoji_chance: float = Field(
         default=0.4,
@@ -829,6 +854,8 @@ class KeywordRuleConfig(ConfigBase):
 class KeywordReactionConfig(ConfigBase):
     """关键词配置类"""
 
+    __ui_parent__ = "response_post_process"
+
     keyword_rules: list[KeywordRuleConfig] = Field(
         default_factory=lambda: [],
         json_schema_extra={
@@ -858,6 +885,9 @@ class KeywordReactionConfig(ConfigBase):
 class ResponsePostProcessConfig(ConfigBase):
     """回复后处理配置类"""
 
+    __ui_label__ = "处理"
+    __ui_icon__ = "settings"
+
     enable_response_post_process: bool = Field(
         default=True,
         json_schema_extra={
@@ -870,6 +900,8 @@ class ResponsePostProcessConfig(ConfigBase):
 
 class ChineseTypoConfig(ConfigBase):
     """中文错别字配置类"""
+
+    __ui_parent__ = "response_post_process"
 
     enable: bool = Field(
         default=True,
@@ -929,6 +961,8 @@ class ChineseTypoConfig(ConfigBase):
 class ResponseSplitterConfig(ConfigBase):
     """回复分割器配置类"""
 
+    __ui_parent__ = "response_post_process"
+
     enable: bool = Field(
         default=True,
         json_schema_extra={
@@ -978,6 +1012,8 @@ class ResponseSplitterConfig(ConfigBase):
 class TelemetryConfig(ConfigBase):
     """遥测配置类"""
 
+    __ui_parent__ = "debug"
+
     enable: bool = Field(
         default=True,
         json_schema_extra={
@@ -990,6 +1026,9 @@ class TelemetryConfig(ConfigBase):
 
 class DebugConfig(ConfigBase):
     """调试配置类"""
+
+    __ui_label__ = "其他"
+    __ui_icon__ = "more-horizontal"
 
     show_prompt: bool = Field(
         default=False,
@@ -1101,6 +1140,8 @@ class ExtraPromptItem(ConfigBase):
 class ExperimentalConfig(ConfigBase):
     """实验功能配置类"""
 
+    __ui_parent__ = "debug"
+
     private_plan_style: str = Field(
         default=(
             "1.思考**所有**的可用的action中的**每个动作**是否符合当下条件，如果动作使用条件符合聊天内容就使用"
@@ -1135,6 +1176,8 @@ class ExperimentalConfig(ConfigBase):
 
 class MaimMessageConfig(ConfigBase):
     """maim_message配置类"""
+
+    __ui_parent__ = "debug"
 
     ws_server_host: str = Field(
         default="127.0.0.1",
@@ -1229,6 +1272,9 @@ class MaimMessageConfig(ConfigBase):
 
 class LPMMKnowledgeConfig(ConfigBase):
     """LPMM知识库配置类"""
+
+    __ui_label__ = "知识库"
+    __ui_icon__ = "book-open"
 
     enable: bool = Field(
         default=True,
@@ -1397,6 +1443,9 @@ class LPMMKnowledgeConfig(ConfigBase):
 class DreamConfig(ConfigBase):
     """Dream配置类"""
 
+    __ui_label__ = "做梦"
+    __ui_icon__ = "moon"
+
     interval_minutes: int = Field(
         default=30,
         ge=1,
@@ -1466,6 +1515,9 @@ class DreamConfig(ConfigBase):
 
 class WebUIConfig(ConfigBase):
     """WebUI配置类"""
+
+    __ui_label__ = "WebUI"
+    __ui_icon__ = "layout"
 
     enabled: bool = Field(
         default=True,
@@ -1542,6 +1594,8 @@ class WebUIConfig(ConfigBase):
 
 class DatabaseConfig(ConfigBase):
     """数据库配置类"""
+
+    __ui_parent__ = "debug"
 
     save_binary_data: bool = Field(
         default=False,

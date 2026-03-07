@@ -5,7 +5,7 @@ import types
 from dataclasses import dataclass, field
 from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Any, Dict, List, Literal, Set, Tuple, Union, cast, get_args, get_origin
+from typing import Any, ClassVar, Dict, List, Literal, Set, Tuple, Union, cast, get_args, get_origin
 
 __all__ = ["ConfigBase", "Field", "AttributeData"]
 
@@ -130,6 +130,11 @@ class ConfigBase(BaseModel, AttrDocBase):
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
     _validate_any: bool = True  # 是否验证 Any 类型的使用，默认为 True
     suppress_any_warning: bool = False  # 是否抑制 Any 类型使用的警告，默认为 False，仅仅在_validate_any 为 False 时生效
+
+    # UI 分组元数据：子类可覆盖以声明所属 Tab 分组
+    __ui_parent__: ClassVar[str] = ""  # 父配置类在 Config 中的字段名，空表示独立 Tab
+    __ui_label__: ClassVar[str] = ""   # Tab 显示名称（仅做 Tab 主人时使用），空则使用 classDoc
+    __ui_icon__: ClassVar[str] = ""    # Tab 图标名称（Lucide 图标名）
 
     @classmethod
     def from_dict(cls, attribute_data: AttributeData, data: dict[str, Any]):

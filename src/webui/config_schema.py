@@ -28,12 +28,25 @@ class ConfigSchemaGenerator:
                 if nested_schema is not None:
                     nested[field_name] = nested_schema
 
-        return {
+        schema: dict[str, Any] = {
             "className": config_class.__name__,
             "classDoc": (config_class.__doc__ or "").strip(),
             "fields": fields,
             "nested": nested,
         }
+
+        # 将 UI 分组元数据写入 schema
+        ui_parent = getattr(config_class, "__ui_parent__", "")
+        ui_label = getattr(config_class, "__ui_label__", "")
+        ui_icon = getattr(config_class, "__ui_icon__", "")
+        if ui_parent:
+            schema["uiParent"] = ui_parent
+        if ui_label:
+            schema["uiLabel"] = ui_label
+        if ui_icon:
+            schema["uiIcon"] = ui_icon
+
+        return schema
 
     @classmethod
     def _build_nested_schema(cls, annotation: Any) -> dict[str, Any] | None:

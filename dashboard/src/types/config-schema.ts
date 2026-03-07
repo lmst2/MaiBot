@@ -38,6 +38,9 @@ export interface ConfigSchema {
   classDoc: string
   fields: FieldSchema[]
   nested?: Record<string, ConfigSchema>
+  uiParent?: string
+  uiLabel?: string
+  uiIcon?: string
 }
 
 export interface ConfigSchemaResponse {
