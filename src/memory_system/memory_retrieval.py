@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional, Tuple, Callable
 from src.common.logger import get_logger
 from src.config.config import global_config, model_config
 from src.prompt.prompt_manager import prompt_manager
-from src.plugin_system.apis import llm_api
+from src.services import llm_service as llm_api
 from sqlmodel import select, col
 from src.common.database.database import get_db_session
 from src.common.database.database_model import ThinkingQuestion

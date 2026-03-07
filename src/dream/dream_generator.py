@@ -8,7 +8,7 @@ from src.llm_models.payload_content.message import RoleType, Message
 from src.prompt.prompt_manager import prompt_manager
 from src.llm_models.utils_model import LLMRequest
 from src.common.utils.utils_session import SessionUtils
-from src.plugin_system.apis import send_api
+from src.services import send_service as send_api
 
 logger = get_logger("dream_generator")
 

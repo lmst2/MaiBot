@@ -27,12 +27,12 @@ from src.chat.utils.chat_message_builder import (
     replace_user_references,
 )
 from src.bw_learner.expression_selector import expression_selector
-from src.plugin_system.apis.message_api import translate_pid_to_description
+from src.services.message_service import translate_pid_to_description
 
 # from src.memory_system.memory_activator import MemoryActivator
 from src.person_info.person_info import Person
-from src.plugin_system.base.component_types import ActionInfo, EventType
-from src.plugin_system.apis import llm_api
+from src.core.types import ActionInfo, EventType
+from src.services import llm_service as llm_api
 
 from src.chat.logger.plan_reply_logger import PlanReplyLogger
 from src.memory_system.memory_retrieval import init_memory_retrieval_sys, build_memory_retrieval_prompt
@@ -56,7 +56,7 @@ class DefaultReplyer:
         self.is_group_chat, self.chat_target_info = get_chat_type_and_target_info(self.chat_stream.session_id)
         self.heart_fc_sender = UniversalMessageSender()
 
-        from src.plugin_system.core.tool_use import ToolExecutor  # 延迟导入ToolExecutor，不然会循环依赖
+        from src.chat.tool_executor import ToolExecutor
 
         self.tool_executor = ToolExecutor(chat_id=self.chat_stream.session_id, enable_cache=True, cache_ttl=3)
 
@@ -149,11 +149,13 @@ class DefaultReplyer:
                     except Exception:
                         logger.exception("记录reply日志失败")
                 return False, llm_response
-            from src.plugin_system.core.events_manager import events_manager
+            from src.core.event_bus import event_bus
+            from src.chat.event_helpers import build_event_message
 
             if not from_plugin:
-                continue_flag, modified_message = await events_manager.handle_mai_events(
-                    EventType.POST_LLM, None, prompt, None, stream_id=stream_id
+                _event_msg = build_event_message(EventType.POST_LLM, llm_prompt=prompt, stream_id=stream_id)
+                continue_flag, modified_message = await event_bus.emit(
+                    EventType.POST_LLM, _event_msg
                 )
                 if not continue_flag:
                     raise UserWarning("插件于请求前中断了内容生成")
@@ -217,8 +219,9 @@ class DefaultReplyer:
                         )
                 except Exception:
                     logger.exception("记录reply日志失败")
-                continue_flag, modified_message = await events_manager.handle_mai_events(
-                    EventType.AFTER_LLM, None, prompt, llm_response, stream_id=stream_id
+                _event_msg = build_event_message(EventType.AFTER_LLM, llm_prompt=prompt, llm_response=llm_response, stream_id=stream_id)
+                continue_flag, modified_message = await event_bus.emit(
+                    EventType.AFTER_LLM, _event_msg
                 )
                 if not from_plugin and not continue_flag:
                     raise UserWarning("插件于请求后取消了内容生成")

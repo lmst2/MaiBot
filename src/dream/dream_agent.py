@@ -10,7 +10,7 @@ from src.config.config import global_config, model_config
 from src.common.database.database_model import ChatHistory
 from src.prompt.prompt_manager import prompt_manager
 from src.llm_models.payload_content.message import MessageBuilder, RoleType, Message
-from src.plugin_system.apis import llm_api
+from src.services import llm_service as llm_api
 from src.dream.dream_generator import generate_dream_summary
 
 # dream 工具工厂函数

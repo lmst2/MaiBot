@@ -195,11 +195,11 @@ async def graceful_shutdown():  # sourcery skip: use-named-expression
         # except Exception as e:
         #     logger.warning(f"关闭 WebUI 服务器时出错: {e}")
 
-        from src.plugin_system.core.events_manager import events_manager
-        from src.plugin_system.base.component_types import EventType
+        from src.core.event_bus import event_bus
+        from src.core.types import EventType
 
         # 触发 ON_STOP 事件
-        await events_manager.handle_mai_events(event_type=EventType.ON_STOP)
+        await event_bus.emit(event_type=EventType.ON_STOP)
 
         # 停止新版本插件运行时
         from src.plugin_runtime.integration import get_plugin_runtime_manager

@@ -23,8 +23,8 @@ from src.chat.utils.chat_message_builder import (
 from src.chat.utils.utils import get_chat_type_and_target_info
 from src.chat.planner_actions.action_manager import ActionManager
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
-from src.plugin_system.base.component_types import ActionInfo, ComponentType, ActionActivationType
-from src.plugin_system.core.component_registry import component_registry
+from src.core.types import ActionActivationType, ActionInfo, ComponentType
+from src.core.component_registry import component_registry
 
 if TYPE_CHECKING:
     from src.common.data_models.info_data_model import TargetPersonInfo

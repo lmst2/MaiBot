@@ -7,8 +7,8 @@ from src.config.config import global_config
 from src.chat.message_receive.chat_manager import BotChatSession, chat_manager as _chat_manager
 from src.chat.planner_actions.action_manager import ActionManager
 from src.chat.utils.chat_message_builder import get_raw_msg_before_timestamp_with_chat, build_readable_messages
-from src.plugin_system.base.component_types import ActionInfo, ActionActivationType
-from src.plugin_system.core.global_announcement_manager import global_announcement_manager
+from src.core.types import ActionActivationType, ActionInfo
+from src.core.announcement_manager import global_announcement_manager
 
 logger = get_logger("action_manager")
 

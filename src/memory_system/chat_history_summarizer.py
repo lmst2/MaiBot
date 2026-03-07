@@ -17,7 +17,7 @@ from src.common.logger import get_logger
 from src.common.data_models.database_data_model import DatabaseMessages
 from src.config.config import model_config, global_config
 from src.llm_models.utils_model import LLMRequest
-from src.plugin_system.apis import message_api
+from src.services import message_service as message_api
 from src.chat.utils.chat_message_builder import build_readable_messages
 from src.chat.utils.utils import is_bot_self
 from src.person_info.person_info import Person
@@ -913,7 +913,7 @@ class ChatHistorySummarizer:
         """存储到数据库"""
         try:
             from src.common.database.database_model import ChatHistory
-            from src.plugin_system.apis import database_api
+            from src.services import database_service as database_api
 
             # 准备数据
             data = {

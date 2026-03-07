@@ -6,7 +6,7 @@ import time
 from src.config.config import global_config
 from src.common.logger import get_logger
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
-from src.plugin_system.apis import send_api
+from src.services import send_service as send_api
 
 from src.common.message_repository import count_messages
 

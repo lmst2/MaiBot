@@ -37,6 +37,7 @@ dependencies = [
     "uvicorn>=0.35.0",
     "msgpack>=1.1.2",
     "watchfiles>=1.1.1",
+    "maibot-plugin-sdk>=1.0.0",
 ]
 
 

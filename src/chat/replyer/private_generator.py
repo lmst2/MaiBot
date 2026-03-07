@@ -28,12 +28,12 @@ from src.chat.utils.chat_message_builder import (
     replace_user_references,
 )
 from src.bw_learner.expression_selector import expression_selector
-from src.plugin_system.apis.message_api import translate_pid_to_description
+from src.services.message_service import translate_pid_to_description
 
 # from src.memory_system.memory_activator import MemoryActivator
 from src.person_info.person_info import Person, is_person_known
-from src.plugin_system.base.component_types import ActionInfo, EventType
-from src.plugin_system.apis import llm_api
+from src.core.types import ActionInfo, EventType
+from src.services import llm_service as llm_api
 from src.memory_system.memory_retrieval import init_memory_retrieval_sys, build_memory_retrieval_prompt
 from src.bw_learner.jargon_explainer import explain_jargon_in_context
 
@@ -55,7 +55,7 @@ class PrivateReplyer:
         self.heart_fc_sender = UniversalMessageSender()
         # self.memory_activator = MemoryActivator()
 
-        from src.plugin_system.core.tool_use import ToolExecutor  # 延迟导入ToolExecutor，不然会循环依赖
+        from src.chat.tool_executor import ToolExecutor
 
         self.tool_executor = ToolExecutor(chat_id=self.chat_stream.session_id, enable_cache=True, cache_ttl=3)
 
@@ -114,11 +114,13 @@ class PrivateReplyer:
             if not prompt:
                 logger.warning("构建prompt失败，跳过回复生成")
                 return False, llm_response
-            from src.plugin_system.core.events_manager import events_manager
+            from src.core.event_bus import event_bus
+            from src.chat.event_helpers import build_event_message
 
             if not from_plugin:
-                continue_flag, modified_message = await events_manager.handle_mai_events(
-                    EventType.POST_LLM, None, prompt, None, stream_id=stream_id
+                _event_msg = build_event_message(EventType.POST_LLM, llm_prompt=prompt, stream_id=stream_id)
+                continue_flag, modified_message = await event_bus.emit(
+                    EventType.POST_LLM, _event_msg
                 )
                 if not continue_flag:
                     raise UserWarning("插件于请求前中断了内容生成")
@@ -138,8 +140,9 @@ class PrivateReplyer:
                 llm_response.reasoning = reasoning_content
                 llm_response.model = model_name
                 llm_response.tool_calls = tool_call
-                continue_flag, modified_message = await events_manager.handle_mai_events(
-                    EventType.AFTER_LLM, None, prompt, llm_response, stream_id=stream_id
+                _event_msg = build_event_message(EventType.AFTER_LLM, llm_prompt=prompt, llm_response=llm_response, stream_id=stream_id)
+                continue_flag, modified_message = await event_bus.emit(
+                    EventType.AFTER_LLM, _event_msg
                 )
                 if not from_plugin and not continue_flag:
                     raise UserWarning("插件于请求后取消了内容生成")

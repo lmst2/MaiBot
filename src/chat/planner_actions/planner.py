@@ -23,9 +23,9 @@ from src.chat.utils.chat_message_builder import (
 from src.chat.utils.utils import get_chat_type_and_target_info, is_bot_self
 from src.chat.planner_actions.action_manager import ActionManager
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
-from src.plugin_system.base.component_types import ActionInfo, ComponentType, ActionActivationType
-from src.plugin_system.core.component_registry import component_registry
-from src.plugin_system.apis.message_api import translate_pid_to_description
+from src.core.types import ActionActivationType, ActionInfo, ComponentType
+from src.core.component_registry import component_registry
+from src.services.message_service import translate_pid_to_description
 from src.person_info.person_info import Person
 
 if TYPE_CHECKING:

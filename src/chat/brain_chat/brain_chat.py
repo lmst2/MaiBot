@@ -19,9 +19,10 @@ from src.chat.heart_flow.hfc_utils import CycleDetail
 from src.bw_learner.expression_learner import expression_learner_manager
 from src.bw_learner.message_recorder import extract_and_distribute_messages
 from src.person_info.person_info import Person
-from src.plugin_system.base.component_types import EventType, ActionInfo
-from src.plugin_system.core import events_manager
-from src.plugin_system.apis import generator_api, send_api, message_api, database_api
+from src.core.types import ActionInfo, EventType
+from src.core.event_bus import event_bus
+from src.chat.event_helpers import build_event_message
+from src.services import generator_service as generator_api, send_service as send_api, message_service as message_api, database_service as database_api
 from src.chat.utils.chat_message_builder import (
     build_readable_messages_with_id,
     get_raw_msg_before_timestamp_with_chat,
@@ -315,8 +316,9 @@ class BrainChatting:
                 message_id_list=message_id_list,
                 prompt_key="brain_planner",
             )
-            continue_flag, modified_message = await events_manager.handle_mai_events(
-                EventType.ON_PLAN, None, prompt_info[0], None, self.chat_stream.stream_id
+            _event_msg = build_event_message(EventType.ON_PLAN, llm_prompt=prompt_info[0], stream_id=self.chat_stream.stream_id)
+            continue_flag, modified_message = await event_bus.emit(
+                EventType.ON_PLAN, _event_msg
             )
             if not continue_flag:
                 return False

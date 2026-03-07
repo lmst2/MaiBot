@@ -318,11 +318,13 @@ class UniversalMessageSender:
                 message.build_reply()
                 logger.debug(f"[{chat_id}] 选择回复引用消息: {message.processed_plain_text[:20]}...")
 
-            from src.plugin_system.core.events_manager import events_manager
-            from src.plugin_system.base.component_types import EventType
+            from src.core.event_bus import event_bus
+            from src.chat.event_helpers import build_event_message
+            from src.core.types import EventType
 
-            continue_flag, modified_message = await events_manager.handle_mai_events(
-                EventType.POST_SEND_PRE_PROCESS, message=message, stream_id=chat_id
+            _event_msg = build_event_message(EventType.POST_SEND_PRE_PROCESS, message=message, stream_id=chat_id)
+            continue_flag, modified_message = await event_bus.emit(
+                EventType.POST_SEND_PRE_PROCESS, _event_msg
             )
             if not continue_flag:
                 logger.info(f"[{chat_id}] 消息发送被插件取消: {str(message.message_segment)[:100]}...")
@@ -336,8 +338,9 @@ class UniversalMessageSender:
 
             await message.process()
 
-            continue_flag, modified_message = await events_manager.handle_mai_events(
-                EventType.POST_SEND, message=message, stream_id=chat_id
+            _event_msg = build_event_message(EventType.POST_SEND, message=message, stream_id=chat_id)
+            continue_flag, modified_message = await event_bus.emit(
+                EventType.POST_SEND, _event_msg
             )
             if not continue_flag:
                 logger.info(f"[{chat_id}] 消息发送被插件取消: {str(message.message_segment)[:100]}...")
@@ -360,8 +363,9 @@ class UniversalMessageSender:
             if not sent_msg:
                 return False
 
-            continue_flag, modified_message = await events_manager.handle_mai_events(
-                EventType.AFTER_SEND, message=message, stream_id=chat_id
+            _event_msg = build_event_message(EventType.AFTER_SEND, message=message, stream_id=chat_id)
+            continue_flag, modified_message = await event_bus.emit(
+                EventType.AFTER_SEND, _event_msg
             )
             if not continue_flag:
                 logger.info(f"[{chat_id}] 消息发送后续处理被插件取消: {str(message.message_segment)[:100]}...")

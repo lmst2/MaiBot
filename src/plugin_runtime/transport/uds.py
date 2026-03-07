@@ -22,8 +22,9 @@ class UDSTransportServer(TransportServer):
 
     def __init__(self, socket_path: str | None = None):
         if socket_path is None:
-            # 默认放在临时目录
-            socket_path = os.path.join(tempfile.gettempdir(), f"maibot-plugin-{os.getpid()}.sock")
+            # 默认放在临时目录，使用 uuid 确保同一进程多实例不碰撞
+            import uuid
+            socket_path = os.path.join(tempfile.gettempdir(), f"maibot-plugin-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock")
         self._socket_path = socket_path
         self._server: asyncio.AbstractServer | None = None
 

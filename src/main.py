@@ -18,10 +18,7 @@ from rich.traceback import install
 
 # from src.api.main import start_api_server
 
-# 导入新的插件管理器
-from src.plugin_system.core.plugin_manager import plugin_manager
-
-# 导入新版本插件运行时
+# 导入插件运行时
 from src.plugin_runtime.integration import get_plugin_runtime_manager
 
 # 导入消息API和traceback模块
@@ -30,8 +27,6 @@ from src.dream.dream_agent import start_dream_scheduler
 from src.bw_learner.expression_auto_check_task import ExpressionAutoCheckTask
 
 from src.prompt.prompt_manager import prompt_manager
-
-# 插件系统现在使用统一的插件加载器
 
 install(extra_lines=3)
 
@@ -108,10 +103,7 @@ class MainSystem:
         # 启动LPMM
         lpmm_start_up()
 
-        # 加载所有actions，包括默认的和插件的
-        plugin_manager.load_all_plugins()
-
-        # 启动新版本插件运行时（与旧系统并行运行）
+        # 启动插件运行时（内置插件 + 第三方插件双子进程）
         await get_plugin_runtime_manager().start()
 
         # 初始化表情管理器
@@ -133,12 +125,12 @@ class MainSystem:
         prompt_manager.load_prompts()
 
         # 触发 ON_START 事件
-        from src.plugin_system.core.events_manager import events_manager
-        from src.plugin_system.base.component_types import EventType
+        from src.core.event_bus import event_bus
+        from src.core.types import EventType
 
-        await events_manager.handle_mai_events(event_type=EventType.ON_START)
+        await event_bus.emit(event_type=EventType.ON_START)
 
-        # 桥接 ON_START 事件到新版本插件运行时
+        # 分发 ON_START 事件到插件运行时
         await get_plugin_runtime_manager().bridge_event("on_start")
         # logger.info("已触发 ON_START 事件")
         try:

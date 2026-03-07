@@ -6,7 +6,7 @@ import json
 from src.common.logger import get_logger
 from src.common.toml_utils import save_toml_with_format
 from src.config.config import MMC_VERSION
-from src.plugin_system.base.config_types import ConfigField
+from src.core.config_types import ConfigField
 from src.webui.services.git_mirror_service import get_git_mirror_service, set_update_progress_callback
 from src.webui.core import get_token_manager
 from src.webui.routers.websocket.plugin_progress import update_progress
@@ -222,15 +222,16 @@ def coerce_types(schema_part: Dict[str, Any], config_part: Dict[str, Any]) -> No
 
 def find_plugin_instance(plugin_id: str) -> Optional[Any]:
     """
-    按 plugin_id 或 plugin_name 查找已加载的插件实例。
-    局部导入 plugin_manager 以规避循环依赖。
+    按 plugin_id 查找已加载的插件信息。
+    新运行时中插件运行在子进程，无法获取实例，返回注册信息。
     """
-    from src.plugin_system.core.plugin_manager import plugin_manager
+    from src.plugin_runtime.integration import get_plugin_runtime_manager
 
-    for loaded_plugin_name in plugin_manager.list_loaded_plugins():
-        instance = plugin_manager.get_plugin_instance(loaded_plugin_name)
-        if instance and (instance.plugin_name == plugin_id or instance.get_manifest_info("id", "") == plugin_id):
-            return instance
+    mgr = get_plugin_runtime_manager()
+    for sv in mgr.supervisors:
+        reg = sv._registered_plugins.get(plugin_id)
+        if reg is not None:
+            return reg
     return None
 
 
@@ -1497,25 +1498,9 @@ async def get_plugin_config_schema(
     logger.info(f"获取插件配置 Schema: {plugin_id}")
 
     try:
-        # 尝试从已加载的插件中获取
-        from src.plugin_system.core.plugin_manager import plugin_manager
-
-        # 查找插件实例
+        # 新运行时中插件运行在子进程，无法直接获取实例的 webui_config_schema
+        # 尝试从文件系统读取
         plugin_instance = None
-
-        # 遍历所有已加载的插件
-        for loaded_plugin_name in plugin_manager.list_loaded_plugins():
-            instance = plugin_manager.get_plugin_instance(loaded_plugin_name)
-            if instance:
-                # 匹配 plugin_name 或 manifest 中的 id
-                if instance.plugin_name == plugin_id:
-                    plugin_instance = instance
-                    break
-                # 也尝试匹配 manifest 中的 id
-                manifest_id = instance.get_manifest_info("id", "")
-                if manifest_id == plugin_id:
-                    plugin_instance = instance
-                    break
 
         if plugin_instance and hasattr(plugin_instance, "get_webui_config_schema"):
             # 从插件实例获取 schema
