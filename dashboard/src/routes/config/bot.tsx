@@ -843,7 +843,7 @@ function DynamicConfigTabs(props: DynamicConfigTabsProps) {
     ),
     chat: props.chatConfig && (
       <DynamicConfigForm
-        schema={{ className: 'ChatConfig', classDoc: '聊天配置', fields: [], nested: {} }}
+        schema={{ className: 'ChatConfig', classDoc: '聊天配置', fields: [{ name: 'chat', type: 'object', label: '聊天', description: '聊天配置', required: false }], nested: {} }}
         values={{ chat: props.chatConfig }}
         onChange={(field, value) => {
           if (field === 'chat') {

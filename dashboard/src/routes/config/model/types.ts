@@ -42,19 +42,9 @@ export interface TaskConfig {
 }
 
 /**
- * 所有模型任务配置
+ * 所有模型任务配置（动态，由后端 schema 决定字段）
  */
-export interface ModelTaskConfig {
-  utils: TaskConfig
-  tool_use: TaskConfig
-  replyer: TaskConfig
-  planner: TaskConfig
-  vlm: TaskConfig
-  voice: TaskConfig
-  embedding: TaskConfig
-  lpmm_entity_extract: TaskConfig
-  lpmm_rdf_build: TaskConfig
-}
+export type ModelTaskConfig = Record<string, TaskConfig>
 
 /**
  * 表单验证错误
@@ -64,8 +54,3 @@ export interface FormErrors {
   api_provider?: string
   model_identifier?: string
 }
-
-/**
- * 任务名称类型
- */
-export type TaskName = keyof ModelTaskConfig

@@ -454,7 +454,7 @@ export const ChatSectionHook: FieldHookComponent = ({ value, onChange }) => {
                     <div className="grid gap-2">
                       <Label className="text-xs font-medium">配置类型</Label>
                       <Select
-                        value={rule.target === '' ? 'global' : 'specific'}
+                        value={rule.target ? 'specific' : 'global'}
                         onValueChange={(value) => {
                           if (value === 'global') {
                             updateTalkValueRule(index, 'target', '')
@@ -474,7 +474,7 @@ export const ChatSectionHook: FieldHookComponent = ({ value, onChange }) => {
                     </div>
 
                     {/* 详细配置选项 - 只在非全局时显示 */}
-                    {rule.target !== '' && (() => {
+                    {rule.target && (() => {
                       const parts = rule.target.split(':')
                       const platform = parts[0] || 'qq'
                       const chatId = parts[1] || ''

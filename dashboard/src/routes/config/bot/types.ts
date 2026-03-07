@@ -36,12 +36,31 @@ export interface ChatConfig {
   }>
 }
 
+export interface TargetItem {
+  platform: string
+  item_id: string
+  rule_type: 'group' | 'private'
+}
+
+export interface LearningItem {
+  platform: string
+  item_id: string
+  rule_type: 'group' | 'private'
+  use_expression: boolean
+  enable_learning: boolean
+  enable_jargon_learning: boolean
+}
+
+export interface ExpressionGroup {
+  expression_groups: TargetItem[]
+}
+
 export interface ExpressionConfig {
-  learning_list: Array<[string, string, string, string]>
-  expression_groups: Array<string[]>
+  learning_list: LearningItem[]
+  expression_groups: ExpressionGroup[]
   expression_manual_reflect: boolean
-  manual_reflect_operator_id: string
-  allow_reflect: string[]
+  manual_reflect_operator_id: TargetItem | null
+  allow_reflect: TargetItem[]
   expression_self_reflect: boolean
   expression_auto_check_interval: number
   expression_auto_check_count: number

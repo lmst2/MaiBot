@@ -47,7 +47,8 @@ import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Pencil, Trash2, Save, Search, Info, Power, Check, ChevronsUpDown, RefreshCw, Loader2, GraduationCap, Share2, AlertTriangle, Settings, Lock, Unlock } from 'lucide-react'
-import { getModelConfig, updateModelConfig } from '@/lib/config-api'
+import { getModelConfig, getModelConfigSchema, updateModelConfig } from '@/lib/config-api'
+import type { ConfigSchema } from '@/types/config-schema'
 import { useToast } from '@/hooks/use-toast'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { HelpTooltip } from '@/components/ui/help-tooltip'
@@ -58,12 +59,16 @@ import { SharePackDialog } from '@/components/share-pack-dialog'
 
 // 导入模块化的类型定义和组件
 import type { ModelInfo, ProviderConfig, ModelTaskConfig, TaskConfig } from './model/types'
-import { Pagination, ModelTable, ModelCardList } from './model/components'
-import { useModelTour, useModelFetcher, useModelAutoSave } from './model/hooks'
 
-// 导入动态表单和 Hook 系统
-import { DynamicConfigForm } from '@/components/dynamic-form'
-import { fieldHooks } from '@/lib/field-hooks'
+/** Unwrap backend `{ success, config }` envelope to get the actual config */
+function unwrapModelConfig(data: unknown): Record<string, unknown> {
+  if (data && typeof data === 'object' && 'config' in data) {
+    return (data as { config: Record<string, unknown> }).config
+  }
+  return data as Record<string, unknown>
+}
+import { TaskConfigCard, Pagination, ModelTable, ModelCardList } from './model/components'
+import { useModelTour, useModelFetcher, useModelAutoSave } from './model/hooks'
 
 // 主导出组件：包装 RestartProvider
 export function ModelConfigPage() {
@@ -79,6 +84,7 @@ function ModelConfigPageContent() {
   const [models, setModels] = useState<ModelInfo[]>([])
   const [providers, setProviders] = useState<string[]>([])
   const [providerConfigs, setProviderConfigs] = useState<ProviderConfig[]>([])
+  const [modelNames, setModelNames] = useState<string[]>([])
   const [taskConfig, setTaskConfig] = useState<ModelTaskConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -93,6 +99,7 @@ function ModelConfigPageContent() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedModels, setSelectedModels] = useState<Set<number>>(new Set())
   const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false)
+  const [taskConfigSchema, setTaskConfigSchema] = useState<ConfigSchema | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [jumpToPage, setJumpToPage] = useState('')
@@ -142,32 +149,19 @@ function ModelConfigPageContent() {
     const invalidRefs: { taskName: string; invalidModels: string[] }[] = []
     const emptyTaskList: string[] = []
     
-    const taskNames: Array<{ key: keyof ModelTaskConfig; label: string }> = [
-      { key: 'utils', label: '工具模型' },
-      { key: 'tool_use', label: '工具调用模型' },
-      { key: 'replyer', label: '回复模型' },
-      { key: 'planner', label: '规划器模型' },
-      { key: 'vlm', label: '视觉模型' },
-      { key: 'voice', label: '语音模型' },
-      { key: 'embedding', label: '嵌入模型' },
-      { key: 'lpmm_entity_extract', label: 'LPMM实体抽取' },
-      { key: 'lpmm_rdf_build', label: 'LPMM关系构建' },
-    ]
-    
-    for (const { key, label } of taskNames) {
-      const task = taskConf[key]
+    for (const [key, task] of Object.entries(taskConf)) {
       if (!task) continue
       
       // 检查是否有模型
       if (!task.model_list || task.model_list.length === 0) {
-        emptyTaskList.push(label)
+        emptyTaskList.push(key)
         continue
       }
       
       // 检查是否引用了不存在的模型
       const invalid = task.model_list.filter(modelName => !modelNameSet.has(modelName))
       if (invalid.length > 0) {
-        invalidRefs.push({ taskName: label, invalidModels: invalid })
+        invalidRefs.push({ taskName: key, invalidModels: invalid })
       }
     }
     
@@ -179,7 +173,7 @@ function ModelConfigPageContent() {
   const loadConfig = useCallback(async () => {
     try {
       setLoading(true)
-      const result = await getModelConfig()
+      const [result, schemaResult] = await Promise.all([getModelConfig(), getModelConfigSchema()])
       if (!result.success) {
         toast({
           title: '加载失败',
@@ -189,9 +183,10 @@ function ModelConfigPageContent() {
         setLoading(false)
         return
       }
-      const config = result.data
+      const config = unwrapModelConfig(result.data)
       const modelList = (config.models as ModelInfo[]) || []
       setModels(modelList)
+      setModelNames(modelList.map((m) => m.name))
       
       const providerList = (config.api_providers as ProviderConfig[]) || []
       setProviders(providerList.map((p) => p.name))
@@ -199,6 +194,12 @@ function ModelConfigPageContent() {
       
       const taskConf = (config.model_task_config as ModelTaskConfig) || null
       setTaskConfig(taskConf)
+      
+      // 解析 model_task_config 的 schema
+      if (schemaResult.success && schemaResult.data) {
+        const schema = (schemaResult.data as unknown as Record<string, unknown>).schema as ConfigSchema
+        setTaskConfigSchema(schema.nested?.model_task_config ?? null)
+      }
       
       // 检查任务配置问题
       checkTaskConfigIssues(taskConf, modelList)
@@ -252,14 +253,14 @@ function ModelConfigPageContent() {
     if (!taskConfig) return
     
     const modelNameSet = new Set(models.map(m => m.name))
-    const newTaskConfig = { ...taskConfig }
+    const newTaskConfig: ModelTaskConfig = {}
     
     // 遍历所有任务，过滤掉无效的模型引用
-    const taskKeys = Object.keys(newTaskConfig) as Array<keyof ModelTaskConfig>
-    for (const key of taskKeys) {
-      const task = newTaskConfig[key]
+    for (const [key, task] of Object.entries(taskConfig)) {
       if (task && task.model_list) {
-        task.model_list = task.model_list.filter(modelName => modelNameSet.has(modelName))
+        newTaskConfig[key] = { ...task, model_list: task.model_list.filter(modelName => modelNameSet.has(modelName)) }
+      } else {
+        newTaskConfig[key] = task
       }
     }
     
@@ -308,7 +309,7 @@ function ModelConfigPageContent() {
         setSaving(false)
         return
       }
-      const config = resultGet.data
+      const config = unwrapModelConfig(resultGet.data)
       // 清理每个模型中的 null 值
       config.models = models.map(cleanModelForSave)
       config.model_task_config = taskConfig
@@ -357,7 +358,7 @@ function ModelConfigPageContent() {
         setSaving(false)
         return
       }
-      const config = resultGet.data
+      const config = unwrapModelConfig(resultGet.data)
       // 清理每个模型中的 null 值
       config.models = models.map(cleanModelForSave)
       config.model_task_config = taskConfig
@@ -479,6 +480,7 @@ function ModelConfigPageContent() {
     }
     
     setModels(newModels)
+    setModelNames(newModels.map((m) => m.name))
 
     // 如果模型名称发生变化，更新任务配置中对该模型的引用
     if (oldModelName && oldModelName !== modelToSave.name && taskConfig) {
@@ -486,18 +488,11 @@ function ModelConfigPageContent() {
         return list.map(name => name === oldModelName ? modelToSave.name : name)
       }
       
-      setTaskConfig({
-        ...taskConfig,
-        utils: { ...taskConfig.utils, model_list: updateModelList(taskConfig.utils?.model_list || []) },
-        tool_use: { ...taskConfig.tool_use, model_list: updateModelList(taskConfig.tool_use?.model_list || []) },
-        replyer: { ...taskConfig.replyer, model_list: updateModelList(taskConfig.replyer?.model_list || []) },
-        planner: { ...taskConfig.planner, model_list: updateModelList(taskConfig.planner?.model_list || []) },
-        vlm: { ...taskConfig.vlm, model_list: updateModelList(taskConfig.vlm?.model_list || []) },
-        voice: { ...taskConfig.voice, model_list: updateModelList(taskConfig.voice?.model_list || []) },
-        embedding: { ...taskConfig.embedding, model_list: updateModelList(taskConfig.embedding?.model_list || []) },
-        lpmm_entity_extract: { ...taskConfig.lpmm_entity_extract, model_list: updateModelList(taskConfig.lpmm_entity_extract?.model_list || []) },
-        lpmm_rdf_build: { ...taskConfig.lpmm_rdf_build, model_list: updateModelList(taskConfig.lpmm_rdf_build?.model_list || []) },
-      })
+      const newTaskConfig: ModelTaskConfig = {}
+      for (const [key, task] of Object.entries(taskConfig)) {
+        newTaskConfig[key] = { ...task, model_list: updateModelList(task?.model_list || []) }
+      }
+      setTaskConfig(newTaskConfig)
     }
 
     setEditDialogOpen(false)
@@ -536,6 +531,7 @@ function ModelConfigPageContent() {
     if (deletingIndex !== null) {
       const newModels = models.filter((_, i) => i !== deletingIndex)
       setModels(newModels)
+      setModelNames(newModels.map((m) => m.name))
       // 重新检查任务配置问题
       checkTaskConfigIssues(taskConfig, newModels)
       toast({
@@ -588,6 +584,7 @@ function ModelConfigPageContent() {
     const deletedCount = selectedModels.size
     const newModels = models.filter((_, index) => !selectedModels.has(index))
     setModels(newModels)
+    setModelNames(newModels.map((m) => m.name))
     // 重新检查任务配置问题
     checkTaskConfigIssues(taskConfig, newModels)
     setSelectedModels(new Set())
@@ -598,6 +595,50 @@ function ModelConfigPageContent() {
     })
   }
 
+  // 更新任务配置
+  const updateTaskConfig = (
+    taskName: string,
+    field: keyof TaskConfig,
+    value: string[] | number | string
+  ) => {
+    if (!taskConfig) return
+    
+    // 检测 embedding 模型列表变化
+    if (taskName === 'embedding' && field === 'model_list' && Array.isArray(value)) {
+      const previousModels = previousEmbeddingModelsRef.current
+      const newModels = value as string[]
+      
+      const hasChanges = 
+        previousModels.length !== newModels.length ||
+        previousModels.some(model => !newModels.includes(model)) ||
+        newModels.some(model => !previousModels.includes(model))
+      
+      if (hasChanges && previousModels.length > 0) {
+        pendingEmbeddingUpdateRef.current = { field, value }
+        setEmbeddingWarningOpen(true)
+        return
+      }
+    }
+    
+    // 正常更新配置
+    const newTaskConfig = {
+      ...taskConfig,
+      [taskName]: {
+        ...taskConfig[taskName],
+        [field]: value,
+      },
+    }
+    setTaskConfig(newTaskConfig)
+    
+    // 重新检查任务配置问题
+    checkTaskConfigIssues(newTaskConfig, models)
+    
+    // 如果是 embedding 模型列表，更新 ref
+    if (taskName === 'embedding' && field === 'model_list' && Array.isArray(value)) {
+      previousEmbeddingModelsRef.current = [...(value as string[])]
+    }
+  }
+  
   // 确认更新嵌入模型
   const handleConfirmEmbeddingChange = () => {
     if (!taskConfig || !pendingEmbeddingUpdateRef.current) return
@@ -667,20 +708,7 @@ function ModelConfigPageContent() {
   // 检查模型是否被任务使用
   const isModelUsed = (modelName: string): boolean => {
     if (!taskConfig) return false
-    
-    const allTaskLists = [
-      taskConfig.utils?.model_list || [],
-      taskConfig.tool_use?.model_list || [],
-      taskConfig.replyer?.model_list || [],
-      taskConfig.planner?.model_list || [],
-      taskConfig.vlm?.model_list || [],
-      taskConfig.voice?.model_list || [],
-      taskConfig.embedding?.model_list || [],
-      taskConfig.lpmm_entity_extract?.model_list || [],
-      taskConfig.lpmm_rdf_build?.model_list || [],
-    ]
-    
-    return allTaskLists.some(list => list.includes(modelName))
+    return Object.values(taskConfig).some(task => task?.model_list?.includes(modelName))
   }
 
   if (loading) {
@@ -914,23 +942,28 @@ function ModelConfigPageContent() {
             为不同的任务配置使用的模型和参数
           </p>
 
-          {taskConfig && (
-            <DynamicConfigForm
-              schema={{
-                className: 'TaskConfig',
-                classDoc: '任务配置',
-                fields: [],
-                nested: {},
-              }}
-              values={{ taskConfig }}
-              onChange={(field, value) => {
-                if (field === 'taskConfig') {
-                  setTaskConfig(value as ModelTaskConfig)
-                  setHasUnsavedChanges(true)
-                }
-              }}
-              hooks={fieldHooks}
-            />
+          {taskConfig && taskConfigSchema && (
+            <div className="grid gap-4 sm:gap-6">
+              {taskConfigSchema.fields
+                .filter(f => f.type === 'object')
+                .map((field, index) => {
+                  const desc = field.description || field.name
+                  const commaIdx = desc.search(/[,，]/)
+                  const title = commaIdx > 0 ? desc.slice(0, commaIdx).trim() : desc
+                  const subtitle = commaIdx > 0 ? desc.slice(commaIdx + 1).trim() : ''
+                  return (
+                    <TaskConfigCard
+                      key={field.name}
+                      title={`${title} (${field.name})`}
+                      description={subtitle}
+                      taskConfig={taskConfig[field.name] ?? { model_list: [] }}
+                      modelNames={modelNames}
+                      onChange={(f, value) => updateTaskConfig(field.name, f, value)}
+                      {...(index === 0 ? { dataTour: 'task-model-select' } : {})}
+                    />
+                  )
+                })}
+            </div>
           )}
         </TabsContent>
       </Tabs>

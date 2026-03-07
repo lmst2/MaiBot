@@ -4,7 +4,6 @@
 
 export { BotInfoSection } from './BotInfoSection'
 export { PersonalitySection } from './PersonalitySection'
-export { ChatSection } from './ChatSection'
 export { DreamSection } from './DreamSection'
 export { LPMMSection } from './LPMMSection'
 export { LogSection } from './LogSection'

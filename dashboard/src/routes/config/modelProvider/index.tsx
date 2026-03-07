@@ -28,6 +28,14 @@ interface ModelConfig extends Record<string, unknown> {
   model_task_config?: Record<string, unknown>
 }
 
+/** Unwrap backend `{ success, config }` envelope to get the actual config */
+function unwrapModelConfig(data: unknown): ModelConfig {
+  if (data && typeof data === 'object' && 'config' in data) {
+    return (data as { config: ModelConfig }).config
+  }
+  return data as ModelConfig
+}
+
 export function ModelProviderConfigPage() {
   return (
     <RestartProvider>
@@ -149,7 +157,7 @@ function ModelProviderConfigPageContent() {
         setLoading(false)
         return
       }
-      const config = result.data as ModelConfig
+      const config = unwrapModelConfig(result.data)
       setProviders(Array.isArray(config.api_providers) ? config.api_providers as APIProvider[] : [])
       setHasUnsavedChanges(false)
       initialLoadRef.current = false
@@ -194,7 +202,7 @@ function ModelProviderConfigPageContent() {
         setSaving(false)
         return
       }
-      const config = resultGet.data as ModelConfig
+      const config = unwrapModelConfig(resultGet.data)
 
       const validProviderNames = new Set(cleanedProviders.map(p => p.name))
       const originalModels = Array.isArray(config.models) ? config.models : []
@@ -242,7 +250,7 @@ function ModelProviderConfigPageContent() {
         console.error('加载配置失败:', result.error)
         return { shouldProceed: true, providers: newProviders }
       }
-      const config = result.data
+      const config = unwrapModelConfig(result.data)
       const oldProviderNames = new Set(providers.map(p => p.name))
       const newProviderNames = new Set(newProviders.map(p => p.name))
 
@@ -296,7 +304,7 @@ function ModelProviderConfigPageContent() {
         savingFlag(false)
         return
       }
-      const config = resultGet.data as ModelConfig
+      const config = unwrapModelConfig(resultGet.data)
 
       const cleanedProviders = deleteConfirmState.pendingProviders.map(cleanProviderData)
       const validProviderNames = new Set(cleanedProviders.map(p => p.name))
@@ -475,7 +483,7 @@ function ModelProviderConfigPageContent() {
         setSaving(false)
         return
       }
-      const config = resultGet.data as ModelConfig
+      const config = unwrapModelConfig(resultGet.data)
 
       const validProviderNames = new Set(cleanedProviders.map(p => p.name))
       const originalModels = Array.isArray(config.models) ? config.models : []
