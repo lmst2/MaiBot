@@ -1528,6 +1528,16 @@ async def get_plugin_config_schema(
         if not plugin_path:
             raise HTTPException(status_code=404, detail=f"未找到插件: {plugin_id}")
 
+        # 优先读取 config_schema.json（插件可选提供的富 UI 元数据）
+        schema_json_path = plugin_path / "config_schema.json"
+        if schema_json_path.exists():
+            try:
+                with open(schema_json_path, "r", encoding="utf-8") as f:
+                    schema = json.load(f)
+                return {"success": True, "schema": schema}
+            except Exception as e:
+                logger.warning(f"读取 config_schema.json 失败，回退到自动推断: {e}")
+
         # 读取配置文件获取当前配置
         config_path = plugin_path / "config.toml"
         current_config = {}
