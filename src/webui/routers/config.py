@@ -52,6 +52,15 @@ PathBody = Annotated[dict[str, str], Body()]
 router = APIRouter(prefix="/config", tags=["config"])
 
 
+def _toml_to_plain_dict(obj: Any) -> Any:
+    """递归转换 tomlkit 文档/Table 为纯 Python 字典，避免 from_dict 触发 tomlkit __setitem__"""
+    if isinstance(obj, dict):
+        return {str(k): _toml_to_plain_dict(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_toml_to_plain_dict(v) for v in obj]
+    return obj
+
+
 def require_auth(
     maibot_session: Optional[str] = Cookie(None),
     authorization: Optional[str] = Header(None),
@@ -279,7 +288,7 @@ async def update_bot_config_section(section_name: str, section_data: SectionBody
 
         # 验证完整配置
         try:
-            Config.from_dict(AttributeData(), copy.deepcopy(dict(config_data)))
+            Config.from_dict(AttributeData(), _toml_to_plain_dict(config_data))
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"配置数据验证失败: {str(e)}") from e
 
@@ -329,7 +338,7 @@ async def update_bot_config_raw(raw_content: RawContentBody, _auth: bool = Depen
 
         # 验证配置数据结构
         try:
-            Config.from_dict(AttributeData(), copy.deepcopy(dict(config_data)))
+            Config.from_dict(AttributeData(), _toml_to_plain_dict(config_data))
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"配置数据验证失败: {str(e)}") from e
 
@@ -379,7 +388,7 @@ async def update_model_config_section(
 
         # 验证完整配置
         try:
-            ModelConfig.from_dict(AttributeData(), copy.deepcopy(dict(config_data)))
+            ModelConfig.from_dict(AttributeData(), _toml_to_plain_dict(config_data))
         except Exception as e:
             logger.error(f"配置数据验证失败，详细错误: {str(e)}")
             # 特殊处理：如果是更新 api_providers，检查是否有模型引用了已删除的provider
