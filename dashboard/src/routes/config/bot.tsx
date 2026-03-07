@@ -189,8 +189,8 @@ function BotConfigPageContent() {
     setBotConfig(config.bot as BotConfig)
     setPersonalityConfig(config.personality as PersonalityConfig)
     
-    // 确保 talk_value_rules 有默认值
-    const chatConfigData = config.chat as ChatConfig
+    // 确保 chat 配置和 talk_value_rules 有默认值
+    const chatConfigData = (config.chat ?? {}) as ChatConfig
     if (!chatConfigData.talk_value_rules) {
       chatConfigData.talk_value_rules = []
     }
@@ -265,7 +265,7 @@ function BotConfigPageContent() {
         })
         return
       }
-      const raw = result.data
+      const raw = (result.data as unknown as Record<string, unknown>).content as string
       // 将 TOML 基本字符串中的转义序列转换为实际字符以便在编辑器中正确显示
       // 使用正则表达式只处理双引号字符串内的转义序列，不影响单引号字符串
       const unescaped = raw.replace(/"([^"]*)"/g, (_match, content) => {
@@ -302,7 +302,7 @@ function BotConfigPageContent() {
         setLoading(false)
         return
       }
-      parseAndSetConfig(result.data)
+      parseAndSetConfig((result.data as Record<string, unknown>).config as Record<string, unknown>)
       setHasUnsavedChanges(false)
       initialLoadRef.current = false
       
@@ -455,7 +455,7 @@ function BotConfigPageContent() {
           })
           return
         }
-        parseAndSetConfig(result.data)
+        parseAndSetConfig((result.data as Record<string, unknown>).config as Record<string, unknown>)
         setHasUnsavedChanges(false)
       } catch (error) {
         console.error('加载配置失败:', error)

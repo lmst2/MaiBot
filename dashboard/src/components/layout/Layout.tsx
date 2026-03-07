@@ -94,15 +94,6 @@ export function Layout({ children }: LayoutProps) {
     return unsubscribe
   }, [router, announce, t])
 
-  // 认证检查中，显示加载状态
-  if (checking) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="text-muted-foreground">{t('layout.verifyingLogin')}</div>
-      </div>
-    )
-  }
-
   // 获取实际应用的主题（处理 system 情况）
   const getActualTheme = () => {
     if (theme === 'system') {
@@ -113,6 +104,15 @@ export function Layout({ children }: LayoutProps) {
 
   const actualTheme = getActualTheme()
   const pageBg = useBackground('page')
+
+  // 认证检查中，显示加载状态
+  if (checking) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="text-muted-foreground">{t('layout.verifyingLogin')}</div>
+      </div>
+    )
+  }
 
   return (
       <TooltipProvider delayDuration={300}>

@@ -2,6 +2,7 @@
 配置管理API路由
 """
 
+import copy
 import os
 import tomlkit
 from fastapi import APIRouter, HTTPException, Body, Depends, Cookie, Header
@@ -11,6 +12,7 @@ from src.common.logger import get_logger
 from src.webui.core import verify_auth_token_from_cookie_or_header
 from src.webui.utils.toml_utils import save_toml_with_format, _update_toml_doc
 from src.config.config import Config, ModelConfig, CONFIG_DIR, PROJECT_ROOT
+from src.config.config_base import AttributeData
 from src.config.official_configs import (
     BotConfig,
     PersonalityConfig,
@@ -204,7 +206,7 @@ async def update_bot_config(config_data: ConfigBody, _auth: bool = Depends(requi
     try:
         # 验证配置数据
         try:
-            Config.from_dict(config_data)
+            Config.from_dict(AttributeData(), copy.deepcopy(config_data))
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"配置数据验证失败: {str(e)}") from e
 
@@ -227,7 +229,7 @@ async def update_model_config(config_data: ConfigBody, _auth: bool = Depends(req
     try:
         # 验证配置数据
         try:
-            ModelConfig.from_dict(config_data)
+            ModelConfig.from_dict(AttributeData(), copy.deepcopy(config_data))
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"配置数据验证失败: {str(e)}") from e
 
@@ -277,7 +279,7 @@ async def update_bot_config_section(section_name: str, section_data: SectionBody
 
         # 验证完整配置
         try:
-            Config.from_dict(config_data)
+            Config.from_dict(AttributeData(), copy.deepcopy(dict(config_data)))
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"配置数据验证失败: {str(e)}") from e
 
@@ -327,7 +329,7 @@ async def update_bot_config_raw(raw_content: RawContentBody, _auth: bool = Depen
 
         # 验证配置数据结构
         try:
-            Config.from_dict(config_data)
+            Config.from_dict(AttributeData(), copy.deepcopy(dict(config_data)))
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"配置数据验证失败: {str(e)}") from e
 
@@ -377,7 +379,7 @@ async def update_model_config_section(
 
         # 验证完整配置
         try:
-            ModelConfig.from_dict(config_data)
+            ModelConfig.from_dict(AttributeData(), copy.deepcopy(dict(config_data)))
         except Exception as e:
             logger.error(f"配置数据验证失败，详细错误: {str(e)}")
             # 特殊处理：如果是更新 api_providers，检查是否有模型引用了已删除的provider
