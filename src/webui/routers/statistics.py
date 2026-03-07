@@ -134,7 +134,7 @@ async def _get_summary_statistics(start_time: datetime, end_time: datetime) -> S
             func.sum(col(ModelUsage.total_tokens)).label("total_tokens"),
             func.avg(col(ModelUsage.time_cost)).label("avg_response_time"),
         ).where(col(ModelUsage.timestamp) >= start_time, col(ModelUsage.timestamp) <= end_time)
-        result = session.execute(statement).first()
+        result = session.exec(statement).first()
 
     if result:
         total_requests, total_cost, total_tokens, avg_response_time = result
@@ -151,13 +151,13 @@ async def _get_summary_statistics(start_time: datetime, end_time: datetime) -> S
                 col(OnlineTime.end_timestamp) >= start_time,
             )
         )
-        online_records = session.execute(statement).scalars().all()
+        online_records = session.exec(statement).all()
 
-    for record in online_records:
-        start = max(record.start_timestamp, start_time)
-        end = min(record.end_timestamp, end_time)
-        if end > start:
-            summary.online_time += (end - start).total_seconds()
+        for record in online_records:
+            start = max(record.start_timestamp, start_time)
+            end = min(record.end_timestamp, end_time)
+            if end > start:
+                summary.online_time += (end - start).total_seconds()
 
     # 查询消息数量 - 使用聚合优化
     with get_db_session() as session:
@@ -165,7 +165,7 @@ async def _get_summary_statistics(start_time: datetime, end_time: datetime) -> S
             col(Messages.timestamp) >= start_time,
             col(Messages.timestamp) <= end_time,
         )
-        total_messages = session.execute(statement).scalar()
+        total_messages = session.exec(statement).one()
     summary.total_messages = int(total_messages or 0)
 
     # 统计回复数量
@@ -175,7 +175,7 @@ async def _get_summary_statistics(start_time: datetime, end_time: datetime) -> S
             col(Messages.timestamp) <= end_time,
             col(Messages.reply_to).is_not(None),
         )
-        total_replies = session.execute(statement).scalar()
+        total_replies = session.exec(statement).one()
     summary.total_replies = int(total_replies or 0)
 
     # 计算派生指标
@@ -198,26 +198,26 @@ async def _get_model_statistics(start_time: datetime) -> list[ModelStatistics]:
     )
 
     with get_db_session() as session:
-        rows = session.execute(statement).all()
+        rows = session.exec(statement).all()
 
-    aggregates: dict[str, dict[str, float | int]] = {}
-    for record in rows:
-        model_name = record.model_assign_name or record.model_name or "unknown"
-        if model_name not in aggregates:
-            aggregates[model_name] = {
-                "request_count": 0,
-                "total_cost": 0.0,
-                "total_tokens": 0,
-                "total_time_cost": 0.0,
-                "time_cost_count": 0,
-            }
-        bucket = aggregates[model_name]
-        bucket["request_count"] = int(bucket["request_count"]) + 1
-        bucket["total_cost"] = float(bucket["total_cost"]) + float(record.cost or 0.0)
-        bucket["total_tokens"] = int(bucket["total_tokens"]) + int(record.total_tokens or 0)
-        if record.time_cost:
-            bucket["total_time_cost"] = float(bucket["total_time_cost"]) + float(record.time_cost)
-            bucket["time_cost_count"] = int(bucket["time_cost_count"]) + 1
+        aggregates: dict[str, dict[str, float | int]] = {}
+        for record in rows:
+            model_name = record.model_assign_name or record.model_name or "unknown"
+            if model_name not in aggregates:
+                aggregates[model_name] = {
+                    "request_count": 0,
+                    "total_cost": 0.0,
+                    "total_tokens": 0,
+                    "total_time_cost": 0.0,
+                    "time_cost_count": 0,
+                }
+            bucket = aggregates[model_name]
+            bucket["request_count"] = int(bucket["request_count"]) + 1
+            bucket["total_cost"] = float(bucket["total_cost"]) + float(record.cost or 0.0)
+            bucket["total_tokens"] = int(bucket["total_tokens"]) + int(record.total_tokens or 0)
+            if record.time_cost:
+                bucket["total_time_cost"] = float(bucket["total_time_cost"]) + float(record.time_cost)
+                bucket["time_cost_count"] = int(bucket["time_cost_count"]) + 1
 
     result: list[ModelStatistics] = []
     for model_name, bucket in sorted(
@@ -257,7 +257,7 @@ async def _get_hourly_statistics(start_time: datetime, end_time: datetime) -> li
     )
 
     with get_db_session() as session:
-        rows = session.execute(statement).all()
+        rows = session.exec(statement).all()
 
     # 转换为字典以快速查找
     data_dict = {row[0]: row for row in rows}
@@ -300,7 +300,7 @@ async def _get_daily_statistics(start_time: datetime, end_time: datetime) -> lis
     )
 
     with get_db_session() as session:
-        rows = session.execute(statement).all()
+        rows = session.exec(statement).all()
 
     # 转换为字典
     data_dict = {row[0]: row for row in rows}
@@ -331,21 +331,21 @@ async def _get_recent_activity(limit: int = 10) -> list[dict[str, Any]]:
     """获取最近活动"""
     with get_db_session() as session:
         statement = select(ModelUsage).order_by(desc(col(ModelUsage.timestamp))).limit(limit)
-        records = session.execute(statement).scalars().all()
+        records = session.exec(statement).all()
 
-    activities = []
-    for record in records:
-        activities.append(
-            {
-                "timestamp": record.timestamp.isoformat(),
-                "model": record.model_assign_name or record.model_name,
-                "request_type": record.request_type,
-                "tokens": record.total_tokens or 0,
-                "cost": record.cost or 0.0,
-                "time_cost": record.time_cost or 0.0,
-                "status": None,
-            }
-        )
+        activities = []
+        for record in records:
+            activities.append(
+                {
+                    "timestamp": record.timestamp.isoformat(),
+                    "model": record.model_assign_name or record.model_name,
+                    "request_type": record.request_type,
+                    "tokens": record.total_tokens or 0,
+                    "cost": record.cost or 0.0,
+                    "time_cost": record.time_cost or 0.0,
+                    "status": None,
+                }
+            )
 
     return activities
 
