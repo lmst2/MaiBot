@@ -200,6 +200,8 @@ class PluginRuntimeManager:
         cap_service.register_capability("send.image", self._cap_send_image)
         cap_service.register_capability("send.command", self._cap_send_command)
         cap_service.register_capability("send.custom", self._cap_send_custom)
+        cap_service.register_capability("send.forward", self._cap_send_forward)
+        cap_service.register_capability("send.hybrid", self._cap_send_hybrid)
 
         # ── llm.* ─────────────────────────────────────────
         cap_service.register_capability("llm.generate", self._cap_llm_generate)
@@ -209,11 +211,14 @@ class PluginRuntimeManager:
         # ── config.* ──────────────────────────────────────
         cap_service.register_capability("config.get", self._cap_config_get)
         cap_service.register_capability("config.get_plugin", self._cap_config_get_plugin)
+        cap_service.register_capability("config.get_all", self._cap_config_get_all)
 
         # ── database.* ────────────────────────────────────
         cap_service.register_capability("database.query", self._cap_database_query)
         cap_service.register_capability("database.save", self._cap_database_save)
         cap_service.register_capability("database.get", self._cap_database_get)
+        cap_service.register_capability("database.delete", self._cap_database_delete)
+        cap_service.register_capability("database.count", self._cap_database_count)
 
         # ── chat.* ────────────────────────────────────────
         cap_service.register_capability("chat.get_all_streams", self._cap_chat_get_all_streams)
@@ -402,6 +407,52 @@ class PluginRuntimeManager:
             logger.error(f"[cap.send.custom] 执行失败: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
+    @staticmethod
+    async def _cap_send_forward(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+        """发送转发消息
+
+        args: messages, stream_id
+        """
+        from src.services import send_service as send_api
+
+        messages = args.get("messages", [])
+        stream_id: str = args.get("stream_id", "")
+        if not messages or not stream_id:
+            return {"success": False, "error": "缺少必要参数 messages 或 stream_id"}
+
+        try:
+            result = await send_api.forward_to_stream(
+                messages=messages,
+                stream_id=stream_id,
+            )
+            return {"success": result}
+        except Exception as e:
+            logger.error(f"[cap.send.forward] 执行失败: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    @staticmethod
+    async def _cap_send_hybrid(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+        """发送混合消息（图文混合）
+
+        args: segments, stream_id
+        """
+        from src.services import send_service as send_api
+
+        segments = args.get("segments", [])
+        stream_id: str = args.get("stream_id", "")
+        if not segments or not stream_id:
+            return {"success": False, "error": "缺少必要参数 segments 或 stream_id"}
+
+        try:
+            result = await send_api.hybrid_to_stream(
+                segments=segments,
+                stream_id=stream_id,
+            )
+            return {"success": result}
+        except Exception as e:
+            logger.error(f"[cap.send.hybrid] 执行失败: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
     # ═════════════════════════════════════════════════════════
     #  llm.* 能力实现
     # ═════════════════════════════════════════════════════════
@@ -565,6 +616,21 @@ class PluginRuntimeManager:
         except Exception as e:
             return {"success": False, "value": default, "error": str(e)}
 
+    @staticmethod
+    async def _cap_config_get_all(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+        """获取当前插件的全部配置"""
+        from src.core.component_registry import component_registry as core_registry
+
+        plugin_name: str = args.get("plugin_name", plugin_id)
+
+        try:
+            config = core_registry.get_plugin_config(plugin_name)
+            if config is None:
+                return {"success": True, "value": {}}
+            return {"success": True, "value": config}
+        except Exception as e:
+            return {"success": False, "value": {}, "error": str(e)}
+
     # ═════════════════════════════════════════════════════════
     #  database.* 能力实现
     # ═════════════════════════════════════════════════════════
@@ -663,6 +729,65 @@ class PluginRuntimeManager:
             return {"success": True, "result": result}
         except Exception as e:
             logger.error(f"[cap.database.get] 执行失败: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    @staticmethod
+    async def _cap_database_delete(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+        """数据库删除
+
+        args: model_name, filters
+        """
+        from src.services import database_service as database_api
+
+        model_name: str = args.get("model_name", "")
+        filters = args.get("filters", {})
+        if not model_name:
+            return {"success": False, "error": "缺少必要参数 model_name"}
+        if not filters:
+            return {"success": False, "error": "缺少必要参数 filters（不允许无条件删除）"}
+
+        try:
+            import src.common.database.database_model as db_models
+
+            model_class = getattr(db_models, model_name, None)
+            if model_class is None:
+                return {"success": False, "error": f"未找到数据模型: {model_name}"}
+
+            result = await database_api.db_delete(
+                model_class=model_class,
+                filters=filters,
+            )
+            return {"success": True, "result": result}
+        except Exception as e:
+            logger.error(f"[cap.database.delete] 执行失败: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    @staticmethod
+    async def _cap_database_count(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+        """数据库计数
+
+        args: model_name, filters?
+        """
+        from src.services import database_service as database_api
+
+        model_name: str = args.get("model_name", "")
+        if not model_name:
+            return {"success": False, "error": "缺少必要参数 model_name"}
+
+        try:
+            import src.common.database.database_model as db_models
+
+            model_class = getattr(db_models, model_name, None)
+            if model_class is None:
+                return {"success": False, "error": f"未找到数据模型: {model_name}"}
+
+            result = await database_api.db_count(
+                model_class=model_class,
+                filters=args.get("filters"),
+            )
+            return {"success": True, "count": result}
+        except Exception as e:
+            logger.error(f"[cap.database.count] 执行失败: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
     # ═════════════════════════════════════════════════════════
