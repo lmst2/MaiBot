@@ -43,7 +43,7 @@ const buildTokens = (config: UserThemeConfig, isDark: boolean): ThemeTokens => {
     mergedTokens = mergeTokens(mergedTokens, { color: paletteTokens })
   }
 
-  if (config.selectedPreset) {
+  if (config.selectedPreset && config.selectedPreset !== 'light' && config.selectedPreset !== 'dark') {
     const preset = getPresetById(config.selectedPreset)
     if (preset?.tokens) {
       mergedTokens = mergeTokens(mergedTokens, preset.tokens)

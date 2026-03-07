@@ -9,7 +9,7 @@ from typing import Any, Annotated, Optional
 
 from src.common.logger import get_logger
 from src.webui.core import verify_auth_token_from_cookie_or_header
-from src.common.toml_utils import save_toml_with_format, _update_toml_doc
+from src.webui.utils.toml_utils import save_toml_with_format, _update_toml_doc
 from src.config.config import Config, ModelConfig, CONFIG_DIR, PROJECT_ROOT
 from src.config.official_configs import (
     BotConfig,

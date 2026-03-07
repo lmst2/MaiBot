@@ -4,7 +4,7 @@ from typing import Optional, List, Dict, Any, get_origin
 from pathlib import Path
 import json
 from src.common.logger import get_logger
-from src.common.toml_utils import save_toml_with_format
+from src.webui.utils.toml_utils import save_toml_with_format
 from src.config.config import MMC_VERSION
 from src.core.config_types import ConfigField
 from src.webui.services.git_mirror_service import get_git_mirror_service, set_update_progress_callback
