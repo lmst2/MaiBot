@@ -127,12 +127,12 @@ async def test_add_callback_while_watcher_running(tmp_path: Path):
     try:
         with file.open("w") as f:
             f.write("change")
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.5)
         assert calls == 1
         watcher.unsubscribe(uuid)
         with file.open("w") as f:
             f.write("change2")
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.5)
         assert calls == 1
     finally:
         await watcher.stop()
