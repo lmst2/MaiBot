@@ -7,6 +7,8 @@ import pytest
 
 from src.config.file_watcher import FileChange, FileWatcher
 
+from typing import Sequence
+
 
 @pytest.mark.asyncio
 async def test_dispatch_changes_with_path_and_change_type_filters(tmp_path: Path):
@@ -103,3 +105,34 @@ async def test_unsubscribe_stops_dispatch(tmp_path: Path):
     await watcher._dispatch_changes([FileChange(change_type=Change.modified, path=target_file)])
 
     assert calls == 0
+
+
+@pytest.mark.asyncio
+async def test_add_callback_while_watcher_running(tmp_path: Path):
+    dirs = (tmp_path / "a_dir").resolve()
+    dirs.mkdir(exist_ok=True)
+    file = (dirs / "a.toml").resolve()
+    file.touch()
+    watcher = FileWatcher(paths=[dirs])
+
+    calls = 0
+
+    async def callback(changes: Sequence[FileChange]):
+        nonlocal calls
+        print(f"Callback called with changes: {[f'{change.change_type} {change.path}' for change in changes]}")
+        calls += 1
+
+    uuid = watcher.subscribe(callback, paths=[file])
+    await watcher.start()
+    with file.open("w") as f:
+        f.write("change")
+    await asyncio.sleep(0.5)
+    with file.open("r") as f:
+        content = f.read()
+    print(content)
+    assert calls == 1
+    watcher.unsubscribe(uuid)
+    with file.open("w") as f:
+        f.write("change2")
+    await asyncio.sleep(0.5)
+    assert calls == 1
