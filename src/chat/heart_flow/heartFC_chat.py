@@ -10,6 +10,7 @@ from src.common.logger import get_logger
 from src.common.utils.utils_session import SessionUtils
 from src.config.config import global_config
 from src.chat.message_receive.chat_manager import chat_manager
+from src.bw_learner.expression_reflector import ExpressionReflector
 
 if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
@@ -51,6 +52,9 @@ class HeartFChatting:
 
         # Asyncio Event 用于控制循环的开始和结束
         self._cycle_event = asyncio.Event()
+
+        # 反思器
+        self.reflector = ExpressionReflector(session_id)
 
     async def start(self):
         """启动 HeartFChatting 的主循环"""
@@ -160,7 +164,12 @@ class HeartFChatting:
 
     async def _judge_and_response(self, mentioned_message: Optional["SessionMessage"] = None):
         """判定和生成回复"""
-        # TODO: 在expression和reflector重构完成后完成这里的逻辑
+        await self.reflector.check_and_ask()
+        if self.reflector.reflect_tracker.tracking and await self.reflector.reflect_tracker.trigger_tracker():
+            logger.info(f"{self.log_prefix} 追踪检查已解决，结束追踪器")
+            self.reflector.reflect_tracker.reset_tracker()  # 结束当前追踪器
+
+        # TODO: 完成反思器之后的逻辑
 
     def _handle_loop_completion(self, task: asyncio.Task):
         """当 _hfc_func 任务完成时执行的回调。"""

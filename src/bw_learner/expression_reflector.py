@@ -67,6 +67,10 @@ class ExpressionReflector:
             logger.debug(f"{LOG_PREFIX} Operator ID 未配置，跳过")
             return False
 
+        if self.reflect_tracker.tracking:
+            logger.info(f"{LOG_PREFIX} Operator {operator_config} 已有活跃的 Tracker，跳过本次提问")
+            return False
+
         if allow_reflect_list := global_config.expression.allow_reflect:
             # 转换配置项为session_id列表
             allow_reflect_session_ids = [
@@ -88,9 +92,6 @@ class ExpressionReflector:
             )
             return False
 
-        if self.reflect_tracker.tracking:
-            logger.info(f"{LOG_PREFIX} Operator {operator_config} 已有活跃的 Tracker，跳过本次提问")
-            return False
         return True
 
     async def ask_reflection(self, operator_config: "TargetItem") -> bool:

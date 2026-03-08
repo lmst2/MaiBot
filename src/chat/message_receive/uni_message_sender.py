@@ -7,7 +7,7 @@ from maim_message import Seg
 from src.common.message_server.api import get_global_api
 from src.common.logger import get_logger
 from src.common.database.database import get_db_session
-from src.chat.message_receive.message import MessageSending
+from src.chat.message_receive.message_old import MessageSending
 from src.chat.utils.utils import truncate_message
 from src.chat.utils.utils import calculate_typing_time
 

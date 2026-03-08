@@ -12,13 +12,14 @@ from src.common.message_repository import count_messages
 
 logger = get_logger(__name__)
 
+
 @dataclass
-class CyclePlanInfo:
-    ...
-    
+class CyclePlanInfo: ...
+
+
 @dataclass
-class CycleActionInfo:
-    ...
+class CycleActionInfo: ...
+
 
 class CycleDetail:
     """循环信息记录类"""

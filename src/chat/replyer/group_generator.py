@@ -12,11 +12,8 @@ from src.common.data_models.info_data_model import ActionPlannerInfo
 from src.common.data_models.llm_data_model import LLMGenerationDataModel
 from src.config.config import global_config, model_config
 from src.llm_models.utils_model import LLMRequest
-from maim_message import Seg
-
-from src.common.data_models.mai_message_data_model import MaiMessage, UserInfo
-from src.chat.message_receive.message import MessageSending
-from src.chat.message_receive.chat_manager import BotChatSession
+from src.chat.message_receive.message_old import UserInfo, Seg, MessageRecv, MessageSending
+from src.chat.message_receive.chat_stream import ChatStream
 from src.chat.message_receive.uni_message_sender import UniversalMessageSender
 from src.chat.utils.timer_calculator import Timer  # <--- Import Timer
 from src.chat.utils.utils import get_chat_type_and_target_info, is_bot_self
@@ -27,16 +24,16 @@ from src.chat.utils.chat_message_builder import (
     replace_user_references,
 )
 from src.bw_learner.expression_selector import expression_selector
-from src.services.message_service import translate_pid_to_description
+from src.plugin_system.apis.message_api import translate_pid_to_description
 
 # from src.memory_system.memory_activator import MemoryActivator
 from src.person_info.person_info import Person
-from src.core.types import ActionInfo, EventType
-from src.services import llm_service as llm_api
+from src.plugin_system.base.component_types import ActionInfo, EventType
+from src.plugin_system.apis import llm_api
 
 from src.chat.logger.plan_reply_logger import PlanReplyLogger
 from src.memory_system.memory_retrieval import init_memory_retrieval_sys, build_memory_retrieval_prompt
-from src.bw_learner.jargon_explainer import explain_jargon_in_context, retrieve_concepts_with_jargon
+from src.bw_learner.jargon_explainer_old import explain_jargon_in_context, retrieve_concepts_with_jargon
 from src.chat.utils.common_utils import TempMethodsExpression
 
 init_memory_retrieval_sys()
@@ -48,17 +45,17 @@ logger = get_logger("replyer")
 class DefaultReplyer:
     def __init__(
         self,
-        chat_stream: BotChatSession,
+        chat_stream: ChatStream,
         request_type: str = "replyer",
     ):
         self.express_model = LLMRequest(model_set=model_config.model_task_config.replyer, request_type=request_type)
         self.chat_stream = chat_stream
-        self.is_group_chat, self.chat_target_info = get_chat_type_and_target_info(self.chat_stream.session_id)
+        self.is_group_chat, self.chat_target_info = get_chat_type_and_target_info(self.chat_stream.stream_id)
         self.heart_fc_sender = UniversalMessageSender()
 
-        from src.chat.tool_executor import ToolExecutor
+        from src.plugin_system.core.tool_use import ToolExecutor  # 延迟导入ToolExecutor，不然会循环依赖
 
-        self.tool_executor = ToolExecutor(chat_id=self.chat_stream.session_id, enable_cache=True, cache_ttl=3)
+        self.tool_executor = ToolExecutor(chat_id=self.chat_stream.stream_id, enable_cache=True, cache_ttl=3)
 
     async def generate_reply_with_context(
         self,
@@ -135,7 +132,7 @@ class DefaultReplyer:
                 if log_reply:
                     try:
                         PlanReplyLogger.log_reply(
-                            chat_id=self.chat_stream.session_id,
+                            chat_id=self.chat_stream.stream_id,
                             prompt="",
                             output=None,
                             processed_output=None,
@@ -149,13 +146,11 @@ class DefaultReplyer:
                     except Exception:
                         logger.exception("记录reply日志失败")
                 return False, llm_response
-            from src.core.event_bus import event_bus
-            from src.chat.event_helpers import build_event_message
+            from src.plugin_system.core.events_manager import events_manager
 
             if not from_plugin:
-                _event_msg = build_event_message(EventType.POST_LLM, llm_prompt=prompt, stream_id=stream_id)
-                continue_flag, modified_message = await event_bus.emit(
-                    EventType.POST_LLM, _event_msg
+                continue_flag, modified_message = await events_manager.handle_mai_events(
+                    EventType.POST_LLM, None, prompt, None, stream_id=stream_id
                 )
                 if not continue_flag:
                     raise UserWarning("插件于请求前中断了内容生成")
@@ -207,7 +202,7 @@ class DefaultReplyer:
                 try:
                     if log_reply:
                         PlanReplyLogger.log_reply(
-                            chat_id=self.chat_stream.session_id,
+                            chat_id=self.chat_stream.stream_id,
                             prompt=prompt,
                             output=content,
                             processed_output=None,
@@ -219,9 +214,8 @@ class DefaultReplyer:
                         )
                 except Exception:
                     logger.exception("记录reply日志失败")
-                _event_msg = build_event_message(EventType.AFTER_LLM, llm_prompt=prompt, llm_response=llm_response, stream_id=stream_id)
-                continue_flag, modified_message = await event_bus.emit(
-                    EventType.AFTER_LLM, _event_msg
+                continue_flag, modified_message = await events_manager.handle_mai_events(
+                    EventType.AFTER_LLM, None, prompt, llm_response, stream_id=stream_id
                 )
                 if not from_plugin and not continue_flag:
                     raise UserWarning("插件于请求后取消了内容生成")
@@ -265,7 +259,7 @@ class DefaultReplyer:
                 if log_reply:
                     try:
                         PlanReplyLogger.log_reply(
-                            chat_id=self.chat_stream.session_id,
+                            chat_id=self.chat_stream.stream_id,
                             prompt=prompt or "",
                             output=None,
                             processed_output=None,
@@ -359,14 +353,14 @@ class DefaultReplyer:
             str: 表达习惯信息字符串
         """
         # 检查是否允许在此聊天流中使用表达
-        use_expression, _, _ = TempMethodsExpression.get_expression_config_for_chat(self.chat_stream.session_id)
+        use_expression, _, _ = TempMethodsExpression.get_expression_config_for_chat(self.chat_stream.stream_id)
         if not use_expression:
             return "", []
         style_habits = []
         # 使用从处理器传来的选中表达方式
         # 使用模型预测选择表达方式
         selected_expressions, selected_ids = await expression_selector.select_suitable_expressions(
-            self.chat_stream.session_id,
+            self.chat_stream.stream_id,
             chat_history,
             max_num=8,
             target_message=target,
@@ -708,11 +702,10 @@ class DefaultReplyer:
             # 判断是否为群聊
             is_group = stream_type == "group"
 
-            from src.common.utils.utils_session import SessionUtils
+            # 使用 ChatManager 提供的接口生成 chat_id，避免在此重复实现逻辑
+            from src.chat.message_receive.chat_stream import get_chat_manager
 
-            chat_id = SessionUtils.calculate_session_id(
-                platform, group_id=str(id_str) if is_group else None, user_id=str(id_str) if not is_group else None
-            )
+            chat_id = get_chat_manager().get_stream_id(platform, str(id_str), is_group=is_group)
             return chat_id, prompt_content
 
         except (ValueError, IndexError):
@@ -785,7 +778,7 @@ class DefaultReplyer:
         if available_actions is None:
             available_actions = {}
         chat_stream = self.chat_stream
-        chat_id = chat_stream.session_id
+        chat_id = chat_stream.stream_id
         _is_group_chat = bool(chat_stream.group_info)
         platform = chat_stream.platform
 
@@ -1012,7 +1005,7 @@ class DefaultReplyer:
         reply_to: str,
     ) -> str:  # sourcery skip: merge-else-if-into-elif, remove-redundant-if
         chat_stream = self.chat_stream
-        chat_id = chat_stream.session_id
+        chat_id = chat_stream.stream_id
         sender, target = self._parse_reply_target(reply_to)
         target = replace_user_references(target, chat_stream.platform, replace_bot_name=True)
 
@@ -1112,27 +1105,29 @@ class DefaultReplyer:
         is_emoji: bool,
         thinking_start_time: float,
         display_message: str,
-        anchor_message: Optional[MaiMessage] = None,
+        anchor_message: Optional[MessageRecv] = None,
     ) -> MessageSending:
         """构建单个发送消息"""
 
         bot_user_info = UserInfo(
             user_id=str(global_config.bot.qq_account),
             user_nickname=global_config.bot.nickname,
+            platform=self.chat_stream.platform,
         )
 
+        # await anchor_message.process()
         sender_info = anchor_message.message_info.user_info if anchor_message else None
 
         return MessageSending(
-            message_id=message_id,
-            session=self.chat_stream,
+            message_id=message_id,  # 使用片段的唯一ID
+            chat_stream=self.chat_stream,
             bot_user_info=bot_user_info,
             sender_info=sender_info,
             message_segment=message_segment,
-            reply=anchor_message,
+            reply=anchor_message,  # 回复原始锚点
             is_head=reply_to,
             is_emoji=is_emoji,
-            thinking_start_time=thinking_start_time,
+            thinking_start_time=thinking_start_time,  # 传递原始思考开始时间
             display_message=display_message,
         )
 

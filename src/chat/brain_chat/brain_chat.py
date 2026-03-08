@@ -16,8 +16,8 @@ from src.chat.brain_chat.brain_planner import BrainPlanner
 from src.chat.planner_actions.action_modifier import ActionModifier
 from src.chat.planner_actions.action_manager import ActionManager
 from src.chat.heart_flow.hfc_utils import CycleDetail
-from src.bw_learner.expression_learner import expression_learner_manager
-from src.bw_learner.message_recorder import extract_and_distribute_messages
+from src.bw_learner.expression_learner_old import expression_learner_manager
+from src.bw_learner.message_recorder_old import extract_and_distribute_messages
 from src.person_info.person_info import Person
 from src.core.types import ActionInfo, EventType
 from src.core.event_bus import event_bus
@@ -63,7 +63,7 @@ class BrainChatting:
     用于在特定聊天流中生成回复。
     """
 
-    def __init__(self, chat_id: str):
+    def __init__(self, session_id: str):
         """
         BrainChatting 初始化函数
 
@@ -73,8 +73,8 @@ class BrainChatting:
             performance_version: 性能记录版本号，用于区分不同启动版本
         """
         # 基础属性
-        self.stream_id: str = chat_id  # 聊天流ID
-        self.chat_stream: BotChatSession = _chat_manager.get_session_by_session_id(self.stream_id)  # type: ignore
+        self.stream_id: str = session_id  # 聊天流ID
+        self.chat_stream: ChatStream = get_chat_manager().get_stream(self.stream_id)  # type: ignore
         if not self.chat_stream:
             raise ValueError(f"无法找到聊天流: {self.stream_id}")
         self.log_prefix = f"[{_chat_manager.get_session_name(self.stream_id) or self.stream_id}]"
@@ -269,7 +269,7 @@ class BrainChatting:
         # Expression Reflection Check
         # 检查是否需要提问表达反思
         # -------------------------------------------------------------------------
-        from src.bw_learner.expression_reflector import expression_reflector_manager
+        from src.bw_learner.expression_reflector_old import expression_reflector_manager
 
         reflector = expression_reflector_manager.get_or_create_reflector(self.stream_id)
         asyncio.create_task(reflector.check_and_ask())

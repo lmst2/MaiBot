@@ -5,8 +5,8 @@ from src.common.logger import get_logger
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.chat.utils.chat_message_builder import get_raw_msg_by_timestamp_with_chat_inclusive
 from src.chat.utils.common_utils import TempMethodsExpression
-from src.bw_learner.expression_learner import expression_learner_manager
-from src.bw_learner.jargon_miner import miner_manager
+from src.bw_learner.expression_learner_old import expression_learner_manager
+from src.bw_learner.jargon_miner_old import miner_manager
 
 logger = get_logger("bw_learner")
 

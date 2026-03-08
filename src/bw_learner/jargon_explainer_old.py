@@ -7,8 +7,8 @@ from src.common.database.database_model import Jargon
 from src.llm_models.utils_model import LLMRequest
 from src.config.config import model_config, global_config
 from src.prompt.prompt_manager import prompt_manager
-from src.bw_learner.jargon_miner import search_jargon
-from src.bw_learner.learner_utils import (
+from src.bw_learner.jargon_miner_old import search_jargon
+from src.bw_learner.learner_utils_old import (
     is_bot_message,
     contains_bot_self_name,
     parse_chat_id_list,

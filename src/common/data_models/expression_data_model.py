@@ -11,7 +11,6 @@ from . import BaseDatabaseDataModel
 class MaiExpression(BaseDatabaseDataModel[Expression]):
     def __init__(
         self,
-        item_id: int,
         situation: str,
         style: str,
         # context: str,
@@ -20,6 +19,7 @@ class MaiExpression(BaseDatabaseDataModel[Expression]):
         count: int,
         last_active_time: datetime,
         create_time: datetime,
+        item_id: Optional[int] = None,
         session_id: Optional[str] = None,
         checked: bool = False,
         rejected: bool = False,
@@ -55,7 +55,7 @@ class MaiExpression(BaseDatabaseDataModel[Expression]):
             if not isinstance(item, str):
                 raise ValueError(f"Content item must be a string, got {type(item)}")
         return cls(
-            item_id=db_record.id,  # type: ignore
+            item_id=db_record.id,
             situation=db_record.situation,
             style=db_record.style,
             # context=db_record.context,
@@ -74,7 +74,6 @@ class MaiExpression(BaseDatabaseDataModel[Expression]):
             if not isinstance(item, str):
                 raise ValueError(f"Content item must be a string, got {type(item)}")
         return Expression(
-            id=self.item_id,
             situation=self.situation,
             style=self.style,
             # context=self.context,

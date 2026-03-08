@@ -15,7 +15,7 @@ from src.llm_models.utils_model import LLMRequest
 from maim_message import Seg
 
 from src.common.data_models.mai_message_data_model import MaiMessage, UserInfo
-from src.chat.message_receive.message import MessageSending
+from src.chat.message_receive.message_old import MessageSending
 from src.chat.message_receive.chat_manager import BotChatSession
 from src.chat.message_receive.uni_message_sender import UniversalMessageSender
 from src.chat.utils.timer_calculator import Timer
@@ -35,7 +35,7 @@ from src.person_info.person_info import Person, is_person_known
 from src.core.types import ActionInfo, EventType
 from src.services import llm_service as llm_api
 from src.memory_system.memory_retrieval import init_memory_retrieval_sys, build_memory_retrieval_prompt
-from src.bw_learner.jargon_explainer import explain_jargon_in_context
+from src.bw_learner.jargon_explainer_old import explain_jargon_in_context
 
 init_memory_retrieval_sys()
 

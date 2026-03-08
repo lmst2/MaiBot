@@ -59,15 +59,15 @@ class TopicCacheItem:
 class ChatHistorySummarizer:
     """聊天内容概括器"""
 
-    def __init__(self, chat_id: str, check_interval: int = 60):
+    def __init__(self, session_id: str, check_interval: int = 60):
         """
         初始化聊天内容概括器
 
         Args:
-            chat_id: 聊天ID
+            session_id: 会话ID
             check_interval: 定期检查间隔（秒），默认60秒
         """
-        self.chat_id = chat_id
+        self.session_id = session_id
         self._chat_display_name = self._get_chat_display_name()
         self.log_prefix = f"[{self._chat_display_name}]"
 
@@ -83,7 +83,7 @@ class ChatHistorySummarizer:
         # 话题缓存：topic_str -> TopicCacheItem
         # 在内存中维护，并通过本地文件实时持久化
         self.topic_cache: Dict[str, TopicCacheItem] = {}
-        self._safe_chat_id = self._sanitize_chat_id(self.chat_id)
+        self._safe_chat_id = self._sanitize_chat_id(self.session_id)
         self._topic_cache_file = HIPPO_CACHE_DIR / f"{self._safe_chat_id}.json"
         # 注意：批次加载需要异步查询消息，所以在 start() 中调用
 
@@ -104,14 +104,14 @@ class ChatHistorySummarizer:
             if chat_name:
                 return chat_name
             # 如果获取失败，使用简化的chat_id显示
-            if len(self.chat_id) > 20:
-                return f"{self.chat_id[:8]}..."
-            return self.chat_id
+            if len(self.session_id) > 20:
+                return f"{self.session_id[:8]}..."
+            return self.session_id
         except Exception:
             # 如果获取失败，使用简化的chat_id显示
-            if len(self.chat_id) > 20:
-                return f"{self.chat_id[:8]}..."
-            return self.chat_id
+            if len(self.session_id) > 20:
+                return f"{self.session_id[:8]}..."
+            return self.session_id
 
     def _sanitize_chat_id(self, chat_id: str) -> str:
         """用于生成可作为文件名的 chat_id"""
@@ -163,7 +163,7 @@ class ChatHistorySummarizer:
 
             # 根据时间范围重新查询消息
             messages = message_api.get_messages_by_time_in_chat(
-                chat_id=self.chat_id,
+                chat_id=self.session_id,
                 start_time=start_time,
                 end_time=end_time,
                 limit=0,
@@ -193,7 +193,7 @@ class ChatHistorySummarizer:
 
             HIPPO_CACHE_DIR.mkdir(parents=True, exist_ok=True)
             data = {
-                "chat_id": self.chat_id,
+                "chat_id": self.session_id,
                 "last_topic_check_time": self.last_topic_check_time,
                 "topics": {
                     topic: {
@@ -230,7 +230,7 @@ class ChatHistorySummarizer:
         try:
             # 获取从上次检查时间到当前时间的新消息
             new_messages = message_api.get_messages_by_time_in_chat(
-                chat_id=self.chat_id,
+                chat_id=self.session_id,
                 start_time=self.last_check_time,
                 end_time=current_time,
                 limit=0,
@@ -917,7 +917,7 @@ class ChatHistorySummarizer:
 
             # 准备数据
             data = {
-                "chat_id": self.chat_id,
+                "chat_id": self.session_id,
                 "start_time": start_time,
                 "end_time": end_time,
                 "original_text": original_text,

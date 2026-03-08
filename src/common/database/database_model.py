@@ -201,14 +201,16 @@ class Jargon(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)  # 自增主键
 
     content: str = Field(index=True, max_length=255, primary_key=True)  # 黑话内容
-    raw_content: Optional[str] = Field(default=None, nullable=True)  # 原始内容，未处理的黑话内容
+    raw_content: Optional[str] = Field(default=None, nullable=True)  # 原始内容，未处理的黑话内容，为List[str]
 
     meaning: str  # 黑话含义
-    session_id: Optional[str] = Field(default=None, max_length=255, nullable=True)  # 会话ID，区分是否为全局黑话
+    session_id_dict: str = Field(default=r"{}")  # 会话ID列表，格式为{"session_id": session_count, ...}
 
     count: int = Field(default=0)  # 使用次数
     is_jargon: Optional[bool] = Field(default=True)  # 是否为黑话，False表示为白话
     is_complete: bool = Field(default=False)  # 是否为已经完成全部推断（count > 100后不再推断）
+    is_global: bool = Field(default=False)  # 是否为全局黑话（独立于session_id_dict）
+    last_inference_count: int = Field(default=0)  # 上一次进行推断时的count值，用于判断是否需要重新推断
     inference_with_context: Optional[str] = Field(default=None, nullable=True)  # 带上下文的推断结果，JSON格式
     inference_with_content_only: Optional[str] = Field(default=None, nullable=True)  # 只基于词条的推断结果，JSON格式
 

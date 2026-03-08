@@ -4,7 +4,7 @@ from src.common.logger import get_logger
 from src.common.database.database_model import Jargon
 from src.config.config import global_config
 from src.chat.utils.utils import parse_keywords_string
-from src.bw_learner.learner_utils import parse_chat_id_list, chat_id_list_contains
+from src.bw_learner.learner_utils_old import parse_chat_id_list, chat_id_list_contains
 
 logger = get_logger("dream_agent")
 
