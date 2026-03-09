@@ -55,9 +55,11 @@ class FileWatcher:
         callback_timeout_s: float = 10.0,
         callback_failure_threshold: int = 3,
         callback_cooldown_s: float = 30.0,
+        force_polling: bool = False,
     ) -> None:
         self._paths = [path.resolve() for path in paths]
         self._debounce_ms = debounce_ms
+        self._force_polling = force_polling
         self._callback_timeout_s = callback_timeout_s
         self._callback_failure_threshold = callback_failure_threshold
         self._callback_cooldown_s = callback_cooldown_s
@@ -136,7 +138,7 @@ class FileWatcher:
     async def _run(self) -> None:
         while self._running:
             try:
-                async for changes in awatch(*self._paths, debounce=self._debounce_ms):
+                async for changes in awatch(*self._paths, debounce=self._debounce_ms, force_polling=self._force_polling):
                     if not self._running:
                         break
                     normalized_changes = self._normalize_changes(changes)

@@ -123,7 +123,7 @@ async def test_add_callback_while_watcher_running(tmp_path: Path):
     dirs.mkdir(exist_ok=True)
     file = (dirs / "a.toml").resolve()
     file.touch()
-    watcher = FileWatcher(paths=[dirs], debounce_ms=200)
+    watcher = FileWatcher(paths=[dirs], debounce_ms=200, force_polling=True)
 
     calls = 0
 
