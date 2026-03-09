@@ -9,8 +9,11 @@ import random
 from src.common.logger import get_logger
 from src.common.utils.utils_session import SessionUtils
 from src.config.config import global_config
+from src.config.file_watcher import FileChange
 from src.chat.message_receive.chat_manager import chat_manager
 from src.bw_learner.expression_reflector import ExpressionReflector
+from src.bw_learner.expression_learner import ExpressionLearner
+from src.bw_learner.jargon_miner import JargonMiner
 
 if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
@@ -53,8 +56,13 @@ class HeartFChatting:
         # Asyncio Event 用于控制循环的开始和结束
         self._cycle_event = asyncio.Event()
 
+        # 表达方式相关内容
         # 反思器
-        self.reflector = ExpressionReflector(session_id)
+        self._reflector: Optional[ExpressionReflector] = None
+        # 表达学习器
+        self._expression_learner: Optional[ExpressionLearner] = None
+        # 黑话挖掘器
+        self._jargon_miner: Optional[JargonMiner] = None
 
     async def start(self):
         """启动 HeartFChatting 的主循环"""
@@ -141,6 +149,9 @@ class HeartFChatting:
             await self.stop()  # 确保状态正确
             await asyncio.sleep(3)
             await self.start()  # 尝试重新启动
+        
+    async def _config_callback(self, file_change: FileChange):
+        
 
     async def _hfc_func(self, mentioned_message: Optional["SessionMessage"] = None):
         """心流聊天的主循环逻辑"""
@@ -164,12 +175,14 @@ class HeartFChatting:
 
     async def _judge_and_response(self, mentioned_message: Optional["SessionMessage"] = None):
         """判定和生成回复"""
-        await self.reflector.check_and_ask()
-        if self.reflector.reflect_tracker.tracking and await self.reflector.reflect_tracker.trigger_tracker():
-            logger.info(f"{self.log_prefix} 追踪检查已解决，结束追踪器")
-            self.reflector.reflect_tracker.reset_tracker()  # 结束当前追踪器
+        if self._reflector:
+            await self._reflector.check_and_ask()
+            if self._reflector.reflect_tracker.tracking and await self._reflector.reflect_tracker.trigger_tracker():
+                logger.info(f"{self.log_prefix} 追踪检查已解决，结束追踪器")
+                self._reflector.reflect_tracker.reset_tracker()  # 结束当前追踪器
 
         # TODO: 完成反思器之后的逻辑
+        start_time = time.time()
 
     def _handle_loop_completion(self, task: asyncio.Task):
         """当 _hfc_func 任务完成时执行的回调。"""
