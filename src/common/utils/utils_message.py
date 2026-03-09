@@ -1,3 +1,4 @@
+from enum import Enum
 from maim_message import MessageBase, Seg
 from typing import List, Tuple, Optional, Dict, TYPE_CHECKING
 
@@ -22,7 +23,7 @@ from src.common.data_models.message_component_data_model import (
 )
 from src.config.config import global_config
 
-from .math_utils import number_to_short_id
+from .math_utils import number_to_short_id, TimestampMode, translate_timestamp_to_human_readable
 
 if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
@@ -151,6 +152,9 @@ class MessageUtils:
         extract_pictures: bool = False,
         replace_bot_name: bool = False,
         target_bot_name: Optional[str] = None,
+        timestamp_mode: Optional[TimestampMode] = None,
+        show_message_id_prefix: bool = False,
+        truncate_message: bool = False,
     ) -> Tuple[str, Dict[str, Tuple[str, str]]]:
         """
         将消息构建为LLM可读的文本格式
@@ -161,7 +165,10 @@ class MessageUtils:
             show_lineno (bool): 是否在每条消息前显示行号
             extract_pictures (bool): 是否提取图片信息并在文本中显示占位符
             replace_bot_name (bool): 是否将消息中的机器人名称替换为统一的占位符
-            target_bot_name (Optional[str]): 如果replace_bot_name为True，指定要替换的机器人名称
+            target_bot_name (Optional[str]): 如果replace_bot_name为True，指定要替换的机器人名称，比如可以把机器人名称替换为“你”
+            timestamp_mode (Optional[TimestampMode]): 时间戳显示模式，默认为None表示不显示时间戳
+            show_message_id_prefix (bool): 是否在每条消息前显示消息ID前缀
+            truncate_message (bool): 是否截断过长的消息文本，避免生成过长的输入给LLM
         Returns:
             return (Tuple[str, Dict[str, Tuple[str, str]]]): 构建后的消息文本，以及映射表（匿名ID, 原始名称）
         """

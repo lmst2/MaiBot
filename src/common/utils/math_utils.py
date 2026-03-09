@@ -1,4 +1,17 @@
+from enum import Enum
+
 import hashlib
+import time
+
+
+class TimestampMode(Enum):
+    NORMAL = "%Y-%m-%d %H:%M:%S"
+    """标准格式，例如 2024-01-01 12:00:00"""
+    NORMAL_NO_YMD = "%H:%M:%S"
+    """仅显示时间不显示年月日，例如 12:00:00"""
+    RELATIVE = "relative"
+    """相对时间，例如 5分钟前、2小时前等"""
+
 
 def number_to_short_id(original_id: int, salt: str, length: int = 6) -> str:
     """
@@ -32,3 +45,33 @@ def number_to_short_id(original_id: int, salt: str, length: int = 6) -> str:
         temp_num //= base
 
     return short_id
+
+
+def translate_timestamp_to_human_readable(timestamp: float, mode: TimestampMode) -> str:
+    """将时间戳按照指定模式转换为人类可读的格式
+
+    Args:
+        timestamp (float): 需要转换的时间戳
+        mode (TimestampMode): 时间戳转换模式，支持NORMAL、NORMAL_NO_YMD和RELATIVE三种模式
+    Returns:
+        str: 转换后的时间字符串
+    """
+    if mode in [TimestampMode.NORMAL, TimestampMode.NORMAL_NO_YMD]:
+        return time.strftime(mode.value, time.localtime(timestamp))
+    elif mode == TimestampMode.RELATIVE:
+        time_diff = time.time() - timestamp
+
+        if time_diff < 20:
+            return "刚刚"
+        elif time_diff < 60:
+            return f"{int(time_diff)}秒前"
+        elif time_diff < 3600:
+            return f"{int(time_diff // 60)}分钟前"
+        elif time_diff < 86400:
+            return f"{int(time_diff // 3600)}小时前"
+        elif time_diff < 2592000:
+            return f"{int(time_diff // 86400)}天前"
+        else:
+            return time.strftime(TimestampMode.NORMAL.value, time.localtime(timestamp))
+    else:
+        raise ValueError(f"不支持的时间戳转换模式: {mode}")

@@ -19,6 +19,7 @@ from .expression_utils import check_expression_suitability, parse_expression_res
 
 if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
+    from .jargon_miner import JargonMiner
 
 
 logger = get_logger("expressor")
@@ -39,11 +40,15 @@ class ExpressionLearner:
         # 消息缓存
         self._messages_cache: List["SessionMessage"] = []
 
-    async def add_messages(self, messages: List["SessionMessage"]) -> None:
+    def add_messages(self, messages: List["SessionMessage"]) -> None:
         """添加消息到缓存"""
         self._messages_cache.extend(messages)
 
-    async def learn(self):
+    def get_cache_size(self) -> int:
+        """获取当前消息缓存的大小"""
+        return len(self._messages_cache)
+
+    async def learn(self, jargon_miner: Optional["JargonMiner"] = None):
         """学习主流程"""
         if not self._messages_cache:
             logger.debug("没有消息可供学习，跳过学习过程")
@@ -73,6 +78,15 @@ class ExpressionLearner:
         expressions, jargon_entries = parse_expression_response(response)
         # TODO: 完成学习
 
+        # 从缓存检查 jargon 是否出现在 message 中
+    
+    # ====== 黑话相关 ======
+    def _check_cached_jargons_in_messages(self, jargon_miner: Optional["JargonMiner"] = None):
+        if not jargon_miner:
+            return []
+        # TODO: 完成检测逻辑
+
+    # ====== DB 操作相关 ======
     async def _upsert_expression_to_db(self, situation: str, style: str):
         expr, similarity = self._find_similar_expression(situation) or (None, 0)
         if expr:
@@ -132,6 +146,7 @@ class ExpressionLearner:
         # count 增加后，立即进行一次检查
         await self._check_expression(expr)
 
+    # ====== 概括方法 ======
     async def _compose_situation_text(self, content_list: List[str]) -> Optional[str]:
         texts = [c.strip() for c in content_list if c.strip()]
         if not texts:
@@ -142,7 +157,6 @@ class ExpressionLearner:
             f"{description}\n"
             "只输出概括内容。"
         )
-
         try:
             summary, _ = await summary_model.generate_response_async(prompt, temperature=0.2)
             if summary := summary.strip():

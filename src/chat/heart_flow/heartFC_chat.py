@@ -241,18 +241,17 @@ class HeartFChatting:
             return
         if self._expression_learner.get_cache_size() < self._min_messages_for_extraction:
             return
+        if not self._enable_expression_learning:
+            return
         extraction_end_time = time.time()
         logger.info(
             f"聊天流 {self.session_name} 提取到 {len(messages)} 条消息，"
             f"时间窗口: {self._last_extraction_time:.2f} - {extraction_end_time:.2f}"
         )
         self._last_extraction_time = extraction_end_time
-        if self._enable_expression_learning:
-            asyncio.create_task(self._expression_learning())
-
-    async def _expression_learning(self):
         try:
-            learnt_style = await self._expression_learner.learn()
+            jargon_miner = self._jargon_miner if self._enable_jargon_learning else None
+            learnt_style = await self._expression_learner.learn(jargon_miner)
             if learnt_style:
                 logger.info(f"{self.log_prefix} 表达学习完成")
             else:
