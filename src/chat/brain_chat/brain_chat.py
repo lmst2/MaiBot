@@ -15,7 +15,7 @@ from src.chat.utils.timer_calculator import Timer
 from src.chat.brain_chat.brain_planner import BrainPlanner
 from src.chat.planner_actions.action_modifier import ActionModifier
 from src.chat.planner_actions.action_manager import ActionManager
-from src.chat.heart_flow.hfc_utils import CycleDetail
+from src.chat.heart_flow.hfc_utils_old import CycleDetail
 from src.bw_learner.expression_learner_old import expression_learner_manager
 from src.bw_learner.message_recorder_old import extract_and_distribute_messages
 from src.person_info.person_info import Person

@@ -15,7 +15,7 @@ from src.chat.utils.timer_calculator import Timer
 from src.chat.planner_actions.planner import ActionPlanner
 from src.chat.planner_actions.action_modifier import ActionModifier
 from src.chat.planner_actions.action_manager import ActionManager
-from src.chat.heart_flow.hfc_utils import CycleDetail
+from src.chat.heart_flow.hfc_utils_old import CycleDetail
 from src.bw_learner.expression_learner_old import expression_learner_manager
 from src.chat.heart_flow.frequency_control import frequency_control_manager
 from src.bw_learner.reflect_tracker import reflect_tracker_manager
@@ -155,7 +155,7 @@ class HeartFChatting:
 
     def start_cycle(self) -> Tuple[Dict[str, float], str]:
         self._cycle_counter += 1
-        self._current_cycle_detail = CycleDetail(self._cycle_counter)
+        self._current_cycle_detail = CycleDetail(cycle_id=self._cycle_counter)
         self._current_cycle_detail.thinking_id = f"tid{str(round(time.time(), 2))}"
         cycle_timers = {}
         return cycle_timers, self._current_cycle_detail.thinking_id

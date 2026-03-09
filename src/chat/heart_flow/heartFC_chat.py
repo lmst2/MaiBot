@@ -1,5 +1,5 @@
 from rich.traceback import install
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, TYPE_CHECKING, Tuple, Dict
 
 import asyncio
 import time
@@ -7,13 +7,15 @@ import traceback
 import random
 
 from src.common.logger import get_logger
-from src.common.utils.utils_session import SessionUtils
+from src.common.utils.utils_config import ExpressionConfigUtils, ChatConfigUtils
 from src.config.config import global_config
 from src.config.file_watcher import FileChange
 from src.chat.message_receive.chat_manager import chat_manager
 from src.bw_learner.expression_reflector import ExpressionReflector
 from src.bw_learner.expression_learner import ExpressionLearner
 from src.bw_learner.jargon_miner import JargonMiner
+
+from .heartFC_utils import CycleDetail, CycleActionInfo, CyclePlanInfo
 
 if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
@@ -40,6 +42,7 @@ class HeartFChatting:
         self.session_id = session_id
         session_name = chat_manager.get_session_name(session_id) or session_id
         self.log_prefix = f"[{session_name}]"
+        self.session_name = session_name
 
         # 系统运行状态
         self._running: bool = False
@@ -57,12 +60,23 @@ class HeartFChatting:
         self._cycle_event = asyncio.Event()
 
         # 表达方式相关内容
+        self._min_messages_for_extraction = 30  # 最少提取消息数
+        self._min_extraction_interval = 60  # 最小提取时间间隔，单位为秒
+        self._last_extraction_time: float = 0.0  # 上次提取的时间戳
+        expr_use, jargon_learn, expr_learn = ExpressionConfigUtils.get_expression_config_for_chat(session_id)
+        self._enable_expression_use = expr_use  # 允许使用表达方式，但不一定启用学习
+        self._enable_expression_learning = expr_learn  # 允许学习表达方式
+        self._enable_jargon_learning = jargon_learn  # 允许学习黑话
         # 反思器
-        self._reflector: Optional[ExpressionReflector] = None
+        self._reflector: ExpressionReflector = ExpressionReflector(session_id)
         # 表达学习器
-        self._expression_learner: Optional[ExpressionLearner] = None
+        self._expression_learner: ExpressionLearner = ExpressionLearner(session_id)
         # 黑话挖掘器
-        self._jargon_miner: Optional[JargonMiner] = None
+        self._jargon_miner: JargonMiner = JargonMiner(session_id, session_name=session_name)
+
+        # TODO: ChatSummarizer 聊天总结器重构
+
+    # ====== 公开方法 ======
 
     async def start(self):
         """启动 HeartFChatting 的主循环"""
@@ -149,10 +163,18 @@ class HeartFChatting:
             await self.stop()  # 确保状态正确
             await asyncio.sleep(3)
             await self.start()  # 尝试重新启动
-        
-    async def _config_callback(self, file_change: FileChange):
-        
 
+    async def _config_callback(self, file_change: Optional[FileChange] = None):
+        """配置文件变更回调函数"""
+        # TODO: 根据配置文件变动重新计算相关参数：
+        """
+        需要计算的参数：
+        self._enable_expression_use = expr_use # 允许使用表达方式，但不一定启用学习
+        self._enable_expression_learning = expr_learn # 允许学习表达方式
+        self._enable_jargon_learning = jargon_learn # 允许学习黑话
+        """
+
+    # ====== 心流聊天核心逻辑 ======
     async def _hfc_func(self, mentioned_message: Optional["SessionMessage"] = None):
         """心流聊天的主循环逻辑"""
         if self._consecutive_no_reply_count >= 5:
@@ -166,7 +188,9 @@ class HeartFChatting:
             await asyncio.sleep(0.2)
             return True
 
-        talk_value_threshold = random.random() * self._get_talk_value(self.session_id) * self._talk_frequency_adjust
+        talk_value_threshold = (
+            random.random() * ChatConfigUtils.get_talk_value(self.session_id) * self._talk_frequency_adjust
+        )
         if mentioned_message and global_config.chat.mentioned_bot_reply:
             await self._judge_and_response(mentioned_message)
         elif random.random() < talk_value_threshold:
@@ -175,14 +199,23 @@ class HeartFChatting:
 
     async def _judge_and_response(self, mentioned_message: Optional["SessionMessage"] = None):
         """判定和生成回复"""
-        if self._reflector:
-            await self._reflector.check_and_ask()
-            if self._reflector.reflect_tracker.tracking and await self._reflector.reflect_tracker.trigger_tracker():
-                logger.info(f"{self.log_prefix} 追踪检查已解决，结束追踪器")
-                self._reflector.reflect_tracker.reset_tracker()  # 结束当前追踪器
-
+        await self._trigger_reflector()
+        asyncio.create_task(self._trigger_expression_learning(self.message_cache))
         # TODO: 完成反思器之后的逻辑
         start_time = time.time()
+        current_cycle_detail = self._start_cycle()
+        logger.info(f"{self.log_prefix} 开始第{self._cycle_counter}次思考")
+
+        # TODO: 动作检查逻辑
+        # TODO: Planner逻辑
+        # TODO: 动作执行逻辑
+
+        cycle_detail = self._end_cycle(current_cycle_detail)
+        if wait_time := global_config.chat.planner_smooth - (time.time() - start_time) > 0:
+            await asyncio.sleep(wait_time)
+        else:
+            await asyncio.sleep(0.1)  # 最小等待时间，避免过快循环
+        return True
 
     def _handle_loop_completion(self, task: asyncio.Task):
         """当 _hfc_func 任务完成时执行的回调。"""
@@ -195,59 +228,72 @@ class HeartFChatting:
         except asyncio.CancelledError:
             logger.info(f"{self.log_prefix} HeartFChatting: 结束了聊天")
 
-    def _get_talk_value(self, session_id: Optional[str]) -> float:
-        result = global_config.chat.talk_value or 0.0
-        if not global_config.chat.enable_talk_value_rules or not global_config.chat.talk_value_rules:
-            return result
-        local_time = time.localtime()
-        now_min = local_time.tm_hour * 60 + local_time.tm_min
+    # ====== 反思器和学习器触发逻辑 ======
+    async def _trigger_reflector(self):
+        await self._reflector.check_and_ask()
+        if self._reflector.reflect_tracker.tracking and await self._reflector.reflect_tracker.trigger_tracker():
+            logger.info(f"{self.log_prefix} 追踪检查已解决，结束追踪器")
+            self._reflector.reflect_tracker.reset_tracker()  # 结束当前追踪器
 
-        # 优先匹配会话相关的规则
-        if session_id:
-            for rule in global_config.chat.talk_value_rules:
-                if not rule.platform and not rule.item_id:
-                    continue  # 一起留空表示全局
-                if rule.rule_type == "group":
-                    rule_session_id = SessionUtils.calculate_session_id(rule.platform, group_id=str(rule.item_id))
-                else:
-                    rule_session_id = SessionUtils.calculate_session_id(rule.platform, user_id=str(rule.item_id))
-                if rule_session_id != session_id:
-                    continue  # 不匹配的会话ID，跳过
-                parsed_range = self._parse_range(rule.time)
-                if not parsed_range:
-                    continue  # 无法解析的时间范围，跳过
-                start_min, end_min = parsed_range
-                in_range: bool = False
-                if start_min <= end_min:
-                    in_range = start_min <= now_min <= end_min
-                else:  # 跨天的时间范围
-                    in_range = now_min >= start_min or now_min <= end_min
-                if in_range:
-                    return rule.value or 0.0  # 如果规则生效但没有设置值，返回0.0
+    async def _trigger_expression_learning(self, messages: List["SessionMessage"]):
+        self._expression_learner.add_messages(messages)
+        if time.time() - self._last_extraction_time < self._min_extraction_interval:
+            return
+        if self._expression_learner.get_cache_size() < self._min_messages_for_extraction:
+            return
+        extraction_end_time = time.time()
+        logger.info(
+            f"聊天流 {self.session_name} 提取到 {len(messages)} 条消息，"
+            f"时间窗口: {self._last_extraction_time:.2f} - {extraction_end_time:.2f}"
+        )
+        self._last_extraction_time = extraction_end_time
+        if self._enable_expression_learning:
+            asyncio.create_task(self._expression_learning())
 
-        # 没有匹配到会话相关的规则，继续匹配全局规则
-        for rule in global_config.chat.talk_value_rules:
-            if rule.platform or rule.item_id:
-                continue  # 只匹配全局规则
-            parsed_range = self._parse_range(rule.time)
-            if not parsed_range:
-                continue  # 无法解析的时间范围，跳过
-            start_min, end_min = parsed_range
-            in_range: bool = False
-            if start_min <= end_min:
-                in_range = start_min <= now_min <= end_min
-            else:  # 跨天的时间范围
-                in_range = now_min >= start_min or now_min <= end_min
-            if in_range:
-                return rule.value or 0.0  # 如果规则生效但没有设置值，返回0.0
-        return result  # 如果没有任何规则生效，返回默认值
-
-    def _parse_range(self, range_str: str) -> Optional[tuple[int, int]]:
-        """解析 "HH:MM-HH:MM" 到 (start_min, end_min)。"""
+    async def _expression_learning(self):
         try:
-            start_str, end_str = [s.strip() for s in range_str.split("-")]
-            sh, sm = [int(x) for x in start_str.split(":")]
-            eh, em = [int(x) for x in end_str.split(":")]
-            return sh * 60 + sm, eh * 60 + em
-        except Exception:
-            return None
+            learnt_style = await self._expression_learner.learn()
+            if learnt_style:
+                logger.info(f"{self.log_prefix} 表达学习完成")
+            else:
+                logger.debug(f"{self.log_prefix} 表达学习未获得有效结果")
+        except Exception as e:
+            logger.error(f"{self.log_prefix} 表达学习失败: {e}", exc_info=True)
+
+    # ====== 记录循环执行信息相关逻辑 ======
+    def _start_cycle(self) -> CycleDetail:
+        self._cycle_counter += 1
+        current_cycle_detail = CycleDetail(cycle_id=self._cycle_counter)
+        current_cycle_detail.thinking_id = f"tid{str(round(time.time(), 2))}"
+        return current_cycle_detail
+
+    def _end_cycle(self, cycle_detail: CycleDetail, only_long_execution: bool = True):
+        cycle_detail.end_time = time.time()
+        timer_strings: List[str] = [
+            f"{name}: {duration:.2f}s"
+            for name, duration in cycle_detail.time_records.items()
+            if not only_long_execution or duration >= 0.1
+        ]
+        logger.info(
+            f"{self.log_prefix} 第 {cycle_detail.cycle_id} 个心流循环完成"
+            f"耗时: {cycle_detail.end_time - cycle_detail.start_time:.2f}秒\n"
+            f"详细计时: {', '.join(timer_strings) if timer_strings else '无'}"
+        )
+
+        return cycle_detail
+
+    # ====== Action相关逻辑 ======
+    async def _execute_action(self, *args, **kwargs):
+        """原ExecuteAction"""
+        raise NotImplementedError("执行动作的逻辑尚未实现")  # TODO: 实现动作执行的逻辑，替换掉*args, **kwargs*占位符
+
+    async def _execute_other_actions(self, *args, **kwargs):
+        """原HandleAction"""
+        raise NotImplementedError(
+            "执行其他动作的逻辑尚未实现"
+        )  # TODO: 实现其他动作执行的逻辑, 替换掉*args, **kwargs*占位符
+
+    # ====== 响应发送相关方法 ======
+    async def _send_response(self, *args, **kwargs):
+        raise NotImplementedError("发送回复的逻辑尚未实现")  # TODO: 实现发送回复的逻辑，替换掉*args, **kwargs*占位符
+        # 传入的消息至少应该是个MessageSequence实例，最好是SessionMessage实例，随后可直接转化为MessageSending实例
