@@ -107,16 +107,6 @@ async def test_unsubscribe_stops_dispatch(tmp_path: Path):
     assert calls == 0
 
 
-async def _wait_for(predicate, timeout: float = 5.0, interval: float = 0.05):
-    """轮询等待 predicate() 为真，避免依赖固定 sleep 导致跨平台不稳定。"""
-    deadline = asyncio.get_event_loop().time() + timeout
-    while asyncio.get_event_loop().time() < deadline:
-        if predicate():
-            return
-        await asyncio.sleep(interval)
-    raise TimeoutError(f"等待超时({timeout}s)")
-
-
 @pytest.mark.asyncio
 async def test_add_callback_while_watcher_running(tmp_path: Path):
     dirs = (tmp_path / "a_dir").resolve()
@@ -137,12 +127,12 @@ async def test_add_callback_while_watcher_running(tmp_path: Path):
     try:
         with file.open("w") as f:
             f.write("change")
-        await _wait_for(lambda: calls >= 1)
+        await asyncio.sleep(0.2)
         assert calls == 1
         watcher.unsubscribe(uuid)
         with file.open("w") as f:
             f.write("change2")
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.2)
         assert calls == 1
     finally:
         await watcher.stop()
