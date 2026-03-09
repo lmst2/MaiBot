@@ -135,7 +135,6 @@ async def test_add_callback_while_watcher_running(tmp_path: Path):
     uuid = watcher.subscribe(callback, paths=[file])
     await watcher.start()
     try:
-        await asyncio.sleep(0.5)  # 等待 watcher 建立 baseline
         with file.open("w") as f:
             f.write("change")
         await _wait_for(lambda: calls >= 1)

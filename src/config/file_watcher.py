@@ -119,7 +119,9 @@ class FileWatcher:
         if not self._subscriptions:
             raise RuntimeError("启动文件监视器前必须至少注册一个订阅")
         self._running = True
+        self._ready_event = asyncio.Event()
         self._task = asyncio.create_task(self._run())
+        await self._ready_event.wait()
 
     async def stop(self) -> None:
         if not self._running:
@@ -138,9 +140,18 @@ class FileWatcher:
     async def _run(self) -> None:
         while self._running:
             try:
-                async for changes in awatch(*self._paths, debounce=self._debounce_ms, force_polling=self._force_polling):
+                async for changes in awatch(
+                    *self._paths,
+                    debounce=self._debounce_ms,
+                    force_polling=self._force_polling,
+                    yield_on_timeout=True,
+                ):
+                    if not self._ready_event.is_set():
+                        self._ready_event.set()
                     if not self._running:
                         break
+                    if not changes:
+                        continue
                     normalized_changes = self._normalize_changes(changes)
                     if not normalized_changes:
                         continue
