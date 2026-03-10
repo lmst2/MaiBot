@@ -53,7 +53,7 @@ class ExpressionLearner:
         if not self._messages_cache:
             logger.debug("没有消息可供学习，跳过学习过程")
             return
-        readable_message, _ = await MessageUtils.build_readable_message(
+        readable_message, _, _ = await MessageUtils.build_readable_message(
             self._messages_cache,
             anonymize=True,
             show_lineno=True,

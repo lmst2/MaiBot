@@ -47,7 +47,7 @@ def number_to_short_id(original_id: int, salt: str, length: int = 6) -> str:
     return short_id
 
 
-def translate_timestamp_to_human_readable(timestamp: float, mode: TimestampMode) -> str:
+def translate_timestamp_to_human_readable(timestamp: float, mode: TimestampMode | str) -> str:
     """将时间戳按照指定模式转换为人类可读的格式
 
     Args:
@@ -56,6 +56,11 @@ def translate_timestamp_to_human_readable(timestamp: float, mode: TimestampMode)
     Returns:
         str: 转换后的时间字符串
     """
+    if isinstance(mode, str):
+        if mode.upper() in TimestampMode.__members__:
+            mode = TimestampMode[mode.upper()]
+        else:
+            raise ValueError(f"不支持的时间戳转换模式: {mode}")
     if mode in [TimestampMode.NORMAL, TimestampMode.NORMAL_NO_YMD]:
         return time.strftime(mode.value, time.localtime(timestamp))
     elif mode == TimestampMode.RELATIVE:

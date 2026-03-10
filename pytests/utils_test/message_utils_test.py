@@ -203,7 +203,7 @@ def load_message_via_file(monkeypatch):
 def dummy_number_to_short_id(original_id: int, salt: str, length: int = 6) -> str:
     return "X" * length  # 返回固定的字符串，长度由参数决定，模拟生成短ID的行为
 
-def dummy_is_bot_self(user_id: str) -> bool:
+def dummy_is_bot_self(user_id: str, platform) -> bool:
     return user_id == "bot_self"
 
 def load_utils_via_file(monkeypatch):
@@ -212,6 +212,8 @@ def load_utils_via_file(monkeypatch):
     # Mock math_utils 模块，供 from .math_utils import number_to_short_id 使用
     math_utils_mod = ModuleType("src.common.utils.math_utils")
     math_utils_mod.number_to_short_id = dummy_number_to_short_id
+    math_utils_mod.TimestampMode = type("TimestampMode", (), {"NORMAL": "%Y-%m-%d %H:%M:%S", "NORMAL_NO_YMD": "%H:%M:%S", "RELATIVE": "relative"})
+    math_utils_mod.translate_timestamp_to_human_readable = lambda timestamp, mode: "2024-01-01 12:00:00"  # 返回固定的时间字符串
     monkeypatch.setitem(sys.modules, "src.common.utils.math_utils", math_utils_mod)
 
     # 确保包层级模块存在于 sys.modules 中，使相对导入能正确解析
@@ -252,7 +254,7 @@ async def test_build_readable_message_basic(monkeypatch):
     user_info = UserInfo(user_id="u1", user_nickname="Alice")
     msg.message_info = MessageInfo(user_info=user_info)
     msg.raw_message = MessageSequence([TextComponent("Hello world")])
-    text, mapping = await MessageUtils.build_readable_message([msg], anonymize=False, show_lineno=True)
+    text, mapping, _ = await MessageUtils.build_readable_message([msg], anonymize=False, show_lineno=True)
     assert "[1] Alice说：Hello world" in text
     assert mapping == {}
 
@@ -270,7 +272,7 @@ async def test_build_readable_message_anonymize(monkeypatch):
     user_info = UserInfo(user_id="u42", user_nickname="Bob")
     msg.message_info = MessageInfo(user_info=user_info)
     msg.raw_message = MessageSequence([TextComponent("Secret text")])
-    text, mapping = await MessageUtils.build_readable_message([msg], anonymize=True, show_lineno=False)
+    text, mapping, _ = await MessageUtils.build_readable_message([msg], anonymize=True, show_lineno=False)
     # 根据实现，original_name 为 user_nickname，因此文本中应包含原始名称
     assert "XXXXXX说：" in text
     assert "u42" in mapping
@@ -291,7 +293,7 @@ async def test_build_readable_message_replace_bot(monkeypatch):
     user_info = UserInfo(user_id="bot_self", user_nickname="SomeBot")
     msg.message_info = MessageInfo(user_info=user_info)
     msg.raw_message = MessageSequence([TextComponent("ping")])
-    text, mapping = await MessageUtils.build_readable_message([msg], replace_bot_name=True, target_bot_name="MAIBot")
+    text, mapping, _ = await MessageUtils.build_readable_message([msg], replace_bot_name=True, target_bot_name="MAIBot")
     assert "MAIBot说：ping" in text
 
 
@@ -309,7 +311,7 @@ async def test_build_readable_message_image_extraction(monkeypatch):
     msg.session_id = "s_img"
     msg.raw_message = MessageSequence([img])
     msg.message_info = MessageInfo(UserInfo(user_id="ui_img", user_nickname="ImgUser"))
-    text, mapping = await MessageUtils.build_readable_message([msg], extract_pictures=True)
+    text, mapping, _ = await MessageUtils.build_readable_message([msg], extract_pictures=True)
     # 应包含图片描述占位
     assert "图片1" in text
     # mapping 不为空（匿名化未开启则为空）
@@ -333,7 +335,7 @@ async def test_build_readable_message_anonymize_and_replace_bot_name_and_lineno(
     msg2.message_info = MessageInfo(UserInfo(user_id="bot_self", user_nickname="SomeBot"))
     msg1.raw_message = MessageSequence([TextComponent("Hi")])
     msg2.raw_message = MessageSequence([TextComponent("Hello")])
-    text, mapping = await MessageUtils.build_readable_message(
+    text, mapping, _ = await MessageUtils.build_readable_message(
         [msg1, msg2],
         anonymize=True,
         replace_bot_name=True,
@@ -361,7 +363,7 @@ async def test_build_readable_message_with_at(monkeypatch):
     msg.session_id = "s_at"
     msg.raw_message = MessageSequence([at_comp])
     msg.message_info = MessageInfo(UserInfo(user_id="u_main", user_nickname="MainUser"))
-    text, mapping = await MessageUtils.build_readable_message([msg], anonymize=True, replace_bot_name=True, target_bot_name="MAIBot")
+    text, mapping, _ = await MessageUtils.build_readable_message([msg], anonymize=True, replace_bot_name=True, target_bot_name="MAIBot")
     # 验证主消息和@组件中的用户信息都被处理
     assert "XXXXXX说：" in text  # 主消息用户被匿名化
     assert "XXXXXX说：@XXXXXX" in text  # @组件用户被匿名化
