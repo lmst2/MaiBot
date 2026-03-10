@@ -4,22 +4,21 @@ Host 端实现的能力服务，处理来自插件的 cap.* 请求。
 每个能力方法被注册到 RPC Server，接收 Runner 转发的请求并执行实际操作。
 """
 
-from typing import Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable, Dict, List
 
 from src.common.logger import get_logger
-
+from src.plugin_runtime.host.policy_engine import PolicyEngine
 from src.plugin_runtime.protocol.envelope import (
     CapabilityRequestPayload,
     CapabilityResponsePayload,
     Envelope,
 )
 from src.plugin_runtime.protocol.errors import ErrorCode, RPCError
-from src.plugin_runtime.host.policy_engine import PolicyEngine
 
 logger = get_logger("plugin_runtime.host.capability_service")
 
 # 能力实现函数类型: (plugin_id, capability, args) -> result
-CapabilityImpl = Callable[[str, str, dict[str, Any]], Awaitable[Any]]
+CapabilityImpl = Callable[[str, str, Dict[str, Any]], Awaitable[Any]]
 
 
 class CapabilityService:
@@ -35,7 +34,7 @@ class CapabilityService:
     def __init__(self, policy_engine: PolicyEngine):
         self._policy = policy_engine
         # capability_name -> implementation
-        self._implementations: dict[str, CapabilityImpl] = {}
+        self._implementations: Dict[str, CapabilityImpl] = {}
 
     def register_capability(self, name: str, impl: CapabilityImpl) -> None:
         """注册一个能力实现
@@ -95,6 +94,6 @@ class CapabilityService:
                 str(e),
             )
 
-    def list_capabilities(self) -> list[str]:
+    def list_capabilities(self) -> List[str]:
         """列出所有已注册的能力"""
         return list(self._implementations.keys())

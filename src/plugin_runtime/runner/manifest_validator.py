@@ -4,7 +4,7 @@
 适配新 plugin_runtime 的 _manifest.json 格式。
 """
 
-from typing import Any
+from typing import Any, Dict, List, Tuple
 
 import re
 
@@ -29,7 +29,7 @@ class VersionComparator:
         return ".".join(parts[:3])
 
     @staticmethod
-    def parse_version(version: str) -> tuple[int, int, int]:
+    def parse_version(version: str) -> Tuple[int, int, int]:
         normalized = VersionComparator.normalize_version(version)
         try:
             parts = normalized.split(".")
@@ -48,7 +48,7 @@ class VersionComparator:
         return 0
 
     @staticmethod
-    def is_in_range(version: str, min_version: str = "", max_version: str = "") -> tuple[bool, str]:
+    def is_in_range(version: str, min_version: str = "", max_version: str = "") -> Tuple[bool, str]:
         if not min_version and not max_version:
             return True, ""
         vn = VersionComparator.normalize_version(version)
@@ -72,10 +72,10 @@ class ManifestValidator:
 
     def __init__(self, host_version: str = ""):
         self._host_version = host_version
-        self.errors: list[str] = []
-        self.warnings: list[str] = []
+        self.errors: List[str] = []
+        self.warnings: List[str] = []
 
-    def validate(self, manifest: dict[str, Any]) -> bool:
+    def validate(self, manifest: Dict[str, Any]) -> bool:
         """校验 manifest 数据，返回是否通过（errors 为空即通过）。"""
         self.errors.clear()
         self.warnings.clear()
@@ -95,21 +95,21 @@ class ManifestValidator:
 
         return len(self.errors) == 0
 
-    def _check_required_fields(self, manifest: dict[str, Any]) -> None:
+    def _check_required_fields(self, manifest: Dict[str, Any]) -> None:
         for field in self.REQUIRED_FIELDS:
             if field not in manifest:
                 self.errors.append(f"缺少必需字段: {field}")
             elif not manifest[field]:
                 self.errors.append(f"必需字段不能为空: {field}")
 
-    def _check_manifest_version(self, manifest: dict[str, Any]) -> None:
+    def _check_manifest_version(self, manifest: Dict[str, Any]) -> None:
         mv = manifest.get("manifest_version")
         if mv is not None and mv not in self.SUPPORTED_MANIFEST_VERSIONS:
             self.errors.append(
                 f"不支持的 manifest_version: {mv}，支持: {self.SUPPORTED_MANIFEST_VERSIONS}"
             )
 
-    def _check_author(self, manifest: dict[str, Any]) -> None:
+    def _check_author(self, manifest: Dict[str, Any]) -> None:
         author = manifest.get("author")
         if author is None:
             return
@@ -122,7 +122,7 @@ class ManifestValidator:
         else:
             self.errors.append("author 应为字符串或 {name, url} 对象")
 
-    def _check_host_compatibility(self, manifest: dict[str, Any]) -> None:
+    def _check_host_compatibility(self, manifest: Dict[str, Any]) -> None:
         host_app = manifest.get("host_application")
         if not isinstance(host_app, dict) or not self._host_version:
             return
@@ -132,7 +132,7 @@ class ManifestValidator:
         if not ok:
             self.errors.append(f"Host 版本不兼容: {msg} (当前 Host: {self._host_version})")
 
-    def _check_recommended(self, manifest: dict[str, Any]) -> None:
+    def _check_recommended(self, manifest: Dict[str, Any]) -> None:
         for field in self.RECOMMENDED_FIELDS:
             if field not in manifest or not manifest[field]:
                 self.warnings.append(f"建议填写字段: {field}")

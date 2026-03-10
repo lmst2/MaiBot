@@ -8,7 +8,7 @@
 5. 发送能力调用请求到 Host
 """
 
-from typing import Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 import asyncio
 import contextlib
@@ -45,26 +45,26 @@ class RPCClient:
         self,
         host_address: str,
         session_token: str,
-        codec: Codec | None = None,
+        codec: Optional[Codec] = None,
     ):
         self._host_address = host_address
         self._session_token = session_token
         self._codec = codec or MsgPackCodec()
 
         self._id_gen = RequestIdGenerator()
-        self._connection: Connection | None = None
+        self._connection: Optional[Connection] = None
         self._runner_id = str(uuid.uuid4())
         self._generation: int = 0
 
         # 方法处理器注册表（Host 发来的调用）
-        self._method_handlers: dict[str, MethodHandler] = {}
+        self._method_handlers: Dict[str, MethodHandler] = {}
 
         # 等待响应的 pending 请求: request_id -> Future
-        self._pending_requests: dict[int, asyncio.Future] = {}
+        self._pending_requests: Dict[int, asyncio.Future] = {}
 
         # 运行状态
         self._running = False
-        self._recv_task: asyncio.Task | None = None
+        self._recv_task: Optional[asyncio.Task] = None
 
     @property
     def generation(self) -> int:
@@ -147,7 +147,7 @@ class RPCClient:
         self,
         method: str,
         plugin_id: str = "",
-        payload: dict[str, Any] | None = None,
+        payload: Optional[Dict[str, Any]] = None,
         timeout_ms: int = 30000,
     ) -> Envelope:
         """向 Host 发送 RPC 请求并等待响应"""

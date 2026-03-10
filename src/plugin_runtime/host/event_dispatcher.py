@@ -7,7 +7,7 @@
 4. 事件结果历史记录
 """
 
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple
 
 import asyncio
 
@@ -17,7 +17,7 @@ from src.plugin_runtime.host.component_registry import ComponentRegistry, Regist
 logger = get_logger("plugin_runtime.host.event_dispatcher")
 
 # invoke_fn 类型: async (plugin_id, component_name, args) -> response_payload dict
-InvokeFn = Callable[[str, str, dict[str, Any]], Awaitable[dict[str, Any]]]
+InvokeFn = Callable[[str, str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
 
 
 class EventResult:
@@ -29,7 +29,7 @@ class EventResult:
         handler_name: str,
         success: bool = True,
         continue_processing: bool = True,
-        modified_message: dict[str, Any] | None = None,
+        modified_message: Optional[Dict[str, Any]] = None,
         custom_result: Any = None,
     ):
         self.handler_name = handler_name
@@ -49,14 +49,14 @@ class EventDispatcher:
 
     def __init__(self, registry: ComponentRegistry) -> None:
         self._registry: ComponentRegistry = registry
-        self._result_history: dict[str, list[EventResult]] = {}
-        self._history_enabled: set[str] = set()
+        self._result_history: Dict[str, List[EventResult]] = {}
+        self._history_enabled: Set[str] = set()
 
     def enable_history(self, event_type: str) -> None:
         self._history_enabled.add(event_type)
         self._result_history.setdefault(event_type, [])
 
-    def get_history(self, event_type: str) -> list[EventResult]:
+    def get_history(self, event_type: str) -> List[EventResult]:
         return self._result_history.get(event_type, [])
 
     def clear_history(self, event_type: str) -> None:
@@ -67,9 +67,9 @@ class EventDispatcher:
         self,
         event_type: str,
         invoke_fn: InvokeFn,
-        message: dict[str, Any] | None = None,
-        extra_args: dict[str, Any] | None = None,
-    ) -> tuple[bool, dict[str, Any] | None]:
+        message: Optional[Dict[str, Any]] = None,
+        extra_args: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
         """分发事件到所有对应 handler。
 
         Args:
@@ -86,8 +86,8 @@ class EventDispatcher:
             return True, None
 
         should_continue = True
-        modified_message: dict[str, Any] | None = None
-        fire_and_forget_tasks: list[asyncio.Task] = []
+        modified_message: Optional[Dict[str, Any]] = None
+        fire_and_forget_tasks: List[asyncio.Task] = []
 
         for handler in handlers:
             intercept = handler.metadata.get("intercept_message", False)
@@ -122,9 +122,9 @@ class EventDispatcher:
         self,
         invoke_fn: InvokeFn,
         handler: RegisteredComponent,
-        args: dict[str, Any],
+        args: Dict[str, Any],
         event_type: str,
-    ) -> EventResult | None:
+    ) -> Optional[EventResult]:
         """调用单个 handler 并收集结果。"""
         try:
             resp = await invoke_fn(handler.plugin_id, handler.name, args)

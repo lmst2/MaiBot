@@ -5,9 +5,8 @@
 """
 
 from enum import Enum
-from typing import Any
-
 from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
 
 import time
 
@@ -62,8 +61,8 @@ class Envelope(BaseModel):
     timestamp_ms: int = Field(default_factory=lambda: int(time.time() * 1000), description="发送时间戳(ms)")
     timeout_ms: int = Field(default=30000, description="相对超时(ms)")
     generation: int = Field(default=0, description="Runner generation 编号")
-    payload: dict[str, Any] = Field(default_factory=dict, description="业务数据")
-    error: dict[str, Any] | None = Field(default=None, description="错误信息(仅 response)")
+    payload: Dict[str, Any] = Field(default_factory=dict, description="业务数据")
+    error: Optional[Dict[str, Any]] = Field(default=None, description="错误信息(仅 response)")
 
     def is_request(self) -> bool:
         return self.message_type == MessageType.REQUEST
@@ -74,7 +73,7 @@ class Envelope(BaseModel):
     def is_event(self) -> bool:
         return self.message_type == MessageType.EVENT
 
-    def make_response(self, payload: dict[str, Any] | None = None, error: dict[str, Any] | None = None) -> "Envelope":
+    def make_response(self, payload: Optional[Dict[str, Any]] = None, error: Optional[Dict[str, Any]] = None) -> "Envelope":
         """基于当前请求创建对应的响应信封"""
         return Envelope(
             protocol_version=self.protocol_version,
@@ -87,7 +86,7 @@ class Envelope(BaseModel):
             error=error,
         )
 
-    def make_error_response(self, code: str, message: str = "", details: dict | None = None) -> "Envelope":
+    def make_error_response(self, code: str, message: str = "", details: Optional[Dict[str, Any]] = None) -> "Envelope":
         """基于当前请求创建错误响应"""
         return self.make_response(
             error={
@@ -122,15 +121,15 @@ class ComponentDeclaration(BaseModel):
     name: str = Field(description="组件名称")
     component_type: str = Field(description="组件类型: action/command/tool/event_handler")
     plugin_id: str = Field(description="所属插件 ID")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="组件元数据")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="组件元数据")
 
 
 class RegisterComponentsPayload(BaseModel):
     """plugin.register_components 请求 payload"""
     plugin_id: str = Field(description="插件 ID")
     plugin_version: str = Field(default="1.0.0", description="插件版本")
-    components: list[ComponentDeclaration] = Field(default_factory=list, description="组件列表")
-    capabilities_required: list[str] = Field(default_factory=list, description="所需能力列表")
+    components: List[ComponentDeclaration] = Field(default_factory=list, description="组件列表")
+    capabilities_required: List[str] = Field(default_factory=list, description="所需能力列表")
 
 
 # ─── 调用消息 ──────────────────────────────────────────────────────
@@ -138,7 +137,7 @@ class RegisterComponentsPayload(BaseModel):
 class InvokePayload(BaseModel):
     """plugin.invoke_* 请求 payload"""
     component_name: str = Field(description="要调用的组件名称")
-    args: dict[str, Any] = Field(default_factory=dict, description="调用参数")
+    args: Dict[str, Any] = Field(default_factory=dict, description="调用参数")
 
 
 class InvokeResultPayload(BaseModel):
@@ -152,7 +151,7 @@ class InvokeResultPayload(BaseModel):
 class CapabilityRequestPayload(BaseModel):
     """cap.* 请求 payload（插件 -> Host 能力调用）"""
     capability: str = Field(description="能力名称，如 send.text, db.query")
-    args: dict[str, Any] = Field(default_factory=dict, description="调用参数")
+    args: Dict[str, Any] = Field(default_factory=dict, description="调用参数")
 
 
 class CapabilityResponsePayload(BaseModel):
@@ -166,7 +165,7 @@ class CapabilityResponsePayload(BaseModel):
 class HealthPayload(BaseModel):
     """plugin.health 响应 payload"""
     healthy: bool = Field(description="是否健康")
-    loaded_plugins: list[str] = Field(default_factory=list, description="已加载的插件列表")
+    loaded_plugins: List[str] = Field(default_factory=list, description="已加载的插件列表")
     uptime_ms: int = Field(default=0, description="运行时长(ms)")
 
 
@@ -176,7 +175,7 @@ class ConfigUpdatedPayload(BaseModel):
     """plugin.config_updated 事件 payload"""
     plugin_id: str = Field(description="插件 ID")
     config_version: str = Field(description="新配置版本")
-    config_data: dict[str, Any] = Field(default_factory=dict, description="配置内容")
+    config_data: Dict[str, Any] = Field(default_factory=dict, description="配置内容")
 
 
 # ─── 关停 ──────────────────────────────────────────────────────────

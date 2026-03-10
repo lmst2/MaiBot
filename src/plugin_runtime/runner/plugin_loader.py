@@ -7,7 +7,7 @@
 """
 
 from collections import deque
-from typing import Any
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import importlib
 import importlib.util
@@ -29,7 +29,7 @@ class PluginMeta:
         plugin_id: str,
         plugin_dir: str,
         plugin_instance: Any,
-        manifest: dict[str, Any],
+        manifest: Dict[str, Any],
     ):
         self.plugin_id = plugin_id
         self.plugin_dir = plugin_dir
@@ -37,12 +37,12 @@ class PluginMeta:
         self.manifest = manifest
         self.version = manifest.get("version", "1.0.0")
         self.capabilities_required = manifest.get("capabilities", [])
-        self.dependencies: list[str] = self._extract_dependencies(manifest)
+        self.dependencies: List[str] = self._extract_dependencies(manifest)
 
     @staticmethod
-    def _extract_dependencies(manifest: dict[str, Any]) -> list[str]:
+    def _extract_dependencies(manifest: Dict[str, Any]) -> List[str]:
         raw = manifest.get("dependencies", [])
-        result: list[str] = []
+        result: List[str] = []
         for dep in raw:
             if isinstance(dep, str):
                 result.append(dep.strip())
@@ -62,12 +62,12 @@ class PluginLoader:
     """
 
     def __init__(self, host_version: str = ""):
-        self._loaded_plugins: dict[str, PluginMeta] = {}
-        self._failed_plugins: dict[str, str] = {}
+        self._loaded_plugins: Dict[str, PluginMeta] = {}
+        self._failed_plugins: Dict[str, str] = {}
         self._manifest_validator = ManifestValidator(host_version=host_version)
         self._compat_hook_installed = False
 
-    def discover_and_load(self, plugin_dirs: list[str]) -> list[PluginMeta]:
+    def discover_and_load(self, plugin_dirs: List[str]) -> List[PluginMeta]:
         """扫描多个目录并加载所有插件（含依赖排序和 manifest 校验）
 
         Args:
@@ -77,7 +77,7 @@ class PluginLoader:
             成功加载的插件元数据列表（按依赖顺序）
         """
         # 第一阶段：发现并校验 manifest
-        candidates: dict[str, tuple[str, dict[str, Any], str]] = {}  # id -> (dir, manifest, plugin_path)
+        candidates: Dict[str, Tuple[str, Dict[str, Any], str]] = {}  # id -> (dir, manifest, plugin_path)
         for base_dir in plugin_dirs:
             if not os.path.isdir(base_dir):
                 logger.warning(f"插件目录不存在: {base_dir}")
@@ -131,33 +131,33 @@ class PluginLoader:
 
         return results
 
-    def get_plugin(self, plugin_id: str) -> PluginMeta | None:
+    def get_plugin(self, plugin_id: str) -> Optional[PluginMeta]:
         """获取已加载的插件"""
         return self._loaded_plugins.get(plugin_id)
 
-    def list_plugins(self) -> list[str]:
+    def list_plugins(self) -> List[str]:
         """列出所有已加载的插件 ID"""
         return list(self._loaded_plugins.keys())
 
     @property
-    def failed_plugins(self) -> dict[str, str]:
+    def failed_plugins(self) -> Dict[str, str]:
         return dict(self._failed_plugins)
 
     # ──── 依赖解析 ────────────────────────────────────────────
 
     def _resolve_dependencies(
         self,
-        candidates: dict[str, tuple[str, dict[str, Any], str]],
-    ) -> tuple[list[str], dict[str, str]]:
+        candidates: Dict[str, Tuple[str, Dict[str, Any], str]],
+    ) -> Tuple[List[str], Dict[str, str]]:
         """拓扑排序解析加载顺序，返回 (有序列表, 失败项 {id: reason})。"""
         available = set(candidates.keys())
-        dep_graph: dict[str, set[str]] = {}
-        failed: dict[str, str] = {}
+        dep_graph: Dict[str, Set[str]] = {}
+        failed: Dict[str, str] = {}
 
         for pid, (_, manifest, _) in candidates.items():
             raw_deps = manifest.get("dependencies", [])
-            resolved: set[str] = set()
-            missing: list[str] = []
+            resolved: Set[str] = set()
+            missing: List[str] = []
             for dep in raw_deps:
                 dep_name = dep if isinstance(dep, str) else str(dep.get("name", ""))
                 dep_name = dep_name.strip()
@@ -177,14 +177,14 @@ class PluginLoader:
 
         # Kahn 拓扑排序
         indegree = {pid: len(deps) for pid, deps in dep_graph.items()}
-        reverse: dict[str, set[str]] = {pid: set() for pid in dep_graph}
+        reverse: Dict[str, Set[str]] = {pid: set() for pid in dep_graph}
         for pid, deps in dep_graph.items():
             for d in deps:
                 if d in reverse:
                     reverse[d].add(pid)
 
         queue = deque(sorted(pid for pid, deg in indegree.items() if deg == 0))
-        sorted_order: list[str] = []
+        sorted_order: List[str] = []
 
         while queue:
             current = queue.popleft()
@@ -206,9 +206,9 @@ class PluginLoader:
         self,
         plugin_id: str,
         plugin_dir: str,
-        manifest: dict[str, Any],
+        manifest: Dict[str, Any],
         plugin_path: str,
-    ) -> PluginMeta | None:
+    ) -> Optional[PluginMeta]:
         """加载单个插件"""
         # 确保兼容层导入钩子已安装（旧版插件可能 import src.plugin_system）
         self._ensure_compat_hook()
@@ -267,7 +267,7 @@ class PluginLoader:
             logger.debug("maibot_sdk.compat 不可用，跳过导入钩子安装")
 
     @staticmethod
-    def _try_load_legacy_plugin(module: Any, plugin_id: str) -> Any | None:
+    def _try_load_legacy_plugin(module: Any, plugin_id: str) -> Optional[Any]:
         """尝试从模块中发现旧版 BasePlugin 子类并包装为 LegacyPluginAdapter"""
         # 方式 1: @register_plugin 装饰器设置的标记
         legacy_cls = getattr(module, "_legacy_plugin_class", None)

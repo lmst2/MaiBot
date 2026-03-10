@@ -5,6 +5,7 @@
 """
 
 from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Set, Tuple
 
 
 @dataclass
@@ -12,7 +13,7 @@ class CapabilityToken:
     """能力令牌"""
     plugin_id: str
     generation: int
-    capabilities: set[str] = field(default_factory=set)
+    capabilities: Set[str] = field(default_factory=set)
 
 
 class PolicyEngine:
@@ -22,13 +23,13 @@ class PolicyEngine:
     """
 
     def __init__(self):
-        self._tokens: dict[str, CapabilityToken] = {}
+        self._tokens: Dict[str, CapabilityToken] = {}
 
     def register_plugin(
         self,
         plugin_id: str,
         generation: int,
-        capabilities: list[str],
+        capabilities: List[str],
     ) -> CapabilityToken:
         """为插件签发能力令牌"""
         token = CapabilityToken(
@@ -43,7 +44,7 @@ class PolicyEngine:
         """撤销插件的能力令牌"""
         self._tokens.pop(plugin_id, None)
 
-    def check_capability(self, plugin_id: str, capability: str) -> tuple[bool, str]:
+    def check_capability(self, plugin_id: str, capability: str) -> Tuple[bool, str]:
         """检查插件是否有权调用某项能力
 
         Returns:
@@ -58,10 +59,10 @@ class PolicyEngine:
 
         return True, ""
 
-    def get_token(self, plugin_id: str) -> CapabilityToken | None:
+    def get_token(self, plugin_id: str) -> Optional[CapabilityToken]:
         """获取插件的能力令牌"""
         return self._tokens.get(plugin_id)
 
-    def list_plugins(self) -> list[str]:
+    def list_plugins(self) -> List[str]:
         """列出所有已注册的插件"""
         return list(self._tokens.keys())

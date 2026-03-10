@@ -9,9 +9,10 @@
 - 注册统计
 """
 
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 from src.common.logger import get_logger
+
 import re
 
 logger = get_logger("plugin_runtime.host.component_registry")
@@ -30,7 +31,7 @@ class RegisteredComponent:
         name: str,
         component_type: str,
         plugin_id: str,
-        metadata: dict[str, Any],
+        metadata: Dict[str, Any],
     ):
         self.name = name
         self.full_name = f"{plugin_id}.{name}"
@@ -40,7 +41,7 @@ class RegisteredComponent:
         self.enabled = metadata.get("enabled", True)
 
         # 预编译命令正则（仅 command 类型）
-        self._compiled_pattern: re.Pattern | None = None
+        self._compiled_pattern: Optional[re.Pattern] = None
         if component_type == "command":
             if pattern := metadata.get("command_pattern", ""):
                 try:
@@ -58,10 +59,10 @@ class ComponentRegistry:
 
     def __init__(self):
         # 全量索引
-        self._components: dict[str, RegisteredComponent] = {}  # full_name -> comp
+        self._components: Dict[str, RegisteredComponent] = {}  # full_name -> comp
 
         # 按类型索引
-        self._by_type: dict[str, dict[str, RegisteredComponent]] = {
+        self._by_type: Dict[str, Dict[str, RegisteredComponent]] = {
             "action": {},
             "command": {},
             "tool": {},
@@ -70,7 +71,7 @@ class ComponentRegistry:
         }
 
         # 按插件索引
-        self._by_plugin: dict[str, list[RegisteredComponent]] = {}
+        self._by_plugin: Dict[str, List[RegisteredComponent]] = {}
 
     # ──── 注册 / 注销 ─────────────────────────────────────────
 
@@ -79,7 +80,7 @@ class ComponentRegistry:
         name: str,
         component_type: str,
         plugin_id: str,
-        metadata: dict[str, Any],
+        metadata: Dict[str, Any],
     ) -> bool:
         """注册单个组件。"""
         comp = RegisteredComponent(name, component_type, plugin_id, metadata)
@@ -99,7 +100,7 @@ class ComponentRegistry:
     def register_plugin_components(
         self,
         plugin_id: str,
-        components: list[dict[str, Any]],
+        components: List[Dict[str, Any]],
     ) -> int:
         """批量注册一个插件的所有组件，返回成功注册数。"""
         count = 0
@@ -142,13 +143,13 @@ class ComponentRegistry:
 
     # ──── 查询方法 ─────────────────────────────────────────────
 
-    def get_component(self, full_name: str) -> RegisteredComponent | None:
+    def get_component(self, full_name: str) -> Optional[RegisteredComponent]:
         """按全名查询。"""
         return self._components.get(full_name)
 
     def get_components_by_type(
         self, component_type: str, *, enabled_only: bool = True
-    ) -> list[RegisteredComponent]:
+    ) -> List[RegisteredComponent]:
         """按类型查询。"""
         type_dict = self._by_type.get(component_type, {})
         if enabled_only:
@@ -157,12 +158,12 @@ class ComponentRegistry:
 
     def get_components_by_plugin(
         self, plugin_id: str, *, enabled_only: bool = True
-    ) -> list[RegisteredComponent]:
+    ) -> List[RegisteredComponent]:
         """按插件查询。"""
         comps = self._by_plugin.get(plugin_id, [])
         return [c for c in comps if c.enabled] if enabled_only else list(comps)
 
-    def find_command_by_text(self, text: str) -> RegisteredComponent | None:
+    def find_command_by_text(self, text: str) -> Optional[RegisteredComponent]:
         """通过文本匹配命令正则，返回第一个匹配的 command 组件。"""
         for comp in self._by_type.get("command", {}).values():
             if not comp.enabled:
@@ -178,7 +179,7 @@ class ComponentRegistry:
 
     def get_event_handlers(
         self, event_type: str, *, enabled_only: bool = True
-    ) -> list[RegisteredComponent]:
+    ) -> List[RegisteredComponent]:
         """获取特定事件类型的所有 event_handler，按 weight 降序排列。"""
         handlers = []
         for comp in self._by_type.get("event_handler", {}).values():
@@ -191,7 +192,7 @@ class ComponentRegistry:
 
     def get_workflow_steps(
         self, stage: str, *, enabled_only: bool = True
-    ) -> list[RegisteredComponent]:
+    ) -> List[RegisteredComponent]:
         """获取特定 workflow 阶段的所有步骤，按 priority 降序。"""
         steps = []
         for comp in self._by_type.get("workflow_step", {}).values():
@@ -202,11 +203,11 @@ class ComponentRegistry:
         steps.sort(key=lambda c: c.metadata.get("priority", 0), reverse=True)
         return steps
 
-    def get_tools_for_llm(self, *, enabled_only: bool = True) -> list[dict[str, Any]]:
+    def get_tools_for_llm(self, *, enabled_only: bool = True) -> List[Dict[str, Any]]:
         """获取可供 LLM 使用的工具列表（openai function-calling 格式预览）。"""
-        result = []
+        result: List[Dict[str, Any]] = []
         for comp in self.get_components_by_type("tool", enabled_only=enabled_only):
-            tool_def: dict[str, Any] = {
+            tool_def: Dict[str, Any] = {
                 "name": comp.full_name,
                 "description": comp.metadata.get("description", ""),
             }
@@ -222,9 +223,9 @@ class ComponentRegistry:
 
     # ──── 统计 ─────────────────────────────────────────────────
 
-    def get_stats(self) -> dict[str, int]:
+    def get_stats(self) -> Dict[str, int]:
         """获取注册统计。"""
-        stats: dict[str, int] = {"total": len(self._components)}
+        stats: Dict[str, int] = {"total": len(self._components)}
         for comp_type, type_dict in self._by_type.items():
             stats[comp_type] = len(type_dict)
         stats["plugins"] = len(self._by_plugin)

@@ -7,9 +7,7 @@
 4. 提供统一的能力实现注册接口，使插件可以调用主程序功能
 """
 
-from __future__ import annotations
-
-from typing import Any
+from typing import Any, Dict, List, Optional, Tuple
 
 import asyncio
 import os
@@ -19,7 +17,7 @@ from src.common.logger import get_logger
 logger = get_logger("plugin_runtime.integration")
 
 # 旧系统 EventType -> 新系统 event_type 字符串映射
-_EVENT_TYPE_MAP: dict[str, str] = {
+_EVENT_TYPE_MAP: Dict[str, str] = {
     "on_start": "on_start",
     "on_stop": "on_stop",
     "on_message_pre_process": "on_message_pre_process",
@@ -42,20 +40,20 @@ class PluginRuntimeManager:
     def __init__(self) -> None:
         from src.plugin_runtime.host.supervisor import PluginSupervisor
 
-        self._builtin_supervisor: PluginSupervisor | None = None
-        self._thirdparty_supervisor: PluginSupervisor | None = None
+        self._builtin_supervisor: Optional[PluginSupervisor] = None
+        self._thirdparty_supervisor: Optional[PluginSupervisor] = None
         self._started: bool = False
 
     # ─── 插件目录 ─────────────────────────────────────────────
 
     @staticmethod
-    def _get_builtin_plugin_dirs() -> list[str]:
+    def _get_builtin_plugin_dirs() -> List[str]:
         """内置插件目录: src/plugins/built_in/"""
         candidate = os.path.abspath(os.path.join("src", "plugins", "built_in"))
         return [candidate] if os.path.isdir(candidate) else []
 
     @staticmethod
-    def _get_thirdparty_plugin_dirs() -> list[str]:
+    def _get_thirdparty_plugin_dirs() -> List[str]:
         """第三方插件目录: plugins/"""
         candidate = os.path.abspath("plugins")
         return [candidate] if os.path.isdir(candidate) else []
@@ -136,7 +134,7 @@ class PluginRuntimeManager:
         return self._started
 
     @property
-    def supervisors(self) -> list[Any]:
+    def supervisors(self) -> List[Any]:
         """获取所有活跃的 Supervisor"""
         return [s for s in (self._builtin_supervisor, self._thirdparty_supervisor) if s is not None]
 
@@ -145,9 +143,9 @@ class PluginRuntimeManager:
     async def bridge_event(
         self,
         event_type_value: str,
-        message_dict: dict[str, Any] | None = None,
-        extra_args: dict[str, Any] | None = None,
-    ) -> tuple[bool, dict[str, Any] | None]:
+        message_dict: Optional[Dict[str, Any]] = None,
+        extra_args: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
         """将事件分发到所有 Supervisor
 
         Returns:
@@ -157,7 +155,7 @@ class PluginRuntimeManager:
             return True, None
 
         new_event_type: str = _EVENT_TYPE_MAP.get(event_type_value, event_type_value)
-        modified: dict[str, Any] | None = None
+        modified: Optional[Dict[str, Any]] = None
 
         for sv in self.supervisors:
             try:
@@ -177,7 +175,7 @@ class PluginRuntimeManager:
 
     # ─── 命令查找 ──────────────────────────────────────────────
 
-    def find_command_by_text(self, text: str) -> dict[str, Any] | None:
+    def find_command_by_text(self, text: str) -> Optional[Dict[str, Any]]:
         """在所有 Supervisor 的 ComponentRegistry 中查找命令"""
         if not self._started:
             return None
@@ -281,7 +279,7 @@ class PluginRuntimeManager:
     # ═════════════════════════════════════════════════════════
 
     @staticmethod
-    async def _cap_send_text(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_send_text(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """发送文本消息
 
         args: text, stream_id, typing?, set_reply?, storage_message?
@@ -307,7 +305,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_send_emoji(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_send_emoji(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """发送表情
 
         args: emoji_base64, stream_id, storage_message?
@@ -331,7 +329,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_send_image(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_send_image(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """发送图片
 
         args: image_base64, stream_id, storage_message?
@@ -355,7 +353,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_send_command(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_send_command(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """发送命令
 
         args: command, stream_id, storage_message?, display_message?
@@ -380,7 +378,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_send_custom(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_send_custom(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """发送自定义类型消息
 
         args: message_type, content, stream_id, display_message?, typing?, storage_message?
@@ -408,7 +406,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_send_forward(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_send_forward(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """发送转发消息
 
         args: messages, stream_id
@@ -431,7 +429,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_send_hybrid(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_send_hybrid(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """发送混合消息（图文混合）
 
         args: segments, stream_id
@@ -458,7 +456,7 @@ class PluginRuntimeManager:
     # ═════════════════════════════════════════════════════════
 
     @staticmethod
-    async def _cap_llm_generate(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_llm_generate(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """LLM 生成
 
         args: prompt, model_name?, temperature?, max_tokens?
@@ -501,7 +499,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_llm_generate_with_tools(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_llm_generate_with_tools(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """LLM 带工具生成
 
         args: prompt, model_name?, tool_options?, temperature?, max_tokens?
@@ -554,7 +552,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_llm_get_available_models(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_llm_get_available_models(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取可用模型列表"""
         from src.services import llm_service as llm_api
 
@@ -570,7 +568,7 @@ class PluginRuntimeManager:
     # ═════════════════════════════════════════════════════════
 
     @staticmethod
-    async def _cap_config_get(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_config_get(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """读取全局配置
 
         args: key, default?
@@ -590,7 +588,7 @@ class PluginRuntimeManager:
             return {"success": False, "value": None, "error": str(e)}
 
     @staticmethod
-    async def _cap_config_get_plugin(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_config_get_plugin(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """读取插件配置
 
         args: key, default?, plugin_name?
@@ -617,7 +615,7 @@ class PluginRuntimeManager:
             return {"success": False, "value": default, "error": str(e)}
 
     @staticmethod
-    async def _cap_config_get_all(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_config_get_all(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取当前插件的全部配置"""
         from src.core.component_registry import component_registry as core_registry
 
@@ -636,7 +634,7 @@ class PluginRuntimeManager:
     # ═════════════════════════════════════════════════════════
 
     @staticmethod
-    async def _cap_database_query(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_database_query(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """数据库查询
 
         args: model_name, query_type?, filters?, limit?, order_by?, data?, single_result?
@@ -670,7 +668,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_database_save(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_database_save(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """数据库保存
 
         args: model_name, data, key_field?, key_value?
@@ -678,7 +676,7 @@ class PluginRuntimeManager:
         from src.services import database_service as database_api
 
         model_name: str = args.get("model_name", "")
-        data: dict[str, Any] | None = args.get("data")
+        data: Optional[Dict[str, Any]] = args.get("data")
         if not model_name or not data:
             return {"success": False, "error": "缺少必要参数 model_name 或 data"}
 
@@ -701,7 +699,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_database_get(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_database_get(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """数据库简单查询
 
         args: model_name, filters?, limit?, order_by?, single_result?
@@ -732,7 +730,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_database_delete(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_database_delete(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """数据库删除
 
         args: model_name, filters
@@ -763,7 +761,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_database_count(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_database_count(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """数据库计数
 
         args: model_name, filters?
@@ -795,7 +793,7 @@ class PluginRuntimeManager:
     # ═════════════════════════════════════════════════════════
 
     @staticmethod
-    def _serialize_stream(stream: Any) -> dict[str, Any]:
+    def _serialize_stream(stream: Any) -> Dict[str, Any]:
         """将 BotChatSession 序列化为可通过 RPC 传输的字典"""
         return {
             "session_id": getattr(stream, "session_id", ""),
@@ -806,7 +804,7 @@ class PluginRuntimeManager:
         }
 
     @staticmethod
-    async def _cap_chat_get_all_streams(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_chat_get_all_streams(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取所有聊天流
 
         args: platform?
@@ -825,7 +823,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_chat_get_group_streams(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_chat_get_group_streams(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取所有群聊流
 
         args: platform?
@@ -844,7 +842,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_chat_get_private_streams(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_chat_get_private_streams(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取所有私聊流
 
         args: platform?
@@ -863,7 +861,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_chat_get_stream_by_group_id(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_chat_get_stream_by_group_id(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """按群 ID 查找聊天流
 
         args: group_id, platform?
@@ -885,7 +883,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_chat_get_stream_by_user_id(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_chat_get_stream_by_user_id(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """按用户 ID 查找私聊流
 
         args: user_id, platform?
@@ -911,9 +909,9 @@ class PluginRuntimeManager:
     # ═════════════════════════════════════════════════════════
 
     @staticmethod
-    def _serialize_messages(messages: list) -> list[dict[str, Any]]:
+    def _serialize_messages(messages: list) -> List[Dict[str, Any]]:
         """将 DatabaseMessages 列表序列化为 dict 列表"""
-        result: list[dict[str, Any]] = []
+        result: List[Dict[str, Any]] = []
         for msg in messages:
             if hasattr(msg, "model_dump"):
                 result.append(msg.model_dump())
@@ -924,7 +922,7 @@ class PluginRuntimeManager:
         return result
 
     @staticmethod
-    async def _cap_message_get_by_time(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_message_get_by_time(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """按时间范围查询消息
 
         args: start_time, end_time, limit?, filter_mai?
@@ -948,7 +946,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_message_get_by_time_in_chat(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_message_get_by_time_in_chat(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """按时间范围查询指定聊天消息
 
         args: chat_id, start_time, end_time, limit?, filter_mai?, filter_command?
@@ -975,7 +973,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_message_get_recent(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_message_get_recent(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取最近的消息
 
         args: chat_id, hours?, limit?, filter_mai?
@@ -1000,7 +998,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_message_count_new(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_message_count_new(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """统计新消息数量
 
         args: chat_id, start_time?, end_time?
@@ -1023,7 +1021,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_message_build_readable(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_message_build_readable(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """将消息列表构建成可读字符串
 
         args: chat_id, start_time, end_time, limit?, replace_bot_name?, timestamp_mode?
@@ -1057,7 +1055,7 @@ class PluginRuntimeManager:
     # ═════════════════════════════════════════════════════════
 
     @staticmethod
-    async def _cap_person_get_id(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_person_get_id(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取 person_id
 
         args: platform, user_id
@@ -1077,7 +1075,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_person_get_value(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_person_get_value(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取用户字段值
 
         args: person_id, field_name, default?
@@ -1101,7 +1099,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_person_get_id_by_name(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_person_get_id_by_name(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """根据用户名获取 person_id
 
         args: person_name
@@ -1124,7 +1122,7 @@ class PluginRuntimeManager:
     # ═════════════════════════════════════════════════════════
 
     @staticmethod
-    async def _cap_emoji_get_by_description(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_emoji_get_by_description(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """根据描述获取表情包
 
         args: description
@@ -1153,7 +1151,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_emoji_get_random(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_emoji_get_random(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """随机获取表情包
 
         args: count?
@@ -1172,7 +1170,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_emoji_get_count(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_emoji_get_count(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取表情包数量"""
         from src.services import emoji_service as emoji_api
 
@@ -1183,7 +1181,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_emoji_get_emotions(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_emoji_get_emotions(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取所有情绪标签"""
         from src.services import emoji_service as emoji_api
 
@@ -1194,7 +1192,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_emoji_get_all(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_emoji_get_all(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取所有表情包"""
         from src.services import emoji_service as emoji_api
 
@@ -1209,7 +1207,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_emoji_get_info(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_emoji_get_info(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取表情包统计信息"""
         from src.services import emoji_service as emoji_api
 
@@ -1220,7 +1218,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_emoji_register(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_emoji_register(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """注册表情包
 
         args: emoji_base64
@@ -1239,7 +1237,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_emoji_delete(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_emoji_delete(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """删除表情包
 
         args: emoji_hash
@@ -1262,7 +1260,7 @@ class PluginRuntimeManager:
     # ═════════════════════════════════════════════════════════
 
     @staticmethod
-    async def _cap_frequency_get_current_talk_value(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_frequency_get_current_talk_value(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取当前说话频率值
 
         args: chat_id
@@ -1281,7 +1279,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_frequency_set_adjust(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_frequency_set_adjust(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """设置说话频率调整值
 
         args: chat_id, value
@@ -1301,7 +1299,7 @@ class PluginRuntimeManager:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    async def _cap_frequency_get_adjust(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_frequency_get_adjust(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取说话频率调整值
 
         args: chat_id
@@ -1324,7 +1322,7 @@ class PluginRuntimeManager:
     # ═════════════════════════════════════════════════════════
 
     @staticmethod
-    async def _cap_tool_get_definitions(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_tool_get_definitions(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取 LLM 可用的工具定义列表"""
         from src.core.component_registry import component_registry as core_registry
 
@@ -1343,10 +1341,10 @@ class PluginRuntimeManager:
     # ═════════════════════════════════════════════════════════
 
     @staticmethod
-    async def _cap_component_get_all_plugins(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_component_get_all_plugins(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取所有插件信息（汇总所有 Supervisor 的注册信息）"""
         mgr = get_plugin_runtime_manager()
-        result: dict[str, Any] = {}
+        result: Dict[str, Any] = {}
         for sv in mgr.supervisors:
             for pid, reg in sv._registered_plugins.items():
                 result[pid] = {
@@ -1359,7 +1357,7 @@ class PluginRuntimeManager:
         return {"success": True, "plugins": result}
 
     @staticmethod
-    async def _cap_component_get_plugin_info(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_component_get_plugin_info(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """获取指定插件信息
 
         args: plugin_name
@@ -1382,25 +1380,25 @@ class PluginRuntimeManager:
         return {"success": False, "error": f"未找到插件: {plugin_name}"}
 
     @staticmethod
-    async def _cap_component_list_loaded_plugins(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_component_list_loaded_plugins(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """列出已加载的插件"""
         mgr = get_plugin_runtime_manager()
-        plugins: list[str] = []
+        plugins: List[str] = []
         for sv in mgr.supervisors:
             plugins.extend(sv._registered_plugins.keys())
         return {"success": True, "plugins": plugins}
 
     @staticmethod
-    async def _cap_component_list_registered_plugins(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_component_list_registered_plugins(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """列出已注册的插件（同 list_loaded）"""
         mgr = get_plugin_runtime_manager()
-        plugins: list[str] = []
+        plugins: List[str] = []
         for sv in mgr.supervisors:
             plugins.extend(sv._registered_plugins.keys())
         return {"success": True, "plugins": plugins}
 
     @staticmethod
-    async def _cap_component_enable(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_component_enable(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """启用组件
 
         args: name, component_type
@@ -1419,7 +1417,7 @@ class PluginRuntimeManager:
         return {"success": False, "error": f"未找到组件: {name}"}
 
     @staticmethod
-    async def _cap_component_disable(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_component_disable(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """禁用组件
 
         args: name, component_type
@@ -1438,7 +1436,7 @@ class PluginRuntimeManager:
         return {"success": False, "error": f"未找到组件: {name}"}
 
     @staticmethod
-    async def _cap_component_load_plugin(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_component_load_plugin(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """加载插件（在新运行时中通过热重载实现）
 
         args: plugin_name
@@ -1457,7 +1455,7 @@ class PluginRuntimeManager:
         return {"success": False, "error": f"无法加载插件: {plugin_name}"}
 
     @staticmethod
-    async def _cap_component_unload_plugin(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_component_unload_plugin(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """卸载插件（在新运行时中不支持单独卸载）
 
         args: plugin_name
@@ -1465,7 +1463,7 @@ class PluginRuntimeManager:
         return {"success": False, "error": "新运行时不支持单独卸载插件，请使用 reload"}
 
     @staticmethod
-    async def _cap_component_reload_plugin(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_component_reload_plugin(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """重新加载插件（触发对应 Supervisor 的热重载）
 
         args: plugin_name
@@ -1490,7 +1488,7 @@ class PluginRuntimeManager:
     # ═════════════════════════════════════════════════════════
 
     @staticmethod
-    async def _cap_knowledge_search(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_knowledge_search(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """从 LPMM 知识库搜索知识
 
         args: query, limit?
@@ -1526,7 +1524,7 @@ class PluginRuntimeManager:
     # ═════════════════════════════════════════════════════════
 
     @staticmethod
-    async def _cap_logging_log(plugin_id: str, capability: str, args: dict[str, Any]) -> Any:
+    async def _cap_logging_log(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """插件日志记录
 
         args: level?, message
@@ -1544,7 +1542,7 @@ class PluginRuntimeManager:
 
 # ─── 单例 ──────────────────────────────────────────────────
 
-_manager: PluginRuntimeManager | None = None
+_manager: Optional[PluginRuntimeManager] = None
 
 
 def get_plugin_runtime_manager() -> PluginRuntimeManager:

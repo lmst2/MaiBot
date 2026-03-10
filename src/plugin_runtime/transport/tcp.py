@@ -4,6 +4,8 @@
 绑定到 127.0.0.1 避免远程访问，但仍需会话令牌做身份校验。
 """
 
+from typing import Optional
+
 import asyncio
 
 from .base import Connection, ConnectionHandler, TransportClient, TransportServer
@@ -20,7 +22,7 @@ class TCPTransportServer(TransportServer):
     def __init__(self, host: str = "127.0.0.1", port: int = 0):
         self._host = host
         self._port = port  # 0 表示自动分配
-        self._server: asyncio.AbstractServer | None = None
+        self._server: Optional[asyncio.AbstractServer] = None
         self._actual_port: int = 0
 
     async def start(self, handler: ConnectionHandler) -> None:

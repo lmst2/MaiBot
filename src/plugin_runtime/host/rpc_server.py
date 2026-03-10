@@ -7,7 +7,7 @@
 4. 请求-响应关联与超时管理
 """
 
-from typing import Any, Callable, Awaitable
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import asyncio
 import secrets
@@ -42,8 +42,8 @@ class RPCServer:
     def __init__(
         self,
         transport: TransportServer,
-        session_token: str | None = None,
-        codec: Codec | None = None,
+        session_token: Optional[str] = None,
+        codec: Optional[Codec] = None,
         send_queue_size: int = 128,
     ):
         self._transport = transport
@@ -52,22 +52,22 @@ class RPCServer:
         self._send_queue_size = send_queue_size
 
         self._id_gen = RequestIdGenerator()
-        self._connection: Connection | None = None  # 当前活跃的 Runner 连接
-        self._runner_id: str | None = None
+        self._connection: Optional[Connection] = None  # 当前活跃的 Runner 连接
+        self._runner_id: Optional[str] = None
         self._runner_generation: int = 0
 
         # 方法处理器注册表
-        self._method_handlers: dict[str, MethodHandler] = {}
+        self._method_handlers: Dict[str, MethodHandler] = {}
 
         # 等待响应的 pending 请求: request_id -> Future
-        self._pending_requests: dict[int, asyncio.Future] = {}
+        self._pending_requests: Dict[int, asyncio.Future] = {}
 
         # 发送队列（背压控制）
-        self._send_queue: asyncio.Queue[bytes] | None = None
+        self._send_queue: Optional[asyncio.Queue[bytes]] = None
 
         # 运行状态
         self._running: bool = False
-        self._tasks: list[asyncio.Task] = []
+        self._tasks: List[asyncio.Task] = []
 
     @property
     def session_token(self) -> str:
@@ -115,7 +115,7 @@ class RPCServer:
         self,
         method: str,
         plugin_id: str = "",
-        payload: dict[str, Any] | None = None,
+        payload: Optional[Dict[str, Any]] = None,
         timeout_ms: int = 30000,
     ) -> Envelope:
         """向 Runner 发送 RPC 请求并等待响应
@@ -172,7 +172,7 @@ class RPCServer:
                 raise
             raise RPCError(ErrorCode.E_UNKNOWN, str(e)) from e
 
-    async def send_event(self, method: str, plugin_id: str = "", payload: dict[str, Any] | None = None) -> None:
+    async def send_event(self, method: str, plugin_id: str = "", payload: Optional[Dict[str, Any]] = None) -> None:
         """向 Runner 发送单向事件（不等待响应）"""
         if not self.is_connected:
             return

@@ -1,35 +1,40 @@
 """MsgPack 编解码器"""
 
-from typing import Any
+from abc import ABC, abstractmethod
+from typing import Any, Dict
 
 import msgpack
 
 from .envelope import Envelope
 
 
-class Codec:
+class Codec(ABC):
     """消息编解码器基类"""
 
+    @abstractmethod
     def encode_envelope(self, envelope: Envelope) -> bytes:
-        raise NotImplementedError
+        ...
 
+    @abstractmethod
     def decode_envelope(self, data: bytes) -> Envelope:
-        raise NotImplementedError
+        ...
 
-    def encode(self, obj: dict[str, Any]) -> bytes:
-        raise NotImplementedError
+    @abstractmethod
+    def encode(self, obj: Dict[str, Any]) -> bytes:
+        ...
 
-    def decode(self, data: bytes) -> dict[str, Any]:
-        raise NotImplementedError
+    @abstractmethod
+    def decode(self, data: bytes) -> Dict[str, Any]:
+        ...
 
 
 class MsgPackCodec(Codec):
     """MsgPack 编解码器"""
 
-    def encode(self, obj: dict[str, Any]) -> bytes:
+    def encode(self, obj: Dict[str, Any]) -> bytes:
         return msgpack.packb(obj, use_bin_type=True)
 
-    def decode(self, data: bytes) -> dict[str, Any]:
+    def decode(self, data: bytes) -> Dict[str, Any]:
         result = msgpack.unpackb(data, raw=False)
         if not isinstance(result, dict):
             raise ValueError(f"期望解码为 dict，实际为 {type(result)}")

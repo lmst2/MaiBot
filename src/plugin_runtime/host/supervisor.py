@@ -7,7 +7,7 @@
 4. 优雅关停
 """
 
-from typing import Any
+from typing import Any, Dict, List, Optional, Tuple
 
 import asyncio
 import os
@@ -40,8 +40,8 @@ class PluginSupervisor:
 
     def __init__(
         self,
-        plugin_dirs: list[str] | None = None,
-        socket_path: str | None = None,
+        plugin_dirs: Optional[List[str]] = None,
+        socket_path: Optional[str] = None,
         health_check_interval_sec: float = 30.0,
     ):
         self._plugin_dirs = plugin_dirs or []
@@ -65,16 +65,16 @@ class PluginSupervisor:
         )
 
         # Runner 子进程
-        self._runner_process: asyncio.subprocess.Process | None = None
+        self._runner_process: Optional[asyncio.subprocess.Process] = None
         self._runner_generation: int = 0
         self._max_restart_attempts: int = 3
         self._restart_count: int = 0
 
         # 已注册的插件组件信息
-        self._registered_plugins: dict[str, RegisterComponentsPayload] = {}
+        self._registered_plugins: Dict[str, RegisterComponentsPayload] = {}
 
         # 后台任务
-        self._health_task: asyncio.Task | None = None
+        self._health_task: Optional[asyncio.Task] = None
         self._running = False
 
         # 注册内部 RPC 方法
@@ -107,11 +107,11 @@ class PluginSupervisor:
     async def dispatch_event(
         self,
         event_type: str,
-        message: dict[str, Any] | None = None,
-        extra_args: dict[str, Any] | None = None,
-    ) -> tuple[bool, dict[str, Any] | None]:
+        message: Optional[Dict[str, Any]] = None,
+        extra_args: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
         """分发事件到所有对应 handler 的快捷方法。"""
-        async def _invoke(plugin_id: str, component_name: str, args: dict[str, Any]) -> dict[str, Any]:
+        async def _invoke(plugin_id: str, component_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             resp = await self.invoke_plugin(
                 method="plugin.emit_event",
                 plugin_id=plugin_id,
@@ -129,12 +129,12 @@ class PluginSupervisor:
 
     async def execute_workflow(
         self,
-        message: dict[str, Any] | None = None,
-        stream_id: str | None = None,
-        context: WorkflowContext | None = None,
-    ) -> tuple[WorkflowResult, dict[str, Any] | None, WorkflowContext]:
+        message: Optional[Dict[str, Any]] = None,
+        stream_id: Optional[str] = None,
+        context: Optional[WorkflowContext] = None,
+    ) -> Tuple[WorkflowResult, Optional[Dict[str, Any]], WorkflowContext]:
         """执行 Workflow Pipeline 的快捷方法。"""
-        async def _invoke(plugin_id: str, component_name: str, args: dict[str, Any]) -> dict[str, Any]:
+        async def _invoke(plugin_id: str, component_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             resp = await self.invoke_plugin(
                 method="plugin.invoke_workflow_step",
                 plugin_id=plugin_id,
@@ -196,7 +196,7 @@ class PluginSupervisor:
         method: str,
         plugin_id: str,
         component_name: str,
-        args: dict[str, Any] | None = None,
+        args: Optional[Dict[str, Any]] = None,
         timeout_ms: int = 30000,
     ) -> Envelope:
         """调用插件组件
@@ -224,6 +224,12 @@ class PluginSupervisor:
 
         # 保存旧进程引用
         old_process = self._runner_process
+
+        # 清理旧的组件注册，防止幽灵组件残留
+        for plugin_id in list(self._registered_plugins.keys()):
+            self._component_registry.remove_components_by_plugin(plugin_id)
+            self._policy.revoke_plugin(plugin_id)
+        self._registered_plugins.clear()
 
         # 拉起新 Runner
         await self._spawn_runner()
@@ -286,7 +292,7 @@ class PluginSupervisor:
         # 在策略引擎中注册插件
         self._policy.register_plugin(
             plugin_id=reg.plugin_id,
-            generation=envelope.generation,
+            generation=self._runner_generation,
             capabilities=reg.capabilities_required or [],
         )
 

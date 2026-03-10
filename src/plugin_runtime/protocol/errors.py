@@ -4,6 +4,7 @@
 """
 
 from enum import Enum
+from typing import Any, Dict, Optional
 
 
 class ErrorCode(str, Enum):
@@ -38,13 +39,13 @@ class ErrorCode(str, Enum):
 class RPCError(Exception):
     """RPC 调用异常"""
 
-    def __init__(self, code: ErrorCode, message: str = "", details: dict | None = None):
+    def __init__(self, code: ErrorCode, message: str = "", details: Optional[Dict[str, Any]] = None):
         self.code = code
         self.message = message or code.value
         self.details = details or {}
         super().__init__(f"[{code.value}] {self.message}")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "code": self.code.value,
             "message": self.message,
@@ -52,7 +53,7 @@ class RPCError(Exception):
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "RPCError":
+    def from_dict(cls, data: Dict[str, Any]) -> "RPCError":
         code = ErrorCode(data.get("code", "E_UNKNOWN"))
         return cls(
             code=code,

@@ -9,6 +9,8 @@
 6. 转发插件的能力调用到 Host
 """
 
+from typing import List
+
 import asyncio
 import contextlib
 import inspect
@@ -43,7 +45,7 @@ class PluginRunner:
         self,
         host_address: str,
         session_token: str,
-        plugin_dirs: list[str],
+        plugin_dirs: List[str],
     ) -> None:
         self._host_address: str = host_address
         self._session_token: str = session_token
@@ -114,7 +116,7 @@ class PluginRunner:
     async def _register_plugin(self, meta: PluginMeta) -> None:
         """向 Host 注册单个插件"""
         # 收集插件组件声明
-        components: list[ComponentDeclaration] = []
+        components: List[ComponentDeclaration] = []
         instance = meta.instance
 
         # 从插件实例获取组件声明（SDK 插件须实现 get_components 方法）
@@ -284,7 +286,7 @@ class PluginRunner:
 
 # ─── sys.path 隔离 ────────────────────────────────────────
 
-def _isolate_sys_path(plugin_dirs: list[str]) -> None:
+def _isolate_sys_path(plugin_dirs: List[str]) -> None:
     """清理 sys.path，限制 Runner 子进程只能访问标准库、SDK 和插件目录。
 
     防止插件代码 import 主程序模块读取运行时数据。

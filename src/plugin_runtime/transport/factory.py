@@ -3,12 +3,14 @@
 根据运行平台自动选择最优传输实现。
 """
 
+from typing import Optional
+
 import sys
 
 from .base import TransportClient, TransportServer
 
 
-def create_transport_server(socket_path: str | None = None) -> TransportServer:
+def create_transport_server(socket_path: Optional[str] = None) -> TransportServer:
     """创建传输服务端
 
     Linux/macOS 使用 UDS，Windows 使用 TCP 回退。

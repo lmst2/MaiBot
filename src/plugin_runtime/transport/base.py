@@ -8,7 +8,7 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, Callable, Awaitable
+from typing import Awaitable, Callable
 
 import asyncio
 import struct
