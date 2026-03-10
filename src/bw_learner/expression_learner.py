@@ -78,7 +78,11 @@ class ExpressionLearner:
         expressions, jargon_entries = parse_expression_response(response)
         # TODO: 完成学习
 
-        # 从缓存检查 jargon 是否出现在 message 中
+        # TODO: 从缓存检查 jargon 是否出现在 message 中
+        # TODO: 检查表达方式/黑话数量
+        # TODO: 处理黑话条目
+        # TODO: 过滤
+        # TODO: 存储
     
     # ====== 黑话相关 ======
     def _check_cached_jargons_in_messages(self, jargon_miner: Optional["JargonMiner"] = None):
