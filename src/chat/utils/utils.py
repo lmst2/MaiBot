@@ -523,7 +523,7 @@ def process_llm_response(text: str, enable_splitter: bool = True, enable_chinese
 
 def calculate_typing_time(
     input_string: str,
-    thinking_start_time: float,
+    # thinking_start_time: float,
     chinese_time: float = 0.3,
     english_time: float = 0.15,
     is_emoji: bool = False,
@@ -556,8 +556,8 @@ def calculate_typing_time(
     if is_emoji:
         total_time = 1
 
-    if time.time() - thinking_start_time > 10:
-        total_time = 1
+    # if time.time() - thinking_start_time > 10:
+    #     total_time = 1
 
     # print(f"thinking_start_time:{thinking_start_time}")
     # print(f"nowtime:{time.time()}")

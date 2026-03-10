@@ -1,7 +1,7 @@
-import json
-from dataclasses import dataclass
+# import json
+# from dataclasses import dataclass
 
-from . import BaseDataModel
+# from . import BaseDataModel
 
 
 # @dataclass
@@ -208,33 +208,33 @@ from . import BaseDataModel
 #         }
 
 
-@dataclass(init=False)
-class DatabaseActionRecords(BaseDataModel):
-    def __init__(
-        self,
-        action_id: str,
-        time: float,
-        action_name: str,
-        action_data: str,
-        action_done: bool,
-        action_build_into_prompt: bool,
-        action_prompt_display: str,
-        chat_id: str,
-        chat_info_stream_id: str,
-        chat_info_platform: str,
-        action_reasoning: str,
-    ):
-        self.action_id = action_id
-        self.time = time
-        self.action_name = action_name
-        if isinstance(action_data, str):
-            self.action_data = json.loads(action_data)
-        else:
-            raise ValueError("action_data must be a JSON string")
-        self.action_done = action_done
-        self.action_build_into_prompt = action_build_into_prompt
-        self.action_prompt_display = action_prompt_display
-        self.chat_id = chat_id
-        self.chat_info_stream_id = chat_info_stream_id
-        self.chat_info_platform = chat_info_platform
-        self.action_reasoning = action_reasoning
+# @dataclass(init=False)
+# class DatabaseActionRecords(BaseDataModel):
+#     def __init__(
+#         self,
+#         action_id: str,
+#         time: float,
+#         action_name: str,
+#         action_data: str,
+#         action_done: bool,
+#         action_build_into_prompt: bool,
+#         action_prompt_display: str,
+#         chat_id: str,
+#         chat_info_stream_id: str,
+#         chat_info_platform: str,
+#         action_reasoning: str,
+#     ):
+#         self.action_id = action_id
+#         self.time = time
+#         self.action_name = action_name
+#         if isinstance(action_data, str):
+#             self.action_data = json.loads(action_data)
+#         else:
+#             raise ValueError("action_data must be a JSON string")
+#         self.action_done = action_done
+#         self.action_build_into_prompt = action_build_into_prompt
+#         self.action_prompt_display = action_prompt_display
+#         self.chat_id = chat_id
+#         self.chat_info_stream_id = chat_info_stream_id
+#         self.chat_info_platform = chat_info_platform
+#         self.action_reasoning = action_reasoning
