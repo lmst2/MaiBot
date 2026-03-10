@@ -3,6 +3,7 @@
 在 Runner 进程中负责发现和加载插件。
 插件通过 SDK 编写，不再 import src.*。
 支持：manifest 校验、依赖解析（拓扑排序）、生命周期钩子。
+兼容旧版 src.plugin_system 插件（通过导入钩子 + LegacyPluginAdapter）。
 """
 
 from collections import deque
@@ -64,6 +65,7 @@ class PluginLoader:
         self._loaded_plugins: dict[str, PluginMeta] = {}
         self._failed_plugins: dict[str, str] = {}
         self._manifest_validator = ManifestValidator(host_version=host_version)
+        self._compat_hook_installed = False
 
     def discover_and_load(self, plugin_dirs: list[str]) -> list[PluginMeta]:
         """扫描多个目录并加载所有插件（含依赖排序和 manifest 校验）
@@ -208,6 +210,9 @@ class PluginLoader:
         plugin_path: str,
     ) -> PluginMeta | None:
         """加载单个插件"""
+        # 确保兼容层导入钩子已安装（旧版插件可能 import src.plugin_system）
+        self._ensure_compat_hook()
+
         # 动态导入插件模块
         module_name = f"_maibot_plugin_{plugin_id}"
         spec = importlib.util.spec_from_file_location(module_name, plugin_path)
@@ -219,19 +224,78 @@ class PluginLoader:
         sys.modules[module_name] = module
         spec.loader.exec_module(module)
 
-        # 调用工厂函数创建插件实例
+        # 优先使用新版 create_plugin 工厂函数
         create_plugin = getattr(module, "create_plugin", None)
-        if create_plugin is None:
-            logger.error(f"插件 {plugin_id} 缺少 create_plugin 工厂函数")
+        if create_plugin is not None:
+            instance = create_plugin()
+            logger.info(f"插件 {plugin_id} v{manifest.get('version', '?')} 加载成功")
+            return PluginMeta(
+                plugin_id=plugin_id,
+                plugin_dir=plugin_dir,
+                plugin_instance=instance,
+                manifest=manifest,
+            )
+
+        # 回退：检测旧版 @register_plugin 标记的 BasePlugin 子类
+        instance = self._try_load_legacy_plugin(module, plugin_id)
+        if instance is not None:
+            logger.info(
+                f"插件 {plugin_id} v{manifest.get('version', '?')} "
+                f"通过旧版兼容层加载成功（请尽快迁移到 maibot_sdk）"
+            )
+            return PluginMeta(
+                plugin_id=plugin_id,
+                plugin_dir=plugin_dir,
+                plugin_instance=instance,
+                manifest=manifest,
+            )
+
+        logger.error(f"插件 {plugin_id} 缺少 create_plugin 工厂函数且未检测到旧版 BasePlugin")
+        return None
+
+    # ──── 旧版插件兼容 ────────────────────────────────────────
+
+    def _ensure_compat_hook(self) -> None:
+        """安装旧版 src.plugin_system 导入钩子（幂等）"""
+        if self._compat_hook_installed:
+            return
+        try:
+            from maibot_sdk.compat._import_hook import install_hook
+            install_hook()
+            self._compat_hook_installed = True
+        except ImportError:
+            logger.debug("maibot_sdk.compat 不可用，跳过导入钩子安装")
+
+    @staticmethod
+    def _try_load_legacy_plugin(module: Any, plugin_id: str) -> Any | None:
+        """尝试从模块中发现旧版 BasePlugin 子类并包装为 LegacyPluginAdapter"""
+        # 方式 1: @register_plugin 装饰器设置的标记
+        legacy_cls = getattr(module, "_legacy_plugin_class", None)
+
+        # 方式 2: 扫描模块中所有 BasePlugin 子类
+        if legacy_cls is None:
+            try:
+                from maibot_sdk.compat.base.base_plugin import BasePlugin as LegacyBasePlugin
+            except ImportError:
+                return None
+
+            for attr_name in dir(module):
+                obj = getattr(module, attr_name, None)
+                if (
+                    isinstance(obj, type)
+                    and issubclass(obj, LegacyBasePlugin)
+                    and obj is not LegacyBasePlugin
+                ):
+                    legacy_cls = obj
+                    break
+
+        if legacy_cls is None:
             return None
 
-        instance = create_plugin()
-
-        logger.info(f"插件 {plugin_id} v{manifest.get('version', '?')} 加载成功")
-
-        return PluginMeta(
-            plugin_id=plugin_id,
-            plugin_dir=plugin_dir,
-            plugin_instance=instance,
-            manifest=manifest,
-        )
+        try:
+            from maibot_sdk.compat.legacy_adapter import LegacyPluginAdapter
+            legacy_instance = legacy_cls()
+            return LegacyPluginAdapter(legacy_instance)
+        except Exception as e:
+            logger.error(f"旧版插件 {plugin_id} 适配失败: {e}", exc_info=True)
+            return None
