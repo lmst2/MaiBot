@@ -1,0 +1,14 @@
+# 这是一个带变量替换的示例模板
+# 使用 {variable_name} 语法定义变量
+# 调用时使用 load_prompt("example_with_vars", name="麦麦", mood="开心")
+
+你好 {name}！
+
+今天看起来你心情{mood}。
+
+作为你的 AI 助手，我会：
+1. {task1}
+2. {task2}
+3. {task3}
+
+祝你今天愉快！
