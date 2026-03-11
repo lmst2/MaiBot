@@ -23,7 +23,6 @@ from src.plugin_runtime.integration import get_plugin_runtime_manager
 
 # 导入消息API和traceback模块
 from src.common.message_server import get_global_api
-from src.dream.dream_agent import start_dream_scheduler
 from src.bw_learner.expression_auto_check_task import ExpressionAutoCheckTask
 
 from src.prompt.prompt_manager import prompt_manager
@@ -145,7 +144,6 @@ class MainSystem:
         try:
             tasks = [
                 emoji_manager.periodic_emoji_maintenance(),
-                start_dream_scheduler(),
                 self.app.run(),
                 self.server.run(),
             ]

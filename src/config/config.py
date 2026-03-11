@@ -29,7 +29,6 @@ from .official_configs import (
     VoiceConfig,
     MemoryConfig,
     DebugConfig,
-    DreamConfig,
     WebUIConfig,
     DatabaseConfig,
 )
@@ -85,9 +84,6 @@ class Config(ConfigBase):
 
     message_receive: MessageReceiveConfig = Field(default_factory=MessageReceiveConfig)
     """消息接收配置类"""
-
-    dream: DreamConfig = Field(default_factory=DreamConfig)
-    """做梦配置类"""
 
     tool: ToolConfig = Field(default_factory=ToolConfig)
     """工具配置类"""
