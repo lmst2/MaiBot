@@ -1164,15 +1164,6 @@ class ExperimentalConfig(ConfigBase):
     )
     """_wrap_为指定聊天添加额外的prompt配置列表"""
 
-    lpmm_memory: bool = Field(
-        default=False,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "database",
-        },
-    )
-    """是否将聊天历史总结导入到LPMM知识库。开启后，chat_history_summarizer总结出的历史记录会同时导入到知识库"""
-
 
 class MaimMessageConfig(ConfigBase):
     """maim_message配置类"""
