@@ -8,7 +8,7 @@ import numpy as np
 
 from src.common.logger import get_logger
 
-logger = get_logger("image")
+logger = get_logger("image_utils")
 
 
 class ImageUtils:

@@ -88,7 +88,14 @@ class ExpressionLearner:
     def _check_cached_jargons_in_messages(self, jargon_miner: Optional["JargonMiner"] = None):
         if not jargon_miner:
             return []
-        # TODO: 完成检测逻辑
+        # 获取缓存的所有jargon实例
+        cached_jargons = jargon_miner.get_cached_jargons()
+        if not cached_jargons:
+            return []
+        matched_entries: List[Tuple[str, str]] = []
+        
+        for i, msg in enumerate(self._messages_cache):
+            if 
 
     # ====== DB 操作相关 ======
     async def _upsert_expression_to_db(self, situation: str, style: str):

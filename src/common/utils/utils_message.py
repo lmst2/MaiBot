@@ -1,11 +1,14 @@
 from maim_message import MessageBase, Seg
 from typing import List, Tuple, Optional, Dict, TYPE_CHECKING, Callable
+from datetime import datetime
 
 import base64
 import hashlib
 import msgpack
 import random
 import re
+
+from sqlmodel import select, col
 
 from src.common.data_models.message_component_data_model import (
     MessageSequence,
@@ -20,12 +23,16 @@ from src.common.data_models.message_component_data_model import (
     UnknownUser,
     ForwardNodeComponent,
 )
+from src.common.logger import get_logger
 from src.config.config import global_config
 
 from .math_utils import number_to_short_id, TimestampMode, translate_timestamp_to_human_readable
+from .system_utils import is_bot_self
 
 if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
+
+logger = get_logger("message_utils")
 
 
 class MessageUtils:
@@ -156,6 +163,7 @@ class MessageUtils:
         read_mark_time: Optional[float] = None,
         truncate_message: bool = False,
         truncate_func: Optional[Callable[[float], Tuple[Optional[int], str]]] = None,
+        show_actions: bool = False,
     ) -> Tuple[str, Dict[str, Tuple[str, str]], List[str]]:
         """
         将消息构建为LLM可读的文本格式
@@ -171,6 +179,7 @@ class MessageUtils:
             show_message_id_prefix (bool): 是否在每条消息前显示消息ID前缀
             truncate_message (bool): 是否启用消息文本截断功能，截断过长的消息文本
             truncate_func (Optional[Callable[[float], Tuple[Optional[int], str]]]) 截断函数，接受消息的百分位位置(0-1)，返回一个元组(文本长度限制(可为None表不切割), 替换内容)
+            show_actions (bool): 是否显示Action组件内容
         Returns:
             return (Tuple[str, Dict[str, Tuple[str, str]], List[str]]): 构建后的消息文本，映射表 {用户ID: (匿名ID, 原始名称)}，消息编号列表
         """
@@ -217,11 +226,30 @@ class MessageUtils:
             processed_plain_texts.extend(f"[表情{emoji_id}: {desc}]" for emoji_id, desc in emoji_map.values())
             processed_plain_texts.extend(("", "聊天记录信息："))
 
+        # 获取动作记录文本列表
+        action_messages: List[Tuple[float, str]] = []
+        if show_actions and messages:
+            min_time = msg_list[0].timestamp.timestamp()
+            max_time = msg_list[-1].timestamp.timestamp()
+            session_id = msg_list[0].session_id
+            action_messages = MessageUtils._generate_action_readable(min_time, max_time, session_id)
+
         msg_count = len(msg_list)
         read_mark_added_flag: bool = False  # 标记是否已经添加过已读标签，确保只添加一次
+        action_idx: int = 0  # 动作记录的索引，用于双指针遍历
+
         for i, msg in enumerate(msg_list):
             await msg.process()
             plain_text: str = msg.processed_plain_text  # type: ignore
+            msg_time = msg.timestamp.timestamp()
+
+            # 使用双指针插入动作记录
+            while action_idx < len(action_messages) and action_messages[action_idx][0] <= msg_time:
+                processed_plain_texts.append(
+                    MessageUtils._build_action_str_single(action_messages[action_idx], timestamp_mode)
+                )
+                action_idx += 1
+
             if truncate_message:  # 消息截断逻辑
                 percentile = i / msg_count
                 if not read_mark_time:  # 没有已读标签
@@ -249,6 +277,13 @@ class MessageUtils:
             if message_id is not None:
                 message_ids.append(message_id)
             processed_plain_texts.append("".join([header, plain_text]))
+
+        # 处理剩余的动作记录（时间在最后一条消息之后的动作）
+        while action_idx < len(action_messages):
+            processed_plain_texts.append(
+                MessageUtils._build_action_str_single(action_messages[action_idx], timestamp_mode)
+            )
+            action_idx += 1
 
         return "\n".join(processed_plain_texts), user_id_mapping, message_ids
 
@@ -531,12 +566,64 @@ class MessageUtils:
                 ]
         return component
 
+    @staticmethod
+    def _generate_action_readable(min_time: float, max_time: float, session_id: str) -> List[Tuple[float, str]]:
+        """
+        获取消息时间范围内的动作记录，并构建动作文本列表
 
-# TODO: 这个函数的实现非常临时，后续需要替换为更完善的实现，比如直接从配置文件中读取机器人自己的ID，或者通过API获取机器人自己的信息等
-def is_bot_self(user_id: str, platform: str) -> bool:
-    """
-    判断用户ID是否是机器人自己
+        Args:
+            messages: 消息列表，用于确定时间范围和session_id
+            timestamp_mode: 时间戳显示模式，默认为None表示不显示时间戳
 
-    临时方法，后续会替换为更完善的实现
-    """
-    return user_id == "bot_self" and platform == "test_platform"
+        Returns:
+            List[Tuple[float, str]]: 按时间排序的动作文本列表，每个元素为 (timestamp, action_text)
+        """
+        from src.common.database.database import get_db_session
+        from src.common.database.database_model import ActionRecord
+
+        # 获取这个时间范围内的动作记录，并匹配session_id
+        try:
+            with get_db_session() as session:
+                actions_in_range = session.exec(
+                    select(ActionRecord)
+                    .where(col(ActionRecord.timestamp) >= datetime.fromtimestamp(min_time))
+                    .where(col(ActionRecord.timestamp) <= datetime.fromtimestamp(max_time))
+                    .where(col(ActionRecord.session_id) == session_id)
+                    .order_by(col(ActionRecord.timestamp))
+                ).all()
+
+            # 获取最新消息之后的第一个动作记录
+            with get_db_session() as session:
+                action_after_latest = session.exec(
+                    select(ActionRecord)
+                    .where(col(ActionRecord.timestamp) > datetime.fromtimestamp(max_time))
+                    .where(col(ActionRecord.session_id) == session_id)
+                    .order_by(col(ActionRecord.timestamp))
+                    .limit(1)
+                ).all()
+        except Exception as e:
+            logger.error(f"查询动作记录失败: {e}")
+            return []
+
+        # 合并两部分动作记录
+        actions = list(actions_in_range) + list(action_after_latest)
+
+        # 构建动作文本列表
+        action_messages: List[Tuple[float, str]] = []
+        for action in actions:
+            if action_display_prompt := action.action_display_prompt or "":
+                action_time = action.timestamp.timestamp()
+                action_messages.append((action_time, action_display_prompt))
+
+        return action_messages
+
+    @staticmethod
+    def _build_action_str_single(
+        action_content: Tuple[float, str], timestamp_mode: Optional[str | TimestampMode] = None
+    ) -> str:
+        action_time, action_text = action_content
+        action_header = "你执行了: "
+        if timestamp_mode:
+            timestamp_str = translate_timestamp_to_human_readable(action_time, mode=timestamp_mode)
+            action_header = f"[{timestamp_str}] {action_header}"
+        return f"{action_header}{action_text}"

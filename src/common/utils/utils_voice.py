@@ -10,7 +10,7 @@ from src.llm_models.utils_model import LLMRequest
 
 install(extra_lines=3)
 
-logger = get_logger("chat_voice")
+logger = get_logger("voice_utils")
 
 # TODO: 在LLMRequest重构后修改这里
 asr_model = LLMRequest(model_set=model_config.model_task_config.voice, request_type="audio")
