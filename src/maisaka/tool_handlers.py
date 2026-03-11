@@ -21,7 +21,7 @@ from rich.markdown import Markdown
 
 from config import console
 from input_reader import InputReader
-from llm_service import BaseLLMService
+from llm_service import MaiSakaLLMService
 from replyer import Replyer
 
 if TYPE_CHECKING:
@@ -35,7 +35,7 @@ MAI_FILES_DIR = Path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "m
 _replyer: Optional[Replyer] = None
 
 
-def get_replyer(llm_service: BaseLLMService) -> Replyer:
+def get_replyer(llm_service: MaiSakaLLMService) -> Replyer:
     """获取回复器实例（单例模式）"""
     global _replyer
     if _replyer is None:
@@ -50,7 +50,7 @@ class ToolHandlerContext:
 
     def __init__(
         self,
-        llm_service: BaseLLMService,
+        llm_service: MaiSakaLLMService,
         reader: InputReader,
         user_input_times: list[datetime],
     ):

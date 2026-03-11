@@ -22,11 +22,15 @@ if str(_root) not in sys.path:
 if str(_maisaka_path) not in sys.path:
     sys.path.insert(0, str(_maisaka_path))
 
+from src.prompt.prompt_manager import prompt_manager
 from config import console
 from cli import BufferCLI
 
 
 def main():
+    # 加载所有提示词文件
+    prompt_manager.load_prompts()
+
     cli = BufferCLI()
     try:
         asyncio.run(cli.run())

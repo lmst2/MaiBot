@@ -15,12 +15,10 @@ from rich import box
 
 from config import console, ENABLE_EMOTION_MODULE, ENABLE_COGNITION_MODULE, ENABLE_TIMING_MODULE, ENABLE_KNOWLEDGE_MODULE, ENABLE_MCP
 from input_reader import InputReader
-from debug_client import DebugViewer
 from timing import build_timing_info
 from knowledge import store_knowledge_from_context, retrieve_relevant_knowledge, build_knowledge_summary
 from knowledge_store import get_knowledge_store
-from llm_service import BaseLLMService, OpenAILLMService
-from llm_service.utils import build_message, remove_last_perception
+from llm_service import MaiSakaLLMService, build_message, remove_last_perception
 from mcp_client import MCPManager
 from tool_handlers import (
     ToolHandlerContext,
@@ -43,7 +41,7 @@ class BufferCLI:
     """命令行交互界面"""
 
     def __init__(self):
-        self.llm_service: Optional[BaseLLMService] = None
+        self.llm_service: Optional[MaiSakaLLMService] = None
         self._reader = InputReader()
         self._chat_history: Optional[list] = None  # 持久化的对话历史
         self._knowledge_store = get_knowledge_store()  # 了解存储实例
@@ -51,9 +49,9 @@ class BufferCLI:
         # 显示了解存储统计
         knowledge_stats = self._knowledge_store.get_stats()
         if knowledge_stats["total_items"] > 0:
-            console.print(f"[success]✓ 了解系统: {knowledge_stats['total_items']}条特征信息[/success]")
+            console.print(f"[success][OK] 了解系统: {knowledge_stats['total_items']}条特征信息[/success]")
         else:
-            console.print("[muted]✓ 了解系统: 已初始化 (暂无数据)[/muted]")
+            console.print("[muted][OK] 了解系统: 已初始化 (暂无数据)[/muted]")
         # Timing 模块时间戳跟踪
         self._chat_start_time: Optional[datetime] = None
         self._last_user_input_time: Optional[datetime] = None
@@ -61,15 +59,10 @@ class BufferCLI:
         self._user_input_times: list[datetime] = []  # 所有用户输入时间戳
         # MCP 管理器（异步初始化，在 run() 中完成）
         self._mcp_manager: Optional[MCPManager] = None
-        # Debug Viewer
-        self._debug_viewer = DebugViewer()
         self._init_llm()
 
     def _init_llm(self):
-        """初始化 LLM 服务"""
-        api_key = os.getenv("OPENAI_API_KEY", "")
-        base_url = os.getenv("OPENAI_BASE_URL", "")
-        model = os.getenv("OPENAI_MODEL", "gpt-4o")
+        """初始化 LLM 服务 - 使用主项目配置系统"""
         thinking_env = os.getenv("ENABLE_THINKING", "").strip().lower()
         enable_thinking: Optional[bool] = (
             True if thinking_env == "true"
@@ -77,30 +70,18 @@ class BufferCLI:
             else None
         )
 
-        if not api_key:
-            console.print(
-                Panel(
-                    "[warning]未检测到 OPENAI_API_KEY 环境变量！[/warning]\n\n"
-                    "请设置以下环境变量（或在 .env 文件中配置）：\n"
-                    "  • OPENAI_API_KEY   - 必填，API 密钥\n"
-                    "  • OPENAI_BASE_URL  - 可选，API 基地址\n"
-                    "  • OPENAI_MODEL     - 可选，模型名称（默认 gpt-4o）\n\n"
-                    "[muted]程序无法运行，请配置后重试。[/muted]",
-                    title="⚠️ 配置提示",
-                    border_style="yellow",
-                )
-            )
-            return
-
-        self.llm_service = OpenAILLMService(
-            api_key=api_key,
-            base_url=base_url if base_url else None,
-            model=model,
+        # MaiSakaLLMService 现在使用主项目的配置系统
+        # 参数仅为兼容性保留，实际从 config_manager 读取配置
+        self.llm_service = MaiSakaLLMService(
+            api_key="",
+            base_url=None,
+            model="",
             enable_thinking=enable_thinking,
         )
-        # 绑定 debug 回调
-        self.llm_service.set_debug_callback(self._debug_viewer.send)
-        console.print(f"[success]✓ LLM 服务已初始化[/success] [muted](模型: {model})[/muted]")
+
+        # 获取实际使用的模型名称
+        model_name = self.llm_service._model_name
+        console.print(f"[success][OK] LLM 服务已初始化[/success] [muted](模型: {model_name})[/muted]")
 
     def _build_tool_context(self) -> ToolHandlerContext:
         """构建工具处理器所需的上下文。"""
@@ -228,11 +209,11 @@ class BufferCLI:
                                     self.llm_service,
                                     to_compress,
                                     store_result_callback=lambda cat_id, cat_name, content: console.print(
-                                        f"[muted]  ✓ 存储了解信息: {cat_name}[/muted]"
+                                        f"[muted]  [OK] 存储了解信息: {cat_name}[/muted]"
                                     )
                                 )
                                 if knowledge_count > 0:
-                                    console.print(f"[success]✓ 了解模块: 存储{knowledge_count}条特征信息[/success]")
+                                    console.print(f"[success][OK] 了解模块: 存储{knowledge_count}条特征信息[/success]")
                             except Exception as e:
                                 console.print(f"[warning]了解存储失败: {e}[/warning]")
                         if summary:
@@ -579,9 +560,6 @@ class BufferCLI:
 
     async def run(self):
         """主循环：直接输入文本即可对话"""
-        # 启动调试窗口
-        self._debug_viewer.start()
-
         # 根据配置决定是否初始化 MCP 服务器
         if ENABLE_MCP:
             await self._init_mcp()
@@ -608,6 +586,5 @@ class BufferCLI:
 
                 await self._start_chat(raw_input)
         finally:
-            self._debug_viewer.close()
             if self._mcp_manager:
                 await self._mcp_manager.close()

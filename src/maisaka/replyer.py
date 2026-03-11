@@ -4,10 +4,32 @@ MaiSaka - Reply 回复生成器
 """
 
 from typing import Optional
-from datetime import datetime
-from src.prompt.prompt_manager import prompt_manager
-from llm_service import BaseLLMService
-from llm_service.utils import format_chat_history
+from llm_service import MaiSakaLLMService
+
+
+def format_chat_history(messages: list) -> str:
+    """将聊天消息列表格式化为可读文本。"""
+    parts: list[str] = []
+    for msg in messages:
+        role = msg.get("role", "?")
+        content = msg.get("content", "") or ""
+        if role == "system":
+            parts.append(f"[系统] {content[:500]}")
+        elif role == "user":
+            parts.append(f"[用户] {content[:500]}")
+        elif role == "assistant":
+            if content:
+                parts.append(f"[助手思考] {content[:500]}")
+            for tc in msg.get("tool_calls", []):
+                func = tc.get("function", {})
+                name = func.get("name", "?")
+                args = func.get("arguments", "")
+                if isinstance(args, str) and len(args) > 200:
+                    args = args[:200] + "..."
+                parts.append(f"[助手调用 {name}] {args}")
+        elif role == "tool":
+            parts.append(f"[工具结果] {content[:300]}")
+    return "\n".join(parts)
 
 
 class Replyer:
@@ -17,7 +39,7 @@ class Replyer:
     根据给定的想法（reason）和对话上下文，生成符合人设的口语化回复。
     """
 
-    def __init__(self, llm_service: Optional[BaseLLMService] = None):
+    def __init__(self, llm_service: Optional[MaiSakaLLMService] = None):
         """
         初始化回复器。
 
@@ -27,7 +49,7 @@ class Replyer:
         self._llm_service = llm_service
         self._enabled = True
 
-    def set_llm_service(self, llm_service: BaseLLMService) -> None:
+    def set_llm_service(self, llm_service: MaiSakaLLMService) -> None:
         """设置 LLM 服务"""
         self._llm_service = llm_service
 
@@ -49,48 +71,6 @@ class Replyer:
         if not self._enabled or not reason or self._llm_service is None:
             return "..."
 
-        # 获取当前时间
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # 格式化对话历史（过滤掉 system 消息，保留其他内容）
-        filtered_history = [
-            msg for msg in chat_history
-            if msg.get("role") != "system" and msg.get("_type") != "perception"
-        ]
-        formatted_history = format_chat_history(filtered_history)
-
-        # 构建回复消息
-        replyer_prompt = prompt_manager.get_prompt("maidairy_replyer")
-        system_prompt = await prompt_manager.render_prompt(replyer_prompt)
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": (
-                    f"当前时间：{current_time}\n\n"
-                    f"【聊天记录】\n{formatted_history}\n\n"
-                    f"【你的想法】\n{reason}\n\n"
-                    f"现在，你说："
-                ),
-            },
-        ]
-
-        try:
-            # 调用 LLM 生成回复
-            from llm_service.openai_impl import OpenAILLMService
-            if isinstance(self._llm_service, OpenAILLMService):
-                extra_body = self._llm_service._build_extra_body()
-                response = await self._llm_service._call_llm(
-                    "回复生成",
-                    messages,
-                    temperature=0.8,
-                    max_tokens=512,
-                    **({"extra_body": extra_body} if extra_body else {}),
-                )
-                result = response.choices[0].message.content or "..."
-                return result.strip()
-        except Exception:
-            pass
-
-        # 生成失败时返回默认回复
-        return "..."
+        # 直接使用 LLM 服务的 generate_reply 方法
+        # 该方法使用主项目的 replyer 模型配置
+        return await self._llm_service.generate_reply(reason, chat_history)
