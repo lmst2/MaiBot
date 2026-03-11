@@ -31,6 +31,7 @@ from .official_configs import (
     DebugConfig,
     WebUIConfig,
     DatabaseConfig,
+    MaiSakaConfig,
 )
 from .model_configs import ModelInfo, ModelTaskConfig, APIProvider
 from .config_base import ConfigBase, Field, AttributeData
@@ -126,6 +127,9 @@ class Config(ConfigBase):
 
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     """数据库配置类"""
+
+    maisaka: MaiSakaConfig = Field(default_factory=MaiSakaConfig)
+    """MaiSaka对话系统配置类"""
 
 
 class ModelConfig(ConfigBase):

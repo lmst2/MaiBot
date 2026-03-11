@@ -5,7 +5,7 @@ MaiSaka - Reply 回复生成器
 
 from typing import Optional
 from datetime import datetime
-from prompt_loader import load_prompt
+from src.prompt.prompt_manager import prompt_manager
 from llm_service import BaseLLMService
 from llm_service.utils import format_chat_history
 
@@ -60,8 +60,10 @@ class Replyer:
         formatted_history = format_chat_history(filtered_history)
 
         # 构建回复消息
+        replyer_prompt = prompt_manager.get_prompt("maidairy_replyer")
+        system_prompt = await prompt_manager.render_prompt(replyer_prompt)
         messages = [
-            {"role": "system", "content": load_prompt("replyer.system")},
+            {"role": "system", "content": system_prompt},
             {
                 "role": "user",
                 "content": (

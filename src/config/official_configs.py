@@ -1501,3 +1501,110 @@ class DatabaseConfig(ConfigBase):
     若禁用，则消息中的二进制将会在识别后删除，并在消息中使用识别结果替代，无法二次识别
     该配置项仅影响新存储的消息，已有消息不会受到影响
     """
+
+
+class MaiSakaConfig(ConfigBase):
+    """MaiSaka 对话系统配置类"""
+
+    __ui_label__ = "MaiSaka"
+    __ui_icon__ = "message-circle"
+    __ui_parent__ = "experimental"
+
+    enable_emotion_module: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "heart",
+        },
+    )
+    """启用情绪感知模块"""
+
+    enable_cognition_module: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "brain",
+        },
+    )
+    """启用认知分析模块"""
+
+    enable_timing_module: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "clock",
+        },
+    )
+    """启用时间感知模块（含自我反思功能）"""
+
+    enable_knowledge_module: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "book",
+        },
+    )
+    """启用知识库模块"""
+
+    enable_mcp: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "zap",
+        },
+    )
+    """启用 MCP (Model Context Protocol) 支持"""
+
+    enable_write_file: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "file-plus",
+        },
+    )
+    """启用文件写入工具"""
+
+    enable_read_file: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "file-text",
+        },
+    )
+    """启用文件读取工具"""
+
+    enable_list_files: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "list",
+        },
+    )
+    """启用文件列表工具"""
+
+    enable_qq_tools: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "users",
+        },
+    )
+    """启用 QQ 工具（获取聊天记录、发送消息等）"""
+
+    qq_api_base_url: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "server",
+        },
+    )
+    """QQ API 基地址"""
+
+    qq_api_key: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "key",
+        },
+    )
+    """QQ API 密钥"""

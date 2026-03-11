@@ -1,7 +1,7 @@
 """
 MaiSaka - 程序入口
 使用方法:
-    python main.py
+    python saka.py
 
 环境变量 (可通过 .env 文件设置):
     OPENAI_API_KEY   - API 密钥
@@ -11,6 +11,16 @@ MaiSaka - 程序入口
 """
 
 import asyncio
+import sys
+from pathlib import Path
+
+# 添加项目根目录和 src/maisaka 到 Python 路径
+_root = Path(__file__).parent
+_maisaka_path = _root / "src" / "maisaka"
+if str(_root) not in sys.path:
+    sys.path.insert(0, str(_root))
+if str(_maisaka_path) not in sys.path:
+    sys.path.insert(0, str(_maisaka_path))
 
 from config import console
 from cli import BufferCLI

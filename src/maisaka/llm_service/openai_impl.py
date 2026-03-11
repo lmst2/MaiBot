@@ -8,11 +8,27 @@ from typing import Callable, List, Optional
 
 from openai import AsyncOpenAI
 
+import asyncio
+
 from .base import BaseLLMService, ChatResponse, ModelInfo, ToolCall
 from .prompts import get_enabled_chat_tools
 from .utils import format_chat_history, format_chat_history_for_eq, filter_for_api
-from prompt_loader import load_prompt
+from src.prompt.prompt_manager import prompt_manager
 from knowledge import extract_category_ids_from_result
+
+
+def _load_prompt_sync(name: str, **kwargs) -> str:
+    """同步加载并渲染 prompt（用于非异步上下文）"""
+    prompt = prompt_manager.get_prompt(name)
+    for key, value in kwargs.items():
+        prompt.add_context(key, value)
+    # 在新事件循环中运行异步渲染
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(prompt_manager.render_prompt(prompt))
+    finally:
+        loop.close()
 
 
 class OpenAILLMService(BaseLLMService):
@@ -81,7 +97,7 @@ class OpenAILLMService(BaseLLMService):
                 tools_section = ""
 
             # 加载提示词模板并注入工具部分
-            self._chat_system_prompt = load_prompt("chat.system", file_tools_section=tools_section)
+            self._chat_system_prompt = _load_prompt_sync("maidairy_chat", file_tools_section=tools_section)
         else:
             self._chat_system_prompt = chat_system_prompt
 
@@ -239,8 +255,9 @@ class OpenAILLMService(BaseLLMService):
             if msg.get("_type") != "perception" and msg.get("role") != "system"
         ]
         formatted = format_chat_history(filtered_history)
+        timing_prompt = prompt_manager.get_prompt("maidairy_timing")
         timing_messages = [
-            {"role": "system", "content": load_prompt("timing.system")},
+            {"role": "system", "content": await prompt_manager.render_prompt(timing_prompt)},
             {
                 "role": "user",
                 "content": (
@@ -272,8 +289,9 @@ class OpenAILLMService(BaseLLMService):
         # 使用情商模块专用格式化函数：只包含用户回复、助手思考、助手说
         formatted = format_chat_history_for_eq(recent_messages)
 
+        emotion_prompt = prompt_manager.get_prompt("maidairy_emotion")
         eq_messages = [
-            {"role": "system", "content": load_prompt("emotion.system")},
+            {"role": "system", "content": await prompt_manager.render_prompt(emotion_prompt)},
             {
                 "role": "user",
                 "content": f"以下是最近几轮对话记录，请分析其中用户的情绪状态和言语态度：\n\n{formatted}",
@@ -302,8 +320,9 @@ class OpenAILLMService(BaseLLMService):
         # 使用情商模块专用格式化函数：只包含用户回复、助手思考、助手说
         formatted = format_chat_history_for_eq(recent_messages)
 
+        cognition_prompt = prompt_manager.get_prompt("maidairy_cognition")
         cognition_messages = [
-            {"role": "system", "content": load_prompt("cognition.system")},
+            {"role": "system", "content": await prompt_manager.render_prompt(cognition_prompt)},
             {
                 "role": "user",
                 "content": f"以下是最近几轮对话记录，请分析其中用户的意图、认知状态和目的：\n\n{formatted}",
@@ -329,8 +348,9 @@ class OpenAILLMService(BaseLLMService):
         filtered_messages = [msg for msg in context_messages if msg.get("role") != "system"]
         formatted = format_chat_history(filtered_messages)
 
+        summarize_prompt = prompt_manager.get_prompt("maidairy_context_summarize")
         summarize_messages = [
-            {"role": "system", "content": load_prompt("context_summarize.system")},
+            {"role": "system", "content": await prompt_manager.render_prompt(summarize_prompt)},
             {
                 "role": "user",
                 "content": f"请对以下对话内容进行总结，以便存入记忆系统：\n\n{formatted}",
@@ -368,7 +388,9 @@ class OpenAILLMService(BaseLLMService):
             return []
 
         # 加载分类分析 prompt
-        prompt = load_prompt("knowledge_category.system", categories_summary=categories_summary)
+        category_prompt = prompt_manager.get_prompt("maidairy_knowledge_category")
+        category_prompt.add_context("categories_summary", categories_summary)
+        prompt = await prompt_manager.render_prompt(category_prompt)
 
         category_messages = [
             {"role": "system", "content": prompt},
@@ -407,7 +429,9 @@ class OpenAILLMService(BaseLLMService):
             return ""
 
         # 加载内容提取 prompt
-        prompt = load_prompt("knowledge_extract.system", category_name=category_name)
+        extract_prompt = prompt_manager.get_prompt("maidairy_knowledge_extract")
+        extract_prompt.add_context("category_name", category_name)
+        prompt = await prompt_manager.render_prompt(extract_prompt)
 
         extract_messages = [
             {"role": "system", "content": prompt},
@@ -454,10 +478,10 @@ class OpenAILLMService(BaseLLMService):
         formatted = format_chat_history(recent_messages)
 
         # 加载需求分析 prompt
-        prompt = load_prompt("knowledge_retrieve.system",
-            chat_context=formatted,
-            categories_summary=categories_summary
-        )
+        retrieve_prompt = prompt_manager.get_prompt("maidairy_knowledge_retrieve")
+        retrieve_prompt.add_context("chat_context", formatted)
+        retrieve_prompt.add_context("categories_summary", categories_summary)
+        prompt = await prompt_manager.render_prompt(retrieve_prompt)
 
         need_messages = [
             {"role": "system", "content": prompt},

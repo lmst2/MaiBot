@@ -2,8 +2,8 @@
 MaiSaka - LLM 工具定义
 所有 Tool Schema 集中管理。
 
-注意：所有 Prompt 模板已迁移至 prompts/ 目录，使用 .prompt 文件存储。
-使用 prompt_loader.load_prompt() 加载模板。
+注意：所有 Prompt 模板已迁移至主项目 prompts/ 目录，使用 .prompt 文件存储。
+使用 prompt_manager.get_prompt("maidairy_xxx") 加载模板。
 """
 
 # ──────────────────── 工具定义 ────────────────────

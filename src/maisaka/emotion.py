@@ -2,8 +2,8 @@
 MaiSaka - Emotion 模块
 情绪感知分析，分析用户的情绪状态和言语态度。
 
-注意：EQ_SYSTEM_PROMPT 已迁移至 prompts/emotion.system.prompt
-使用 prompt_loader.load_prompt("emotion.system") 加载。
+注意：emotion.prompt 已迁移至主项目 prompts/ 目录
+使用 prompt_manager.get_prompt("maidairy_emotion") 加载。
 """
 
 from typing import List, Optional
