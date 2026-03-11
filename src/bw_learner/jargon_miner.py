@@ -197,7 +197,7 @@ class JargonMiner:
             logger.info(f"[{self.session_name}]{content} 不是黑话")
 
     async def process_extracted_entries(
-        self, entries: List[JargonEntry], person_name_filter: Optional[Callable[[str], bool]]
+        self, entries: List[JargonEntry], person_name_filter: Optional[Callable[[str], bool]] = None
     ):
         """
         处理已提取的黑话条目（从 expression_learner 路由过来的）

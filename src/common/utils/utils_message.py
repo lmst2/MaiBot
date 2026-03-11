@@ -223,7 +223,7 @@ class MessageUtils:
             processed_plain_texts.append("图片信息和表情信息：")
             processed_plain_texts.extend(f"[图片{img_id}: {desc}]" for img_id, desc in img_map.values())
             processed_plain_texts.append("")  # 图片和表情之间添加一个换行，避免连在一起
-            processed_plain_texts.extend(f"[表情{emoji_id}: {desc}]" for emoji_id, desc in emoji_map.values())
+            processed_plain_texts.extend(f"[表情包{emoji_id}: {desc}]" for emoji_id, desc in emoji_map.values())
             processed_plain_texts.extend(("", "聊天记录信息："))
 
         # 获取动作记录文本列表
