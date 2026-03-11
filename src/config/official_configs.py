@@ -641,33 +641,6 @@ class ExpressionConfig(ConfigBase):
     )
     """表达方式自动检查的额外自定义评估标准"""
 
-    expression_manual_reflect: bool = Field(
-        default=False,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "hand",
-        },
-    )
-    """是否启用手动表达优化"""
-
-    manual_reflect_operator_id: Optional[TargetItem] = Field(
-        default=None,
-        json_schema_extra={
-            "x-widget": "custom",
-            "x-icon": "user-cog",
-        },
-    )
-    """手动表达优化操作员ID"""
-
-    allow_reflect: list[TargetItem] = Field(
-        default_factory=list,
-        json_schema_extra={
-            "x-widget": "custom",
-            "x-icon": "shield",
-        },
-    )
-    """允许进行表达反思的聊天流ID列表，只有在此列表中的聊天流才会提出问题并跟踪。如果列表为空，则所有聊天流都可以进行表达反思（前提是reflect为true）"""
-
     all_global_jargon: bool = Field(
         default=True,
         json_schema_extra={

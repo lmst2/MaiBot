@@ -11,7 +11,6 @@ from src.common.utils.utils_config import ExpressionConfigUtils, ChatConfigUtils
 from src.config.config import global_config
 from src.config.file_watcher import FileChange
 from src.chat.message_receive.chat_manager import chat_manager
-from src.bw_learner.expression_reflector import ExpressionReflector
 from src.bw_learner.expression_learner import ExpressionLearner
 from src.bw_learner.jargon_miner import JargonMiner
 
@@ -67,8 +66,6 @@ class HeartFChatting:
         self._enable_expression_use = expr_use  # 允许使用表达方式，但不一定启用学习
         self._enable_expression_learning = expr_learn  # 允许学习表达方式
         self._enable_jargon_learning = jargon_learn  # 允许学习黑话
-        # 反思器
-        self._reflector: ExpressionReflector = ExpressionReflector(session_id)
         # 表达学习器
         self._expression_learner: ExpressionLearner = ExpressionLearner(session_id)
         # 黑话挖掘器
@@ -199,7 +196,6 @@ class HeartFChatting:
 
     async def _judge_and_response(self, mentioned_message: Optional["SessionMessage"] = None):
         """判定和生成回复"""
-        await self._trigger_reflector()
         asyncio.create_task(self._trigger_expression_learning(self.message_cache))
         # TODO: 完成反思器之后的逻辑
         start_time = time.time()
@@ -228,13 +224,7 @@ class HeartFChatting:
         except asyncio.CancelledError:
             logger.info(f"{self.log_prefix} HeartFChatting: 结束了聊天")
 
-    # ====== 反思器和学习器触发逻辑 ======
-    async def _trigger_reflector(self):
-        await self._reflector.check_and_ask()
-        if self._reflector.reflect_tracker.tracking and await self._reflector.reflect_tracker.trigger_tracker():
-            logger.info(f"{self.log_prefix} 追踪检查已解决，结束追踪器")
-            self._reflector.reflect_tracker.reset_tracker()  # 结束当前追踪器
-
+    # ====== 学习器触发逻辑 ======
     async def _trigger_expression_learning(self, messages: List["SessionMessage"]):
         self._expression_learner.add_messages(messages)
         if time.time() - self._last_extraction_time < self._min_extraction_interval:

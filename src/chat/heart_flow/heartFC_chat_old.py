@@ -18,8 +18,6 @@ from src.chat.planner_actions.action_manager import ActionManager
 from src.chat.heart_flow.hfc_utils_old import CycleDetail
 from src.bw_learner.expression_learner_old import expression_learner_manager
 from src.chat.heart_flow.frequency_control import frequency_control_manager
-from src.bw_learner.reflect_tracker import reflect_tracker_manager
-from src.bw_learner.expression_reflector_old import expression_reflector_manager
 from src.bw_learner.message_recorder_old import extract_and_distribute_messages
 from src.person_info.person_info import Person
 from src.plugin_system.base.component_types import EventType, ActionInfo
@@ -297,20 +295,6 @@ class HeartFChatting:
         if recent_messages_list is None:
             recent_messages_list = []
         _reply_text = ""  # 初始化reply_text变量，避免UnboundLocalError
-
-        # -------------------------------------------------------------------------
-        # ReflectTracker Check
-        # 在每次回复前检查一次上下文，看是否有反思问题得到了解答
-        # -------------------------------------------------------------------------
-
-        reflector = expression_reflector_manager.get_or_create_reflector(self.session_id)
-        await reflector.check_and_ask()
-        tracker = reflect_tracker_manager.get_tracker(self.session_id)
-        if tracker:
-            resolved = await tracker.trigger_tracker()
-            if resolved:
-                reflect_tracker_manager.remove_tracker(self.session_id)
-                logger.info(f"{self.log_prefix} ReflectTracker resolved and removed.")
 
         start_time = time.time()
         async with global_prompt_manager.async_message_scope(self.chat_stream.context.get_template_name()):

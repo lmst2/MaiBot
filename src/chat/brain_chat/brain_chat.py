@@ -252,28 +252,6 @@ class BrainChatting:
             recent_messages_list = []
         _reply_text = ""  # 初始化reply_text变量，避免UnboundLocalError
 
-        # -------------------------------------------------------------------------
-        # ReflectTracker Check
-        # 在每次回复前检查一次上下文，看是否有反思问题得到了解答
-        # -------------------------------------------------------------------------
-        from src.bw_learner.reflect_tracker import reflect_tracker_manager
-
-        tracker = reflect_tracker_manager.get_tracker(self.stream_id)
-        if tracker:
-            resolved = await tracker.trigger_tracker()
-            if resolved:
-                reflect_tracker_manager.remove_tracker(self.stream_id)
-                logger.info(f"{self.log_prefix} ReflectTracker resolved and removed.")
-
-        # -------------------------------------------------------------------------
-        # Expression Reflection Check
-        # 检查是否需要提问表达反思
-        # -------------------------------------------------------------------------
-        from src.bw_learner.expression_reflector_old import expression_reflector_manager
-
-        reflector = expression_reflector_manager.get_or_create_reflector(self.stream_id)
-        asyncio.create_task(reflector.check_and_ask())
-
         async with global_prompt_manager.async_message_scope(self.chat_stream.context.get_template_name()):
             # 通过 MessageRecorder 统一提取消息并分发给 expression_learner 和 jargon_miner
             # 在 replyer 执行时触发，统一管理时间窗口，避免重复获取消息

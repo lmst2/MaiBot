@@ -184,7 +184,7 @@ def _migrate_expression_groups(expr: dict[str, Any]) -> bool:
 def _migrate_target_item_list(parent: dict[str, Any], key: str) -> bool:
     """
     将 list[str] 的 "platform:id:type" 迁移为 list[{platform,item_id,rule_type}]
-    用于：memory.global_memory_blacklist / expression.allow_reflect 等。
+    用于：memory.global_memory_blacklist 等。
     """
     raw = _as_list(parent.get(key))
     if raw is None:
