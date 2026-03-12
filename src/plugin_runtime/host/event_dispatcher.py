@@ -51,6 +51,8 @@ class EventDispatcher:
         self._registry: ComponentRegistry = registry
         self._result_history: Dict[str, List[EventResult]] = {}
         self._history_enabled: Set[str] = set()
+        # 保持 fire-and-forget task 的强引用，防止被 GC 回收
+        self._background_tasks: Set[asyncio.Task] = set()
 
     def enable_history(self, event_type: str) -> None:
         self._history_enabled.add(event_type)
@@ -87,7 +89,6 @@ class EventDispatcher:
 
         should_continue = True
         modified_message: Optional[Dict[str, Any]] = None
-        fire_and_forget_tasks: List[asyncio.Task] = []
 
         for handler in handlers:
             intercept = handler.metadata.get("intercept_message", False)
@@ -105,16 +106,12 @@ class EventDispatcher:
                 if result and result.modified_message:
                     modified_message = result.modified_message
             else:
-                # 非阻塞
+                # 非阻塞：保持实例级强引用，防止 task 被 GC 回收
                 task = asyncio.create_task(
                     self._invoke_handler(invoke_fn, handler, args, event_type)
                 )
-                fire_and_forget_tasks.append(task)
-
-        # 不等待 fire-and-forget 任务（但不丢弃引用以防 GC）
-        if fire_and_forget_tasks:
-            for t in fire_and_forget_tasks:
-                t.add_done_callback(lambda _t: None)
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
 
         return should_continue, modified_message
 

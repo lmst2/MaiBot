@@ -288,9 +288,10 @@ class PluginSupervisor:
         """
         logger.info(f"开始热重载插件，原因: {reason}")
 
-        # 保存旧进程引用
+        # 保存旧进程引用和旧 session token（回滚时需要恢复）
         old_process = self._runner_process
         old_registered_plugins = dict(self._registered_plugins)
+        old_session_token = self._rpc_server.session_token
         expected_generation = self._rpc_server.runner_generation + 1
 
         # 重新生成 session token，防止被终止的旧 Runner 重连
@@ -313,6 +314,8 @@ class PluginSupervisor:
             logger.error(f"新 Runner 健康检查失败: {e}，回滚")
             await self._terminate_process(self._runner_process, old_process)
             self._runner_process = old_process
+            # 恢复旧 session token，使旧 Runner 的连接仍可正常工作
+            self._rpc_server.restore_session_token(old_session_token)
             self._registered_plugins = dict(old_registered_plugins)
             self._rebuild_runtime_state()
             return

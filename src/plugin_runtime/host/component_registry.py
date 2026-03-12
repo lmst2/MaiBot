@@ -93,14 +93,17 @@ class ComponentRegistry:
         comp = RegisteredComponent(name, component_type, plugin_id, metadata)
         if comp.full_name in self._components:
             logger.warning(f"组件 {comp.full_name} 已存在，覆盖")
-            # 从 _by_plugin 列表中移除旧条目，防止幽灵组件堆积
             old_comp = self._components[comp.full_name]
+            # 从 _by_plugin 列表中移除旧条目，防止幽灵组件堆积
             old_list = self._by_plugin.get(old_comp.plugin_id)
             if old_list is not None:
                 try:
                     old_list.remove(old_comp)
                 except ValueError:
                     pass
+            # 从旧类型索引中移除，防止类型变更时幽灵残留
+            if old_type_dict := self._by_type.get(old_comp.component_type):
+                old_type_dict.pop(comp.full_name, None)
 
         self._components[comp.full_name] = comp
 

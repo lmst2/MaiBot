@@ -78,6 +78,10 @@ class RPCServer:
         self._session_token = secrets.token_hex(32)
         return self._session_token
 
+    def restore_session_token(self, token: str) -> None:
+        """恢复指定的会话令牌（热重载回滚时调用）"""
+        self._session_token = token
+
     @property
     def runner_generation(self) -> int:
         return self._runner_generation

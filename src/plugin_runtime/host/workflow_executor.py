@@ -43,6 +43,9 @@ HOOK_CONTINUE = "continue"
 HOOK_SKIP_STAGE = "skip_stage"
 HOOK_ABORT = "abort"
 
+# blocking hook 全局最大超时（秒）：即使 hook 声明 timeout_ms=0 也不会无限等待
+GLOBAL_BLOCKING_TIMEOUT_SEC = 120.0
+
 
 class ModificationRecord:
     """消息修改记录"""
@@ -296,7 +299,8 @@ class WorkflowExecutor:
             (hook_result, modified_message, error_string_or_None)
         """
         timeout_ms = step.metadata.get("timeout_ms", 0)
-        timeout_sec = timeout_ms / 1000 if timeout_ms > 0 else None
+        # 使用 hook 声明的超时，但不超过全局安全阀
+        timeout_sec = timeout_ms / 1000 if timeout_ms > 0 else GLOBAL_BLOCKING_TIMEOUT_SEC
         step_key = f"{stage}:{step.full_name}"
         step_start = time.perf_counter()
 
@@ -307,7 +311,7 @@ class WorkflowExecutor:
                 "message": message,
                 "stage_outputs": ctx.stage_outputs,
             })
-            resp = await asyncio.wait_for(coro, timeout=timeout_sec) if timeout_sec else await coro
+            resp = await asyncio.wait_for(coro, timeout=timeout_sec)
             ctx.timings[step_key] = time.perf_counter() - step_start
 
             hook_result = resp.get("hook_result", HOOK_CONTINUE)
