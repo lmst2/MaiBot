@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from string import Formatter
 
 import re
 import sys
@@ -17,23 +16,14 @@ from src.common.i18n.loaders import (  # noqa: E402
     get_locales_root,
     load_locale_catalog,
 )
+from src.common.i18n.loaders import extract_placeholders  # noqa: E402
 from src.common.prompt_i18n import (  # noqa: E402
     PROMPT_EXTENSIONS,
     extract_prompt_placeholders,
     get_prompts_root,
 )
 
-FORMATTER = Formatter()
 HAN_CHARACTER_PATTERN = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
-
-
-def extract_placeholders(template: str) -> set[str]:
-    placeholders: set[str] = set()
-    for _, field_name, _, _ in FORMATTER.parse(template):
-        if not field_name:
-            continue
-        placeholders.add(field_name.split(".", maxsplit=1)[0].split("[", maxsplit=1)[0])
-    return placeholders
 
 
 def contains_han_characters(text: str) -> bool:
@@ -65,7 +55,7 @@ def validate_locale_content(
         source_text == target_text and contains_han_characters(source_text)
         for source_text, target_text in zip(source_texts, target_texts, strict=False)
     ):
-        errors.append(f"[{locale}] key '{key}' 直接保留了包含中文字符的 source 文案，请通过 Crowdin 提供目标语言翻译")
+        errors.append(f"[{locale}] key '{key}' 直接保留了包含中文字符的 source 文案（仓库级校验策略），请提供目标语言翻译")
 
     if locale_requires_latin_only_validation(locale) and any(contains_han_characters(text) for text in target_texts):
         errors.append(f"[{locale}] key '{key}' 仍包含中文字符，请移除源语言残留后再提交")
@@ -218,6 +208,16 @@ def validate_prompt_templates(prompts_root: Path | None = None) -> tuple[list[st
     return errors, warnings
 
 
+def _print_warnings(warnings: list[str]) -> None:
+    if not warnings:
+        return
+    print(f"warnings ({len(warnings)}):")
+    for warning in warnings[:10]:
+        print(f"  - {warning}")
+    if len(warnings) > 10:
+        print(f"  - ... 另外还有 {len(warnings) - 10} 条 warning")
+
+
 def main() -> int:
     errors = validate_json_locales()
     prompt_errors, prompt_warnings = validate_prompt_templates()
@@ -227,21 +227,11 @@ def main() -> int:
         print("i18n validation failed:")
         for error in errors:
             print(f"  - {error}")
-        if prompt_warnings:
-            print(f"warnings ({len(prompt_warnings)}):")
-            for warning in prompt_warnings[:10]:
-                print(f"  - {warning}")
-            if len(prompt_warnings) > 10:
-                print(f"  - ... 另外还有 {len(prompt_warnings) - 10} 条 warning")
+        _print_warnings(prompt_warnings)
         return 1
 
     print("i18n validation passed.")
-    if prompt_warnings:
-        print(f"warnings ({len(prompt_warnings)}):")
-        for warning in prompt_warnings[:10]:
-            print(f"  - {warning}")
-        if len(prompt_warnings) > 10:
-            print(f"  - ... 另外还有 {len(prompt_warnings) - 10} 条 warning")
+    _print_warnings(prompt_warnings)
     return 0
 
 

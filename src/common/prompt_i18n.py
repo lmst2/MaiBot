@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from string import Formatter
 
 import logging
 import os
@@ -9,28 +8,18 @@ import re
 import threading
 
 from .i18n import get_locale, t
-from .i18n.loaders import DEFAULT_LOCALE, normalize_locale
+from .i18n.loaders import DEFAULT_LOCALE, extract_placeholders as extract_prompt_placeholders, normalize_locale
 
 logger = logging.getLogger("maibot.prompt_i18n")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROMPTS_ROOT = (PROJECT_ROOT / "prompts").resolve()
-PROMPT_EXTENSIONS = (".prompt")
-FORMATTER = Formatter()
+PROMPT_EXTENSIONS = (".prompt",)
 SAFE_SEGMENT_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 STRICT_ENV_KEYS = ("MAIBOT_PROMPT_I18N_STRICT", "MAIBOT_I18N_STRICT")
 
 _prompt_cache: dict[Path, str] = {}
 _cache_lock = threading.RLock()
-
-
-def extract_prompt_placeholders(template: str) -> set[str]:
-    placeholders: set[str] = set()
-    for _, field_name, _, _ in FORMATTER.parse(template):
-        if not field_name:
-            continue
-        placeholders.add(field_name.split(".", maxsplit=1)[0].split("[", maxsplit=1)[0])
-    return placeholders
 
 
 def get_prompts_root(prompts_root: Path | None = None) -> Path:
@@ -70,17 +59,11 @@ def is_strict_prompt_i18n_mode() -> bool:
     return any(os.getenv(env_key, "").strip().lower() in {"1", "true", "yes", "on"} for env_key in STRICT_ENV_KEYS)
 
 
-def _supported_prompt_files(directory: Path) -> list[Path]:
+def _supported_prompt_files(directory: Path, recursive: bool = True) -> list[Path]:
+    search = directory.rglob if recursive else directory.glob
     matched_files: list[Path] = []
     for suffix in PROMPT_EXTENSIONS:
-        matched_files.extend(path for path in directory.rglob(f"*{suffix}") if path.is_file())
-    return sorted(set(matched_files))
-
-
-def _supported_prompt_files_non_recursive(directory: Path) -> list[Path]:
-    matched_files: list[Path] = []
-    for suffix in PROMPT_EXTENSIONS:
-        matched_files.extend(path for path in directory.glob(f"*{suffix}") if path.is_file())
+        matched_files.extend(path for path in search(f"*{suffix}") if path.is_file())
     return sorted(set(matched_files))
 
 
@@ -104,20 +87,20 @@ def _scan_prompt_directory(directory: Path, prompts_root: Path) -> dict[str, Pat
     return prompt_paths
 
 
-def _scan_legacy_prompt_directory(directory: Path) -> dict[str, Path]:
+def _scan_legacy_prompt_directory(directory: Path, prompts_root: Path) -> dict[str, Path]:
     prompt_paths: dict[str, Path] = {}
     if not directory.exists():
         return prompt_paths
 
-    for prompt_path in _supported_prompt_files_non_recursive(directory):
+    for prompt_path in _supported_prompt_files(directory, recursive=False):
         prompt_name = prompt_path.stem
         if prompt_name in prompt_paths:
             raise ValueError(
                 t(
                     "prompt.duplicate_template_name",
                     name=prompt_name,
-                    path_a=prompt_paths[prompt_name].relative_to(get_prompts_root(directory)),
-                    path_b=prompt_path.relative_to(get_prompts_root(directory)),
+                    path_a=prompt_paths[prompt_name].relative_to(prompts_root),
+                    path_b=prompt_path.relative_to(prompts_root),
                 )
             )
         prompt_paths[prompt_name] = prompt_path
@@ -128,7 +111,7 @@ def list_prompt_templates(locale: str | None = None, prompts_root: Path | None =
     resolved_prompts_root = get_prompts_root(prompts_root)
     requested_locale = normalize_locale(locale or get_locale())
 
-    prompt_paths = _scan_legacy_prompt_directory(resolved_prompts_root)
+    prompt_paths = _scan_legacy_prompt_directory(resolved_prompts_root, resolved_prompts_root)
     prompt_paths.update(_scan_prompt_directory(resolved_prompts_root / DEFAULT_LOCALE, resolved_prompts_root))
 
     if requested_locale != DEFAULT_LOCALE:
@@ -176,10 +159,11 @@ def load_prompt(
     prompt_path = resolve_prompt_path(name=name, locale=locale, category=category, prompts_root=prompts_root)
     with _cache_lock:
         template = _prompt_cache.get(prompt_path)
-        if template is None:
-            with open(prompt_path, "r", encoding="utf-8") as prompt_file:
-                template = prompt_file.read()
-            _prompt_cache[prompt_path] = template
+    if template is None:
+        template = prompt_path.read_text(encoding="utf-8")
+        with _cache_lock:
+            _prompt_cache.setdefault(prompt_path, template)
+            template = _prompt_cache[prompt_path]
 
     if not kwargs:
         return template

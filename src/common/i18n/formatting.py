@@ -2,28 +2,14 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from decimal import Decimal
-from string import Formatter
 
 from babel import Locale
 from babel.dates import format_datetime as babel_format_datetime
 from babel.numbers import format_decimal as babel_format_decimal
 
-from .loaders import DEFAULT_LOCALE, to_babel_locale
+from .loaders import DEFAULT_LOCALE, extract_placeholders, format_template, to_babel_locale
 
-FORMATTER = Formatter()
-
-
-def extract_placeholders(template: str) -> set[str]:
-    placeholders: set[str] = set()
-    for _, field_name, _, _ in FORMATTER.parse(template):
-        if not field_name:
-            continue
-        placeholders.add(field_name.split(".", maxsplit=1)[0].split("[", maxsplit=1)[0])
-    return placeholders
-
-
-def format_template(template: str, **kwargs: object) -> str:
-    return template.format(**kwargs)
+__all__ = ["extract_placeholders", "format_template"]
 
 
 def select_plural_category(locale: str, count: int | float | Decimal) -> str:

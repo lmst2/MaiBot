@@ -26,6 +26,7 @@ class I18nManager:
         self._locale_override: ContextVar[str | None] = ContextVar("maibot_locale", default=None)
         self._warning_cache: set[tuple[str, str, str]] = set()
         self._cache_lock = threading.RLock()
+        self._warning_lock = threading.Lock()
 
     def set_locale(self, locale: str) -> str:
         self._default_locale = normalize_locale(locale)
@@ -175,23 +176,26 @@ class I18nManager:
             if normalized_locale in self._catalog_cache:
                 return self._catalog_cache[normalized_locale]
 
-            try:
-                catalog = load_locale_catalog(normalized_locale, self._locales_root)
-            except I18nError as exc:
-                self._log_once(
-                    ("load_failed", normalized_locale, exc.__class__.__name__),
-                    logging.WARNING,
-                    "加载 locale '%s' 失败: %s",
-                    normalized_locale,
-                    exc,
-                )
-                catalog = {}
+        try:
+            catalog = load_locale_catalog(normalized_locale, self._locales_root)
+        except I18nError as exc:
+            self._log_once(
+                ("load_failed", normalized_locale, exc.__class__.__name__),
+                logging.WARNING,
+                "加载 locale '%s' 失败: %s",
+                normalized_locale,
+                exc,
+            )
+            catalog = {}
 
+        with self._cache_lock:
+            if normalized_locale in self._catalog_cache:
+                return self._catalog_cache[normalized_locale]
             self._catalog_cache[normalized_locale] = catalog
             return catalog
 
     def _log_once(self, cache_key: tuple[str, str, str], level: int, message: str, *args: object) -> None:
-        with self._cache_lock:
+        with self._warning_lock:
             if cache_key in self._warning_cache:
                 return
             self._warning_cache.add(cache_key)

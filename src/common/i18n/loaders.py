@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from string import Formatter
 
 import json
+
+_FORMATTER = Formatter()
 
 from .exceptions import (
     DuplicateTranslationKeyError,
@@ -122,3 +125,16 @@ def load_locale_catalog(locale: str, locales_root: Path | None = None) -> dict[s
                 )
             merged_translations[key] = value
     return merged_translations
+
+
+def extract_placeholders(template: str) -> set[str]:
+    placeholders: set[str] = set()
+    for _, field_name, _, _ in _FORMATTER.parse(template):
+        if not field_name:
+            continue
+        placeholders.add(field_name.split(".", maxsplit=1)[0].split("[", maxsplit=1)[0])
+    return placeholders
+
+
+def format_template(template: str, **kwargs: object) -> str:
+    return template.format(**kwargs)
