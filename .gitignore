@@ -356,3 +356,7 @@ actionlint
 .sisyphus/
 dist-electron/
 packages/
+
+## Claude Code and OMC data
+.claude/
+.omc/
