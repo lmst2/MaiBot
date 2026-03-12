@@ -18,9 +18,10 @@ from src.common.i18n.loaders import (  # noqa: E402
 )
 from src.common.i18n.loaders import extract_placeholders  # noqa: E402
 from src.common.prompt_i18n import (  # noqa: E402
-    PROMPT_EXTENSIONS,
+    discover_prompt_locales,
     extract_prompt_placeholders,
     get_prompts_root,
+    iter_prompt_files,
 )
 
 HAN_CHARACTER_PATTERN = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
@@ -36,6 +37,18 @@ def iter_translation_strings(value: TranslationValue) -> list[str]:
     return [value[category] for category in sorted(value.keys())]
 
 
+def iter_shared_translation_strings(
+    source_value: TranslationValue, target_value: TranslationValue
+) -> list[tuple[str, str]]:
+    if isinstance(source_value, str) or isinstance(target_value, str):
+        if isinstance(source_value, str) and isinstance(target_value, str):
+            return [(source_value, target_value)]
+        return []
+
+    shared_categories = sorted(set(source_value.keys()) & set(target_value.keys()))
+    return [(source_value[category], target_value[category]) for category in shared_categories]
+
+
 def locale_requires_latin_only_validation(locale: str) -> bool:
     normalized_locale = locale.lower()
     return normalized_locale == "en" or normalized_locale.startswith("en-")
@@ -48,14 +61,15 @@ def validate_locale_content(
     locale: str,
     errors: list[str],
 ) -> None:
-    source_texts = iter_translation_strings(source_value)
     target_texts = iter_translation_strings(target_value)
 
     if any(
         source_text == target_text and contains_han_characters(source_text)
-        for source_text, target_text in zip(source_texts, target_texts, strict=False)
+        for source_text, target_text in iter_shared_translation_strings(source_value, target_value)
     ):
-        errors.append(f"[{locale}] key '{key}' 直接保留了包含中文字符的 source 文案（仓库级校验策略），请提供目标语言翻译")
+        errors.append(
+            f"[{locale}] key '{key}' 直接保留了包含中文字符的 source 文案（仓库级校验策略），请提供目标语言翻译"
+        )
 
     if locale_requires_latin_only_validation(locale) and any(contains_han_characters(text) for text in target_texts):
         errors.append(f"[{locale}] key '{key}' 仍包含中文字符，请移除源语言残留后再提交")
@@ -121,12 +135,9 @@ def validate_json_locales(locales_root: Path | None = None) -> list[str]:
             continue
 
         locale_keys = set(catalog.keys())
-        missing_keys = sorted(source_keys - locale_keys)
-        extra_keys = sorted(locale_keys - source_keys)
-
-        for key in missing_keys:
+        for key in sorted(source_keys - locale_keys):
             errors.append(f"[{locale}] 缺少 key: {key}")
-        for key in extra_keys:
+        for key in sorted(locale_keys - source_keys):
             errors.append(f"[{locale}] 存在多余 key: {key}")
 
         for key in sorted(source_keys & locale_keys):
@@ -139,25 +150,13 @@ def validate_json_locales(locales_root: Path | None = None) -> list[str]:
     return errors
 
 
-def discover_prompt_locales(prompts_root: Path | None = None) -> list[str]:
-    resolved_prompts_root = get_prompts_root(prompts_root)
-    if not resolved_prompts_root.exists():
-        return []
-
-    locale_names = [path.name for path in resolved_prompts_root.iterdir() if path.is_dir()]
-    return sorted(locale_names)
-
-
-def iter_prompt_files(locale_dir: Path) -> list[Path]:
-    prompt_files: list[Path] = []
-    for extension in PROMPT_EXTENSIONS:
-        prompt_files.extend(path for path in locale_dir.rglob(f"*{extension}") if path.is_file())
-    return sorted(set(prompt_files))
+def build_prompt_catalog(locale_dir: Path) -> dict[Path, Path]:
+    return {path.relative_to(locale_dir): path for path in iter_prompt_files(locale_dir)}
 
 
 def validate_prompt_templates(prompts_root: Path | None = None) -> tuple[list[str], list[str]]:
     resolved_prompts_root = get_prompts_root(prompts_root)
-    prompt_locales = discover_prompt_locales(resolved_prompts_root)
+    prompt_locales = set(discover_prompt_locales(resolved_prompts_root))
     known_locales = [locale for locale in discover_locales(get_locales_root()) if locale != DEFAULT_LOCALE]
     errors: list[str] = []
     warnings: list[str] = []
@@ -167,7 +166,8 @@ def validate_prompt_templates(prompts_root: Path | None = None) -> tuple[list[st
         return errors, warnings
 
     source_dir = resolved_prompts_root / DEFAULT_LOCALE
-    source_files = {path.relative_to(source_dir): path for path in iter_prompt_files(source_dir)}
+    source_files = build_prompt_catalog(source_dir)
+    source_relative_paths = set(source_files.keys())
 
     for locale in known_locales:
         locale_dir = resolved_prompts_root / locale
@@ -175,8 +175,7 @@ def validate_prompt_templates(prompts_root: Path | None = None) -> tuple[list[st
             warnings.append(f"[prompt:{locale}] 缺少 locale 目录，运行时将回退到 {DEFAULT_LOCALE}")
             continue
 
-        locale_files = {path.relative_to(locale_dir): path for path in iter_prompt_files(locale_dir)}
-        source_relative_paths = set(source_files.keys())
+        locale_files = build_prompt_catalog(locale_dir)
         locale_relative_paths = set(locale_files.keys())
 
         for relative_path in sorted(source_relative_paths - locale_relative_paths):

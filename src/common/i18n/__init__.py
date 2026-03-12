@@ -3,18 +3,16 @@ from __future__ import annotations
 from collections.abc import Iterator
 from datetime import date, datetime
 from decimal import Decimal
+from functools import lru_cache
 
 from .loaders import DEFAULT_LOCALE
 
 
+@lru_cache(maxsize=1)
 def _get_manager():
     from .manager import I18nManager
 
-    manager = getattr(_get_manager, "_manager", None)
-    if manager is None:
-        manager = I18nManager()
-        _get_manager._manager = manager
-    return manager
+    return I18nManager()
 
 
 def set_locale(locale: str) -> str:

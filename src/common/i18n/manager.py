@@ -67,22 +67,12 @@ class I18nManager:
             self._catalog_cache.pop(normalize_locale(locale), None)
 
     def t(self, key: str, locale: str | None = None, **kwargs: object) -> str:
-        translation_value, _ = self._get_translation_value(key, locale)
-        if translation_value is None:
+        translation_value, translation_locale = self._get_translation_value(key, locale)
+        template = self._get_standard_template(key, translation_value, translation_locale)
+        if template is None:
             return key
 
-        if isinstance(translation_value, dict):
-            template = translation_value.get("other")
-            if template is None:
-                self._log_once(
-                    ("plural_missing_other", self.get_locale(), key),
-                    logging.WARNING,
-                    "翻译 key '%s' 缺少 other plural category，已回退到 key 本身",
-                    key,
-                )
-                return key
-            return self._format_translation(key, template, kwargs)
-        return self._format_translation(key, translation_value, kwargs)
+        return self._format_translation(key, template, kwargs)
 
     def tn(self, key: str, count: int | float, locale: str | None = None, **kwargs: object) -> str:
         translation_value, translation_locale = self._get_translation_value(key, locale)
@@ -117,6 +107,27 @@ class I18nManager:
         formatting_kwargs = dict(kwargs)
         formatting_kwargs["count"] = count
         return self._format_translation(key, template, formatting_kwargs)
+
+    def _get_standard_template(
+        self,
+        key: str,
+        translation_value: TranslationValue | None,
+        translation_locale: str,
+    ) -> str | None:
+        if translation_value is None:
+            return None
+        if not isinstance(translation_value, dict):
+            return translation_value
+
+        template = translation_value.get("other")
+        if template is None:
+            self._log_once(
+                ("plural_missing_other", translation_locale, key),
+                logging.WARNING,
+                "翻译 key '%s' 缺少 other plural category，已回退到 key 本身",
+                key,
+            )
+        return template
 
     def _format_translation(self, key: str, template: str, kwargs: dict[str, object]) -> str:
         try:
@@ -161,14 +172,15 @@ class I18nManager:
         try:
             return normalize_locale(locale)
         except InvalidLocaleError:
+            current_locale = self.get_locale()
             self._log_once(
                 ("invalid_locale", "explicit", locale),
                 logging.WARNING,
                 "检测到非法 locale='%s'，已回退到当前默认 locale %s",
                 locale,
-                self.get_locale(),
+                current_locale,
             )
-            return self.get_locale()
+            return current_locale
 
     def _get_catalog(self, locale: str) -> dict[str, TranslationValue]:
         normalized_locale = normalize_locale(locale)

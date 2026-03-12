@@ -1,12 +1,12 @@
+from collections.abc import Callable, Coroutine
 from pathlib import Path
 from string import Formatter
 from typing import Any, Optional
 
-from collections.abc import Callable, Coroutine
 import inspect
 
-from src.common.prompt_i18n import list_prompt_templates, load_prompt
 from src.common.logger import get_logger
+from src.common.prompt_i18n import list_prompt_templates, load_prompt
 
 
 logger = get_logger("Prompt")
@@ -14,7 +14,7 @@ logger = get_logger("Prompt")
 _LEFT_BRACE = "\ufde9"
 _RIGHT_BRACE = "\ufdea"
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute().resolve()
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 DATA_DIR = PROJECT_ROOT / "data"
 CUSTOM_PROMPTS_DIR = DATA_DIR / "custom_prompts"
@@ -240,18 +240,23 @@ class PromptManager:
         for prompt_file in CUSTOM_PROMPTS_DIR.glob(f"*{SUFFIX_PROMPT}"):
             try:
                 prompt_file.unlink()
-            except Exception as e:
-                logger.error(f"删除自定义 Prompt 文件 '{prompt_file}' 时出错，错误信息: {e}")
-                raise e
+            except Exception as exc:
+                logger.error(f"删除自定义 Prompt 文件 '{prompt_file}' 时出错，错误信息: {exc}")
+                raise
         for prompt_name in self._prompt_to_save:
             prompt = self.prompts[prompt_name]
             file_path = CUSTOM_PROMPTS_DIR / f"{prompt_name}{SUFFIX_PROMPT}"
             try:
-                with open(file_path, "w", encoding="utf-8") as f:
-                    f.write(prompt.template)
-            except Exception as e:
-                logger.error(f"保存 Prompt '{prompt_name}' 时出错，文件路径: '{file_path}'，错误信息: {e}")
-                raise e
+                file_path.write_text(prompt.template, encoding="utf-8")
+            except Exception as exc:
+                logger.error(f"保存 Prompt '{prompt_name}' 时出错，文件路径: '{file_path}'，错误信息: {exc}")
+                raise
+
+    def _load_prompt_template(self, prompt_name: str) -> tuple[str, bool]:
+        custom_prompt_path = CUSTOM_PROMPTS_DIR / f"{prompt_name}{SUFFIX_PROMPT}"
+        if custom_prompt_path.exists():
+            return custom_prompt_path.read_text(encoding="utf-8"), True
+        return load_prompt(prompt_name, prompts_root=PROMPTS_DIR), False
 
     def load_prompts(self) -> None:
         """
@@ -259,34 +264,23 @@ class PromptManager:
         Raises:
             Exception: 如果在加载过程中出现任何文件操作错误则引发该异常
         """
-        prompt_files = list_prompt_templates(prompts_root=PROMPTS_DIR)
-        for prompt_name, prompt_file in prompt_files.items():
+        prompt_templates = list_prompt_templates(prompts_root=PROMPTS_DIR)
+        for prompt_name, prompt_file in prompt_templates.items():
             try:
-                prompt_to_load = prompt_file
-                need_save = False
-                custom_prompt_path = CUSTOM_PROMPTS_DIR / f"{prompt_name}{SUFFIX_PROMPT}"
-                if custom_prompt_path.exists():
-                    # 优先加载自定义目录下的 Prompt 文件
-                    prompt_to_load = custom_prompt_path
-                    need_save = True
-                    with open(prompt_to_load, "r", encoding="utf-8") as f:
-                        template = f.read()
-                else:
-                    template = load_prompt(prompt_name, prompts_root=PROMPTS_DIR)
+                template, need_save = self._load_prompt_template(prompt_name)
                 self.add_prompt(Prompt(prompt_name=prompt_name, template=template), need_save=need_save)
-            except Exception as e:
-                logger.error(f"加载 Prompt 文件 '{prompt_file}' 时出错，错误信息: {e}")
-                raise e
+            except Exception as exc:
+                logger.error(f"加载 Prompt 文件 '{prompt_file}' 时出错，错误信息: {exc}")
+                raise
         for prompt_file in CUSTOM_PROMPTS_DIR.glob(f"*{SUFFIX_PROMPT}"):
-            if prompt_file.stem in prompt_files:
+            if prompt_file.stem in prompt_templates:
                 continue  # 已经加载过了，跳过
             try:
-                with open(prompt_file, "r", encoding="utf-8") as f:
-                    template = f.read()
+                template = prompt_file.read_text(encoding="utf-8")
                 self.add_prompt(Prompt(prompt_name=prompt_file.stem, template=template), need_save=True)
-            except Exception as e:
-                logger.error(f"加载自定义 Prompt 文件 '{prompt_file}' 时出错，错误信息: {e}")
-                raise e
+            except Exception as exc:
+                logger.error(f"加载自定义 Prompt 文件 '{prompt_file}' 时出错，错误信息: {exc}")
+                raise
 
     async def _get_function_result(
         self,
@@ -301,12 +295,12 @@ class PromptManager:
             if isinstance(res, Coroutine):
                 res = await res
             return res
-        except Exception as e:
+        except Exception as exc:
             if is_prompt_context:
-                logger.error(f"调用 Prompt '{prompt_name}' 内部上下文构造函数 '{field_name}' 时出错，错误信息: {e}")
+                logger.error(f"调用 Prompt '{prompt_name}' 内部上下文构造函数 '{field_name}' 时出错，错误信息: {exc}")
             else:
-                logger.error(f"调用上下文构造函数 '{field_name}' 时出错，所属模块: '{module}'，错误信息: {e}")
-            raise e
+                logger.error(f"调用上下文构造函数 '{field_name}' 时出错，所属模块: '{module}'，错误信息: {exc}")
+            raise
 
 
 prompt_manager = PromptManager()

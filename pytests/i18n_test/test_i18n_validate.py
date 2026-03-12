@@ -21,8 +21,8 @@ def write_locale_file(locales_root: Path, locale: str, file_name: str, payload: 
 
 def test_validate_json_locales_rejects_han_characters_in_english_locale(tmp_path: Path) -> None:
     locales_root = tmp_path / "locales"
-    write_locale_file(locales_root, "zh-CN", "core.json", {"consent.prompt": "输入\"同意\"继续"})
-    write_locale_file(locales_root, "en-US", "core.json", {"consent.prompt": "Type \"confirmed\" or \"同意\" to continue"})
+    write_locale_file(locales_root, "zh-CN", "core.json", {"consent.prompt": '输入"同意"继续'})
+    write_locale_file(locales_root, "en-US", "core.json", {"consent.prompt": 'Type "confirmed" or "同意" to continue'})
 
     errors = I18N_VALIDATE.validate_json_locales(locales_root)
 
@@ -37,3 +37,34 @@ def test_validate_json_locales_rejects_untranslated_han_source_in_other_target_l
     errors = I18N_VALIDATE.validate_json_locales(locales_root)
 
     assert any("greeting" in error and "直接保留了包含中文字符的 source 文案" in error for error in errors)
+
+
+def test_validate_json_locales_avoids_false_positive_when_plural_categories_do_not_align(tmp_path: Path) -> None:
+    locales_root = tmp_path / "locales"
+    write_locale_file(
+        locales_root,
+        "zh-CN",
+        "core.json",
+        {
+            "tasks.cancelled": {
+                "one": "中文单数",
+                "other": "中文复数",
+            }
+        },
+    )
+    write_locale_file(
+        locales_root,
+        "ja",
+        "core.json",
+        {
+            "tasks.cancelled": {
+                "many": "中文单数",
+                "other": "已翻译",
+            }
+        },
+    )
+
+    errors = I18N_VALIDATE.validate_json_locales(locales_root)
+
+    assert any("tasks.cancelled" in error and "plural category 不一致" in error for error in errors)
+    assert not any("tasks.cancelled" in error and "直接保留了包含中文字符的 source 文案" in error for error in errors)
