@@ -15,7 +15,7 @@ logger = logging.getLogger("maibot.prompt_i18n")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROMPTS_ROOT = (PROJECT_ROOT / "prompts").resolve()
-PROMPT_EXTENSIONS = (".prompt", ".txt")
+PROMPT_EXTENSIONS = (".prompt")
 FORMATTER = Formatter()
 SAFE_SEGMENT_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 STRICT_ENV_KEYS = ("MAIBOT_PROMPT_I18N_STRICT", "MAIBOT_I18N_STRICT")
