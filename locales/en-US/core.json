@@ -1,0 +1,7 @@
+{
+  "core.operation_failed": "Operation failed: {error}",
+  "core.tasks_cancelled": {
+    "one": "Cancelled {count} task",
+    "other": "Cancelled {count} tasks"
+  }
+}

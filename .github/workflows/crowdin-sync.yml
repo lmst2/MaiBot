@@ -1,0 +1,32 @@
+name: Crowdin Sync
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - r-dev
+    paths:
+      - "crowdin.yml"
+      - "locales/zh-CN/*.json"
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync translations with Crowdin
+        uses: crowdin/github-action@v2
+        with:
+          config: crowdin.yml
+          upload_sources: true
+          upload_translations: false
+          download_translations: true
+          create_pull_request: true
+          pull_request_title: "chore(i18n): sync Crowdin translations"
+          pull_request_body: "Automated translation sync from Crowdin."
+          commit_message: "chore(i18n): sync Crowdin translations"
+        env:
+          CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
