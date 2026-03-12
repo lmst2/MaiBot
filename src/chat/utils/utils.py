@@ -10,7 +10,6 @@ from datetime import datetime
 from typing import Optional, Tuple, List, TYPE_CHECKING
 
 from src.common.logger import get_logger
-from src.common.data_models.database_data_model import DatabaseMessages
 from src.config.config import global_config, model_config
 from src.chat.message_receive.message import SessionMessage
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
@@ -785,7 +784,7 @@ def record_replyer_action_temp(chat_id: str, reason: str, think_level: int) -> N
         logger.warning(f"记录replyer动作选择失败: {e}")
 
 
-def assign_message_ids(messages: List[DatabaseMessages]) -> List[Tuple[str, DatabaseMessages]]:
+def assign_message_ids(messages: List[SessionMessage]) -> List[Tuple[str, SessionMessage]]:
     """
     为消息列表中的每个消息分配唯一的简短随机ID
 
@@ -793,9 +792,9 @@ def assign_message_ids(messages: List[DatabaseMessages]) -> List[Tuple[str, Data
         messages: 消息列表
 
     Returns:
-        List[DatabaseMessages]: 分配了唯一ID的消息列表(写入message_id属性)
+        List[SessionMessage]: 分配了唯一ID的消息列表
     """
-    result: List[Tuple[str, DatabaseMessages]] = []  # 复制原始消息列表
+    result: List[Tuple[str, SessionMessage]] = []  # 复制原始消息列表
     used_ids = set()
     len_i = len(messages)
     if len_i > 100:
