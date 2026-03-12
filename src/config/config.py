@@ -26,6 +26,7 @@ from .official_configs import (
     LPMMKnowledgeConfig,
     MaiSakaConfig,
     MaimMessageConfig,
+    PluginRuntimeConfig,
     MemoryConfig,
     MessageReceiveConfig,
     PersonalityConfig,
@@ -54,7 +55,7 @@ CONFIG_DIR: Path = PROJECT_ROOT / "config"
 BOT_CONFIG_PATH: Path = (CONFIG_DIR / "bot_config.toml").resolve().absolute()
 MODEL_CONFIG_PATH: Path = (CONFIG_DIR / "model_config.toml").resolve().absolute()
 MMC_VERSION: str = "1.0.0"
-CONFIG_VERSION: str = "8.0.0"
+CONFIG_VERSION: str = "8.1.0"
 MODEL_CONFIG_VERSION: str = "1.12.0"
 
 logger = get_logger("config")
@@ -130,6 +131,9 @@ class Config(ConfigBase):
 
     maisaka: MaiSakaConfig = Field(default_factory=MaiSakaConfig)
     """MaiSaka对话系统配置类"""
+
+    plugin_runtime: PluginRuntimeConfig = Field(default_factory=PluginRuntimeConfig)
+    """插件运行时配置类"""
 
 
 class ModelConfig(ConfigBase):

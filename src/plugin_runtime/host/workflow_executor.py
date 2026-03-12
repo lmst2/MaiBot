@@ -24,6 +24,7 @@ import time
 import uuid
 
 from src.common.logger import get_logger
+from src.config.config import global_config
 from src.plugin_runtime.host.component_registry import ComponentRegistry, RegisteredComponent
 
 logger = get_logger("plugin_runtime.host.workflow_executor")
@@ -44,7 +45,9 @@ HOOK_SKIP_STAGE = "skip_stage"
 HOOK_ABORT = "abort"
 
 # blocking hook 全局最大超时（秒）：即使 hook 声明 timeout_ms=0 也不会无限等待
-GLOBAL_BLOCKING_TIMEOUT_SEC = 120.0
+# 从配置文件读取，允许用户调整
+def _get_blocking_timeout() -> float:
+    return global_config.plugin_runtime.workflow_blocking_timeout_sec
 
 
 class ModificationRecord:
@@ -300,7 +303,7 @@ class WorkflowExecutor:
         """
         timeout_ms = step.metadata.get("timeout_ms", 0)
         # 使用 hook 声明的超时，但不超过全局安全阀
-        timeout_sec = timeout_ms / 1000 if timeout_ms > 0 else GLOBAL_BLOCKING_TIMEOUT_SEC
+        timeout_sec = timeout_ms / 1000 if timeout_ms > 0 else _get_blocking_timeout()
         step_key = f"{stage}:{step.full_name}"
         step_start = time.perf_counter()
 

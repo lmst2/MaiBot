@@ -1199,6 +1199,14 @@ class TestSupervisor:
             def __init__(self):
                 self.runner_generation = 1
                 self.is_connected = True
+                self.session_token = "fake-token"
+
+            def reset_session_token(self):
+                self.session_token = "new-fake-token"
+                return self.session_token
+
+            def restore_session_token(self, token):
+                self.session_token = token
 
             async def send_request(self, method, timeout_ms=5000, **kwargs):
                 assert self.runner_generation == 2
@@ -1240,6 +1248,14 @@ class TestSupervisor:
             def __init__(self):
                 self.runner_generation = 1
                 self.is_connected = True
+                self.session_token = "fake-token"
+
+            def reset_session_token(self):
+                self.session_token = "new-fake-token"
+                return self.session_token
+
+            def restore_session_token(self, token):
+                self.session_token = token
 
             async def send_request(self, method, timeout_ms=5000, **kwargs):
                 raise RuntimeError("new runner unhealthy")

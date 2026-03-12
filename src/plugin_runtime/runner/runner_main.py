@@ -23,6 +23,7 @@ import time
 from typing import Any
 
 from src.common.logger import get_logger, initialize_logging
+from src.plugin_runtime import ENV_IPC_ADDRESS, ENV_PLUGIN_DIRS, ENV_SESSION_TOKEN
 from src.plugin_runtime.protocol.envelope import (
     ComponentDeclaration,
     Envelope,
@@ -413,9 +414,7 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
         _ALLOWED_SRC_PREFIXES = ("src.plugin_runtime", "src.common")
 
         def find_module(self, fullname, path=None):
-            if self._should_block(fullname):
-                return self
-            return None
+            return self if self._should_block(fullname) else None
 
         def load_module(self, fullname):
             raise ImportError(
@@ -427,10 +426,10 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
             if not fullname.startswith("src.") or fullname == "src":
                 return False
             # 放行白名单前缀
-            for prefix in self._ALLOWED_SRC_PREFIXES:
-                if fullname == prefix or fullname.startswith(prefix + "."):
-                    return False
-            return True
+            return not any(
+                fullname == prefix or fullname.startswith(f"{prefix}.")
+                for prefix in self._ALLOWED_SRC_PREFIXES
+            )
 
     sys.meta_path.insert(0, _PluginImportBlocker())
 
@@ -439,12 +438,12 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
 
 async def _async_main() -> None:
     """异步主入口"""
-    host_address = os.environ.get("MAIBOT_IPC_ADDRESS", "")
-    session_token = os.environ.get("MAIBOT_SESSION_TOKEN", "")
-    plugin_dirs_str = os.environ.get("MAIBOT_PLUGIN_DIRS", "")
+    host_address = os.environ.get(ENV_IPC_ADDRESS, "")
+    session_token = os.environ.get(ENV_SESSION_TOKEN, "")
+    plugin_dirs_str = os.environ.get(ENV_PLUGIN_DIRS, "")
 
     if not host_address or not session_token:
-        logger.error("缺少必要的环境变量: MAIBOT_IPC_ADDRESS, MAIBOT_SESSION_TOKEN")
+        logger.error(f"缺少必要的环境变量: {ENV_IPC_ADDRESS}, {ENV_SESSION_TOKEN}")
         sys.exit(1)
 
     plugin_dirs = [d for d in plugin_dirs_str.split(os.pathsep) if d]

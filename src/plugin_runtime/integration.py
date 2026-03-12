@@ -13,6 +13,7 @@ import asyncio
 import os
 
 from src.common.logger import get_logger
+from src.config.config import global_config
 
 logger = get_logger("plugin_runtime.integration")
 
@@ -66,6 +67,11 @@ class PluginRuntimeManager:
             logger.warning("PluginRuntimeManager 已在运行中，跳过重复启动")
             return
 
+        _cfg = global_config.plugin_runtime
+        if not _cfg.enabled:
+            logger.info("插件运行时已在配置中禁用，跳过启动")
+            return
+
         from src.plugin_runtime.host.supervisor import PluginSupervisor
 
         builtin_dirs = self._get_builtin_plugin_dirs()
@@ -75,18 +81,21 @@ class PluginRuntimeManager:
             logger.info("未找到任何插件目录，跳过插件运行时启动")
             return
 
+        # 从配置读取自定义 IPC socket 路径（留空则自动生成）
+        socket_path = _cfg.ipc_socket_path or None
+
         # 创建两个 Supervisor，各自拥有独立的 socket / Runner 子进程
         if builtin_dirs:
             self._builtin_supervisor = PluginSupervisor(
                 plugin_dirs=builtin_dirs,
-                socket_path=None,  # 自动生成
+                socket_path=socket_path,
             )
             self._register_capability_impls(self._builtin_supervisor)
 
         if thirdparty_dirs:
             self._thirdparty_supervisor = PluginSupervisor(
                 plugin_dirs=thirdparty_dirs,
-                socket_path=None,
+                socket_path=socket_path,
             )
             self._register_capability_impls(self._thirdparty_supervisor)
 

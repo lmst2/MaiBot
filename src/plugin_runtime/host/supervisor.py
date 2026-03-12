@@ -16,6 +16,8 @@ import os
 import sys
 
 from src.common.logger import get_logger
+from src.config.config import global_config
+from src.plugin_runtime import ENV_IPC_ADDRESS, ENV_PLUGIN_DIRS, ENV_SESSION_TOKEN
 from src.plugin_runtime.host.capability_service import CapabilityService
 from src.plugin_runtime.host.component_registry import ComponentRegistry
 from src.plugin_runtime.host.event_dispatcher import EventDispatcher
@@ -93,10 +95,14 @@ class PluginSupervisor:
         self,
         plugin_dirs: Optional[List[str]] = None,
         socket_path: Optional[str] = None,
-        health_check_interval_sec: float = 30.0,
+        health_check_interval_sec: Optional[float] = None,
+        max_restart_attempts: Optional[int] = None,
+        runner_spawn_timeout_sec: Optional[float] = None,
     ):
+        _cfg = global_config.plugin_runtime
         self._plugin_dirs = plugin_dirs or []
-        self._health_interval = health_check_interval_sec
+        self._health_interval = health_check_interval_sec if health_check_interval_sec is not None else _cfg.health_check_interval_sec
+        self._runner_spawn_timeout = runner_spawn_timeout_sec if runner_spawn_timeout_sec is not None else _cfg.runner_spawn_timeout_sec
 
         # 基础设施
         self._transport = create_transport_server(socket_path=socket_path)
@@ -118,7 +124,7 @@ class PluginSupervisor:
         # Runner 子进程
         self._runner_process: Optional[asyncio.subprocess.Process] = None
         self._runner_generation: int = 0
-        self._max_restart_attempts: int = 3
+        self._max_restart_attempts: int = max_restart_attempts if max_restart_attempts is not None else _cfg.max_restart_attempts
         self._restart_count: int = 0
 
         # 已注册的插件组件信息
@@ -230,10 +236,10 @@ class PluginSupervisor:
 
         # 等待 Runner 完成连接，避免 start() 返回时 Runner 尚未就绪
         try:
-            await self._wait_for_runner_generation(expected_generation, timeout_sec=30.0)
+            await self._wait_for_runner_generation(expected_generation, timeout_sec=self._runner_spawn_timeout)
         except TimeoutError:
             if not self._rpc_server.is_connected:
-                logger.warning("Runner 未在 30s 内完成连接，后续操作可能失败")
+                logger.warning(f"Runner 未在 {self._runner_spawn_timeout}s 内完成连接，后续操作可能失败")
 
         # 启动健康检查
         self._health_task = asyncio.create_task(self._health_check_loop())
@@ -305,7 +311,7 @@ class PluginSupervisor:
         # 拉起新 Runner
         try:
             await self._spawn_runner()
-            await self._wait_for_runner_generation(expected_generation, timeout_sec=30.0)
+            await self._wait_for_runner_generation(expected_generation, timeout_sec=self._runner_spawn_timeout)
             resp = await self._rpc_server.send_request("plugin.health", timeout_ms=5000)
             health = HealthPayload.model_validate(resp.payload)
             if not health.healthy:
@@ -393,9 +399,9 @@ class PluginSupervisor:
         token = self._rpc_server.session_token
 
         env = os.environ.copy()
-        env["MAIBOT_IPC_ADDRESS"] = address
-        env["MAIBOT_SESSION_TOKEN"] = token
-        env["MAIBOT_PLUGIN_DIRS"] = os.pathsep.join(self._plugin_dirs)
+        env[ENV_IPC_ADDRESS] = address
+        env[ENV_SESSION_TOKEN] = token
+        env[ENV_PLUGIN_DIRS] = os.pathsep.join(self._plugin_dirs)
 
         self._runner_process = await asyncio.create_subprocess_exec(
             sys.executable, "-m", runner_module,
