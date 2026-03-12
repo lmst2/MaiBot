@@ -119,7 +119,7 @@ class HeartFChatting:
 
         logger.info(f"{self.log_prefix} HeartFChatting 已停止")
 
-    async def adjust_talk_frequency(self, new_value: float):
+    def adjust_talk_frequency(self, new_value: float):
         """调整发言频率的调整值
 
         Args:

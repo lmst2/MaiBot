@@ -10,8 +10,8 @@ from src.chat.brain_chat.brain_chat import BrainChatting
 logger = get_logger("heartflow")
 
 
-class Heartflow:
-    """主心流协调器，负责初始化并协调聊天"""
+class HeartflowManager:
+    """主心流协调器，负责初始化并协调聊天，控制聊天属性"""
 
     def __init__(self):
         self.heartflow_chat_list: Dict[str, HeartFChatting | BrainChatting] = {}
@@ -35,5 +35,14 @@ class Heartflow:
             traceback.print_exc()
         return None
 
+    def adjust_talk_frequency(self, session_id: str, frequency: float):
+        """调整指定聊天流的说话频率"""
+        chat = self.heartflow_chat_list.get(session_id)
+        if chat and isinstance(chat, HeartFChatting):
+            chat.adjust_talk_frequency(frequency)
+            logger.info(f"已调整聊天 {session_id} 的说话频率为 {frequency}")
+        else:
+            logger.warning(f"无法调整频率，未找到 session_id={session_id} 的聊天流")
 
-heartflow = Heartflow()
+
+heartflow_manager = HeartflowManager()

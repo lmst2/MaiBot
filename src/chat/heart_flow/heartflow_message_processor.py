@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 import traceback
 
-from src.chat.heart_flow.heartflow import heartflow
+from src.chat.heart_flow.heartflow_manager import heartflow_manager
 
 # from src.chat.utils.chat_message_builder import replace_user_references
 from src.common.utils.utils_message import MessageUtils
@@ -58,7 +58,7 @@ class HeartFCMessageReceiver:
 
             MessageUtils.store_message_to_db(message)  # 存储消息到数据库
 
-            await heartflow.get_or_create_heartflow_chat(message.session_id)
+            await heartflow_manager.get_or_create_heartflow_chat(message.session_id)
 
             # 3. 日志记录
             mes_name = group_info.group_name if group_info else "私聊"
