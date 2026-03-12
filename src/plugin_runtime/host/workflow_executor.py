@@ -345,7 +345,8 @@ class WorkflowExecutor:
     ) -> None:
         """Non-blocking hook 调用，只读，忽略结果。"""
         timeout_ms = step.metadata.get("timeout_ms", 0)
-        timeout_sec = timeout_ms / 1000 if timeout_ms > 0 else None
+        # 使用 hook 声明的超时，但无声明时回退到全局安全阀，防止 task 泄漏
+        timeout_sec = timeout_ms / 1000 if timeout_ms > 0 else _get_blocking_timeout()
 
         try:
             coro = invoke_fn(step.plugin_id, step.name, {
@@ -354,10 +355,9 @@ class WorkflowExecutor:
                 "message": message,
                 "stage_outputs": ctx.stage_outputs,
             })
-            if timeout_sec:
-                await asyncio.wait_for(coro, timeout=timeout_sec)
-            else:
-                await coro
+            await asyncio.wait_for(coro, timeout=timeout_sec)
+        except asyncio.TimeoutError:
+            logger.warning(f"[{ctx.trace_id}] non-blocking hook {step.full_name} 超时 ({timeout_sec}s)")
         except Exception as e:
             logger.debug(f"[{ctx.trace_id}] non-blocking hook {step.full_name}: {e}")
 

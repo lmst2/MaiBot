@@ -82,20 +82,24 @@ class PluginRuntimeManager:
             return
 
         # 从配置读取自定义 IPC socket 路径（留空则自动生成）
-        socket_path = _cfg.ipc_socket_path or None
+        socket_path_base = _cfg.ipc_socket_path or None
+
+        # 当用户指定了自定义路径时，为两个 Supervisor 添加后缀以避免 UDS 冲突
+        builtin_socket = f"{socket_path_base}-builtin" if socket_path_base else None
+        thirdparty_socket = f"{socket_path_base}-thirdparty" if socket_path_base else None
 
         # 创建两个 Supervisor，各自拥有独立的 socket / Runner 子进程
         if builtin_dirs:
             self._builtin_supervisor = PluginSupervisor(
                 plugin_dirs=builtin_dirs,
-                socket_path=socket_path,
+                socket_path=builtin_socket,
             )
             self._register_capability_impls(self._builtin_supervisor)
 
         if thirdparty_dirs:
             self._thirdparty_supervisor = PluginSupervisor(
                 plugin_dirs=thirdparty_dirs,
-                socket_path=socket_path,
+                socket_path=thirdparty_socket,
             )
             self._register_capability_impls(self._thirdparty_supervisor)
 
