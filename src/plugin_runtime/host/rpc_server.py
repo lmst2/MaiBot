@@ -74,6 +74,10 @@ class RPCServer:
         return self._session_token
 
     @property
+    def runner_generation(self) -> int:
+        return self._runner_generation
+
+    @property
     def is_connected(self) -> bool:
         return self._connection is not None and not self._connection.is_closed
 
@@ -206,9 +210,13 @@ class RPCServer:
             await conn.close()
             return
 
-        # 握手成功，保存连接
+        old_connection = self._connection
         self._connection = conn
         logger.info(f"Runner 握手成功: runner_id={self._runner_id}, generation={self._runner_generation}")
+
+        if old_connection and old_connection is not conn and not old_connection.is_closed:
+            logger.info("检测到新 Runner 已接管连接，关闭旧连接")
+            await old_connection.close()
 
         # 启动消息接收循环
         try:
@@ -216,8 +224,9 @@ class RPCServer:
         except Exception as e:
             logger.error(f"连接异常断开: {e}")
         finally:
-            self._connection = None
-            self._runner_id = None
+            if self._connection is conn:
+                self._connection = None
+                self._runner_id = None
 
     async def _handle_handshake(self, conn: Connection) -> bool:
         """处理 runner.hello 握手"""
@@ -295,23 +304,44 @@ class RPCServer:
             if envelope.is_response():
                 self._handle_response(envelope)
             elif envelope.is_request():
+                if not self._is_current_generation(envelope):
+                    error_resp = envelope.make_error_response(
+                        ErrorCode.E_GENERATION_MISMATCH.value,
+                        f"过期 generation: {envelope.generation} != {self._runner_generation}",
+                    )
+                    await conn.send_frame(self._codec.encode_envelope(error_resp))
+                    continue
                 # 异步处理请求（Runner 发来的能力调用）
                 task = asyncio.create_task(self._handle_request(envelope, conn))
                 self._tasks.append(task)
                 task.add_done_callback(lambda t: self._tasks.remove(t) if t in self._tasks else None)
             elif envelope.is_event():
+                if not self._is_current_generation(envelope):
+                    logger.warning(
+                        f"忽略过期 generation 事件 {envelope.method}: {envelope.generation} != {self._runner_generation}"
+                    )
+                    continue
                 task = asyncio.create_task(self._handle_event(envelope))
                 self._tasks.append(task)
                 task.add_done_callback(lambda t: self._tasks.remove(t) if t in self._tasks else None)
 
     def _handle_response(self, envelope: Envelope) -> None:
         """处理来自 Runner 的响应"""
+        if not self._is_current_generation(envelope):
+            logger.warning(
+                f"忽略过期 generation 响应 {envelope.method}: {envelope.generation} != {self._runner_generation}"
+            )
+            return
+
         future = self._pending_requests.pop(envelope.request_id, None)
         if future and not future.done():
             if envelope.error:
                 future.set_exception(RPCError.from_dict(envelope.error))
             else:
                 future.set_result(envelope)
+
+    def _is_current_generation(self, envelope: Envelope) -> bool:
+        return envelope.generation == self._runner_generation
 
     async def _handle_request(self, envelope: Envelope, conn: Connection) -> None:
         """处理来自 Runner 的请求（通常是能力调用 cap.*）"""

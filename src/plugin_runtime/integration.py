@@ -90,21 +90,22 @@ class PluginRuntimeManager:
             )
             self._register_capability_impls(self._thirdparty_supervisor)
 
-        # 并行启动
-        coros = []
-        if self._builtin_supervisor:
-            coros.append(self._builtin_supervisor.start())
-        if self._thirdparty_supervisor:
-            coros.append(self._thirdparty_supervisor.start())
-
+        started_supervisors = []
         try:
-            await asyncio.gather(*coros)
+            if self._builtin_supervisor:
+                await self._builtin_supervisor.start()
+                started_supervisors.append(self._builtin_supervisor)
+            if self._thirdparty_supervisor:
+                await self._thirdparty_supervisor.start()
+                started_supervisors.append(self._thirdparty_supervisor)
             self._started = True
             logger.info(
                 f"插件运行时已启动 — 内置: {builtin_dirs or '无'}, 第三方: {thirdparty_dirs or '无'}"
             )
         except Exception as e:
             logger.error(f"插件运行时启动失败: {e}", exc_info=True)
+            await asyncio.gather(*(sv.stop() for sv in started_supervisors), return_exceptions=True)
+            self._started = False
             self._builtin_supervisor = None
             self._thirdparty_supervisor = None
 

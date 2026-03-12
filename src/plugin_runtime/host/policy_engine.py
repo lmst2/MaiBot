@@ -44,7 +44,11 @@ class PolicyEngine:
         """撤销插件的能力令牌"""
         self._tokens.pop(plugin_id, None)
 
-    def check_capability(self, plugin_id: str, capability: str) -> Tuple[bool, str]:
+    def clear(self) -> None:
+        """清空所有能力令牌。"""
+        self._tokens.clear()
+
+    def check_capability(self, plugin_id: str, capability: str, generation: Optional[int] = None) -> Tuple[bool, str]:
         """检查插件是否有权调用某项能力
 
         Returns:
@@ -56,6 +60,9 @@ class PolicyEngine:
 
         if capability not in token.capabilities:
             return False, f"插件 {plugin_id} 未获授权能力: {capability}"
+
+        if generation is not None and token.generation != generation:
+            return False, f"插件 {plugin_id} generation 不匹配: {generation} != {token.generation}"
 
         return True, ""
 

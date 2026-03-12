@@ -73,6 +73,13 @@ class ComponentRegistry:
         # 按插件索引
         self._by_plugin: Dict[str, List[RegisteredComponent]] = {}
 
+    def clear(self) -> None:
+        """清空全部组件注册状态。"""
+        self._components.clear()
+        for type_dict in self._by_type.values():
+            type_dict.clear()
+        self._by_plugin.clear()
+
     # ──── 注册 / 注销 ─────────────────────────────────────────
 
     def register_component(
