@@ -16,6 +16,11 @@ from src.common.i18n.loaders import (  # noqa: E402
     get_locales_root,
     load_locale_catalog,
 )
+from src.common.prompt_i18n import (  # noqa: E402
+    PROMPT_EXTENSIONS,
+    extract_prompt_placeholders,
+    get_prompts_root,
+)
 
 FORMATTER = Formatter()
 
@@ -63,7 +68,7 @@ def validate_translation_pair(
             errors.append(f"[{locale}] key '{key}' 的 plural category '{category}' 占位符集合与 source 不一致")
 
 
-def validate_locales(locales_root: Path | None = None) -> list[str]:
+def validate_json_locales(locales_root: Path | None = None) -> list[str]:
     resolved_locales_root = get_locales_root(locales_root)
     locales = discover_locales(resolved_locales_root)
     errors: list[str] = []
@@ -103,15 +108,99 @@ def validate_locales(locales_root: Path | None = None) -> list[str]:
     return errors
 
 
+def discover_prompt_locales(prompts_root: Path | None = None) -> list[str]:
+    resolved_prompts_root = get_prompts_root(prompts_root)
+    if not resolved_prompts_root.exists():
+        return []
+
+    locale_names = [path.name for path in resolved_prompts_root.iterdir() if path.is_dir()]
+    return sorted(locale_names)
+
+
+def iter_prompt_files(locale_dir: Path) -> list[Path]:
+    prompt_files: list[Path] = []
+    for extension in PROMPT_EXTENSIONS:
+        prompt_files.extend(path for path in locale_dir.rglob(f"*{extension}") if path.is_file())
+    return sorted(set(prompt_files))
+
+
+def validate_prompt_templates(prompts_root: Path | None = None) -> tuple[list[str], list[str]]:
+    resolved_prompts_root = get_prompts_root(prompts_root)
+    prompt_locales = discover_prompt_locales(resolved_prompts_root)
+    known_locales = [locale for locale in discover_locales(get_locales_root()) if locale != DEFAULT_LOCALE]
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if DEFAULT_LOCALE not in prompt_locales:
+        errors.append(f"缺少默认 Prompt locale 目录: {DEFAULT_LOCALE}")
+        return errors, warnings
+
+    source_dir = resolved_prompts_root / DEFAULT_LOCALE
+    source_files = {path.relative_to(source_dir): path for path in iter_prompt_files(source_dir)}
+
+    for locale in known_locales:
+        locale_dir = resolved_prompts_root / locale
+        if not locale_dir.exists():
+            warnings.append(f"[prompt:{locale}] 缺少 locale 目录，运行时将回退到 {DEFAULT_LOCALE}")
+            continue
+
+        locale_files = {path.relative_to(locale_dir): path for path in iter_prompt_files(locale_dir)}
+        source_relative_paths = set(source_files.keys())
+        locale_relative_paths = set(locale_files.keys())
+
+        for relative_path in sorted(source_relative_paths - locale_relative_paths):
+            warnings.append(f"[prompt:{locale}] 缺少模板: {relative_path.as_posix()}，运行时将回退到 {DEFAULT_LOCALE}")
+
+        for relative_path in sorted(locale_relative_paths - source_relative_paths):
+            warnings.append(f"[prompt:{locale}] 存在额外模板: {relative_path.as_posix()}")
+
+        for relative_path in sorted(source_relative_paths & locale_relative_paths):
+            source_text = source_files[relative_path].read_text(encoding="utf-8")
+            locale_text = locale_files[relative_path].read_text(encoding="utf-8")
+
+            source_placeholders = extract_prompt_placeholders(source_text)
+            locale_placeholders = extract_prompt_placeholders(locale_text)
+            if source_placeholders != locale_placeholders:
+                errors.append(
+                    "[prompt:{locale}] 模板 '{path}' 的占位符集合与 source 不一致："
+                    "source={source_placeholders}, target={target_placeholders}".format(
+                        locale=locale,
+                        path=relative_path.as_posix(),
+                        source_placeholders=sorted(source_placeholders),
+                        target_placeholders=sorted(locale_placeholders),
+                    )
+                )
+
+            if source_text == locale_text:
+                warnings.append(f"[prompt:{locale}] 模板 '{relative_path.as_posix()}' 与 source 完全相同，可能尚未翻译")
+
+    return errors, warnings
+
+
 def main() -> int:
-    errors = validate_locales()
+    errors = validate_json_locales()
+    prompt_errors, prompt_warnings = validate_prompt_templates()
+    errors.extend(prompt_errors)
+
     if errors:
         print("i18n validation failed:")
         for error in errors:
             print(f"  - {error}")
+        if prompt_warnings:
+            print(f"warnings ({len(prompt_warnings)}):")
+            for warning in prompt_warnings[:10]:
+                print(f"  - {warning}")
+            if len(prompt_warnings) > 10:
+                print(f"  - ... 另外还有 {len(prompt_warnings) - 10} 条 warning")
         return 1
 
     print("i18n validation passed.")
+    if prompt_warnings:
+        print(f"warnings ({len(prompt_warnings)}):")
+        for warning in prompt_warnings[:10]:
+            print(f"  - {warning}")
+        if len(prompt_warnings) > 10:
+            print(f"  - ... 另外还有 {len(prompt_warnings) - 10} 条 warning")
     return 0
 
 

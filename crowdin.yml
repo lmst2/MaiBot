@@ -13,3 +13,10 @@ files:
       locale:
         en-US: en-US
         ja: ja
+
+  - source: /prompts/zh-CN/**/*.prompt
+    translation: /prompts/%locale%/**/%original_file_name%
+    languages_mapping:
+      locale:
+        en-US: en-US
+        ja: ja

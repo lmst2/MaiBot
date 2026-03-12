@@ -1,9 +1,11 @@
-from collections.abc import Callable, Coroutine
-from typing import Any, Optional
-from string import Formatter
 from pathlib import Path
+from string import Formatter
+from typing import Any, Optional
+
+from collections.abc import Callable, Coroutine
 import inspect
 
+from src.common.prompt_i18n import list_prompt_templates, load_prompt
 from src.common.logger import get_logger
 
 
@@ -257,22 +259,26 @@ class PromptManager:
         Raises:
             Exception: 如果在加载过程中出现任何文件操作错误则引发该异常
         """
-        for prompt_file in PROMPTS_DIR.glob(f"*{SUFFIX_PROMPT}"):
+        prompt_files = list_prompt_templates(prompts_root=PROMPTS_DIR)
+        for prompt_name, prompt_file in prompt_files.items():
             try:
                 prompt_to_load = prompt_file
                 need_save = False
-                if (CUSTOM_PROMPTS_DIR / prompt_file.name).exists():
+                custom_prompt_path = CUSTOM_PROMPTS_DIR / f"{prompt_name}{SUFFIX_PROMPT}"
+                if custom_prompt_path.exists():
                     # 优先加载自定义目录下的 Prompt 文件
-                    prompt_to_load = CUSTOM_PROMPTS_DIR / prompt_file.name
+                    prompt_to_load = custom_prompt_path
                     need_save = True
-                with open(prompt_to_load, "r", encoding="utf-8") as f:
-                    template = f.read()
-                self.add_prompt(Prompt(prompt_name=prompt_to_load.stem, template=template), need_save=need_save)
+                    with open(prompt_to_load, "r", encoding="utf-8") as f:
+                        template = f.read()
+                else:
+                    template = load_prompt(prompt_name, prompts_root=PROMPTS_DIR)
+                self.add_prompt(Prompt(prompt_name=prompt_name, template=template), need_save=need_save)
             except Exception as e:
                 logger.error(f"加载 Prompt 文件 '{prompt_file}' 时出错，错误信息: {e}")
                 raise e
         for prompt_file in CUSTOM_PROMPTS_DIR.glob(f"*{SUFFIX_PROMPT}"):
-            if (PROMPTS_DIR / prompt_file.name).exists():
+            if prompt_file.stem in prompt_files:
                 continue  # 已经加载过了，跳过
             try:
                 with open(prompt_file, "r", encoding="utf-8") as f:
