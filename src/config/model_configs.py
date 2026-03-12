@@ -1,5 +1,7 @@
 from typing import Any
+
 from .config_base import ConfigBase, Field
+from src.common.i18n import t
 
 
 class APIProvider(ConfigBase):
@@ -77,11 +79,11 @@ class APIProvider(ConfigBase):
     def model_post_init(self, context: Any = None):
         """确保api_key在repr中不被显示"""
         if not self.api_key:
-            raise ValueError("API密钥不能为空, 请在配置中设置有效的API密钥。")
+            raise ValueError(t("config.api_key_empty"))
         if not self.base_url and self.client_type != "gemini":  # TODO: 允许gemini使用base_url
-            raise ValueError("API基础URL不能为空, 请在配置中设置有效的基础URL。")
+            raise ValueError(t("config.api_base_url_empty"))
         if not self.name:
-            raise ValueError("API提供商名称不能为空, 请在配置中设置有效的名称。")
+            raise ValueError(t("config.api_provider_name_empty"))
         return super().model_post_init(context)
 
 
@@ -178,11 +180,11 @@ class ModelInfo(ConfigBase):
 
     def model_post_init(self, context: Any = None):
         if not self.model_identifier:
-            raise ValueError("模型标识符不能为空, 请在配置中设置有效的模型标识符。")
+            raise ValueError(t("config.model_identifier_empty_generic"))
         if not self.name:
-            raise ValueError("模型名称不能为空, 请在配置中设置有效的模型名称。")
+            raise ValueError(t("config.model_name_empty"))
         if not self.api_provider:
-            raise ValueError("API提供商不能为空, 请在配置中设置有效的API提供商。")
+            raise ValueError(t("config.model_api_provider_empty"))
         return super().model_post_init(context)
 
 

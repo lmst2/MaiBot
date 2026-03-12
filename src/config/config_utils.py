@@ -1,10 +1,13 @@
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Set, Tuple, Union, get_args, get_origin
+
 from pydantic.fields import FieldInfo
-from typing import Any, get_args, get_origin, TYPE_CHECKING, Literal, List, Set, Tuple, Dict, Union
-import types
 from tomlkit import items
+
 import tomlkit
+import types
 
 from .config_base import ConfigBase
+from src.common.i18n import t
 
 if TYPE_CHECKING:
     from .config_base import AttributeData
@@ -132,15 +135,20 @@ def convert_field(config_item_name: str, config_item_info: FieldInfo, value: Any
 
 def output_config_changes(attr_data: "AttributeData", logger, old_ver: str, new_ver: str, file_name: str):
     """输出配置变更信息"""
-    logger.info("-------- 配置文件变更信息 --------")
-    logger.info(f"新增配置数量: {len(attr_data.missing_attributes)}")
+    logger.info(t("config.change_summary_header"))
+    logger.info(t("config.added_count", count=len(attr_data.missing_attributes)))
     for attr in attr_data.missing_attributes:
-        logger.info(f"配置文件中新增配置项: {attr}")
-    logger.info(f"移除配置数量: {len(attr_data.redundant_attributes)}")
+        logger.info(t("config.added_item", attribute=attr))
+    logger.info(t("config.removed_count", count=len(attr_data.redundant_attributes)))
     for attr in attr_data.redundant_attributes:
-        logger.warning(f"移除配置项: {attr}")
+        logger.warning(t("config.removed_item", attribute=attr))
     logger.info(
-        f"{file_name}配置文件已经更新. Old: {old_ver} -> New: {new_ver} 建议检查新配置文件中的内容, 以免丢失重要信息"
+        t(
+            "config.file_updated",
+            file_name=file_name,
+            new_version=new_ver,
+            old_version=old_ver,
+        )
     )
 
 

@@ -1,44 +1,44 @@
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, TypeVar
-from datetime import datetime
+
 import asyncio
 import copy
-
-import tomlkit
 import sys
 
-from .legacy_migration import try_migrate_legacy_bot_config_dict
+import tomlkit
 
+from .config_base import AttributeData, ConfigBase, Field
+from .config_utils import compare_versions, output_config_changes, recursive_parse_item_to_table
+from .file_watcher import FileChange, FileWatcher
+from .legacy_migration import try_migrate_legacy_bot_config_dict
+from .model_configs import APIProvider, ModelInfo, ModelTaskConfig
 from .official_configs import (
     BotConfig,
-    PersonalityConfig,
-    ExpressionConfig,
     ChatConfig,
-    EmojiConfig,
-    KeywordReactionConfig,
     ChineseTypoConfig,
+    DatabaseConfig,
+    DebugConfig,
+    EmojiConfig,
+    ExperimentalConfig,
+    ExpressionConfig,
+    KeywordReactionConfig,
+    LPMMKnowledgeConfig,
+    MaiSakaConfig,
+    MaimMessageConfig,
+    MemoryConfig,
+    MessageReceiveConfig,
+    PersonalityConfig,
+    RelationshipConfig,
     ResponsePostProcessConfig,
     ResponseSplitterConfig,
     TelemetryConfig,
-    ExperimentalConfig,
-    MessageReceiveConfig,
-    MaimMessageConfig,
-    LPMMKnowledgeConfig,
-    RelationshipConfig,
     ToolConfig,
     VoiceConfig,
-    MemoryConfig,
-    DebugConfig,
     WebUIConfig,
-    DatabaseConfig,
-    MaiSakaConfig,
 )
-from .model_configs import ModelInfo, ModelTaskConfig, APIProvider
-from .config_base import ConfigBase, Field, AttributeData
-from .config_utils import recursive_parse_item_to_table, output_config_changes, compare_versions
-
+from src.common.i18n import t
 from src.common.logger import get_logger
-from src.config.file_watcher import FileChange, FileWatcher
 
 """
 如果你想要修改配置文件，请递增version的值
@@ -146,27 +146,33 @@ class ModelConfig(ConfigBase):
 
     def model_post_init(self, context: Any = None):
         if not self.models:
-            raise ValueError("模型列表不能为空，请在配置中设置有效的模型列表。")
+            raise ValueError(t("config.models_empty"))
         if not self.api_providers:
-            raise ValueError("API提供商列表不能为空，请在配置中设置有效的API提供商列表。")
+            raise ValueError(t("config.api_providers_empty"))
 
         # 检查API提供商名称是否重复
         provider_names = [provider.name for provider in self.api_providers]
         if len(provider_names) != len(set(provider_names)):
-            raise ValueError("API提供商名称存在重复，请检查配置文件。")
+            raise ValueError(t("config.api_provider_name_duplicate"))
 
         # 检查模型名称是否重复
         model_names = [model.name for model in self.models]
         if len(model_names) != len(set(model_names)):
-            raise ValueError("模型名称存在重复，请检查配置文件。")
+            raise ValueError(t("config.model_name_duplicate"))
 
         api_providers_dict = {provider.name: provider for provider in self.api_providers}
 
         for model in self.models:
             if not model.model_identifier:
-                raise ValueError(f"模型 '{model.name}' 的 model_identifier 不能为空")
+                raise ValueError(t("config.model_identifier_empty", model_name=model.name))
             if not model.api_provider or model.api_provider not in api_providers_dict:
-                raise ValueError(f"模型 '{model.name}' 的 api_provider '{model.api_provider}' 不存在")
+                raise ValueError(
+                    t(
+                        "config.model_api_provider_missing",
+                        api_provider=model.api_provider,
+                        model_name=model.name,
+                    )
+                )
         return super().model_post_init(context)
 
 
@@ -188,11 +194,11 @@ class ConfigManager:
         self._last_hot_reload_monotonic: float = 0.0
 
     def initialize(self):
-        logger.info(f"MaiCore当前版本: {MMC_VERSION}")
-        logger.info("正在品鉴配置文件...")
+        logger.info(t("config.current_version", version=MMC_VERSION))
+        logger.info(t("config.loading"))
         self.global_config = self.load_global_config()
         self.model_config = self.load_model_config()
-        logger.info("非常的新鲜，非常的美味！")
+        logger.info(t("config.loaded"))
 
     def load_global_config(self) -> Config:
         config, updated = load_config_from_file(Config, self.bot_config_path, CONFIG_VERSION)
@@ -208,12 +214,12 @@ class ConfigManager:
 
     def get_global_config(self) -> Config:
         if self.global_config is None:
-            raise RuntimeError("global_config 未初始化")
+            raise RuntimeError(t("config.global_not_initialized"))
         return self.global_config
 
     def get_model_config(self) -> ModelConfig:
         if self.model_config is None:
-            raise RuntimeError("model_config 未初始化")
+            raise RuntimeError(t("config.model_not_initialized"))
         return self.model_config
 
     def register_reload_callback(self, callback: Callable[[], object]) -> None:
@@ -240,18 +246,18 @@ class ConfigManager:
                     True,
                 )
             except Exception as exc:
-                logger.error(f"配置重载失败: {exc}")
+                logger.error(t("config.reload_failed", error=exc))
                 return False
 
             if global_updated or model_updated:
-                logger.warning("检测到配置版本更新，热重载仅更新内存数据")
+                logger.warning(t("config.version_update_detected"))
 
             self.global_config = global_config_new
             self.model_config = model_config_new
             global global_config, model_config
             global_config = global_config_new
             model_config = model_config_new
-            logger.info("配置热重载完成")
+            logger.info(t("config.hot_reload_completed"))
 
             for callback in list(self._reload_callbacks):
                 try:
@@ -259,7 +265,7 @@ class ConfigManager:
                     if asyncio.iscoroutine(result):
                         await result
                 except Exception as exc:
-                    logger.warning(f"配置重载回调执行失败: {exc}")
+                    logger.warning(t("config.reload_callback_failed", error=exc))
             return True
 
     async def start_file_watcher(self) -> None:
@@ -277,7 +283,7 @@ class ConfigManager:
             paths=[self.bot_config_path, self.model_config_path],
         )
         await self._file_watcher.start()
-        logger.info("配置文件监视器已启动")
+        logger.info(t("config.file_watcher_started"))
 
     async def stop_file_watcher(self) -> None:
         if self._file_watcher is None:
@@ -287,14 +293,16 @@ class ConfigManager:
             self._file_watcher_subscription_id = None
         watcher_stats = self._file_watcher.stats
         logger.info(
-            "配置文件监视器停止统计: "
-            f"batches={watcher_stats.batches_seen}, "
-            f"changes={watcher_stats.changes_seen}, "
-            f"ok={watcher_stats.callbacks_succeeded}, "
-            f"failed={watcher_stats.callbacks_failed}, "
-            f"timeout={watcher_stats.callbacks_timed_out}, "
-            f"cooldown_skip={watcher_stats.callbacks_skipped_cooldown}, "
-            f"restart={watcher_stats.restart_count}"
+            t(
+                "config.file_watcher_stop_stats",
+                batches=watcher_stats.batches_seen,
+                changes=watcher_stats.changes_seen,
+                cooldown_skip=watcher_stats.callbacks_skipped_cooldown,
+                failed=watcher_stats.callbacks_failed,
+                ok=watcher_stats.callbacks_succeeded,
+                restart=watcher_stats.restart_count,
+                timeout=watcher_stats.callbacks_timed_out,
+            )
         )
         await self._file_watcher.stop()
         self._file_watcher = None
@@ -304,14 +312,14 @@ class ConfigManager:
             return
         now_monotonic = asyncio.get_running_loop().time()
         if now_monotonic - self._last_hot_reload_monotonic < self._hot_reload_min_interval_s:
-            logger.debug("文件变更触发过于频繁，已跳过本次重载")
+            logger.debug(t("config.reload_skipped_too_frequent"))
             return
         self._last_hot_reload_monotonic = now_monotonic
-        logger.info("检测到配置文件变更，触发热重载")
+        logger.info(t("config.file_change_detected"))
         try:
             await asyncio.wait_for(self.reload_config(), timeout=self._hot_reload_timeout_s)
         except asyncio.TimeoutError:
-            logger.error(f"配置热重载超时（>{self._hot_reload_timeout_s}s）")
+            logger.error(t("config.reload_timeout", timeout_seconds=self._hot_reload_timeout_s))
 
 
 def generate_new_config_file(config_class: type[T], config_path: Path, inner_config_version: str) -> None:
@@ -333,10 +341,10 @@ def load_config_from_file(
         config_data = tomlkit.load(f)
     inner_table = config_data.get("inner")
     if not isinstance(inner_table, Mapping):
-        raise TypeError("配置文件缺少 inner 版本信息")
+        raise TypeError(t("config.missing_inner_version"))
     inner_version = inner_table.get("version")
     if not isinstance(inner_version, str):
-        raise TypeError("配置文件 inner.version 类型错误")
+        raise TypeError(t("config.invalid_inner_version"))
     old_ver: str = inner_version
     config_data.remove("inner")  # 移除 inner 部分，避免干扰后续处理
     config_data = config_data.unwrap()  # 转换为普通字典，方便后续处理
@@ -352,9 +360,7 @@ def load_config_from_file(
                 # 基于未被部分构造污染的 original_data 做迁移尝试
                 mig = try_migrate_legacy_bot_config_dict(original_data)
                 if mig.migrated:
-                    logger.warning(
-                        f"检测到旧版配置结构，已尝试自动修复: {mig.reason}。建议稍后检查并保存生成的新配置文件。"
-                    )
+                    logger.warning(t("config.legacy_migrated", reason=mig.reason))
                     migrated_data = mig.data
                     target_config = config_class.from_dict(attribute_data, migrated_data)
                 else:
@@ -367,7 +373,7 @@ def load_config_from_file(
             updated = True
         return target_config, updated
     except Exception as e:
-        logger.critical(f"配置文件{config_path.name}解析失败")
+        logger.critical(t("config.parse_failed", file_name=config_path.name))
         raise e
 
 
@@ -402,11 +408,11 @@ def write_config_to_file(
             aot = tomlkit.aot()
             for item in config_field:
                 if not isinstance(item, ConfigBase):
-                    raise TypeError("配置写入只支持ConfigBase子类")
+                    raise TypeError(t("config.write_unsupported_type"))
                 aot.append(recursive_parse_item_to_table(item, override_repr=override_repr))
             full_config_data.add(config_item_name, aot)
         else:
-            raise TypeError("配置写入只支持ConfigBase子类")
+            raise TypeError(t("config.write_unsupported_type"))
 
     # 备份旧文件
     if config_path.exists():

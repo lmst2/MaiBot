@@ -1,31 +1,30 @@
+from maim_message import MessageServer
+from rich.traceback import install
+
 import asyncio
 import time
-from maim_message import MessageServer
 
-from src.common.remote import TelemetryHeartBeatTask
-from src.manager.async_task_manager import async_task_manager
-from src.chat.utils.statistic import OnlineTimeRecordTask, StatisticOutputTask
-
-# from src.chat.utils.token_statistics import TokenStatisticsTask
+from src.bw_learner.expression_auto_check_task import ExpressionAutoCheckTask
 from src.chat.emoji_system.emoji_manager import emoji_manager
-from src.chat.message_receive.chat_manager import chat_manager
-from src.config.config import config_manager, global_config
-from src.chat.message_receive.bot import chat_bot
-from src.common.logger import get_logger
-from src.common.message_server.server import get_global_server, Server
 from src.chat.knowledge import lpmm_start_up
-from rich.traceback import install
+from src.chat.message_receive.bot import chat_bot
+from src.chat.message_receive.chat_manager import chat_manager
+from src.chat.utils.statistic import OnlineTimeRecordTask, StatisticOutputTask
+from src.common.i18n import t
+from src.common.logger import get_logger
+from src.common.message_server import get_global_api
+from src.common.message_server.server import Server, get_global_server
+from src.common.remote import TelemetryHeartBeatTask
+from src.config.config import config_manager, global_config
+from src.manager.async_task_manager import async_task_manager
+from src.plugin_runtime.integration import get_plugin_runtime_manager
+from src.prompt.prompt_manager import prompt_manager
 
 # from src.api.main import start_api_server
 
 # 导入插件运行时
-from src.plugin_runtime.integration import get_plugin_runtime_manager
-
 # 导入消息API和traceback模块
-from src.common.message_server import get_global_api
-from src.bw_learner.expression_auto_check_task import ExpressionAutoCheckTask
-
-from src.prompt.prompt_manager import prompt_manager
+# from src.chat.utils.token_statistics import TokenStatisticsTask
 
 install(extra_lines=3)
 
@@ -47,7 +46,7 @@ class MainSystem:
         from src.config.config import global_config
 
         if not global_config.webui.enabled:
-            logger.info("WebUI 已禁用")
+            logger.info(t("startup.webui_disabled"))
             return
 
         try:
@@ -56,26 +55,16 @@ class MainSystem:
             self.webui_server = get_webui_server()
 
         except Exception as e:
-            logger.error(f"❌ 初始化 WebUI 服务器失败: {e}")
+            logger.error(t("startup.webui_server_init_failed", error=e))
 
     async def initialize(self):
         """初始化系统组件"""
-        logger.info(f"正在唤醒{global_config.bot.nickname}......")
+        logger.info(t("startup.waking_up", nickname=global_config.bot.nickname))
 
         # 其他初始化任务
         await asyncio.gather(self._init_components())
 
-        logger.info(f"""
---------------------------------
-全部系统初始化完成，{global_config.bot.nickname}已成功唤醒
---------------------------------
-如果想要自定义{global_config.bot.nickname}的功能,请查阅：https://docs.mai-mai.org/manual/usage/
-或者遇到了问题，请访问我们的文档:https://docs.mai-mai.org/
---------------------------------
-如果你想要编写或了解插件相关内容，请访问开发文档https://docs.mai-mai.org/develop/
---------------------------------
-如果你需要查阅模型的消耗以及麦麦的统计数据，请访问根目录的maibot_statistics.html文件
-""")
+        logger.info(t("startup.initialization_completed_banner", nickname=global_config.bot.nickname))
 
     async def _init_components(self):
         """初始化其他组件"""
@@ -107,13 +96,13 @@ class MainSystem:
 
         # 初始化表情管理器
         emoji_manager.load_emojis_from_db()
-        logger.info("表情包管理器初始化成功")
+        logger.info(t("startup.emoji_manager_initialized"))
 
         # 初始化聊天管理器
         await chat_manager.initialize()
         asyncio.create_task(chat_manager.regularly_save_sessions())
 
-        logger.info("聊天管理器初始化成功")
+        logger.info(t("startup.chat_manager_initialized"))
 
         # await asyncio.sleep(0.5) #防止logger输出飞了
 
@@ -134,9 +123,9 @@ class MainSystem:
         # logger.info("已触发 ON_START 事件")
         try:
             init_time = int(1000 * (time.time() - init_start_time))
-            logger.info(f"初始化完成，神经元放电{init_time}次")
+            logger.info(t("startup.initialization_completed_cycles", init_time=init_time))
         except Exception as e:
-            logger.error(f"启动大脑和外部世界失败: {e}")
+            logger.error(t("startup.brain_external_world_failed", error=e))
             raise
 
     async def schedule_tasks(self):
@@ -154,7 +143,7 @@ class MainSystem:
 
             await asyncio.gather(*tasks)
         except asyncio.CancelledError:
-            logger.info("调度任务已取消")
+            logger.info(t("startup.schedule_cancelled"))
             raise
 
     # async def forget_memory_task(self):
