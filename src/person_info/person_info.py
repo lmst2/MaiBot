@@ -52,24 +52,24 @@ def is_person_known(
     user_id: Optional[str] = None,
     platform: Optional[str] = None,
     person_name: Optional[str] = None,
-) -> bool:
+) -> bool:  # sourcery skip: extract-duplicate-method
     if person_id:
         with get_db_session() as session:
             statement = select(PersonInfo).where(col(PersonInfo.person_id) == person_id).limit(1)
             person = session.exec(statement).first()
-        return person.is_known if person else False
+            return person.is_known if person else False
     elif user_id and platform:
         person_id = get_person_id(platform, user_id)
         with get_db_session() as session:
             statement = select(PersonInfo).where(col(PersonInfo.person_id) == person_id).limit(1)
             person = session.exec(statement).first()
-        return person.is_known if person else False
+            return person.is_known if person else False
     elif person_name:
         person_id = get_person_id_by_person_name(person_name)
         with get_db_session() as session:
             statement = select(PersonInfo).where(col(PersonInfo.person_id) == person_id).limit(1)
             person = session.exec(statement).first()
-        return person.is_known if person else False
+            return person.is_known if person else False
     else:
         return False
 
@@ -462,49 +462,49 @@ class Person:
                 statement = select(PersonInfo).where(col(PersonInfo.person_id) == self.person_id).limit(1)
                 record = session.exec(statement).first()
 
-            if record:
-                self.user_id = record.user_id or ""
-                self.platform = record.platform or ""
-                self.is_known = record.is_known or False
-                self.nickname = record.user_nickname or ""
-                self.person_name = record.person_name or self.nickname
-                self.name_reason = record.name_reason or None
-                self.know_times = record.know_counts or 0
+                if record:
+                    self.user_id = record.user_id or ""
+                    self.platform = record.platform or ""
+                    self.is_known = record.is_known or False
+                    self.nickname = record.user_nickname or ""
+                    self.person_name = record.person_name or self.nickname
+                    self.name_reason = record.name_reason or None
+                    self.know_times = record.know_counts or 0
 
-                # 处理points字段（JSON格式的列表）
-                if record.memory_points:
-                    try:
-                        loaded_points = json.loads(record.memory_points)
-                        # 过滤掉None值，确保数据质量
-                        if isinstance(loaded_points, list):
-                            self.memory_points = [point for point in loaded_points if point is not None]
-                        else:
+                    # 处理points字段（JSON格式的列表）
+                    if record.memory_points:
+                        try:
+                            loaded_points = json.loads(record.memory_points)
+                            # 过滤掉None值，确保数据质量
+                            if isinstance(loaded_points, list):
+                                self.memory_points = [point for point in loaded_points if point is not None]
+                            else:
+                                self.memory_points = []
+                        except (json.JSONDecodeError, TypeError):
+                            logger.warning(f"解析用户 {self.person_id} 的points字段失败，使用默认值")
                             self.memory_points = []
-                    except (json.JSONDecodeError, TypeError):
-                        logger.warning(f"解析用户 {self.person_id} 的points字段失败，使用默认值")
+                    else:
                         self.memory_points = []
-                else:
-                    self.memory_points = []
 
-                # 处理group_nick_name字段（JSON格式的列表）
-                if record.group_nickname:
-                    try:
-                        loaded_group_nick_names = json.loads(record.group_nickname)
-                        # 确保是列表格式
-                        if isinstance(loaded_group_nick_names, list):
-                            self.group_nick_name = loaded_group_nick_names
-                        else:
+                    # 处理group_nick_name字段（JSON格式的列表）
+                    if record.group_cardname:
+                        try:
+                            loaded_group_nick_names = json.loads(record.group_cardname)
+                            # 确保是列表格式
+                            if isinstance(loaded_group_nick_names, list):
+                                self.group_nick_name = loaded_group_nick_names
+                            else:
+                                self.group_nick_name = []
+                        except (json.JSONDecodeError, TypeError):
+                            logger.warning(f"解析用户 {self.person_id} 的group_cardname字段失败，使用默认值")
                             self.group_nick_name = []
-                    except (json.JSONDecodeError, TypeError):
-                        logger.warning(f"解析用户 {self.person_id} 的group_nickname字段失败，使用默认值")
+                    else:
                         self.group_nick_name = []
-                else:
-                    self.group_nick_name = []
 
-                logger.debug(f"已从数据库加载用户 {self.person_id} 的信息")
-            else:
-                self.sync_to_database()
-                logger.info(f"用户 {self.person_id} 在数据库中不存在，使用默认值并创建")
+                    logger.debug(f"已从数据库加载用户 {self.person_id} 的信息")
+                else:
+                    self.sync_to_database()
+                    logger.info(f"用户 {self.person_id} 在数据库中不存在，使用默认值并创建")
 
         except Exception as e:
             logger.error(f"从数据库加载用户 {self.person_id} 信息时出错: {e}")

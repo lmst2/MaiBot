@@ -39,11 +39,11 @@ class MessageInfo:
 
 
 class MaiMessage(BaseDatabaseDataModel[Messages]):
-    def __init__(self, message_id: str, timestamp: datetime):
+    def __init__(self, message_id: str, timestamp: datetime, platform: str):
         self.message_id: str = message_id
         self.timestamp: datetime = timestamp  # 时间戳
         self.initialized = False  # 用于标记是否已初始化其他属性
-        self.platform: str  # 初始化后赋值
+        self.platform: str = platform
 
         # 定义其他属性
         self.message_info: MessageInfo  # 初始化后赋值
@@ -72,7 +72,7 @@ class MaiMessage(BaseDatabaseDataModel[Messages]):
 
     @classmethod
     def from_db_instance(cls, db_record: "Messages"):
-        obj = cls(message_id=db_record.message_id, timestamp=db_record.timestamp)
+        obj = cls(message_id=db_record.message_id, timestamp=db_record.timestamp, platform=db_record.platform)
 
         user_info = UserInfo(db_record.user_id, db_record.user_nickname, db_record.user_cardname)
         if db_record.group_id and db_record.group_name:
@@ -130,12 +130,14 @@ class MaiMessage(BaseDatabaseDataModel[Messages]):
         """从 maim_message.MessageBase 创建 MaiMessage 实例，解析消息内容并提取相关信息"""
         msg_info = message.message_info
         assert msg_info, "MessageBase 的 message_info 不能为空"
-        msg_id = msg_info.message_id
+        platform = msg_info.platform
+        assert isinstance(platform, str)
+        msg_id = str(msg_info.message_id)
         timestamp = msg_info.time
         assert isinstance(msg_id, str)
         assert msg_id
         assert timestamp
-        obj = cls(message_id=msg_id, timestamp=datetime.fromtimestamp(timestamp))
+        obj = cls(message_id=msg_id, timestamp=datetime.fromtimestamp(timestamp), platform=platform)
         obj.raw_message = MessageUtils.from_maim_message_segments_to_MaiSeq(message)
         usr_info = msg_info.user_info
         assert usr_info

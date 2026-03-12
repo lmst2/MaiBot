@@ -9,7 +9,7 @@ from src.common.logger import get_logger
 from src.common.utils.utils_message import MessageUtils
 from src.common.utils.utils_session import SessionUtils
 from src.chat.heart_flow.heartflow_message_processor import HeartFCMessageReceiver
-from src.chat.brain_chat.PFC.pfc_manager import PFCManager
+# from src.chat.brain_chat.PFC.pfc_manager import PFCManager
 from src.chat.utils.prompt_builder import Prompt, global_prompt_manager
 from src.core.announcement_manager import global_announcement_manager
 from src.core.component_registry import component_registry
@@ -32,7 +32,7 @@ class ChatBot:
         self.bot = None  # bot 实例引用
         self._started = False
         self.heartflow_message_receiver = HeartFCMessageReceiver()  # 新增
-        self.pfc_manager = PFCManager.get_instance()  # PFC管理器
+        # self.pfc_manager = PFCManager.get_instance()  # PFC管理器 # TODO: PFC恢复
 
     async def _ensure_started(self):
         """确保所有任务已启动"""
@@ -374,12 +374,14 @@ class ChatBot:
             #     await preprocess()
             async def preprocess():
                 if group_info is None:
-                    logger.debug("[私聊]检测到私聊消息，路由到PFC系统")
-                    MessageUtils.store_message_to_db(message)  # 存储消息到数据库
-                    await self._create_pfc_chat(message)
+                    # logger.debug("[私聊]检测到私聊消息，路由到PFC系统")
+                    # MessageUtils.store_message_to_db(message)  # 存储消息到数据库
+                    # await self._create_pfc_chat(message)
+                    logger.critical("暂时禁用私聊")
                 else:
                     logger.debug("[群聊]检测到群聊消息，路由到HeartFlow系统")
                     await self.heartflow_message_receiver.process_message(message)
+            await preprocess()
 
         except Exception as e:
             logger.error(f"预处理消息失败: {e}")

@@ -80,3 +80,43 @@ def translate_timestamp_to_human_readable(timestamp: float, mode: TimestampMode 
             return time.strftime(TimestampMode.NORMAL.value, time.localtime(timestamp))
     else:
         raise ValueError(f"不支持的时间戳转换模式: {mode}")
+
+
+def calculate_typing_time(
+    input_string: str,
+    chinese_time: float = 0.3,
+    english_time: float = 0.15,
+    line_break_time: float = 0.1,
+    is_emoji: bool = False,
+) -> float:
+    """
+    计算输入字符串所需的时间，中文和英文字符有不同的输入时间
+        input_string (str): 输入的字符串
+        chinese_time (float): 中文字符的输入时间，默认为0.3秒
+        english_time (float): 英文字符的输入时间，默认为0.15秒
+        line_break_time (float): 换行符的输入时间，默认为0.1秒
+        is_emoji (bool): 是否为emoji，默认为False
+
+    特殊情况：
+    - 如果只有一个中文字符，将使用3倍的中文输入时间
+    - 在所有输入结束后，额外加上回车时间
+    - 如果is_emoji为True，将使用固定1秒的输入时间
+    """
+    if is_emoji:
+        return 1.0  # 固定1秒的输入时间
+
+    # 正常计算所有字符的输入时间
+    total_time = 0.0
+    chinese_chars = 0
+    for char in input_string:
+        if "\u4e00" <= char <= "\u9fff":
+            total_time += chinese_time
+            chinese_chars += 1
+        else:
+            total_time += english_time
+
+    if chinese_chars == 1 and len(input_string.strip()) == 1:
+        # 如果只有一个中文字符，使用3倍时间
+        return chinese_time * 3 + line_break_time  # 加上回车时间
+
+    return total_time + line_break_time  # 加上回车时间

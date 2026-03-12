@@ -57,8 +57,11 @@ class HeartFCMessageReceiver:
             # message.is_at = is_at
 
             MessageUtils.store_message_to_db(message)  # 存储消息到数据库
-
-            await heartflow_manager.get_or_create_heartflow_chat(message.session_id)
+            try:
+                chat = await heartflow_manager.get_or_create_heartflow_chat(message.session_id)
+                await chat.register_message(message)
+            except Exception as e:
+                logger.error(f"出现错误: {e}")
 
             # 3. 日志记录
             mes_name = group_info.group_name if group_info else "私聊"
