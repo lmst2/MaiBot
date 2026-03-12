@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import contextlib
+import json
 import logging
 from typing import TYPE_CHECKING, List, Optional
 
@@ -113,8 +114,10 @@ class RunnerIPCLogHandler(logging.Handler):
             # 过滤：仅允许插件相关的 logger，跳过第三方库日志
             if not any(record.name.startswith(p) for p in self.ALLOWED_LOGGER_PREFIXES):
                 return
-            # format() 触发 exc_info 格式化并将结果缓存到 record.exc_text
-            msg = self.format(record)
+
+            # structlog 透传到 stdlib logging 时，record.msg 往往是 event_dict。
+            # 这里先提取可读的 event 文本，避免 Host 侧收到一整段 dict 字符串。
+            msg = self._serialize_message(record)
             entry = LogEntry(
                 timestamp_ms=int(record.created * 1000),
                 level=record.levelno,
@@ -125,6 +128,46 @@ class RunnerIPCLogHandler(logging.Handler):
             self._buffer.append(entry)
         except Exception:
             self.handleError(record)
+
+    def _serialize_message(self, record: logging.LogRecord) -> str:
+        """将 LogRecord 序列化为适合 Host 重放的纯文本消息。"""
+        if isinstance(record.msg, dict):
+            event_dict = record.msg
+            event_text = self._stringify_value(event_dict.get("event", ""))
+            extras = []
+            ignored_keys = {
+                "event",
+                "logger",
+                "logger_name",
+                "level",
+                "timestamp",
+                "module",
+                "lineno",
+                "pathname",
+                "_from_structlog",
+                "_record",
+            }
+            for key, value in event_dict.items():
+                if key in ignored_keys:
+                    continue
+                extras.append(f"{key}={self._stringify_value(value)}")
+
+            if extras:
+                return f"{event_text} {' '.join(extras)}".strip()
+            return event_text
+
+        # format() 会处理 %s 参数替换和 exc_info 文本拼接。
+        return self.format(record)
+
+    @staticmethod
+    def _stringify_value(value: object) -> str:
+        """将结构化字段转换为紧凑字符串。"""
+        if isinstance(value, (dict, list)):
+            try:
+                return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+            except (TypeError, ValueError):
+                return str(value)
+        return str(value)
 
     # ─── 内部方法 ──────────────────────────────────────────────────
 

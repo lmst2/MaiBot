@@ -22,7 +22,7 @@ import time
 
 from typing import Any
 
-from src.common.logger import get_logger, initialize_logging
+from src.common.logger import get_console_handler, get_logger, initialize_logging
 from src.plugin_runtime import ENV_IPC_ADDRESS, ENV_PLUGIN_DIRS, ENV_SESSION_TOKEN
 from src.plugin_runtime.protocol.envelope import (
     ComponentDeclaration,
@@ -38,6 +38,14 @@ from src.plugin_runtime.runner.plugin_loader import PluginLoader, PluginMeta
 from src.plugin_runtime.runner.rpc_client import RPCClient
 
 logger = get_logger("plugin_runtime.runner.main")
+
+
+def _disable_runner_console_logging() -> None:
+    """关闭 Runner 的控制台日志输出，避免被 Host 从 stderr 二次包装。"""
+    root_logger = stdlib_logging.getLogger()
+    console_handler = get_console_handler()
+    if console_handler in root_logger.handlers:
+        root_logger.removeHandler(console_handler)
 
 
 class PluginRunner:
@@ -63,6 +71,7 @@ class PluginRunner:
 
         # IPC 日志 Handler：握手成功后安装，将所有 stdlib logging 转发到 Host
         self._log_handler: Optional[RunnerIPCLogHandler] = None
+        self._suspended_console_handlers: list[stdlib_logging.Handler] = []
 
     async def run(self) -> None:
         """Runner 主入口"""
@@ -123,6 +132,7 @@ class PluginRunner:
         loop = asyncio.get_running_loop()
         handler = RunnerIPCLogHandler()
         handler.start(self._rpc_client, loop)
+        self._suspend_console_handlers()
         stdlib_logging.root.addHandler(handler)
         self._log_handler = handler
         logger.debug("RunnerIPCLogHandler \u5df2\u5b89\u88c3\uff0c\u63d2\u4ef6\u65e5\u5fd7\u5c06\u901a\u8fc7 IPC \u8f6c\u53d1\u5230\u4e3b\u8fdb\u7a0b")
@@ -137,7 +147,28 @@ class PluginRunner:
         stdlib_logging.root.removeHandler(self._log_handler)
         await self._log_handler.stop()
         self._log_handler = None
+        self._restore_console_handlers()
         logger.debug("RunnerIPCLogHandler \u5df2\u5378\u8f7d")
+
+    def _suspend_console_handlers(self) -> None:
+        """暂停 Runner 的控制台输出，避免与 IPC 转发重复。"""
+        if self._suspended_console_handlers:
+            return
+
+        for handler in list(stdlib_logging.root.handlers):
+            if isinstance(handler, stdlib_logging.StreamHandler):
+                stdlib_logging.root.removeHandler(handler)
+                self._suspended_console_handlers.append(handler)
+
+    def _restore_console_handlers(self) -> None:
+        """恢复此前暂停的控制台输出。"""
+        if not self._suspended_console_handlers:
+            return
+
+        for handler in self._suspended_console_handlers:
+            if handler not in stdlib_logging.root.handlers:
+                stdlib_logging.root.addHandler(handler)
+        self._suspended_console_handlers.clear()
 
     def _inject_context(self, plugin_id: str, instance: object) -> None:
         """为插件实例创建并注入 PluginContext。
@@ -522,6 +553,7 @@ async def _async_main() -> None:
 def main() -> None:
     """进程入口（python -m src.plugin_runtime.runner.runner_main）"""
     initialize_logging(verbose=False)
+    _disable_runner_console_logging()
     asyncio.run(_async_main())
 
 
