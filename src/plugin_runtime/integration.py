@@ -270,8 +270,9 @@ class PluginRuntimeManager:
         # ── knowledge.* ───────────────────────────────────
         cap_service.register_capability("knowledge.search", self._cap_knowledge_search)
 
-        # ── logging.* ─────────────────────────────────────
-        cap_service.register_capability("logging.log", self._cap_logging_log)
+        # 注意：logging.* 能力已移除——Runner 端通过 RunnerIPCLogHandler 将 stdlib
+        # logging 日志批量发送到 Host，由 RunnerLogBridge 重放到主进程 Logger，
+        # 不再需要单独的 logging.log RPC 能力。
 
         logger.debug("已注册全部主程序能力实现")
 
@@ -1519,26 +1520,6 @@ class PluginRuntimeManager:
         except Exception as e:
             logger.error(f"[cap.knowledge.search] 执行失败: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
-
-    # ═════════════════════════════════════════════════════════
-    #  logging.* 能力实现
-    # ═════════════════════════════════════════════════════════
-
-    @staticmethod
-    async def _cap_logging_log(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        """插件日志记录
-
-        args: level?, message
-        """
-        level: str = args.get("level", "info").lower()
-        message: str = args.get("message", "")
-        if not message:
-            return {"success": False, "error": "缺少必要参数 message"}
-
-        plugin_logger = get_logger(f"plugin.{plugin_id}")
-        log_fn = getattr(plugin_logger, level, plugin_logger.info)
-        log_fn(message)
-        return {"success": True}
 
 
 # ─── 单例 ──────────────────────────────────────────────────

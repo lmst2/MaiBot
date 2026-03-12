@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 
 import time
+import logging as stdlib_logging
 
 
 # ─── 协议常量 ──────────────────────────────────────────────────────
@@ -184,3 +185,42 @@ class ShutdownPayload(BaseModel):
     """plugin.shutdown / plugin.prepare_shutdown payload"""
     reason: str = Field(default="normal", description="关停原因")
     drain_timeout_ms: int = Field(default=5000, description="排空超时(ms)")
+
+
+# ─── 日志传输 ──────────────────────────────────────────────────────
+
+class LogEntry(BaseModel):
+    """单条日志记录（Runner → Host 传输格式）"""
+
+    timestamp_ms: int = Field(
+        description="日志时间戳，Unix epoch 毫秒",
+    )
+    level: int = Field(
+        description=(
+            "stdlib logging 整数级别："
+            " 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL"
+        ),
+    )
+    logger_name: str = Field(
+        description="Logger 名称，如 plugin.my_plugin.submodule",
+    )
+    message: str = Field(
+        description="经 Formatter 格式化后的完整日志消息（含 exc_info 文本）",
+    )
+    exception_text: str = Field(
+        default="",
+        description="原始异常摘要（exc_text），供结构化消费；已嵌入 message 中",
+    )
+
+    @property
+    def levelname(self) -> str:
+        """返回对应的 stdlib logging 级别名称（如 'INFO'）。"""
+        return stdlib_logging.getLevelName(self.level)
+
+
+class LogBatchPayload(BaseModel):
+    """runner.log_batch 事件 payload：Runner 端向 Host 批量推送日志记录"""
+
+    entries: List[LogEntry] = Field(
+        description="本批次日志记录列表，按时间升序排列",
+    )

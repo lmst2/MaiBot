@@ -186,6 +186,34 @@ class RPCClient:
 
     # ─── 内部方法 ──────────────────────────────────────────────
 
+    async def send_event(
+        self,
+        method: str,
+        plugin_id: str = "",
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """向 Host 发送单向事件（fire-and-forget，不等待响应）。
+
+        Args:
+            method:    RPC 方法名，如 "runner.log_batch"。
+            plugin_id: 目标插件 ID（可为空，表示 Runner 级消息）。
+            payload:   事件数据。
+        """
+        if not self.is_connected:
+            return
+
+        request_id = self._id_gen.next()
+        envelope = Envelope(
+            request_id=request_id,
+            message_type=MessageType.EVENT,
+            method=method,
+            plugin_id=plugin_id,
+            generation=self._generation,
+            payload=payload or {},
+        )
+        data = self._codec.encode_envelope(envelope)
+        await self._connection.send_frame(data)
+
     async def _recv_loop(self) -> None:
         """消息接收主循环"""
         while self._running and self._connection and not self._connection.is_closed:

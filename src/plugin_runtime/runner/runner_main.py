@@ -9,7 +9,8 @@
 6. 转发插件的能力调用到 Host
 """
 
-from typing import List
+import logging as stdlib_logging
+from typing import List, Optional
 
 import asyncio
 import contextlib
@@ -29,6 +30,7 @@ from src.plugin_runtime.protocol.envelope import (
     RegisterComponentsPayload,
 )
 from src.plugin_runtime.protocol.errors import ErrorCode
+from src.plugin_runtime.runner.log_handler import RunnerIPCLogHandler
 from src.plugin_runtime.runner.plugin_loader import PluginLoader, PluginMeta
 from src.plugin_runtime.runner.rpc_client import RPCClient
 
@@ -56,6 +58,9 @@ class PluginRunner:
         self._start_time: float = time.monotonic()
         self._shutting_down: bool = False
 
+        # IPC 日志 Handler：握手成功后安装，将所有 stdlib logging 转发到 Host
+        self._log_handler: Optional[RunnerIPCLogHandler] = None
+
     async def run(self) -> None:
         """Runner 主入口"""
         # 1. 连接 Host
@@ -65,7 +70,10 @@ class PluginRunner:
             logger.error("握手失败，退出")
             return
 
-        # 2. 注册方法处理器
+        # 2. 握手成功后立即安装 IPC 日志 Handler，接管所有 Runner 端日志
+        self._install_log_handler()
+
+        # 3. 注册方法处理器
         self._register_handlers()
 
         # 3. 加载插件
@@ -97,9 +105,36 @@ class PluginRunner:
             while not self._shutting_down:
                 await asyncio.sleep(1.0)
 
-        # 6. 断开连接
+        # 6. 卸载 IPC 日志 Handler 并刷空剩余缓冲，然后断开连接
+        logger.info("Runner 开始关停")
+        await self._uninstall_log_handler()
         await self._rpc_client.disconnect()
         logger.info("Runner 已退出")
+
+    def _install_log_handler(self) -> None:
+        """握手完成后将 RunnerIPCLogHandler 安装到 logging.root。
+
+        安装后，Runner 进程内所有 stdlib logging 调用（含 structlog 透传的）
+        均会通过 IPC 转发到 Host，由 Host 的 RunnerLogBridge 重放到主进程 Logger。
+        """
+        loop = asyncio.get_running_loop()
+        handler = RunnerIPCLogHandler()
+        handler.start(self._rpc_client, loop)
+        stdlib_logging.root.addHandler(handler)
+        self._log_handler = handler
+        logger.debug("RunnerIPCLogHandler \u5df2\u5b89\u88c3\uff0c\u63d2\u4ef6\u65e5\u5fd7\u5c06\u901a\u8fc7 IPC \u8f6c\u53d1\u5230\u4e3b\u8fdb\u7a0b")
+
+    async def _uninstall_log_handler(self) -> None:
+        """关停前从 logging.root 移除 Handler 并刷空缓冲。
+
+        必须在 disconnect() 之前调用，确保最后一批日志能正常发送。
+        """
+        if self._log_handler is None:
+            return
+        stdlib_logging.root.removeHandler(self._log_handler)
+        await self._log_handler.stop()
+        self._log_handler = None
+        logger.debug("RunnerIPCLogHandler \u5df2\u5378\u8f7d")
 
     def _register_handlers(self) -> None:
         """注册方法处理器"""

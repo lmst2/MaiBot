@@ -1259,25 +1259,24 @@ class TestSupervisor:
         assert supervisor.component_registry.get_component("plugin_a.handler") is not None
 
     @pytest.mark.asyncio
-    async def test_attach_runner_output_tasks_drains_streams(self):
+    async def test_attach_stderr_drain_drains_stream(self):
+        """_attach_stderr_drain 为 stderr 创建排空任务，读完后任务自动完成。"""
         from src.plugin_runtime.host.supervisor import PluginSupervisor
 
         supervisor = PluginSupervisor(plugin_dirs=[])
 
-        stdout = asyncio.StreamReader()
-        stdout.feed_data(b"hello stdout\n")
-        stdout.feed_eof()
-
         stderr = asyncio.StreamReader()
-        stderr.feed_data(b"hello stderr\n")
+        stderr.feed_data(b"fatal startup error\n")
         stderr.feed_eof()
 
-        process = SimpleNamespace(pid=99, stdout=stdout, stderr=stderr)
-        supervisor._attach_runner_output_tasks(process)
+        # stdout=None 模拟新架构（不再捕获 stdout）
+        process = SimpleNamespace(pid=99, stdout=None, stderr=stderr)
+        supervisor._attach_stderr_drain(process)
 
+        # 给 drain task 足够时间消费完数据
         await asyncio.sleep(0.05)
 
-        assert not supervisor._runner_output_tasks
+        assert supervisor._stderr_drain_task is None or supervisor._stderr_drain_task.done()
 
 
 class TestIntegration:

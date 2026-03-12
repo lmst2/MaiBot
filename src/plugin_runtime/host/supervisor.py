@@ -7,6 +7,7 @@
 4. 优雅关停
 """
 
+import logging as stdlib_logging
 from typing import Any, Dict, List, Optional, Tuple
 
 import asyncio
@@ -24,6 +25,7 @@ from src.plugin_runtime.host.workflow_executor import WorkflowExecutor, Workflow
 from src.plugin_runtime.protocol.envelope import (
     Envelope,
     HealthPayload,
+    LogBatchPayload,
     RegisterComponentsPayload,
     ShutdownPayload,
 )
@@ -31,6 +33,54 @@ from src.plugin_runtime.protocol.errors import ErrorCode, RPCError
 from src.plugin_runtime.transport.factory import create_transport_server
 
 logger = get_logger("plugin_runtime.host.supervisor")
+
+
+# ─── 日志桥 ──────────────────────────────────────────────────────
+
+class RunnerLogBridge:
+    """将 Runner 进程上报的批量日志重放到主进程的 Logger 中。
+
+    Runner 通过 ``runner.log_batch`` IPC 事件批量到达。
+    每条 LogEntry 被重建为一个真实的 :class:`logging.LogRecord` 并直接
+    调用 ``logging.getLogger(entry.logger_name).handle(record)``，
+    从而接入主进程已配置好的 structlog Handler 链。
+    """
+
+    async def handle_log_batch(self, envelope: Envelope) -> Envelope:
+        """IPC 事件处理器：解析批量日志并重放到主进程 Logger。
+
+        Args:
+            envelope: 方法名为 ``runner.log_batch`` 的 IPC 事件信封。
+
+        Returns:
+            空响应信封（事件模式下将被忽略）。
+        """
+        try:
+            batch = LogBatchPayload.model_validate(envelope.payload)
+        except Exception as exc:
+            return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(exc))
+
+        for entry in batch.entries:
+            # 重建一个与原始日志尽量相符的 LogRecord
+            record = stdlib_logging.LogRecord(
+                name=entry.logger_name,
+                level=entry.level,
+                pathname="<runner>",
+                lineno=0,
+                msg=entry.message,
+                args=(),
+                exc_info=None,
+            )
+            record.created = entry.timestamp_ms / 1000.0
+            record.msecs = entry.timestamp_ms % 1000
+            if entry.exception_text:
+                record.exc_text = entry.exception_text
+
+            stdlib_logging.getLogger(entry.logger_name).handle(record)
+
+        return envelope.make_response(
+            payload={"accepted": True, "count": len(batch.entries)}
+        )
 
 
 class PluginSupervisor:
@@ -76,8 +126,12 @@ class PluginSupervisor:
 
         # 后台任务
         self._health_task: Optional[asyncio.Task] = None
-        self._runner_output_tasks: List[asyncio.Task] = []
+        # Runner stderr 流排空任务（仅保留 stderr，用于 IPC 建立前的启动日志倒空、致命错误输出等场景）
+        self._stderr_drain_task: Optional[asyncio.Task] = None
         self._running = False
+
+        # Runner 日志桥（将 Runner 上报的批量日志重放到主进程 Logger）
+        self._log_bridge: RunnerLogBridge = RunnerLogBridge()
 
         # 注册内部 RPC 方法
         self._register_internal_methods()
@@ -266,6 +320,8 @@ class PluginSupervisor:
         self._rpc_server.register_method("cap.request", self._capability_service.handle_capability_request)
         # 插件注册
         self._rpc_server.register_method("plugin.register_components", self._handle_register_components)
+        # Runner 日志批量上报
+        self._rpc_server.register_method("runner.log_batch", self._log_bridge.handle_log_batch)
 
     async def _handle_register_components(self, envelope: Envelope) -> Envelope:
         """处理插件组件注册请求"""
@@ -319,11 +375,13 @@ class PluginSupervisor:
         self._runner_process = await asyncio.create_subprocess_exec(
             sys.executable, "-m", runner_module,
             env=env,
-            stdout=asyncio.subprocess.PIPE,
+            # stdout 不捕获：Runner 的日志均通过 IPC 传㛹（RunnerIPCLogHandler）
+            stdout=None,
+            # stderr 捕获为 PIPE，仅用于 IPC 建立前的进程级致命错误输出
             stderr=asyncio.subprocess.PIPE,
         )
 
-        self._attach_runner_output_tasks(self._runner_process)
+        self._attach_stderr_drain(self._runner_process)
         self._runner_generation = self._rpc_server.runner_generation
         logger.info(f"Runner 子进程已启动: pid={self._runner_process.pid}, generation={self._runner_generation}")
 
@@ -357,7 +415,7 @@ class PluginSupervisor:
             self._runner_process.kill()
             await self._runner_process.wait()
 
-        await self._cleanup_runner_output_tasks()
+        await self._cleanup_stderr_drain()
 
     async def _health_check_loop(self) -> None:
         """周期性健康检查 + 崩溃自动重启"""
@@ -437,30 +495,40 @@ class PluginSupervisor:
                 components=[c.model_dump() for c in reg.components],
             )
 
-    def _attach_runner_output_tasks(self, process: asyncio.subprocess.Process) -> None:
-        """为 Runner 输出流创建排空任务，避免 PIPE 填满阻塞子进程。"""
-        streams = (
-            (process.stdout, "stdout"),
-            (process.stderr, "stderr"),
-        )
-        for stream, stream_name in streams:
-            if stream is None:
-                continue
-            task = asyncio.create_task(self._drain_runner_stream(stream, stream_name, process.pid))
-            self._runner_output_tasks.append(task)
-            task.add_done_callback(
-                lambda done_task: self._runner_output_tasks.remove(done_task)
-                if done_task in self._runner_output_tasks
-                else None
-            )
+    def _attach_stderr_drain(self, process: asyncio.subprocess.Process) -> None:
+        """为 Runner stderr 创建排空任务，捕获 IPC 建立前的进程级错误输出。
 
-    async def _drain_runner_stream(
+        stderr 中的内容通常是：
+        - Runner 启动早期（握手完成之前）的日志
+        - 进程级致命错误（ImportError、SyntaxError等）
+        - 异常进程退出前的最后输出
+
+        握手成功后，插件的所有日志均经由 RunnerIPCLogHandler 通过 IPC 传输。
+        """
+        if process.stderr is None:
+            return
+        task = asyncio.create_task(
+            self._drain_runner_stderr(process.stderr, process.pid),
+            name=f"runner_stderr_drain:{process.pid}",
+        )
+        self._stderr_drain_task = task
+        task.add_done_callback(
+            lambda done_task: None
+            if self._stderr_drain_task is not done_task
+            else setattr(self, "_stderr_drain_task", None)
+        )
+
+    async def _drain_runner_stderr(
         self,
         stream: asyncio.StreamReader,
-        stream_name: str,
         pid: int,
     ) -> None:
-        """持续消费 Runner 输出，避免 PIPE 回压导致子进程阻塞。"""
+        """持续读取 Runner stderr 并转发到 Host Logger，防止 PIPE 锡死子进程。
+
+        Args:
+            stream: Runner 子进程的 stderr 流。
+            pid:    子进程 PID，仅用于日志上下文。
+        """
         try:
             while True:
                 line = await stream.readline()
@@ -468,22 +536,25 @@ class PluginSupervisor:
                     break
                 message = line.decode(errors="replace").rstrip()
                 if message:
-                    logger.debug(f"[runner:{pid}:{stream_name}] {message}")
+                    # 将 stderr 输出以 WARNING 级展示：
+                    # 如果 Runner 正常运行，此流应当无输出；
+                    # 有输出说明进程级错误发生，需要出现在主进程日志中
+                    logger.warning(f"[runner:{pid}:stderr] {message}")
         except asyncio.CancelledError:
             raise
-        except Exception as e:
-            logger.debug(f"读取 Runner {stream_name} 失败: {e}")
+        except Exception as exc:
+            logger.debug(f"读取 Runner stderr 失败 (pid={pid}): {exc}")
 
-    async def _cleanup_runner_output_tasks(self) -> None:
-        """等待并清理 Runner 输出任务。"""
-        tasks = list(self._runner_output_tasks)
-        self._runner_output_tasks.clear()
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-        if tasks:
-            with contextlib.suppress(Exception):
-                await asyncio.gather(*tasks, return_exceptions=True)
+    async def _cleanup_stderr_drain(self) -> None:
+        """等待并取消 stderr 排空任务。"""
+        if self._stderr_drain_task is None:
+            return
+        task = self._stderr_drain_task
+        self._stderr_drain_task = None
+        if not task.done():
+            task.cancel()
+        with contextlib.suppress(Exception):
+            await asyncio.gather(task, return_exceptions=True)
 
     @staticmethod
     async def _terminate_process(
