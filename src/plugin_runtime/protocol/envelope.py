@@ -172,6 +172,9 @@ class HealthPayload(BaseModel):
 
 # ─── 配置更新 ──────────────────────────────────────────────────────
 
+# TODO: Host 侧尚未实现配置变更检测与推送。Runner 端的 _handle_config_updated
+#       已就绪，但当前无任何调用方通过 RPC 发送 plugin.config_updated 消息。
+#       需要在 Supervisor 或 CapabilityService 中监听配置文件变化并主动推送。
 class ConfigUpdatedPayload(BaseModel):
     """plugin.config_updated 事件 payload"""
     plugin_id: str = Field(description="插件 ID")

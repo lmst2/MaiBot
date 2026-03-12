@@ -207,6 +207,26 @@ class PluginRuntimeManager:
                 }
         return None
 
+    async def invoke_plugin(
+        self,
+        method: str,
+        plugin_id: str,
+        component_name: str,
+        args: Optional[Dict[str, Any]] = None,
+        timeout_ms: int = 30000,
+    ) -> Any:
+        """将插件调用路由到拥有该插件的 Supervisor"""
+        for sv in self.supervisors:
+            if sv.component_registry.get_components_by_plugin(plugin_id):
+                return await sv.invoke_plugin(
+                    method=method,
+                    plugin_id=plugin_id,
+                    component_name=component_name,
+                    args=args,
+                    timeout_ms=timeout_ms,
+                )
+        raise RuntimeError(f"插件 {plugin_id} 未在任何 Supervisor 中注册")
+
     # ─── 能力实现注册 ──────────────────────────────────────────
 
     def _register_capability_impls(self, supervisor: Any) -> None:

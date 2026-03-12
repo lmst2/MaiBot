@@ -134,21 +134,21 @@ class ChatBot:
         from src.plugin_runtime.integration import get_plugin_runtime_manager
 
         prm = get_plugin_runtime_manager()
-        if not prm.is_running or prm.supervisor is None:
+        if not prm.is_running:
             return None
 
-        matched = prm.supervisor.component_registry.find_command_by_text(message.processed_plain_text)
+        matched = prm.find_command_by_text(message.processed_plain_text)
         if matched is None:
             return None
 
         message.is_command = True
-        logger.info(f"[新运行时] 匹配命令: {matched.full_name}")
+        logger.info(f"[新运行时] 匹配命令: {matched['full_name']}")
 
         try:
-            resp = await prm.supervisor.invoke_plugin(
+            resp = await prm.invoke_plugin(
                 method="plugin.invoke_command",
-                plugin_id=matched.plugin_id,
-                component_name=matched.name,
+                plugin_id=matched["plugin_id"],
+                component_name=matched["name"],
                 args={
                     "text": message.processed_plain_text,
                     "stream_id": message.session_id or "",
@@ -159,17 +159,17 @@ class ChatBot:
             payload = resp.payload
             success = payload.get("success", False)
             result = payload.get("result", "")
-            intercept = bool(matched.metadata.get("intercept_message_level", 0))
+            intercept = bool(matched["metadata"].get("intercept_message_level", 0))
 
             if success:
-                logger.info(f"[新运行时] 命令执行成功: {matched.full_name}")
+                logger.info(f"[新运行时] 命令执行成功: {matched['full_name']}")
             else:
-                logger.warning(f"[新运行时] 命令执行失败: {matched.full_name} - {result}")
+                logger.warning(f"[新运行时] 命令执行失败: {matched['full_name']} - {result}")
 
             return True, result, not intercept
 
         except Exception as e:
-            logger.error(f"[新运行时] 执行命令 {matched.full_name} 异常: {e}", exc_info=True)
+            logger.error(f"[新运行时] 执行命令 {matched['full_name']} 异常: {e}", exc_info=True)
             return True, str(e), True
 
     async def handle_notice_message(self, message: SessionMessage):

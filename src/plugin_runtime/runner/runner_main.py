@@ -177,7 +177,7 @@ class PluginRunner:
         self._rpc_client.register_method("plugin.invoke_command", self._handle_invoke)
         self._rpc_client.register_method("plugin.invoke_action", self._handle_invoke)
         self._rpc_client.register_method("plugin.invoke_tool", self._handle_invoke)
-        self._rpc_client.register_method("plugin.emit_event", self._handle_invoke)
+        self._rpc_client.register_method("plugin.emit_event", self._handle_event_invoke)
         self._rpc_client.register_method("plugin.invoke_workflow_step", self._handle_workflow_step)
         self._rpc_client.register_method("plugin.health", self._handle_health)
         self._rpc_client.register_method("plugin.prepare_shutdown", self._handle_prepare_shutdown)
@@ -269,6 +269,60 @@ class PluginRunner:
             logger.error(f"插件 {plugin_id} 组件 {component_name} 执行异常: {e}", exc_info=True)
             resp_payload = InvokeResultPayload(success=False, result=str(e))
             return envelope.make_response(payload=resp_payload.model_dump())
+
+    async def _handle_event_invoke(self, envelope: Envelope) -> Envelope:
+        """处理 EventHandler 调用请求
+
+        与通用 invoke 不同，会将返回值规范化为
+        {success, continue_processing, modified_message, custom_result} 格式，
+        使 EventDispatcher 可直接从 payload 顶层读取这些字段。
+        """
+        try:
+            invoke = InvokePayload.model_validate(envelope.payload)
+        except Exception as e:
+            return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(e))
+
+        plugin_id = envelope.plugin_id
+        meta = self._loader.get_plugin(plugin_id)
+        if meta is None:
+            return envelope.make_error_response(
+                ErrorCode.E_PLUGIN_NOT_FOUND.value,
+                f"插件 {plugin_id} 未加载",
+            )
+
+        instance = meta.instance
+        component_name = invoke.component_name
+        handler_method = getattr(instance, f"handle_{component_name}", None)
+        if handler_method is None:
+            handler_method = getattr(instance, component_name, None)
+
+        if handler_method is None or not callable(handler_method):
+            return envelope.make_error_response(
+                ErrorCode.E_METHOD_NOT_ALLOWED.value,
+                f"插件 {plugin_id} 无组件: {component_name}",
+            )
+
+        try:
+            raw = await handler_method(**invoke.args) if inspect.iscoroutinefunction(handler_method) else handler_method(**invoke.args)
+
+            # 规范化返回值：将 EventHandler 返回展平到 payload 顶层
+            if raw is None:
+                result = {"success": True, "continue_processing": True}
+            elif isinstance(raw, dict):
+                result = {
+                    "success": True,
+                    # 兼容 guide.md 中文档的 {"blocked": True} 写法
+                    "continue_processing": not raw.get("blocked", False) if "blocked" in raw else raw.get("continue_processing", True),
+                    "modified_message": raw.get("modified_message"),
+                    "custom_result": raw.get("custom_result"),
+                }
+            else:
+                result = {"success": True, "continue_processing": True, "custom_result": raw}
+
+            return envelope.make_response(payload=result)
+        except Exception as e:
+            logger.error(f"插件 {plugin_id} event_handler {component_name} 执行异常: {e}", exc_info=True)
+            return envelope.make_response(payload={"success": False, "continue_processing": True})
 
     async def _handle_workflow_step(self, envelope: Envelope) -> Envelope:
         """处理 WorkflowStep 调用请求
