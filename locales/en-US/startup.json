@@ -1,6 +1,6 @@
 {
-  "startup.agreement_confirm_prompt": "Type \"confirmed\" or the Chinese word \"同意\", or set environment variables \"EULA_AGREE={eula_hash}\" and \"PRIVACY_AGREE={privacy_hash}\" to continue",
-  "startup.agreement_confirm_retry": "Please type \"confirmed\" or \"同意\" to continue",
+  "startup.agreement_confirm_prompt": "Type \"confirmed\", or set environment variables \"EULA_AGREE={eula_hash}\" and \"PRIVACY_AGREE={privacy_hash}\" to continue",
+  "startup.agreement_confirm_retry": "Please type \"confirmed\" to continue",
   "startup.agreement_reconfirm": "The EULA or Privacy Policy has been updated. Please review and confirm again before continuing.",
   "startup.agreement_updated": "Updated the {agreement_name} confirmation file {file_hash}",
   "startup.brain_external_world_failed": "Failed to start the brain and external world: {error}",

@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+
+import json
+
+SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "i18n_validate.py"
+MODULE_SPEC = spec_from_file_location("i18n_validate_script", SCRIPT_PATH)
+assert MODULE_SPEC is not None
+assert MODULE_SPEC.loader is not None
+I18N_VALIDATE = module_from_spec(MODULE_SPEC)
+MODULE_SPEC.loader.exec_module(I18N_VALIDATE)
+
+
+def write_locale_file(locales_root: Path, locale: str, file_name: str, payload: dict[str, object]) -> None:
+    locale_dir = locales_root / locale
+    locale_dir.mkdir(parents=True, exist_ok=True)
+    (locale_dir / file_name).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def test_validate_json_locales_rejects_han_characters_in_english_locale(tmp_path: Path) -> None:
+    locales_root = tmp_path / "locales"
+    write_locale_file(locales_root, "zh-CN", "core.json", {"consent.prompt": "输入\"同意\"继续"})
+    write_locale_file(locales_root, "en-US", "core.json", {"consent.prompt": "Type \"confirmed\" or \"同意\" to continue"})
+
+    errors = I18N_VALIDATE.validate_json_locales(locales_root)
+
+    assert any("consent.prompt" in error and "仍包含中文字符" in error for error in errors)
+
+
+def test_validate_json_locales_rejects_untranslated_han_source_in_other_target_locales(tmp_path: Path) -> None:
+    locales_root = tmp_path / "locales"
+    write_locale_file(locales_root, "zh-CN", "core.json", {"greeting": "你好，世界"})
+    write_locale_file(locales_root, "ja", "core.json", {"greeting": "你好，世界"})
+
+    errors = I18N_VALIDATE.validate_json_locales(locales_root)
+
+    assert any("greeting" in error and "直接保留了包含中文字符的 source 文案" in error for error in errors)

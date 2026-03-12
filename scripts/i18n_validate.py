@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from string import Formatter
 
+import re
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,7 @@ from src.common.prompt_i18n import (  # noqa: E402
 )
 
 FORMATTER = Formatter()
+HAN_CHARACTER_PATTERN = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
 
 
 def extract_placeholders(template: str) -> set[str]:
@@ -32,6 +34,41 @@ def extract_placeholders(template: str) -> set[str]:
             continue
         placeholders.add(field_name.split(".", maxsplit=1)[0].split("[", maxsplit=1)[0])
     return placeholders
+
+
+def contains_han_characters(text: str) -> bool:
+    return HAN_CHARACTER_PATTERN.search(text) is not None
+
+
+def iter_translation_strings(value: TranslationValue) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    return [value[category] for category in sorted(value.keys())]
+
+
+def locale_requires_latin_only_validation(locale: str) -> bool:
+    normalized_locale = locale.lower()
+    return normalized_locale == "en" or normalized_locale.startswith("en-")
+
+
+def validate_locale_content(
+    key: str,
+    source_value: TranslationValue,
+    target_value: TranslationValue,
+    locale: str,
+    errors: list[str],
+) -> None:
+    source_texts = iter_translation_strings(source_value)
+    target_texts = iter_translation_strings(target_value)
+
+    if any(
+        source_text == target_text and contains_han_characters(source_text)
+        for source_text, target_text in zip(source_texts, target_texts, strict=False)
+    ):
+        errors.append(f"[{locale}] key '{key}' 直接保留了包含中文字符的 source 文案，请通过 Crowdin 提供目标语言翻译")
+
+    if locale_requires_latin_only_validation(locale) and any(contains_han_characters(text) for text in target_texts):
+        errors.append(f"[{locale}] key '{key}' 仍包含中文字符，请移除源语言残留后再提交")
 
 
 def validate_translation_pair(
@@ -103,7 +140,11 @@ def validate_json_locales(locales_root: Path | None = None) -> list[str]:
             errors.append(f"[{locale}] 存在多余 key: {key}")
 
         for key in sorted(source_keys & locale_keys):
-            validate_translation_pair(key, source_catalog[key], catalog[key], locale, errors)
+            source_value = source_catalog[key]
+            target_value = catalog[key]
+            validate_translation_pair(key, source_value, target_value, locale, errors)
+            if isinstance(source_value, str) == isinstance(target_value, str):
+                validate_locale_content(key, source_value, target_value, locale, errors)
 
     return errors
 
