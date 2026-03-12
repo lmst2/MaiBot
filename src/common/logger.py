@@ -505,7 +505,7 @@ class ModuleColoredConsoleRenderer:
         # 获取基本信息
         timestamp = event_dict.get("timestamp", "")
         level = event_dict.get("level", "info")
-        logger_name = event_dict.get("logger_name", "")
+        logger_name = event_dict.get("logger_name") or event_dict.get("logger", "")
         event = event_dict.get("event", "")
 
         # 构建输出
@@ -586,7 +586,7 @@ class ModuleColoredConsoleRenderer:
         # 处理其他字段
         extras = []
         for key, value in event_dict.items():
-            if key not in ("timestamp", "level", "logger_name", "event", "module", "lineno", "pathname"):
+            if key not in ("timestamp", "level", "logger_name", "logger", "event", "module", "lineno", "pathname"):
                 # 确保值也转换为字符串
                 if isinstance(value, (dict, list)):
                     try:
