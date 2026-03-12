@@ -58,6 +58,9 @@ class RunnerIPCLogHandler(logging.Handler):
     #: 每次 send_event 携带的最大日志条数
     FLUSH_BATCH_SIZE: int = 20
 
+    #: 仅转发 logger name 以这些前缀开头的日志，第三方库日志将被忽略
+    ALLOWED_LOGGER_PREFIXES: tuple[str, ...] = ("plugin.",)
+
     def __init__(self) -> None:
         super().__init__()
         # deque(maxlen=N): append/popleft 在 CPython GIL 保护下线程安全
@@ -100,10 +103,15 @@ class RunnerIPCLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         """将一条 LogRecord 序列化后放入缓冲（同步，永不阻塞）。
 
+        仅转发 logger name 匹配 ``ALLOWED_LOGGER_PREFIXES`` 的日志，
+        第三方库日志被静默忽略，避免噪声淹没插件日志。
         缓冲已满时，deque 自动从左侧丢弃最旧条目（FIFO 溢出）。
         异常通过 ``self.handleError(record)`` 写到 stderr，不引发。
         """
         try:
+            # 过滤：仅允许插件相关的 logger，跳过第三方库日志
+            if not any(record.name.startswith(p) for p in self.ALLOWED_LOGGER_PREFIXES):
+                return
             # format() 触发 exc_info 格式化并将结果缓存到 record.exc_text
             msg = self.format(record)
             entry = LogEntry(
