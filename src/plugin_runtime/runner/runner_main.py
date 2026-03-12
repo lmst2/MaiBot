@@ -20,6 +20,8 @@ import signal
 import sys
 import time
 
+from typing import Any
+
 from src.common.logger import get_logger, initialize_logging
 from src.plugin_runtime.protocol.envelope import (
     ComponentDeclaration,
@@ -80,14 +82,10 @@ class PluginRunner:
         plugins = self._loader.discover_and_load(self._plugin_dirs)
         logger.info(f"已加载 {len(plugins)} 个插件")
 
-        # 4. 调用 on_load 生命周期钩子 + 注入 RPC 客户端供 SDK context 使用
+        # 4. 注入 PluginContext + 调用 on_load 生命周期钩子
         for meta in plugins:
             instance = meta.instance
-            # 注入 _rpc_client 以便 PluginContext 可以发起能力调用
-            if hasattr(instance, "_ctx"):
-                ctx = instance._ctx
-                if hasattr(ctx, "_set_rpc_client"):
-                    ctx._set_rpc_client(self._rpc_client)
+            self._inject_context(meta.plugin_id, instance)
             if hasattr(instance, "on_load"):
                 try:
                     ret = instance.on_load()
@@ -135,6 +133,39 @@ class PluginRunner:
         await self._log_handler.stop()
         self._log_handler = None
         logger.debug("RunnerIPCLogHandler \u5df2\u5378\u8f7d")
+
+    def _inject_context(self, plugin_id: str, instance: object) -> None:
+        """为插件实例创建并注入 PluginContext。
+
+        对新版 MaiBotPlugin（具有 _set_context 方法）：创建 PluginContext 并注入。
+        对旧版 LegacyPluginAdapter（具有 _set_context 方法，由适配器代理）：同上。
+        """
+        if not hasattr(instance, "_set_context"):
+            return
+
+        try:
+            from maibot_sdk.context import PluginContext
+        except ImportError:
+            logger.warning(f"maibot_sdk 不可用，无法为插件 {plugin_id} 创建 PluginContext")
+            return
+
+        rpc_client = self._rpc_client
+
+        async def _rpc_call(method: str, plugin_id: str = "", payload: dict = None) -> Any:
+            """桥接 PluginContext.call_capability → RPCClient.send_request"""
+            resp = await rpc_client.send_request(
+                method=method,
+                plugin_id=plugin_id,
+                payload=payload or {},
+            )
+            # 从响应信封中提取业务结果
+            if resp.error:
+                raise RuntimeError(resp.error.get("message", "能力调用失败"))
+            return resp.payload.get("result")
+
+        ctx = PluginContext(plugin_id=plugin_id, rpc_call=_rpc_call)
+        instance._set_context(ctx)
+        logger.debug(f"已为插件 {plugin_id} 注入 PluginContext")
 
     def _register_handlers(self) -> None:
         """注册方法处理器"""
@@ -203,9 +234,21 @@ class PluginRunner:
         instance = meta.instance
         component_name = invoke.component_name
 
+        # 优先查找 handle_<name> 或直接 <name> 方法（新版 SDK 插件）
         handler_method = getattr(instance, f"handle_{component_name}", None)
         if handler_method is None:
             handler_method = getattr(instance, component_name, None)
+
+        # 回退: 旧版 LegacyPluginAdapter 通过 invoke_component 统一桥接
+        if (handler_method is None or not callable(handler_method)) and hasattr(instance, "invoke_component"):
+            try:
+                result = await instance.invoke_component(component_name, **invoke.args)
+                resp_payload = InvokeResultPayload(success=True, result=result)
+                return envelope.make_response(payload=resp_payload.model_dump())
+            except Exception as e:
+                logger.error(f"插件 {plugin_id} 组件 {component_name} (legacy) 执行异常: {e}", exc_info=True)
+                resp_payload = InvokeResultPayload(success=False, result=str(e))
+                return envelope.make_response(payload=resp_payload.model_dump())
 
         if handler_method is None or not callable(handler_method):
             return envelope.make_error_response(
@@ -326,6 +369,7 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
 
     防止插件代码 import 主程序模块读取运行时数据。
     """
+    import importlib.abc
     import sysconfig
 
     # 保留: 标准库路径 + site-packages（含 SDK 和依赖）
@@ -348,11 +392,44 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
     for d in plugin_dirs:
         allowed.add(os.path.normpath(d))
 
-    # 添加当前 runner 模块所在路径（使得 src.plugin_runtime 可导入）
+    # 添加项目根目录（使得 src.plugin_runtime / src.common 可导入）
     runtime_root = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     allowed.add(runtime_root)
 
     sys.path[:] = [p for p in sys.path if p in allowed]
+
+    # 安装 import 钩子，阻止插件导入主程序核心模块
+    # 仅允许 src.plugin_runtime 和 src.common，拒绝其他 src.* 子包
+    class _PluginImportBlocker(importlib.abc.MetaPathFinder):
+        """阻止 Runner 子进程导入主程序核心模块。
+
+        只放行 src.plugin_runtime 和 src.common，
+        拒绝 src.chat_module / src.services 等主程序内部包。
+        """
+
+        _ALLOWED_SRC_PREFIXES = ("src.plugin_runtime", "src.common")
+
+        def find_module(self, fullname, path=None):
+            if self._should_block(fullname):
+                return self
+            return None
+
+        def load_module(self, fullname):
+            raise ImportError(
+                f"Runner 子进程不允许导入主程序模块: {fullname}"
+            )
+
+        def _should_block(self, fullname: str) -> bool:
+            # 放行非 src.* 的导入、以及 "src" 本身
+            if not fullname.startswith("src.") or fullname == "src":
+                return False
+            # 放行白名单前缀
+            for prefix in self._ALLOWED_SRC_PREFIXES:
+                if fullname == prefix or fullname.startswith(prefix + "."):
+                    return False
+            return True
+
+    sys.meta_path.insert(0, _PluginImportBlocker())
 
 
 # ─── 进程入口 ──────────────────────────────────────────────

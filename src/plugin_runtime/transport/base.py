@@ -33,6 +33,7 @@ class Connection(ABC):
         self._reader = reader
         self._writer = writer
         self._closed = False
+        self._write_lock = asyncio.Lock()  # 保护并发写入的帧完整性
 
     async def send_frame(self, data: bytes) -> None:
         """发送一帧数据（4-byte length prefix + payload）"""
@@ -42,8 +43,9 @@ class Connection(ABC):
         if length > MAX_FRAME_SIZE:
             raise ValueError(f"帧大小 {length} 超过最大限制 {MAX_FRAME_SIZE}")
         header = struct.pack(">I", length)
-        self._writer.write(header + data)
-        await self._writer.drain()
+        async with self._write_lock:
+            self._writer.write(header + data)
+            await self._writer.drain()
 
     async def recv_frame(self) -> bytes:
         """接收一帧数据"""

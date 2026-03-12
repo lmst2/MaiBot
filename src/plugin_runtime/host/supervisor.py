@@ -222,8 +222,18 @@ class PluginSupervisor:
         # 启动 RPC Server
         await self._rpc_server.start()
 
+        # 计算预期 generation（与 reload_plugins 保持一致）
+        expected_generation = self._rpc_server.runner_generation + 1
+
         # 拉起 Runner 进程
         await self._spawn_runner()
+
+        # 等待 Runner 完成连接，避免 start() 返回时 Runner 尚未就绪
+        try:
+            await self._wait_for_runner_generation(expected_generation, timeout_sec=30.0)
+        except TimeoutError:
+            if not self._rpc_server.is_connected:
+                logger.warning("Runner 未在 30s 内完成连接，后续操作可能失败")
 
         # 启动健康检查
         self._health_task = asyncio.create_task(self._health_check_loop())
@@ -282,6 +292,9 @@ class PluginSupervisor:
         old_process = self._runner_process
         old_registered_plugins = dict(self._registered_plugins)
         expected_generation = self._rpc_server.runner_generation + 1
+
+        # 重新生成 session token，防止被终止的旧 Runner 重连
+        self._rpc_server.reset_session_token()
 
         # 清理旧的组件注册，防止幽灵组件残留
         self._clear_runtime_state()

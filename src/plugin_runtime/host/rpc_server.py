@@ -73,6 +73,11 @@ class RPCServer:
     def session_token(self) -> str:
         return self._session_token
 
+    def reset_session_token(self) -> str:
+        """重新生成会话令牌（热重载时调用，防止旧 Runner 重连）"""
+        self._session_token = secrets.token_hex(32)
+        return self._session_token
+
     @property
     def runner_generation(self) -> int:
         return self._runner_generation
@@ -155,7 +160,7 @@ class RPCServer:
             raise RPCError(ErrorCode.E_BACKPRESSURE, "发送队列已满")
 
         # 注册 pending future
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         future: asyncio.Future[Envelope] = loop.create_future()
         self._pending_requests[request_id] = future
 
@@ -227,6 +232,11 @@ class RPCServer:
             if self._connection is conn:
                 self._connection = None
                 self._runner_id = None
+                # 连接断开时，立即让所有等待中的请求失败，避免挂起至超时
+                for req_id, future in list(self._pending_requests.items()):
+                    if not future.done():
+                        future.set_exception(RPCError(ErrorCode.E_PLUGIN_CRASHED, "Runner 连接已断开"))
+                self._pending_requests.clear()
 
     async def _handle_handshake(self, conn: Connection) -> bool:
         """处理 runner.hello 握手"""
@@ -369,7 +379,12 @@ class RPCServer:
         """处理来自 Runner 的事件"""
         if handler := self._method_handlers.get(envelope.method):
             try:
-                await handler(envelope)
+                result = await handler(envelope)
+                # 检查 handler 返回的信封是否包含错误信息
+                if result is not None and isinstance(result, Envelope) and result.error:
+                    logger.warning(
+                        f"事件 {envelope.method} handler 返回错误: {result.error.get('message', '')}"
+                    )
             except Exception as e:
                 logger.error(f"处理事件 {envelope.method} 异常: {e}", exc_info=True)
 

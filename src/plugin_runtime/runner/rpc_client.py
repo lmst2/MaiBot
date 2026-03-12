@@ -165,7 +165,7 @@ class RPCClient:
             payload=payload or {},
         )
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         future: asyncio.Future[Envelope] = loop.create_future()
         self._pending_requests[request_id] = future
 

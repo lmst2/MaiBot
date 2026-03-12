@@ -162,7 +162,7 @@ class PluginRuntimeManager:
             try:
                 cont, mod = await sv.dispatch_event(
                     event_type=new_event_type,
-                    message=message_dict,
+                    message=modified or message_dict,
                     extra_args=extra_args,
                 )
                 if mod is not None:
@@ -184,7 +184,14 @@ class PluginRuntimeManager:
         for sv in self.supervisors:
             result = sv.component_registry.find_command_by_text(text)
             if result is not None:
-                return result
+                return {
+                    "name": result.name,
+                    "full_name": result.full_name,
+                    "component_type": result.component_type,
+                    "plugin_id": result.plugin_id,
+                    "metadata": result.metadata,
+                    "enabled": result.enabled,
+                }
         return None
 
     # ─── 能力实现注册 ──────────────────────────────────────────

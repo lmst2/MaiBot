@@ -59,7 +59,7 @@ class RunnerIPCLogHandler(logging.Handler):
     FLUSH_BATCH_SIZE: int = 20
 
     #: 仅转发 logger name 以这些前缀开头的日志，第三方库日志将被忽略
-    ALLOWED_LOGGER_PREFIXES: tuple[str, ...] = ("plugin.",)
+    ALLOWED_LOGGER_PREFIXES: tuple[str, ...] = ("plugin.", "plugin_runtime.")
 
     def __init__(self) -> None:
         super().__init__()
