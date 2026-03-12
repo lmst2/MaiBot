@@ -43,22 +43,21 @@ def test_load_prompt_falls_back_to_default_locale(tmp_path: Path) -> None:
     assert rendered == "你好，Mai"
 
 
-def test_load_prompt_falls_back_to_legacy_root(tmp_path: Path) -> None:
+def test_load_prompt_does_not_fall_back_to_legacy_root(tmp_path: Path) -> None:
     prompts_root = tmp_path / "prompts"
     write_prompt(prompts_root, None, "replyer", "Legacy {user_name}")
 
-    rendered = load_prompt("replyer", locale="en-US", prompts_root=prompts_root, user_name="Mai")
+    with pytest.raises(FileNotFoundError):
+        load_prompt("replyer", locale="en-US", prompts_root=prompts_root, user_name="Mai")
 
-    assert rendered == "Legacy Mai"
 
-
-def test_load_prompt_with_category_falls_back_to_legacy_root(tmp_path: Path) -> None:
+def test_load_prompt_with_category_falls_back_to_default_locale_root(tmp_path: Path) -> None:
     prompts_root = tmp_path / "prompts"
-    write_prompt(prompts_root, None, "replyer", "Legacy {user_name}")
+    write_prompt(prompts_root, "zh-CN", "replyer", "你好，{user_name}")
 
     rendered = load_prompt("replyer", locale="en-US", category="chat", prompts_root=prompts_root, user_name="Mai")
 
-    assert rendered == "Legacy Mai"
+    assert rendered == "你好，Mai"
 
 
 def test_load_prompt_strict_mode_raises_on_missing_placeholder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,7 +81,6 @@ def test_load_prompt_rejects_path_traversal(tmp_path: Path) -> None:
 
 def test_list_prompt_templates_prefers_locale_specific_files(tmp_path: Path) -> None:
     prompts_root = tmp_path / "prompts"
-    write_prompt(prompts_root, None, "replyer", "Legacy")
     write_prompt(prompts_root, "zh-CN", "replyer", "中文")
     write_prompt(prompts_root, "en-US", "replyer", "English")
     set_locale("en-US")

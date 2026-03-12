@@ -90,9 +90,9 @@ def _raise_duplicate_prompt_name(name: str, first_path: Path, second_path: Path,
     )
 
 
-def _scan_prompt_directory(directory: Path, prompts_root: Path, recursive: bool = True) -> dict[str, Path]:
+def _scan_prompt_directory(directory: Path, prompts_root: Path) -> dict[str, Path]:
     prompt_paths: dict[str, Path] = {}
-    for prompt_path in iter_prompt_files(directory, recursive=recursive):
+    for prompt_path in iter_prompt_files(directory):
         prompt_name = prompt_path.stem
         existing_path = prompt_paths.get(prompt_name)
         if existing_path is not None:
@@ -101,21 +101,17 @@ def _scan_prompt_directory(directory: Path, prompts_root: Path, recursive: bool 
     return prompt_paths
 
 
-def _iter_prompt_template_layers(prompts_root: Path, requested_locale: str) -> list[tuple[Path, bool]]:
-    prompt_layers: list[tuple[Path, bool]] = [
-        (prompts_root, False),
-        (prompts_root / DEFAULT_LOCALE, True),
-    ]
+def _iter_prompt_template_layers(prompts_root: Path, requested_locale: str) -> list[Path]:
+    prompt_layers: list[Path] = [prompts_root / DEFAULT_LOCALE]
     if requested_locale != DEFAULT_LOCALE:
-        prompt_layers.append((prompts_root / requested_locale, True))
+        prompt_layers.append(prompts_root / requested_locale)
     return prompt_layers
 
 
-def _iter_locale_candidates(requested_locale: str) -> list[str | None]:
-    locale_candidates: list[str | None] = [requested_locale]
+def _iter_locale_candidates(requested_locale: str) -> list[str]:
+    locale_candidates: list[str] = [requested_locale]
     if requested_locale != DEFAULT_LOCALE:
         locale_candidates.append(DEFAULT_LOCALE)
-    locale_candidates.append(None)
     return locale_candidates
 
 
@@ -124,8 +120,8 @@ def list_prompt_templates(locale: str | None = None, prompts_root: Path | None =
     requested_locale = normalize_locale(locale or get_locale())
 
     prompt_paths: dict[str, Path] = {}
-    for directory, recursive in _iter_prompt_template_layers(resolved_prompts_root, requested_locale):
-        prompt_paths.update(_scan_prompt_directory(directory, resolved_prompts_root, recursive=recursive))
+    for directory in _iter_prompt_template_layers(resolved_prompts_root, requested_locale):
+        prompt_paths.update(_scan_prompt_directory(directory, resolved_prompts_root))
 
     return prompt_paths
 
@@ -140,13 +136,13 @@ def resolve_prompt_path(
 
     if normalized_category is not None:
         for locale_candidate in _iter_locale_candidates(requested_locale):
-            base_dir = resolved_prompts_root if locale_candidate is None else resolved_prompts_root / locale_candidate
+            base_dir = resolved_prompts_root / locale_candidate
             for suffix in PROMPT_EXTENSIONS:
                 candidate_path = (base_dir / normalized_category / f"{normalized_name}{suffix}").resolve()
                 if candidate_path.is_file():
                     return candidate_path
 
-                # 允许带 category 的调用在旧版平铺目录或未迁移完的 locale 目录中继续工作。
+                # 允许带 category 的调用继续复用 locale 根目录下的平铺模板。
                 fallback_path = (base_dir / f"{normalized_name}{suffix}").resolve()
                 if fallback_path.is_file():
                     return fallback_path

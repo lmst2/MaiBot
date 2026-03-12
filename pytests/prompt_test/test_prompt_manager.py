@@ -1,9 +1,10 @@
 # File: pytests/prompt_test/test_prompt_manager.py
 
-import asyncio
-import inspect
 from pathlib import Path
 from typing import Any
+
+import asyncio
+import inspect
 import sys
 
 import pytest
@@ -18,6 +19,16 @@ from src.prompt.prompt_manager import (  # noqa
     PromptManager,
     prompt_manager,
 )
+
+
+def write_source_prompt(prompts_dir: Path, name: str, content: str) -> Path:
+    from src.common.i18n.loaders import DEFAULT_LOCALE
+
+    source_dir = prompts_dir / DEFAULT_LOCALE
+    source_dir.mkdir(parents=True, exist_ok=True)
+    prompt_file = source_dir / f"{name}{SUFFIX_PROMPT}"
+    prompt_file.write_text(content, encoding="utf-8")
+    return prompt_file
 
 
 # ========= Prompt 基础行为 =========
@@ -697,7 +708,7 @@ def test_prompt_manager_save_prompts_io_error_on_write(tmp_path, monkeypatch):
 
 def test_prompt_manager_load_prompts_io_error_from_default_dir(tmp_path, monkeypatch):
     """
-    模拟从 PROMPTS_DIR 读取 prompt 时发生 IO 错误。
+    模拟从默认 locale 目录读取 prompt 时发生 IO 错误。
     """
     # Arrange
     prompts_dir = tmp_path / "prompts"
@@ -708,8 +719,7 @@ def test_prompt_manager_load_prompts_io_error_from_default_dir(tmp_path, monkeyp
     monkeypatch.setattr("src.prompt.prompt_manager.PROMPTS_DIR", prompts_dir, raising=False)
     monkeypatch.setattr("src.prompt.prompt_manager.CUSTOM_PROMPTS_DIR", custom_dir, raising=False)
 
-    prompt_file = prompts_dir / f"bad{SUFFIX_PROMPT}"
-    prompt_file.write_text("content", encoding="utf-8")
+    prompt_file = write_source_prompt(prompts_dir, "bad", "content")
 
     class FakeFile:
         def __enter__(self):
@@ -753,9 +763,8 @@ def test_prompt_manager_load_prompts_io_error_from_custom_dir(tmp_path, monkeypa
     monkeypatch.setattr("src.prompt.prompt_manager.CUSTOM_PROMPTS_DIR", custom_dir, raising=False)
 
     # default 与 custom 同名的文件
-    same_name = f"same{SUFFIX_PROMPT}"
-    base_file = prompts_dir / same_name
-    base_file.write_text("base", encoding="utf-8")
+    base_file = write_source_prompt(prompts_dir, "same", "base")
+    same_name = base_file.name
     custom_file_same = custom_dir / same_name
     custom_file_same.write_text("custom", encoding="utf-8")
 
@@ -791,7 +800,7 @@ def test_prompt_manager_load_prompts_io_error_from_custom_dir(tmp_path, monkeypa
 def test_prompt_manager_load_prompts_custom_overrides_default(tmp_path, monkeypatch):
     """
     load_prompts 逻辑：
-    - 遍历 PROMPTS_DIR/*.prompt
+    - 遍历 locale 目录中的 source prompt
     - 如果 CUSTOM_PROMPTS_DIR 下存在同名文件，则优先使用自定义目录
     """
     # Arrange
@@ -803,9 +812,8 @@ def test_prompt_manager_load_prompts_custom_overrides_default(tmp_path, monkeypa
     monkeypatch.setattr("src.prompt.prompt_manager.PROMPTS_DIR", prompts_dir, raising=False)
     monkeypatch.setattr("src.prompt.prompt_manager.CUSTOM_PROMPTS_DIR", custom_dir, raising=False)
 
-    # 默认目录 prompt
-    base_file = prompts_dir / f"testp{SUFFIX_PROMPT}"
-    base_file.write_text("BaseTemplate {x}", encoding="utf-8")
+    # source locale 目录 prompt
+    base_file = write_source_prompt(prompts_dir, "testp", "BaseTemplate {x}")
 
     # 自定义目录同名 prompt，应当覆盖默认
     custom_file = custom_dir / base_file.name
@@ -825,7 +833,7 @@ def test_prompt_manager_load_prompts_custom_overrides_default(tmp_path, monkeypa
 
 def test_prompt_manager_load_prompts_default_dir_not_mark_need_save(tmp_path, monkeypatch):
     """
-    从 PROMPTS_DIR 加载、且没有同名自定义 prompt 时，need_save 应为 False（不进入 _prompt_to_save）。
+    从 source locale 目录加载、且没有同名自定义 prompt 时，need_save 应为 False（不进入 _prompt_to_save）。
     """
     # Arrange
     prompts_dir = tmp_path / "prompts"
@@ -836,9 +844,8 @@ def test_prompt_manager_load_prompts_default_dir_not_mark_need_save(tmp_path, mo
     monkeypatch.setattr("src.prompt.prompt_manager.PROMPTS_DIR", prompts_dir, raising=False)
     monkeypatch.setattr("src.prompt.prompt_manager.CUSTOM_PROMPTS_DIR", custom_dir, raising=False)
 
-    # 仅默认目录有 prompt，自定义目录中无同名文件
-    base_file = prompts_dir / f"only_default{SUFFIX_PROMPT}"
-    base_file.write_text("DefaultTemplate {x}", encoding="utf-8")
+    # 仅 source locale 目录有 prompt，自定义目录中无同名文件
+    base_file = write_source_prompt(prompts_dir, "only_default", "DefaultTemplate {x}")
 
     manager = PromptManager()
 
@@ -847,7 +854,7 @@ def test_prompt_manager_load_prompts_default_dir_not_mark_need_save(tmp_path, mo
 
     # Assert
     p = manager.get_prompt("only_default")
-    assert p.template == "DefaultTemplate {x}"
+    assert p.template == base_file.read_text(encoding="utf-8")
     # 从默认目录加载的 prompt 不应标记为 need_save
     assert "only_default" not in manager._prompt_to_save
 
