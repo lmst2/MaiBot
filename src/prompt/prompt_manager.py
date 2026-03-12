@@ -181,8 +181,10 @@ class PromptManager:
         self,
         prompt: Prompt,
         recursive_level: int = 0,
-        additional_construction_function_dict: dict[str, Callable[[str], str | Coroutine[Any, Any, str]]] = {},  # noqa: B006
+        additional_construction_function_dict: dict[str, Callable[[str], str | Coroutine[Any, Any, str]]] | None = None,
     ) -> str:
+        if additional_construction_function_dict is None:
+            additional_construction_function_dict = {}
         prompt.template = prompt.template.replace("{{", _LEFT_BRACE).replace("}}", _RIGHT_BRACE)
         if recursive_level > 10:
             raise RecursionError("递归层级过深，可能存在循环引用")
@@ -191,11 +193,11 @@ class PromptManager:
         for field_name in field_block:
             if field_name in self.prompts:
                 nested_prompt = self.get_prompt(field_name)
-                additional_construction_function_dict |= prompt.prompt_render_context
+                merged_context = additional_construction_function_dict | prompt.prompt_render_context
                 rendered_fields[field_name] = await self._render(
                     nested_prompt,
                     recursive_level + 1,
-                    additional_construction_function_dict,
+                    merged_context,
                 )
             elif field_name in prompt.prompt_render_context:
                 # 优先使用内部构造函数

@@ -7,9 +7,7 @@ from babel import Locale
 from babel.dates import format_datetime as babel_format_datetime
 from babel.numbers import format_decimal as babel_format_decimal
 
-from .loaders import DEFAULT_LOCALE, extract_placeholders, format_template, to_babel_locale
-
-__all__ = ["extract_placeholders", "format_template"]
+from .loaders import DEFAULT_LOCALE, to_babel_locale
 
 
 def select_plural_category(locale: str, count: int | float | Decimal) -> str:

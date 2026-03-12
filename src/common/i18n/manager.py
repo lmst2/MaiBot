@@ -10,7 +10,8 @@ import os
 import threading
 
 from .exceptions import I18nError, InvalidLocaleError
-from .formatting import format_template, select_plural_category
+from .formatting import select_plural_category
+from .loaders import format_template
 from .loaders import DEFAULT_LOCALE, TranslationValue, get_locales_root, load_locale_catalog, normalize_locale
 
 logger = logging.getLogger("maibot.i18n")
@@ -134,7 +135,7 @@ class I18nManager:
             return format_template(template, **kwargs)
         except Exception as exc:
             logger.error("翻译 key '%s' 格式化失败: %s", key, exc)
-            return template or key
+            return template
 
     def _get_translation_value(self, key: str, locale: str | None) -> tuple[TranslationValue | None, str]:
         target_locale = self._resolve_locale(locale)
@@ -198,7 +199,7 @@ class I18nManager:
                 normalized_locale,
                 exc,
             )
-            catalog = {}
+            return {}
 
         with self._cache_lock:
             if normalized_locale in self._catalog_cache:
