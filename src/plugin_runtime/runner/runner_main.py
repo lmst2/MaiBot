@@ -84,6 +84,7 @@ class PluginRunner:
         logger.info(f"已加载 {len(plugins)} 个插件")
 
         # 4. 注入 PluginContext + 调用 on_load 生命周期钩子
+        failed_plugins: set[str] = set()
         for meta in plugins:
             instance = meta.instance
             self._inject_context(meta.plugin_id, instance)
@@ -93,10 +94,13 @@ class PluginRunner:
                     if asyncio.iscoroutine(ret):
                         await ret
                 except Exception as e:
-                    logger.error(f"插件 {meta.plugin_id} on_load 失败: {e}", exc_info=True)
+                    logger.error(f"插件 {meta.plugin_id} on_load 失败，跳过注册: {e}", exc_info=True)
+                    failed_plugins.add(meta.plugin_id)
 
-        # 5. 向 Host 注册所有插件的组件
+        # 5. 向 Host 注册所有插件的组件（跳过 on_load 失败的插件）
         for meta in plugins:
+            if meta.plugin_id in failed_plugins:
+                continue
             await self._register_plugin(meta)
 
         # 5. 等待直到收到关停信号

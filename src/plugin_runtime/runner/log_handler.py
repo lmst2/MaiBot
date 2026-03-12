@@ -59,7 +59,8 @@ class RunnerIPCLogHandler(logging.Handler):
     FLUSH_BATCH_SIZE: int = 20
 
     #: 仅转发 logger name 以这些前缀开头的日志，第三方库日志将被忽略
-    ALLOWED_LOGGER_PREFIXES: tuple[str, ...] = ("plugin.", "plugin_runtime.")
+    #: 包含 "_maibot_plugin_" 前缀以覆盖插件模块中 logging.getLogger(__name__) 的场景
+    ALLOWED_LOGGER_PREFIXES: tuple[str, ...] = ("plugin.", "plugin_runtime.", "_maibot_plugin_")
 
     def __init__(self) -> None:
         super().__init__()
