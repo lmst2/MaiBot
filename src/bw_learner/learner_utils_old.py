@@ -16,77 +16,6 @@ from json_repair import repair_json
 logger = get_logger("learner_utils")
 
 
-def filter_message_content(content: Optional[str]) -> str:
-    """
-    过滤消息内容，移除回复、@、图片等格式
-
-    Args:
-        content: 原始消息内容
-
-    Returns:
-        str: 过滤后的内容
-    """
-    if not content:
-        return ""
-
-    # 移除以[回复开头、]结尾的部分，包括后面的"，说："部分
-    content = re.sub(r"\[回复.*?\]，说：\s*", "", content)
-    # 移除@<...>格式的内容
-    content = re.sub(r"@<[^>]*>", "", content)
-    # 移除[picid:...]格式的图片ID
-    content = re.sub(r"\[picid:[^\]]*\]", "", content)
-    # 移除[表情包：...]格式的内容
-    content = re.sub(r"\[表情包：[^\]]*\]", "", content)
-
-    return content.strip()
-
-
-def calculate_similarity(text1: str, text2: str) -> float:
-    """
-    计算两个文本的相似度，返回0-1之间的值
-    使用SequenceMatcher计算相似度
-
-    Args:
-        text1: 第一个文本
-        text2: 第二个文本
-
-    Returns:
-        float: 相似度值，范围0-1
-    """
-    return difflib.SequenceMatcher(None, text1, text2).ratio()
-
-
-def calculate_style_similarity(style1: str, style2: str) -> float:
-    """
-    计算两个 style 的相似度，返回0-1之间的值
-    在计算前会移除"使用"和"句式"这两个词（参考 expression_similarity_analysis.py）
-
-    Args:
-        style1: 第一个 style
-        style2: 第二个 style
-
-    Returns:
-        float: 相似度值，范围0-1
-    """
-    if not style1 or not style2:
-        return 0.0
-
-    # 移除"使用"和"句式"这两个词
-    def remove_ignored_words(text: str) -> str:
-        """移除需要忽略的词"""
-        text = text.replace("使用", "")
-        text = text.replace("句式", "")
-        return text.strip()
-
-    cleaned_style1 = remove_ignored_words(style1)
-    cleaned_style2 = remove_ignored_words(style2)
-
-    # 如果清理后文本为空，返回0
-    if not cleaned_style1 or not cleaned_style2:
-        return 0.0
-
-    return difflib.SequenceMatcher(None, cleaned_style1, cleaned_style2).ratio()
-
 
 def _compute_weights(population: List[Dict]) -> List[float]:
     """
@@ -275,224 +204,224 @@ def contains_bot_self_name(content: str) -> bool:
     return any(name in target for name in candidates)
 
 
-def build_context_paragraph(messages: List[Any], center_index: int) -> Optional[str]:
-    """
-    构建包含中心消息上下文的段落（前3条+后3条），使用标准的 readable builder 输出
-    """
-    if not messages or center_index < 0 or center_index >= len(messages):
-        return None
+# def build_context_paragraph(messages: List[Any], center_index: int) -> Optional[str]:
+#     """
+#     构建包含中心消息上下文的段落（前3条+后3条），使用标准的 readable builder 输出
+#     """
+#     if not messages or center_index < 0 or center_index >= len(messages):
+#         return None
 
-    context_start = max(0, center_index - 3)
-    context_end = min(len(messages), center_index + 1 + 3)
-    context_messages = messages[context_start:context_end]
+#     context_start = max(0, center_index - 3)
+#     context_end = min(len(messages), center_index + 1 + 3)
+#     context_messages = messages[context_start:context_end]
 
-    if not context_messages:
-        return None
+#     if not context_messages:
+#         return None
 
-    try:
-        paragraph = build_readable_messages(
-            messages=context_messages,
-            replace_bot_name=True,
-            timestamp_mode="relative",
-            read_mark=0.0,
-            truncate=False,
-            show_actions=False,
-            show_pic=True,
-            message_id_list=None,
-            remove_emoji_stickers=False,
-            pic_single=True,
-        )
-    except Exception as e:
-        logger.warning(f"构建上下文段落失败: {e}")
-        return None
+#     try:
+#         paragraph = build_readable_messages(
+#             messages=context_messages,
+#             replace_bot_name=True,
+#             timestamp_mode="relative",
+#             read_mark=0.0,
+#             truncate=False,
+#             show_actions=False,
+#             show_pic=True,
+#             message_id_list=None,
+#             remove_emoji_stickers=False,
+#             pic_single=True,
+#         )
+#     except Exception as e:
+#         logger.warning(f"构建上下文段落失败: {e}")
+#         return None
 
-    paragraph = paragraph.strip()
-    return paragraph or None
-
-
-def is_bot_message(msg: Any) -> bool:
-    """判断消息是否来自机器人自身"""
-    if msg is None:
-        return False
-
-    bot_config = getattr(global_config, "bot", None)
-    if not bot_config:
-        return False
-
-    platform = (
-        str(getattr(msg, "user_platform", "") or getattr(getattr(msg, "user_info", None), "platform", "") or "")
-        .strip()
-        .lower()
-    )
-    user_id = str(getattr(msg, "user_id", "") or getattr(getattr(msg, "user_info", None), "user_id", "") or "").strip()
-
-    if not platform or not user_id:
-        return False
-
-    platform_accounts = {}
-    try:
-        platform_accounts = parse_platform_accounts(getattr(bot_config, "platforms", []) or [])
-    except Exception:
-        platform_accounts = {}
-
-    bot_accounts: Dict[str, str] = {}
-    qq_account = str(getattr(bot_config, "qq_account", "") or "").strip()
-    if qq_account:
-        bot_accounts["qq"] = qq_account
-
-    telegram_account = str(getattr(bot_config, "telegram_account", "") or "").strip()
-    if telegram_account:
-        bot_accounts["telegram"] = telegram_account
-
-    for plat, account in platform_accounts.items():
-        if account and plat not in bot_accounts:
-            bot_accounts[plat] = account
-
-    bot_account = bot_accounts.get(platform)
-    return bool(bot_account and user_id == bot_account)
+#     paragraph = paragraph.strip()
+#     return paragraph or None
 
 
-def parse_expression_response(response: str) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str, str]]]:
-    """
-    解析 LLM 返回的表达风格总结和黑话 JSON，提取两个列表。
+# def is_bot_message(msg: Any) -> bool:
+#     """判断消息是否来自机器人自身"""
+#     if msg is None:
+#         return False
 
-    期望的 JSON 结构：
-    [
-        {"situation": "AAAAA", "style": "BBBBB", "source_id": "3"},  // 表达方式
-        {"content": "词条", "source_id": "12"},  // 黑话
-        ...
-    ]
+#     bot_config = getattr(global_config, "bot", None)
+#     if not bot_config:
+#         return False
 
-    Returns:
-        Tuple[List[Tuple[str, str, str]], List[Tuple[str, str]]]:
-            第一个列表是表达方式 (situation, style, source_id)
-            第二个列表是黑话 (content, source_id)
-    """
-    if not response:
-        return [], []
+#     platform = (
+#         str(getattr(msg, "user_platform", "") or getattr(getattr(msg, "user_info", None), "platform", "") or "")
+#         .strip()
+#         .lower()
+#     )
+#     user_id = str(getattr(msg, "user_id", "") or getattr(getattr(msg, "user_info", None), "user_id", "") or "").strip()
 
-    raw = response.strip()
+#     if not platform or not user_id:
+#         return False
 
-    # 尝试提取 ```json 代码块
-    json_block_pattern = r"```json\s*(.*?)\s*```"
-    match = re.search(json_block_pattern, raw, re.DOTALL)
-    if match:
-        raw = match.group(1).strip()
-    else:
-        # 去掉可能存在的通用 ``` 包裹
-        raw = re.sub(r"^```\s*", "", raw, flags=re.MULTILINE)
-        raw = re.sub(r"```\s*$", "", raw, flags=re.MULTILINE)
-        raw = raw.strip()
+#     platform_accounts = {}
+#     try:
+#         platform_accounts = parse_platform_accounts(getattr(bot_config, "platforms", []) or [])
+#     except Exception:
+#         platform_accounts = {}
 
-    parsed = None
-    expressions: List[Tuple[str, str, str]] = []  # (situation, style, source_id)
-    jargon_entries: List[Tuple[str, str]] = []  # (content, source_id)
+#     bot_accounts: Dict[str, str] = {}
+#     qq_account = str(getattr(bot_config, "qq_account", "") or "").strip()
+#     if qq_account:
+#         bot_accounts["qq"] = qq_account
 
-    try:
-        # 优先尝试直接解析
-        if raw.startswith("[") and raw.endswith("]"):
-            parsed = json.loads(raw)
-        else:
-            repaired = repair_json(raw)
-            if isinstance(repaired, str):
-                parsed = json.loads(repaired)
-            else:
-                parsed = repaired
-    except Exception as parse_error:
-        # 如果解析失败，尝试修复中文引号问题
-        # 使用状态机方法，在 JSON 字符串值内部将中文引号替换为转义的英文引号
-        try:
+#     telegram_account = str(getattr(bot_config, "telegram_account", "") or "").strip()
+#     if telegram_account:
+#         bot_accounts["telegram"] = telegram_account
 
-            def fix_chinese_quotes_in_json(text):
-                """使用状态机修复 JSON 字符串值中的中文引号"""
-                result = []
-                i = 0
-                in_string = False
-                escape_next = False
+#     for plat, account in platform_accounts.items():
+#         if account and plat not in bot_accounts:
+#             bot_accounts[plat] = account
 
-                while i < len(text):
-                    char = text[i]
+#     bot_account = bot_accounts.get(platform)
+#     return bool(bot_account and user_id == bot_account)
 
-                    if escape_next:
-                        # 当前字符是转义字符后的字符，直接添加
-                        result.append(char)
-                        escape_next = False
-                        i += 1
-                        continue
 
-                    if char == "\\":
-                        # 转义字符
-                        result.append(char)
-                        escape_next = True
-                        i += 1
-                        continue
+# def parse_expression_response(response: str) -> Tuple[List[Tuple[str, str, str]], List[Tuple[str, str]]]:
+#     """
+#     解析 LLM 返回的表达风格总结和黑话 JSON，提取两个列表。
 
-                    if char == '"' and not escape_next:
-                        # 遇到英文引号，切换字符串状态
-                        in_string = not in_string
-                        result.append(char)
-                        i += 1
-                        continue
+#     期望的 JSON 结构：
+#     [
+#         {"situation": "AAAAA", "style": "BBBBB", "source_id": "3"},  // 表达方式
+#         {"content": "词条", "source_id": "12"},  // 黑话
+#         ...
+#     ]
 
-                    if in_string:
-                        # 在字符串值内部，将中文引号替换为转义的英文引号
-                        if char == '"':  # 中文左引号 U+201C
-                            result.append('\\"')
-                        elif char == '"':  # 中文右引号 U+201D
-                            result.append('\\"')
-                        else:
-                            result.append(char)
-                    else:
-                        # 不在字符串内，直接添加
-                        result.append(char)
+#     Returns:
+#         Tuple[List[Tuple[str, str, str]], List[Tuple[str, str]]]:
+#             第一个列表是表达方式 (situation, style, source_id)
+#             第二个列表是黑话 (content, source_id)
+#     """
+#     if not response:
+#         return [], []
 
-                    i += 1
+#     raw = response.strip()
 
-                return "".join(result)
+#     # 尝试提取 ```json 代码块
+#     json_block_pattern = r"```json\s*(.*?)\s*```"
+#     match = re.search(json_block_pattern, raw, re.DOTALL)
+#     if match:
+#         raw = match.group(1).strip()
+#     else:
+#         # 去掉可能存在的通用 ``` 包裹
+#         raw = re.sub(r"^```\s*", "", raw, flags=re.MULTILINE)
+#         raw = re.sub(r"```\s*$", "", raw, flags=re.MULTILINE)
+#         raw = raw.strip()
 
-            fixed_raw = fix_chinese_quotes_in_json(raw)
+#     parsed = None
+#     expressions: List[Tuple[str, str, str]] = []  # (situation, style, source_id)
+#     jargon_entries: List[Tuple[str, str]] = []  # (content, source_id)
 
-            # 再次尝试解析
-            if fixed_raw.startswith("[") and fixed_raw.endswith("]"):
-                parsed = json.loads(fixed_raw)
-            else:
-                repaired = repair_json(fixed_raw)
-                if isinstance(repaired, str):
-                    parsed = json.loads(repaired)
-                else:
-                    parsed = repaired
-        except Exception as fix_error:
-            logger.error(f"解析表达风格 JSON 失败，初始错误: {type(parse_error).__name__}: {str(parse_error)}")
-            logger.error(f"修复中文引号后仍失败，错误: {type(fix_error).__name__}: {str(fix_error)}")
-            logger.error(f"解析表达风格 JSON 失败，原始响应：{response}")
-            logger.error(f"处理后的 JSON 字符串（前500字符）：{raw[:500]}")
-            return [], []
+#     try:
+#         # 优先尝试直接解析
+#         if raw.startswith("[") and raw.endswith("]"):
+#             parsed = json.loads(raw)
+#         else:
+#             repaired = repair_json(raw)
+#             if isinstance(repaired, str):
+#                 parsed = json.loads(repaired)
+#             else:
+#                 parsed = repaired
+#     except Exception as parse_error:
+#         # 如果解析失败，尝试修复中文引号问题
+#         # 使用状态机方法，在 JSON 字符串值内部将中文引号替换为转义的英文引号
+#         try:
 
-    if isinstance(parsed, dict):
-        parsed_list = [parsed]
-    elif isinstance(parsed, list):
-        parsed_list = parsed
-    else:
-        logger.error(f"表达风格解析结果类型异常: {type(parsed)}, 内容: {parsed}")
-        return [], []
+#             def fix_chinese_quotes_in_json(text):
+#                 """使用状态机修复 JSON 字符串值中的中文引号"""
+#                 result = []
+#                 i = 0
+#                 in_string = False
+#                 escape_next = False
 
-    for item in parsed_list:
-        if not isinstance(item, dict):
-            continue
+#                 while i < len(text):
+#                     char = text[i]
 
-        # 检查是否是表达方式条目（有 situation 和 style）
-        situation = str(item.get("situation", "")).strip()
-        style = str(item.get("style", "")).strip()
-        source_id = str(item.get("source_id", "")).strip()
+#                     if escape_next:
+#                         # 当前字符是转义字符后的字符，直接添加
+#                         result.append(char)
+#                         escape_next = False
+#                         i += 1
+#                         continue
 
-        if situation and style and source_id:
-            # 表达方式条目
-            expressions.append((situation, style, source_id))
-        elif item.get("content"):
-            # 黑话条目（有 content 字段）
-            content = str(item.get("content", "")).strip()
-            source_id = str(item.get("source_id", "")).strip()
-            if content and source_id:
-                jargon_entries.append((content, source_id))
+#                     if char == "\\":
+#                         # 转义字符
+#                         result.append(char)
+#                         escape_next = True
+#                         i += 1
+#                         continue
 
-    return expressions, jargon_entries
+#                     if char == '"' and not escape_next:
+#                         # 遇到英文引号，切换字符串状态
+#                         in_string = not in_string
+#                         result.append(char)
+#                         i += 1
+#                         continue
+
+#                     if in_string:
+#                         # 在字符串值内部，将中文引号替换为转义的英文引号
+#                         if char == '"':  # 中文左引号 U+201C
+#                             result.append('\\"')
+#                         elif char == '"':  # 中文右引号 U+201D
+#                             result.append('\\"')
+#                         else:
+#                             result.append(char)
+#                     else:
+#                         # 不在字符串内，直接添加
+#                         result.append(char)
+
+#                     i += 1
+
+#                 return "".join(result)
+
+#             fixed_raw = fix_chinese_quotes_in_json(raw)
+
+#             # 再次尝试解析
+#             if fixed_raw.startswith("[") and fixed_raw.endswith("]"):
+#                 parsed = json.loads(fixed_raw)
+#             else:
+#                 repaired = repair_json(fixed_raw)
+#                 if isinstance(repaired, str):
+#                     parsed = json.loads(repaired)
+#                 else:
+#                     parsed = repaired
+#         except Exception as fix_error:
+#             logger.error(f"解析表达风格 JSON 失败，初始错误: {type(parse_error).__name__}: {str(parse_error)}")
+#             logger.error(f"修复中文引号后仍失败，错误: {type(fix_error).__name__}: {str(fix_error)}")
+#             logger.error(f"解析表达风格 JSON 失败，原始响应：{response}")
+#             logger.error(f"处理后的 JSON 字符串（前500字符）：{raw[:500]}")
+#             return [], []
+
+#     if isinstance(parsed, dict):
+#         parsed_list = [parsed]
+#     elif isinstance(parsed, list):
+#         parsed_list = parsed
+#     else:
+#         logger.error(f"表达风格解析结果类型异常: {type(parsed)}, 内容: {parsed}")
+#         return [], []
+
+#     for item in parsed_list:
+#         if not isinstance(item, dict):
+#             continue
+
+#         # 检查是否是表达方式条目（有 situation 和 style）
+#         situation = str(item.get("situation", "")).strip()
+#         style = str(item.get("style", "")).strip()
+#         source_id = str(item.get("source_id", "")).strip()
+
+#         if situation and style and source_id:
+#             # 表达方式条目
+#             expressions.append((situation, style, source_id))
+#         elif item.get("content"):
+#             # 黑话条目（有 content 字段）
+#             content = str(item.get("content", "")).strip()
+#             source_id = str(item.get("source_id", "")).strip()
+#             if content and source_id:
+#                 jargon_entries.append((content, source_id))
+
+#     return expressions, jargon_entries
