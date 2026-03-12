@@ -296,8 +296,10 @@ class PluginSupervisor:
         # 重新生成 session token，防止被终止的旧 Runner 重连
         self._rpc_server.reset_session_token()
 
-        # 清理旧的组件注册，防止幽灵组件残留
-        self._clear_runtime_state()
+        # 注意：不在此处调用 _clear_runtime_state()。
+        # 旧组件在新 Runner 完成注册前继续提供服务，避免热重载窗口期内
+        # dispatch_event / execute_workflow 找不到任何组件导致消息静默丢失。
+        # ComponentRegistry.register_component 对同名组件是覆盖式写入，安全。
 
         # 拉起新 Runner
         try:
@@ -314,6 +316,13 @@ class PluginSupervisor:
             self._registered_plugins = dict(old_registered_plugins)
             self._rebuild_runtime_state()
             return
+
+        # 新 Runner 健康且已完成组件注册，现在清理旧的幽灵组件
+        # 只移除不再存在于新注册表中的旧插件组件
+        for old_pid in list(old_registered_plugins.keys()):
+            if old_pid not in self._registered_plugins:
+                self._component_registry.remove_components_by_plugin(old_pid)
+                self._policy.revoke_plugin(old_pid)
 
         # 关停旧 Runner
         if old_process and old_process.returncode is None:
@@ -451,6 +460,8 @@ class PluginSupervisor:
 
                     try:
                         self._clear_runtime_state()
+                        # 重新生成 session token，防止旧 Runner 僵尸进程用旧 token 重连
+                        self._rpc_server.reset_session_token()
                         await self._spawn_runner()
                     except Exception as e:
                         logger.error(f"Runner 重启失败: {e}", exc_info=True)

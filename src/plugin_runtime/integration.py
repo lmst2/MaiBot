@@ -468,7 +468,7 @@ class PluginRuntimeManager:
     async def _cap_llm_generate(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """LLM 生成
 
-        args: prompt, model_name?, temperature?, max_tokens?
+        args: prompt, model|model_name?, temperature?, max_tokens?
         """
         from src.services import llm_service as llm_api
 
@@ -476,7 +476,8 @@ class PluginRuntimeManager:
         if not prompt:
             return {"success": False, "error": "缺少必要参数 prompt"}
 
-        model_name: str = args.get("model_name", "")
+        # 兼容 SDK 发送的 "model" 和旧版的 "model_name"
+        model_name: str = args.get("model", "") or args.get("model_name", "")
         temperature = args.get("temperature")
         max_tokens = args.get("max_tokens")
 
@@ -511,7 +512,7 @@ class PluginRuntimeManager:
     async def _cap_llm_generate_with_tools(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """LLM 带工具生成
 
-        args: prompt, model_name?, tool_options?, temperature?, max_tokens?
+        args: prompt, model|model_name?, tools|tool_options?, temperature?, max_tokens?
         """
         from src.services import llm_service as llm_api
 
@@ -519,8 +520,9 @@ class PluginRuntimeManager:
         if not prompt:
             return {"success": False, "error": "缺少必要参数 prompt"}
 
-        model_name: str = args.get("model_name", "")
-        tool_options = args.get("tool_options")
+        # 兼容 SDK 发送的 "model"/"tools" 和旧版的 "model_name"/"tool_options"
+        model_name: str = args.get("model", "") or args.get("model_name", "")
+        tool_options = args.get("tools") or args.get("tool_options")
         temperature = args.get("temperature")
         max_tokens = args.get("max_tokens")
 
@@ -646,14 +648,15 @@ class PluginRuntimeManager:
     async def _cap_database_query(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """数据库查询
 
-        args: model_name, query_type?, filters?, limit?, order_by?, data?, single_result?
-        model_name 应为 src.common.database.database_model 中的类名。
+        args: model_name|table, query_type?, filters?, limit?, order_by?, data?, single_result?
+        model_name/table 应为 src.common.database.database_model 中的类名。
         """
         from src.services import database_service as database_api
 
-        model_name: str = args.get("model_name", "")
+        # 兼容 SDK 发送的 "table" 和旧版的 "model_name"
+        model_name: str = args.get("model_name", "") or args.get("table", "")
         if not model_name:
-            return {"success": False, "error": "缺少必要参数 model_name"}
+            return {"success": False, "error": "缺少必要参数 model_name 或 table"}
 
         try:
             import src.common.database.database_model as db_models
@@ -680,14 +683,15 @@ class PluginRuntimeManager:
     async def _cap_database_save(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """数据库保存
 
-        args: model_name, data, key_field?, key_value?
+        args: model_name|table, data, key_field?, key_value?
         """
         from src.services import database_service as database_api
 
-        model_name: str = args.get("model_name", "")
+        # 兼容 SDK 发送的 "table" 和旧版的 "model_name"
+        model_name: str = args.get("model_name", "") or args.get("table", "")
         data: Optional[Dict[str, Any]] = args.get("data")
         if not model_name or not data:
-            return {"success": False, "error": "缺少必要参数 model_name 或 data"}
+            return {"success": False, "error": "缺少必要参数 model_name/table 或 data"}
 
         try:
             import src.common.database.database_model as db_models
@@ -711,13 +715,14 @@ class PluginRuntimeManager:
     async def _cap_database_get(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """数据库简单查询
 
-        args: model_name, filters?, limit?, order_by?, single_result?
+        args: model_name|table, filters?, key_field?, key_value?, limit?, order_by?, single_result?
         """
         from src.services import database_service as database_api
 
-        model_name: str = args.get("model_name", "")
+        # 兼容 SDK 发送的 "table" 和旧版的 "model_name"
+        model_name: str = args.get("model_name", "") or args.get("table", "")
         if not model_name:
-            return {"success": False, "error": "缺少必要参数 model_name"}
+            return {"success": False, "error": "缺少必要参数 model_name 或 table"}
 
         try:
             import src.common.database.database_model as db_models
@@ -726,12 +731,20 @@ class PluginRuntimeManager:
             if model_class is None:
                 return {"success": False, "error": f"未找到数据模型: {model_name}"}
 
+            # 兼容 SDK 的 key_field/key_value 参数，自动转换为 filters
+            filters = args.get("filters")
+            if not filters:
+                key_field = args.get("key_field", "id")
+                key_value = args.get("key_value")
+                if key_value is not None:
+                    filters = {key_field: key_value}
+
             result = await database_api.db_get(
                 model_class=model_class,
-                filters=args.get("filters"),
+                filters=filters,
                 limit=args.get("limit"),
                 order_by=args.get("order_by"),
-                single_result=args.get("single_result", False),
+                single_result=args.get("single_result", key_value is not None),
             )
             return {"success": True, "result": result}
         except Exception as e:
@@ -742,14 +755,15 @@ class PluginRuntimeManager:
     async def _cap_database_delete(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """数据库删除
 
-        args: model_name, filters
+        args: model_name|table, filters
         """
         from src.services import database_service as database_api
 
-        model_name: str = args.get("model_name", "")
+        # 兼容 SDK 发送的 "table" 和旧版的 "model_name"
+        model_name: str = args.get("model_name", "") or args.get("table", "")
         filters = args.get("filters", {})
         if not model_name:
-            return {"success": False, "error": "缺少必要参数 model_name"}
+            return {"success": False, "error": "缺少必要参数 model_name 或 table"}
         if not filters:
             return {"success": False, "error": "缺少必要参数 filters（不允许无条件删除）"}
 
@@ -773,13 +787,14 @@ class PluginRuntimeManager:
     async def _cap_database_count(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """数据库计数
 
-        args: model_name, filters?
+        args: model_name|table, filters?
         """
         from src.services import database_service as database_api
 
-        model_name: str = args.get("model_name", "")
+        # 兼容 SDK 发送的 "table" 和旧版的 "model_name"
+        model_name: str = args.get("model_name", "") or args.get("table", "")
         if not model_name:
-            return {"success": False, "error": "缺少必要参数 model_name"}
+            return {"success": False, "error": "缺少必要参数 model_name 或 table"}
 
         try:
             import src.common.database.database_model as db_models

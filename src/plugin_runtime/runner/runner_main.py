@@ -351,7 +351,10 @@ class PluginRunner:
             try:
                 config_data = envelope.payload.get("config_data", {})
                 config_version = envelope.payload.get("config_version", "")
-                await meta.instance.on_config_update(config_data, config_version)
+                ret = meta.instance.on_config_update(config_data, config_version)
+                # 兼容同步和异步的 on_config_update 实现
+                if asyncio.iscoroutine(ret):
+                    await ret
             except Exception as e:
                 logger.error(f"插件 {plugin_id} 配置更新失败: {e}")
                 return envelope.make_error_response(ErrorCode.E_UNKNOWN.value, str(e))

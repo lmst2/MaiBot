@@ -155,12 +155,29 @@ class RunnerIPCLogHandler(logging.Handler):
         if not entries:
             return
 
-        # IPC 发送失败时静默忽略（进程退出、网络断开等场景）
-        with contextlib.suppress(Exception):
+        # IPC 连接断开时回退到 stderr，避免日志静默丢失
+        if not self._rpc_client.is_connected:
+            import sys
+            for entry in entries:
+                print(
+                    f"[LOG-FALLBACK] [{entry.logger_name}] {entry.message}",
+                    file=sys.stderr,
+                )
+            return
+
+        # IPC 发送失败时回退到 stderr
+        try:
             await self._rpc_client.send_event(
                 "runner.log_batch",
                 payload=LogBatchPayload(entries=entries).model_dump(),
             )
+        except Exception:
+            import sys
+            for entry in entries:
+                print(
+                    f"[LOG-FALLBACK] [{entry.logger_name}] {entry.message}",
+                    file=sys.stderr,
+                )
 
     async def _flush_remaining(self) -> None:
         """将缓冲中剩余的所有条目分批全部发送。"""
