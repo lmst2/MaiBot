@@ -1,8 +1,9 @@
+from contextlib import suppress
 import traceback
 import os
 
 from maim_message import MessageBase
-from typing import Dict, Any
+from typing import Any, Dict, Optional
 
 
 from src.common.logger import get_logger
@@ -89,7 +90,7 @@ class ChatBot:
                         plugin_config=plugin_config,
                         matched_groups=matched_groups,
                     )
-                    message.intercept_message_level = intercept_message_level
+                    self._mark_command_message(message, intercept_message_level)
 
                     # 记录命令执行结果
                     if success:
@@ -113,11 +114,7 @@ class ChatBot:
 
             # 没有找到旧系统命令，尝试新版本插件运行时
             new_cmd_result = await self._process_new_runtime_command(message)
-            if new_cmd_result is not None:
-                return new_cmd_result
-
-            # 新旧系统都没找到命令，继续处理消息
-            return False, None, True
+            return new_cmd_result if new_cmd_result is not None else (False, None, True)
 
         except Exception as e:
             logger.error(f"处理命令时出错: {e}")
@@ -139,6 +136,13 @@ class ChatBot:
         matched = prm.find_command_by_text(message.processed_plain_text)
         if matched is None:
             return None
+
+        command_name = matched["name"]
+        if message.session_id and command_name in global_announcement_manager.get_disabled_chat_commands(
+            message.session_id
+        ):
+            logger.info(f"[新运行时] 用户禁用的命令，跳过处理: {matched['full_name']}")
+            return False, None, True
 
         message.is_command = True
         logger.info(f"[新运行时] 匹配命令: {matched['full_name']}")
@@ -170,6 +174,8 @@ class ChatBot:
                 response_text = cmd_result if cmd_result is not None else ""
                 intercept = bool(matched["metadata"].get("intercept_message_level", 0))
 
+            self._mark_command_message(message, int(intercept))
+
             if success:
                 logger.info(f"[新运行时] 命令执行成功: {matched['full_name']}")
             else:
@@ -181,62 +187,84 @@ class ChatBot:
             logger.error(f"[新运行时] 执行命令 {matched['full_name']} 异常: {e}", exc_info=True)
             return True, str(e), True
 
+    @staticmethod
+    def _mark_command_message(message: SessionMessage, intercept_message_level: int) -> None:
+        message.is_command = True
+        message.intercept_message_level = intercept_message_level
+        message.message_info.additional_config["intercept_message_level"] = intercept_message_level
+
+    @staticmethod
+    def _store_intercepted_command_message(message: SessionMessage) -> None:
+        MessageUtils.store_message_to_db(message)
+
+    async def _handle_command_processing_result(
+        self,
+        message: SessionMessage,
+        cmd_result: Optional[str],
+        continue_process: bool,
+    ) -> bool:
+        if continue_process:
+            return False
+
+        self._store_intercepted_command_message(message)
+        logger.info(f"命令处理完成，跳过后续消息处理: {cmd_result}")
+        return True
+
     async def handle_notice_message(self, message: SessionMessage):
-        if message.message_id == "notice":
-            message.is_notify = True
-            logger.debug("notice消息")
-            try:
-                seg = getattr(message, "message_segment", None)  # SessionMessage 没有 message_segment
-                mi = message.message_info
-                sub_type = None
-                scene = None
-                msg_id = None
-                recalled_id = None
+        if message.message_id != "notice":
+            return
 
-                if getattr(seg, "type", None) == "notify" and isinstance(getattr(seg, "data", None), dict):
-                    sub_type = seg.data.get("sub_type")
-                    scene = seg.data.get("scene")
-                    msg_id = seg.data.get("message_id")
-                    recalled = seg.data.get("recalled_user_info") or {}
+        message.is_notify = True
+        logger.debug("notice消息")
+        try:
+            seg = getattr(message, "message_segment", None)  # SessionMessage 没有 message_segment
+            mi = message.message_info
+            sub_type = None
+            scene = None
+            msg_id = None
+            recalled: Dict[str, Any] = {}
+            recalled_id = None
+
+            if getattr(seg, "type", None) == "notify" and isinstance(getattr(seg, "data", None), dict):
+                sub_type = seg.data.get("sub_type")
+                scene = seg.data.get("scene")
+                msg_id = seg.data.get("message_id")
+                recalled = seg.data.get("recalled_user_info") or {}
+                if isinstance(recalled, dict):
+                    recalled_id = recalled.get("user_id")
+
+            op = mi.user_info
+            gid = mi.group_info.group_id if mi.group_info else None
+
+            # 撤回事件打印；无法获取被撤回者则省略
+            if sub_type == "recall":
+                op_name = (
+                    getattr(op, "user_cardname", None)
+                    or getattr(op, "user_nickname", None)
+                    or str(getattr(op, "user_id", None))
+                )
+                recalled_name = None
+                with suppress(Exception):
                     if isinstance(recalled, dict):
-                        recalled_id = recalled.get("user_id")
+                        recalled_name = (
+                            recalled.get("user_cardname")
+                            or recalled.get("user_nickname")
+                            or str(recalled.get("user_id"))
+                        )
 
-                op = mi.user_info
-                gid = mi.group_info.group_id if mi.group_info else None
-
-                # 撤回事件打印；无法获取被撤回者则省略
-                if sub_type == "recall":
-                    op_name = (
-                        getattr(op, "user_cardname", None)
-                        or getattr(op, "user_nickname", None)
-                        or str(getattr(op, "user_id", None))
-                    )
-                    recalled_name = None
-                    try:
-                        if isinstance(recalled, dict):
-                            recalled_name = (
-                                recalled.get("user_cardname")
-                                or recalled.get("user_nickname")
-                                or str(recalled.get("user_id"))
-                            )
-                    except Exception:
-                        pass
-
-                    if recalled_name and str(recalled_id) != str(getattr(op, "user_id", None)):
-                        logger.info(f"{op_name} 撤回了 {recalled_name} 的消息")
-                    else:
-                        logger.info(f"{op_name} 撤回了消息")
+                if recalled_name and str(recalled_id) != str(getattr(op, "user_id", None)):
+                    logger.info(f"{op_name} 撤回了 {recalled_name} 的消息")
                 else:
-                    logger.debug(
-                        f"[notice] sub_type={sub_type} scene={scene} op={getattr(op, 'user_nickname', None)}({getattr(op, 'user_id', None)}) "
-                        f"gid={gid} msg_id={msg_id} recalled={recalled_id}"
-                    )
-            except Exception:
-                logger.info("[notice] (简略) 收到一条通知事件")
+                    logger.info(f"{op_name} 撤回了消息")
+            else:
+                logger.debug(
+                    f"[notice] sub_type={sub_type} scene={scene} op={getattr(op, 'user_nickname', None)}({getattr(op, 'user_id', None)}) "
+                    f"gid={gid} msg_id={msg_id} recalled={recalled_id}"
+                )
+        except Exception:
+            logger.info("[notice] (简略) 收到一条通知事件")
 
-            return True
-
-        return
+        return True
 
     async def echo_message_process(self, raw_data: Dict[str, Any]) -> None:
         """
@@ -336,15 +364,14 @@ class ChatBot:
 
             # message.update_chat_stream(chat)
 
-            # TODO: 在新命令系统完成后恢复这里
             # 命令处理 - 使用新插件系统检查并处理命令
-            # is_command, cmd_result, continue_process = await self._process_commands(message)
+            # 注意：命令返回的 response 当前只用于日志记录和流程判断，
+            # 不会在这里自动作为回复消息发送回会话。
+            is_command, cmd_result, continue_process = await self._process_commands(message)
 
             # 如果是命令且不需要继续处理，则直接返回
-            # if is_command and not continue_process:
-            #     await MessageStorage.store_message(message, chat)
-            #     logger.info(f"命令处理完成，跳过后续消息处理: {cmd_result}")
-            #     return
+            if is_command and await self._handle_command_processing_result(message, cmd_result, continue_process):
+                return
 
             # continue_flag, modified_message = await events_manager.handle_mai_events(EventType.ON_MESSAGE, message)
             # if not continue_flag:
