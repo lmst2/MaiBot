@@ -7,33 +7,31 @@ import re
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 from src.common.logger import get_logger
-from src.common.data_models.database_data_model import DatabaseMessages
 from src.common.data_models.info_data_model import ActionPlannerInfo
 from src.common.data_models.llm_data_model import LLMGenerationDataModel
 from src.config.config import global_config, model_config
 from src.llm_models.utils_model import LLMRequest
-from maim_message import Seg
+from maim_message import BaseMessageInfo, MessageBase, Seg
 
 from src.common.data_models.mai_message_data_model import MaiMessage, UserInfo
-from src.chat.message_receive.message_old import MessageSending
+from src.chat.message_receive.message import SessionMessage
 from src.chat.message_receive.chat_manager import BotChatSession
 from src.chat.message_receive.uni_message_sender import UniversalMessageSender
 from src.chat.utils.timer_calculator import Timer
 from src.chat.utils.utils import get_chat_type_and_target_info, is_bot_self
 from src.prompt.prompt_manager import prompt_manager
 from src.chat.utils.common_utils import TempMethodsExpression
-from src.chat.utils.chat_message_builder import (
+from src.services.message_service import (
     build_readable_messages,
     get_raw_msg_before_timestamp_with_chat,
     replace_user_references,
+    translate_pid_to_description,
 )
 from src.bw_learner.expression_selector import expression_selector
-from src.services.message_service import translate_pid_to_description
 
 # from src.memory_system.memory_activator import MemoryActivator
 from src.person_info.person_info import Person, is_person_known
 from src.core.types import ActionInfo, EventType
-from src.services import llm_service as llm_api
 from src.memory_system.memory_retrieval import init_memory_retrieval_sys, build_memory_retrieval_prompt
 from src.bw_learner.jargon_explainer_old import explain_jargon_in_context
 
@@ -69,7 +67,7 @@ class PrivateReplyer:
         from_plugin: bool = True,
         think_level: int = 1,
         stream_id: Optional[str] = None,
-        reply_message: Optional[DatabaseMessages] = None,
+        reply_message: Optional[SessionMessage] = None,
         reply_time_point: Optional[float] = time.time(),
         unknown_words: Optional[List[str]] = None,
         log_reply: bool = True,
@@ -604,7 +602,7 @@ class PrivateReplyer:
 
     async def build_prompt_reply_context(
         self,
-        reply_message: Optional[DatabaseMessages] = None,
+        reply_message: Optional[SessionMessage] = None,
         extra_info: str = "",
         reply_reason: str = "",
         available_actions: Optional[Dict[str, ActionInfo]] = None,
@@ -954,28 +952,29 @@ class PrivateReplyer:
         thinking_start_time: float,
         display_message: str,
         anchor_message: Optional[MaiMessage] = None,
-    ) -> MessageSending:
+    ) -> SessionMessage:
         """构建单个发送消息"""
 
-        bot_user_info = UserInfo(
-            user_id=str(global_config.bot.qq_account),
-            user_nickname=global_config.bot.nickname,
-        )
-
-        sender_info = anchor_message.message_info.user_info if anchor_message else None
-
-        return MessageSending(
-            message_id=message_id,
-            session=self.chat_stream,
-            bot_user_info=bot_user_info,
-            sender_info=sender_info,
+        maim_message = MessageBase(
+            message_info=BaseMessageInfo(
+                platform=self.chat_stream.platform,
+                message_id=message_id,
+                time=thinking_start_time,
+                user_info=UserInfo(
+                    user_id=str(global_config.bot.qq_account),
+                    user_nickname=global_config.bot.nickname,
+                ),
+                group_info=None,
+                additional_config={},
+            ),
             message_segment=message_segment,
-            reply=anchor_message,
-            is_head=reply_to,
-            is_emoji=is_emoji,
-            thinking_start_time=thinking_start_time,
-            display_message=display_message,
         )
+        message = SessionMessage.from_maim_message(maim_message)
+        message.session_id = self.chat_stream.session_id
+        message.display_message = display_message
+        message.reply_to = anchor_message.message_id if reply_to and anchor_message else None
+        message.is_emoji = is_emoji
+        return message
 
     async def llm_generate_content(self, prompt: str):
         with Timer("LLM生成", {}):  # 内部计时器，可选保留
@@ -999,55 +998,9 @@ class PrivateReplyer:
         return content, reasoning_content, model_name, tool_calls
 
     async def get_prompt_info(self, message: str, sender: str, target: str):
-        related_info = ""
-        start_time = time.time()
-        from src.plugins.built_in.knowledge.lpmm_get_knowledge import SearchKnowledgeFromLPMMTool
-
-        logger.debug(f"获取知识库内容，元消息：{message[:30]}...，消息长度: {len(message)}")
-        # 从LPMM知识库获取知识
-        try:
-            # 检查LPMM知识库是否启用
-            if not global_config.lpmm_knowledge.enable:
-                logger.debug("LPMM知识库未启用，跳过获取知识库内容")
-                return ""
-
-            if global_config.lpmm_knowledge.lpmm_mode == "agent":
-                return ""
-
-            prompt_template = prompt_manager.get_prompt("lpmm_get_knowledge")
-            prompt_template.add_context("bot_name", global_config.bot.nickname)
-            prompt_template.add_context("time_now", time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
-            prompt_template.add_context("chat_history", message)
-            prompt_template.add_context("sender", sender)
-            prompt_template.add_context("target_message", target)
-            prompt = await prompt_manager.render_prompt(prompt_template)
-
-            _, _, _, _, tool_calls = await llm_api.generate_with_model_with_tools(
-                prompt,
-                model_config=model_config.model_task_config.tool_use,
-                tool_options=[SearchKnowledgeFromLPMMTool.get_tool_definition()],
-            )
-            if tool_calls:
-                result = await self.tool_executor.execute_tool_call(tool_calls[0], SearchKnowledgeFromLPMMTool())
-                end_time = time.time()
-                if not result or not result.get("content"):
-                    logger.debug("从LPMM知识库获取知识失败，返回空知识...")
-                    return ""
-                found_knowledge_from_lpmm = result.get("content", "")
-                logger.debug(
-                    f"从LPMM知识库获取知识，相关信息：{found_knowledge_from_lpmm[:100]}...，信息长度: {len(found_knowledge_from_lpmm)}"
-                )
-                related_info += found_knowledge_from_lpmm
-                logger.debug(f"获取知识库内容耗时: {(end_time - start_time):.3f}秒")
-                logger.debug(f"获取知识库内容，相关信息：{related_info[:100]}...，信息长度: {len(related_info)}")
-
-                return f"你有以下这些**知识**：\n{related_info}\n请你**记住上面的知识**，之后可能会用到。\n"
-            else:
-                logger.debug("模型认为不需要使用LPMM知识库")
-                return ""
-        except Exception as e:
-            logger.error(f"获取知识库内容时发生异常: {str(e)}")
-            return ""
+        logger.debug(f"已跳过知识库信息获取，元消息：{message[:30]}...，消息长度: {len(message)}")
+        del message, sender, target
+        return ""
 
 
 def weighted_sample_no_replacement(items, weights, k) -> list:

@@ -1,5 +1,6 @@
 import traceback
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any
 
 import json
@@ -9,7 +10,7 @@ from sqlmodel import col, select
 
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Messages
-from src.common.data_models.database_data_model import DatabaseMessages
+from src.chat.message_receive.message import SessionMessage
 from src.common.logger import get_logger
 from src.config.config import global_config
 
@@ -58,53 +59,37 @@ def _normalize_optional_str(value: object) -> str | None:
         return str(value)
 
 
-def _message_to_instance(message: Messages) -> DatabaseMessages:
+def _message_to_instance(message: Messages) -> SessionMessage:
     config = _parse_additional_config(message)
-    timestamp_value = message.timestamp
-    if isinstance(timestamp_value, datetime):
-        time_value = timestamp_value.timestamp()
-    else:
-        time_value = float(timestamp_value)
-    selected_expressions = _normalize_optional_str(config.get("selected_expressions"))
-    priority_info = _normalize_optional_str(config.get("priority_info"))
-    return DatabaseMessages(
-        message_id=message.message_id,
-        time=time_value,
-        chat_id=message.session_id,
-        reply_to=message.reply_to,
-        interest_value=config.get("interest_value"),
-        key_words=_normalize_optional_str(config.get("key_words")),
-        key_words_lite=_normalize_optional_str(config.get("key_words_lite")),
-        is_mentioned=message.is_mentioned,
-        is_at=message.is_at,
-        reply_probability_boost=config.get("reply_probability_boost"),
-        processed_plain_text=message.processed_plain_text,
-        display_message=message.display_message,
-        priority_mode=_normalize_optional_str(config.get("priority_mode")),
-        priority_info=priority_info,
-        additional_config=message.additional_config,
-        is_emoji=message.is_emoji,
-        is_picid=message.is_picture,
-        is_command=message.is_command,
-        intercept_message_level=config.get("intercept_message_level", 0),
-        is_notify=message.is_notify,
-        selected_expressions=selected_expressions,
-        user_id=message.user_id,
-        user_nickname=message.user_nickname,
-        user_cardname=message.user_cardname,
-        user_platform=message.platform,
-        chat_info_group_id=message.group_id,
-        chat_info_group_name=message.group_name,
-        chat_info_group_platform=message.platform,
-        chat_info_user_id=message.user_id,
-        chat_info_user_nickname=message.user_nickname,
-        chat_info_user_cardname=message.user_cardname,
-        chat_info_user_platform=message.platform,
-        chat_info_stream_id=message.session_id,
-        chat_info_platform=message.platform,
-        chat_info_create_time=0.0,
-        chat_info_last_active_time=0.0,
+    instance = SessionMessage.from_db_instance(message)
+    instance.interest_value = config.get("interest_value")
+    instance.key_words = _normalize_optional_str(config.get("key_words"))
+    instance.key_words_lite = _normalize_optional_str(config.get("key_words_lite"))
+    instance.reply_probability_boost = config.get("reply_probability_boost")
+    instance.priority_mode = _normalize_optional_str(config.get("priority_mode"))
+    instance.priority_info = _normalize_optional_str(config.get("priority_info"))
+    instance.intercept_message_level = config.get("intercept_message_level", 0)
+    instance.selected_expressions = _normalize_optional_str(config.get("selected_expressions"))
+    group_info = instance.message_info.group_info
+    legacy_group_info = None
+    if group_info:
+        legacy_group_info = SimpleNamespace(
+            group_id=group_info.group_id,
+            group_name=group_info.group_name,
+        )
+    instance.user_info = SimpleNamespace(
+        user_id=instance.message_info.user_info.user_id,
+        user_nickname=instance.message_info.user_info.user_nickname,
+        user_cardname=instance.message_info.user_info.user_cardname,
+        platform=instance.platform,
     )
+    instance.chat_info = SimpleNamespace(
+        platform=instance.platform,
+        stream_id=instance.session_id,
+        group_info=legacy_group_info,
+    )
+    instance.time = instance.timestamp.timestamp()
+    return instance
 
 
 def _coerce_datetime(value: Any) -> Any:
@@ -147,7 +132,7 @@ def find_messages(
     filter_bot: bool = False,
     filter_command: bool = False,
     filter_intercept_message_level: int | None = None,
-) -> list[DatabaseMessages]:
+) -> list[SessionMessage]:
     """
     根据提供的过滤器、排序和限制条件查找消息。
 

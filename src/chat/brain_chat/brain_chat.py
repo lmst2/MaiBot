@@ -8,7 +8,7 @@ from rich.traceback import install
 from src.config.config import global_config
 from src.common.logger import get_logger
 from src.common.data_models.info_data_model import ActionPlannerInfo
-from src.common.data_models.message_data_model import ReplyContentType
+from src.common.data_models.message_component_data_model import MessageSequence, TextComponent
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.chat.utils.prompt_builder import global_prompt_manager
 from src.chat.utils.timer_calculator import Timer
@@ -35,7 +35,6 @@ from src.chat.utils.chat_message_builder import (
 
 if TYPE_CHECKING:
     from src.common.data_models.database_data_model import DatabaseMessages
-    from src.common.data_models.message_data_model import ReplySetModel
 
 
 ERROR_LOOP_INFO = {
@@ -513,7 +512,7 @@ class BrainChatting:
 
     async def _send_response(
         self,
-        reply_set: "ReplySetModel",
+        reply_set: MessageSequence,
         message_data: "DatabaseMessages",
         selected_expressions: Optional[List[int]] = None,
     ) -> str:
@@ -528,10 +527,10 @@ class BrainChatting:
 
         reply_text = ""
         first_replied = False
-        for reply_content in reply_set.reply_data:
-            if reply_content.content_type != ReplyContentType.TEXT:
+        for component in reply_set.components:
+            if not isinstance(component, TextComponent):
                 continue
-            data: str = reply_content.content  # type: ignore
+            data = component.text
             if not first_replied:
                 await send_api.text_to_stream(
                     text=data,

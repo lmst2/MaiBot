@@ -16,14 +16,14 @@ from src.chat.replyer.group_generator import DefaultReplyer
 from src.chat.replyer.private_generator import PrivateReplyer
 from src.chat.replyer.replyer_manager import replyer_manager
 from src.chat.utils.utils import process_llm_response
-from src.common.data_models.message_data_model import ReplySetModel
+from src.common.data_models.message_component_data_model import MessageSequence, TextComponent
 from src.common.logger import get_logger
 from src.core.types import ActionInfo
 
 if TYPE_CHECKING:
-    from src.common.data_models.database_data_model import DatabaseMessages
     from src.common.data_models.info_data_model import ActionPlannerInfo
     from src.common.data_models.llm_data_model import LLMGenerationDataModel
+    from src.chat.message_receive.message import SessionMessage
 
 install(extra_lines=3)
 
@@ -67,7 +67,7 @@ async def generate_reply(
     chat_stream: Optional[BotChatSession] = None,
     chat_id: Optional[str] = None,
     action_data: Optional[Dict[str, Any]] = None,
-    reply_message: Optional["DatabaseMessages"] = None,
+    reply_message: Optional["SessionMessage"] = None,
     think_level: int = 1,
     extra_info: str = "",
     reply_reason: str = "",
@@ -126,15 +126,17 @@ async def generate_reply(
         if not success:
             logger.warning("[GeneratorService] 回复生成失败")
             return False, None
-        reply_set: Optional[ReplySetModel] = None
+        reply_set: Optional[MessageSequence] = None
         if content := llm_response.content:
             processed_response = process_llm_response(content, enable_splitter, enable_chinese_typo)
             llm_response.processed_output = processed_response
-            reply_set = ReplySetModel()
+            reply_set = MessageSequence(components=[])
             for text in processed_response:
-                reply_set.add_text_content(text)
+                reply_set.components.append(TextComponent(text))
         llm_response.reply_set = reply_set
-        logger.debug(f"[GeneratorService] 回复生成成功，生成了 {len(reply_set) if reply_set else 0} 个回复项")
+        logger.debug(
+            f"[GeneratorService] 回复生成成功，生成了 {len(reply_set.components) if reply_set else 0} 个回复项"
+        )
 
         try:
             PlanReplyLogger.log_reply(
@@ -196,12 +198,14 @@ async def rewrite_reply(
             reason=reason,
             reply_to=reply_to,
         )
-        reply_set: Optional[ReplySetModel] = None
+        reply_set: Optional[MessageSequence] = None
         if success and llm_response and (content := llm_response.content):
             reply_set = process_human_text(content, enable_splitter, enable_chinese_typo)
         llm_response.reply_set = reply_set
         if success:
-            logger.info(f"[GeneratorService] 重写回复成功，生成了 {len(reply_set) if reply_set else 0} 个回复项")
+            logger.info(
+                f"[GeneratorService] 重写回复成功，生成了 {len(reply_set.components) if reply_set else 0} 个回复项"
+            )
         else:
             logger.warning("[GeneratorService] 重写回复失败")
 
@@ -215,16 +219,16 @@ async def rewrite_reply(
         return False, None
 
 
-def process_human_text(content: str, enable_splitter: bool, enable_chinese_typo: bool) -> Optional[ReplySetModel]:
+def process_human_text(content: str, enable_splitter: bool, enable_chinese_typo: bool) -> Optional[MessageSequence]:
     """将文本处理为更拟人化的文本"""
     if not isinstance(content, str):
         raise ValueError("content 必须是字符串类型")
     try:
-        reply_set = ReplySetModel()
+        reply_set = MessageSequence(components=[])
         processed_response = process_llm_response(content, enable_splitter, enable_chinese_typo)
 
         for text in processed_response:
-            reply_set.add_text_content(text)
+            reply_set.components.append(TextComponent(text))
 
         return reply_set
 
