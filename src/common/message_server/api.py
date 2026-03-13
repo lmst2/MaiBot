@@ -3,12 +3,13 @@ from maim_message import MessageServer
 import traceback
 import importlib.metadata
 
-from src.common.logger import get_logger
+from src.common.logger import adopt_library_logger, get_logger
 from src.common.utils.port_checker import assert_port_available
 from src.config.config import global_config
 from .server import get_global_server
 
 global_api = None
+adopt_library_logger("maim_message", handler_names={"maim_message_default_handler"})
 
 
 def get_global_api() -> MessageServer:  # sourcery skip: extract-method

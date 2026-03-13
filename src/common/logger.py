@@ -430,6 +430,52 @@ def reconfigure_existing_loggers():
                     logger_obj.addHandler(handler)
 
 
+def adopt_library_logger(logger_name: str, handler_names: Optional[set[str]] = None):
+    """移除第三方库自带 handler，让日志统一走根 logger。"""
+    logger_obj = logging.getLogger(logger_name)
+
+    for handler in logger_obj.handlers[:]:
+        handler_name = getattr(handler, "name", "")
+        if handler_names is not None and handler_name not in handler_names:
+            continue
+
+        if hasattr(handler, "close"):
+            handler.close()
+        logger_obj.removeHandler(handler)
+
+    logger_obj.propagate = True
+
+
+def normalize_embedded_event_dict(logger, method_name, event_dict):
+    """将嵌套在 event 字段中的结构化日志还原为可读文本。"""
+    record = event_dict.get("_record")
+    if record is not None and isinstance(getattr(record, "msg", None), dict):
+        embedded_event = record.msg
+    else:
+        embedded_event = event_dict.get("event")
+
+    if not isinstance(embedded_event, dict):
+        return event_dict
+
+    event_text = embedded_event.get("event")
+    if event_text is not None:
+        event_dict["event"] = event_text
+    else:
+        event_dict["event"] = str(embedded_event)
+
+    for field_name in ("logger_name", "module", "lineno", "pathname"):
+        if field_name not in event_dict and field_name in embedded_event:
+            event_dict[field_name] = embedded_event[field_name]
+
+    for key, value in embedded_event.items():
+        if key in {"event", "level", "timestamp", "logger_name", "module", "lineno", "pathname"}:
+            continue
+        if key not in event_dict:
+            event_dict[key] = value
+
+    return event_dict
+
+
 def convert_pathname_to_module(logger, method_name, event_dict):
     # sourcery skip: extract-method, use-string-remove-affix
     """将 pathname 转换为模块风格的路径"""
@@ -657,6 +703,7 @@ file_formatter = structlog.stdlib.ProcessorFormatter(
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         structlog.stdlib.PositionalArgumentsFormatter(),
+        normalize_embedded_event_dict,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.CallsiteParameterAdder(
             parameters=[structlog.processors.CallsiteParameter.PATHNAME, structlog.processors.CallsiteParameter.LINENO]
@@ -674,6 +721,8 @@ console_formatter = structlog.stdlib.ProcessorFormatter(
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         structlog.stdlib.PositionalArgumentsFormatter(),
+        normalize_embedded_event_dict,
+        convert_pathname_to_module,
         structlog.processors.TimeStamper(fmt=get_timestamp_format(), utc=False),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
@@ -715,6 +764,9 @@ def _immediate_setup():
     # 清理重复的handler
     remove_duplicate_handlers()
 
+    # maim_message 导入时会给同名 stdlib logger 挂默认 handler，这里统一收口。
+    adopt_library_logger("maim_message", handler_names={"maim_message_default_handler"})
+
     # 配置第三方库日志
     configure_third_party_loggers()
 
@@ -734,6 +786,8 @@ def get_logger(name: Optional[str]) -> structlog.stdlib.BoundLogger:
     """获取logger实例，支持按名称绑定"""
     if name is None:
         return raw_logger
+    if name == "maim_message":
+        adopt_library_logger(name, handler_names={"maim_message_default_handler"})
     logger = binds.get(name)  # type: ignore
     if logger is None:
         logger: structlog.stdlib.BoundLogger = structlog.get_logger(name).bind(logger_name=name)
