@@ -250,7 +250,7 @@ async def test_build_readable_message_basic(monkeypatch):
     utils_module = load_utils_via_file(monkeypatch)
     MessageUtils = utils_module.MessageUtils
 
-    msg = SessionMessage("m1", datetime.now())
+    msg = SessionMessage("m1", datetime.now(), platform="test")
     msg.platform = "test"
     msg.session_id = "s_test"
     user_info = UserInfo(user_id="u1", user_nickname="Alice")
@@ -268,8 +268,7 @@ async def test_build_readable_message_anonymize(monkeypatch):
     utils_module = load_utils_via_file(monkeypatch)
     MessageUtils = utils_module.MessageUtils
 
-    msg = SessionMessage("m2", datetime.now())
-    msg.platform = "test"
+    msg = SessionMessage("m2", datetime.now(), platform="test")
     msg.session_id = "s_test"
     user_info = UserInfo(user_id="u42", user_nickname="Bob")
     msg.message_info = MessageInfo(user_info=user_info)
@@ -289,8 +288,7 @@ async def test_build_readable_message_replace_bot(monkeypatch):
     utils_module = load_utils_via_file(monkeypatch)
     MessageUtils = utils_module.MessageUtils
 
-    msg = SessionMessage("m3", datetime.now())
-    msg.platform = "test"
+    msg = SessionMessage("m3", datetime.now(), platform="test")
     msg.session_id = "s_test"
     user_info = UserInfo(user_id="bot_self", user_nickname="SomeBot")
     msg.message_info = MessageInfo(user_info=user_info)
@@ -308,8 +306,7 @@ async def test_build_readable_message_image_extraction(monkeypatch):
 
     # 构建包含图片组件的消息
     img = ImageComponent(binary_hash="h", binary_data=b"\x01\x02", content="Img")
-    msg = SessionMessage("mi1", datetime.now())
-    msg.platform = "test"
+    msg = SessionMessage("mi1", datetime.now(), platform="test")
     msg.session_id = "s_img"
     msg.raw_message = MessageSequence([img])
     msg.message_info = MessageInfo(UserInfo(user_id="ui_img", user_nickname="ImgUser"))
@@ -327,11 +324,9 @@ async def test_build_readable_message_anonymize_and_replace_bot_name_and_lineno(
     utils_module = load_utils_via_file(monkeypatch)
     MessageUtils = utils_module.MessageUtils
     # 构建多个消息
-    msg1 = SessionMessage("m4", datetime.now())
-    msg1.platform = "test"
+    msg1 = SessionMessage("m4", datetime.now(), platform="test")
     msg1.session_id = "s_comb"
-    msg2 = SessionMessage("m5", datetime.now())
-    msg2.platform = "test"
+    msg2 = SessionMessage("m5", datetime.now(), platform="test")
     msg2.session_id = "s_comb"
     msg1.message_info = MessageInfo(UserInfo(user_id="u_comb", user_nickname="Charlie"))
     msg2.message_info = MessageInfo(UserInfo(user_id="bot_self", user_nickname="SomeBot"))
@@ -361,8 +356,7 @@ async def test_build_readable_message_with_at(monkeypatch):
 
     # 构建包含回复组件的消息
     at_comp = AtComponent(target_user_id="u_at", target_user_nickname="AtUser")
-    msg = SessionMessage("m_at", datetime.now())
-    msg.platform = "test"
+    msg = SessionMessage("m_at", datetime.now(), platform="test")
     msg.session_id = "s_at"
     msg.raw_message = MessageSequence([at_comp])
     msg.message_info = MessageInfo(UserInfo(user_id="u_main", user_nickname="MainUser"))

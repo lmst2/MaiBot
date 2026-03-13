@@ -175,7 +175,7 @@ def load_message_via_file(monkeypatch):
 @pytest.mark.asyncio
 async def test_process(monkeypatch):
     load_message_via_file(monkeypatch)
-    msg = SessionMessage("msg123", datetime.now())
+    msg = SessionMessage("msg123", datetime.now(), platform="test_platform")
     msg.session_id = "session123"
     msg.raw_message = MessageSequence(components=[])
     msg.raw_message.components = [TextComponent("Hello, world!")]
@@ -186,7 +186,7 @@ async def test_process(monkeypatch):
 @pytest.mark.asyncio
 async def test_multiple_text(monkeypatch):
     load_message_via_file(monkeypatch)
-    msg = SessionMessage("msg123", datetime.now())
+    msg = SessionMessage("msg123", datetime.now(), platform="test_platform")
     msg.session_id = "session123"
     msg.raw_message = MessageSequence(components=[])
     msg.raw_message.components = [TextComponent("Hello,"), TextComponent("world!")]
@@ -197,7 +197,7 @@ async def test_multiple_text(monkeypatch):
 @pytest.mark.asyncio
 async def test_image(monkeypatch):
     load_message_via_file(monkeypatch)
-    msg = SessionMessage("msg123", datetime.now())
+    msg = SessionMessage("msg123", datetime.now(), platform="test_platform")
     msg.session_id = "session123"
     msg.raw_message = MessageSequence(components=[])
     msg.raw_message.components = [ImageComponent(binary_hash="image_hash"), TextComponent("Hello, world!")]
@@ -208,7 +208,7 @@ async def test_image(monkeypatch):
 @pytest.mark.asyncio
 async def test_emoji(monkeypatch):
     load_message_via_file(monkeypatch)
-    msg = SessionMessage("msg123", datetime.now())
+    msg = SessionMessage("msg123", datetime.now(), platform="test_platform")
     msg.session_id = "session123"
     msg.raw_message = MessageSequence(components=[])
     msg.raw_message.components = [EmojiComponent(binary_hash="emoji_hash"), TextComponent("Hello, world!")]
@@ -219,7 +219,7 @@ async def test_emoji(monkeypatch):
 @pytest.mark.asyncio
 async def test_voice(monkeypatch):
     load_message_via_file(monkeypatch)
-    msg = SessionMessage("msg123", datetime.now())
+    msg = SessionMessage("msg123", datetime.now(), platform="test_platform")
     msg.session_id = "session123"
     msg.raw_message = MessageSequence(components=[])
     msg.raw_message.components = [VoiceComponent(binary_hash="voice_hash"), TextComponent("Hello, world!")]
@@ -230,7 +230,7 @@ async def test_voice(monkeypatch):
 @pytest.mark.asyncio
 async def test_at_component(monkeypatch):
     load_message_via_file(monkeypatch)
-    msg = SessionMessage("msg123", datetime.now())
+    msg = SessionMessage("msg123", datetime.now(), platform="test_platform")
     msg.session_id = "session123"
     msg.platform = "test_platform"
     msg.raw_message = MessageSequence(components=[])
@@ -242,7 +242,7 @@ async def test_at_component(monkeypatch):
 @pytest.mark.asyncio
 async def test_reply_component_fail_to_fetch(monkeypatch):
     load_message_via_file(monkeypatch)
-    msg = SessionMessage("msg123", datetime.now())
+    msg = SessionMessage("msg123", datetime.now(), platform="test_platform")
     msg.session_id = "session123"
     msg.platform = "test_platform"
     msg.raw_message = MessageSequence(components=[])
@@ -269,7 +269,7 @@ async def test_reply_component_success(monkeypatch):
             return DummyRecord()
 
     module_msg.get_db_session = lambda: DummyDBSessionWithReply()
-    msg = SessionMessage("msg123", datetime.now())
+    msg = SessionMessage("msg123", datetime.now(), platform="test_platform")
     msg.session_id = "session123"
     msg.platform = "test_platform"
     msg.raw_message = MessageSequence(components=[])
@@ -287,7 +287,7 @@ async def test_reply_component_with_db_fail(monkeypatch):
             raise Exception("数据库查询失败")
 
     module_msg.get_db_session = lambda: DummyDBSessionWithError()
-    msg = SessionMessage("msg123", datetime.now())
+    msg = SessionMessage("msg123", datetime.now(), platform="test_platform")
     msg.session_id = "session123"
     msg.platform = "test_platform"
     msg.raw_message = MessageSequence(components=[])
@@ -300,7 +300,7 @@ async def test_reply_component_with_db_fail(monkeypatch):
 @pytest.mark.asyncio
 async def test_forward_component(monkeypatch):
     load_message_via_file(monkeypatch)
-    msg = SessionMessage("msg123", datetime.now())
+    msg = SessionMessage("msg123", datetime.now(), platform="test_platform")
     msg.session_id = "session123"
     msg.platform = "test_platform"
     msg.raw_message = MessageSequence(components=[])
@@ -337,7 +337,7 @@ async def test_forward_component(monkeypatch):
 @pytest.mark.asyncio
 async def test_forward_with_reply(monkeypatch):
     load_message_via_file(monkeypatch)
-    msg = SessionMessage("msg123", datetime.now())
+    msg = SessionMessage("msg123", datetime.now(), platform="test_platform")
     msg.session_id = "session123"
     msg.platform = "test_platform"
     msg.raw_message = MessageSequence(components=[])
@@ -375,7 +375,7 @@ async def test_forward_with_reply(monkeypatch):
 @pytest.mark.asyncio
 async def test_multiple_reply_with_delay_in_forward(monkeypatch):
     load_message_via_file(monkeypatch)
-    msg = SessionMessage("msg123", datetime.now())
+    msg = SessionMessage("msg123", datetime.now(), platform="test_platform")
     msg.session_id = "session123"
     msg.platform = "test_platform"
     msg.raw_message = MessageSequence(components=[])
