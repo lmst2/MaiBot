@@ -1742,8 +1742,10 @@ class PluginRuntimeManager:
         for sv in mgr.supervisors:
             if plugin_name in sv._registered_plugins:
                 try:
-                    await sv.reload_plugins(reason=f"load {plugin_name}")
-                    return {"success": True, "count": 1}
+                    reloaded = await sv.reload_plugins(reason=f"load {plugin_name}")
+                    if reloaded:
+                        return {"success": True, "count": 1}
+                    return {"success": False, "error": f"插件 {plugin_name} 热重载失败，已回滚"}
                 except Exception as e:
                     logger.error(f"[cap.component.load_plugin] 热重载失败: {e}")
                     return {"success": False, "error": str(e)}
@@ -1753,8 +1755,10 @@ class PluginRuntimeManager:
             for pdir in sv._plugin_dirs:
                 if os.path.isdir(os.path.join(pdir, plugin_name)):
                     try:
-                        await sv.reload_plugins(reason=f"load {plugin_name}")
-                        return {"success": True, "count": 1}
+                        reloaded = await sv.reload_plugins(reason=f"load {plugin_name}")
+                        if reloaded:
+                            return {"success": True, "count": 1}
+                        return {"success": False, "error": f"插件 {plugin_name} 热重载失败，已回滚"}
                     except Exception as e:
                         logger.error(f"[cap.component.load_plugin] 热重载失败: {e}")
                         return {"success": False, "error": str(e)}
@@ -1783,8 +1787,10 @@ class PluginRuntimeManager:
         for sv in mgr.supervisors:
             if plugin_name in sv._registered_plugins:
                 try:
-                    await sv.reload_plugins(reason=f"reload {plugin_name}")
-                    return {"success": True}
+                    reloaded = await sv.reload_plugins(reason=f"reload {plugin_name}")
+                    if reloaded:
+                        return {"success": True}
+                    return {"success": False, "error": f"插件 {plugin_name} 热重载失败，已回滚"}
                 except Exception as e:
                     logger.error(f"[cap.component.reload_plugin] 热重载失败: {e}")
                     return {"success": False, "error": str(e)}

@@ -146,6 +146,14 @@ class RegisterComponentsPayload(BaseModel):
     capabilities_required: List[str] = Field(default_factory=list, description="所需能力列表")
 
 
+class BootstrapPluginPayload(BaseModel):
+    """plugin.bootstrap 请求 payload"""
+
+    plugin_id: str = Field(description="插件 ID")
+    plugin_version: str = Field(default="1.0.0", description="插件版本")
+    capabilities_required: List[str] = Field(default_factory=list, description="所需能力列表")
+
+
 # ─── 调用消息 ──────────────────────────────────────────────────────
 
 
@@ -189,6 +197,13 @@ class HealthPayload(BaseModel):
     healthy: bool = Field(description="是否健康")
     loaded_plugins: List[str] = Field(default_factory=list, description="已加载的插件列表")
     uptime_ms: int = Field(default=0, description="运行时长(ms)")
+
+
+class RunnerReadyPayload(BaseModel):
+    """runner.ready 请求 payload"""
+
+    loaded_plugins: List[str] = Field(default_factory=list, description="已完成初始化的插件列表")
+    failed_plugins: List[str] = Field(default_factory=list, description="初始化失败的插件列表")
 
 
 # ─── 配置更新 ──────────────────────────────────────────────────────

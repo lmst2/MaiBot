@@ -25,11 +25,13 @@ from src.plugin_runtime.host.policy_engine import PolicyEngine
 from src.plugin_runtime.host.rpc_server import RPCServer
 from src.plugin_runtime.host.workflow_executor import WorkflowExecutor, WorkflowContext, WorkflowResult
 from src.plugin_runtime.protocol.envelope import (
+    BootstrapPluginPayload,
     ConfigUpdatedPayload,
     Envelope,
     HealthPayload,
     LogBatchPayload,
     RegisterComponentsPayload,
+    RunnerReadyPayload,
     ShutdownPayload,
 )
 from src.plugin_runtime.protocol.errors import ErrorCode, RPCError
@@ -137,6 +139,8 @@ class PluginSupervisor:
         # 已注册的插件组件信息
         self._registered_plugins: Dict[str, RegisterComponentsPayload] = {}
         self._staged_registered_plugins: Dict[str, RegisterComponentsPayload] = {}
+        self._runner_ready_events: Dict[int, asyncio.Event] = {}
+        self._runner_ready_payloads: Dict[int, RunnerReadyPayload] = {}
 
         # 后台任务
         self._health_task: Optional[asyncio.Task] = None
@@ -255,12 +259,15 @@ class PluginSupervisor:
         # 拉起 Runner 进程
         await self._spawn_runner()
 
-        # 等待 Runner 完成连接，避免 start() 返回时 Runner 尚未就绪
+        # 等待 Runner 完成连接和初始化，避免 start() 返回时 Runner 尚未就绪
         try:
             await self._wait_for_runner_generation(expected_generation, timeout_sec=self._runner_spawn_timeout)
+            await self._wait_for_runner_ready(expected_generation, timeout_sec=self._runner_spawn_timeout)
         except TimeoutError:
             if not self._rpc_server.is_connected:
                 logger.warning(f"Runner 未在 {self._runner_spawn_timeout}s 内完成连接，后续操作可能失败")
+            else:
+                logger.warning(f"Runner 未在 {self._runner_spawn_timeout}s 内完成初始化，后续操作可能失败")
 
         # 启动健康检查
         self._health_task = asyncio.create_task(self._health_check_loop())
@@ -306,7 +313,7 @@ class PluginSupervisor:
             timeout_ms=timeout_ms,
         )
 
-    async def reload_plugins(self, reason: str = "manual") -> None:
+    async def reload_plugins(self, reason: str = "manual") -> bool:
         """热重载所有插件（进程级 generation 切换）
 
         1. 拉起新 Runner
@@ -341,6 +348,7 @@ class PluginSupervisor:
                 timeout_sec=self._runner_spawn_timeout,
                 allow_staged=True,
             )
+            await self._wait_for_runner_ready(expected_generation, timeout_sec=self._runner_spawn_timeout)
             resp = await self._rpc_server.send_request(
                 "plugin.health",
                 timeout_ms=5000,
@@ -359,7 +367,7 @@ class PluginSupervisor:
             self._staged_registered_plugins.clear()
             self._registered_plugins = dict(old_registered_plugins)
             self._rebuild_runtime_state()
-            return
+            return False
 
         self._runner_generation = self._rpc_server.runner_generation
         self._registered_plugins = dict(self._staged_registered_plugins)
@@ -375,6 +383,7 @@ class PluginSupervisor:
                 old_process.kill()
 
         logger.info("热重载完成")
+        return True
 
     async def notify_plugin_config_updated(
         self,
@@ -405,10 +414,38 @@ class PluginSupervisor:
         """注册 Host 端的 RPC 方法处理器"""
         # Runner -> Host 的能力调用统一走 capability_service
         self._rpc_server.register_method("cap.request", self._capability_service.handle_capability_request)
+        self._rpc_server.register_method("plugin.bootstrap", self._handle_bootstrap_plugin)
         # 插件注册
         self._rpc_server.register_method("plugin.register_components", self._handle_register_components)
+        self._rpc_server.register_method("runner.ready", self._handle_runner_ready)
         # Runner 日志批量上报
         self._rpc_server.register_method("runner.log_batch", self._log_bridge.handle_log_batch)
+
+    async def _handle_bootstrap_plugin(self, envelope: Envelope) -> Envelope:
+        """处理插件 bootstrap 请求，仅同步能力令牌。"""
+        try:
+            bootstrap = BootstrapPluginPayload.model_validate(envelope.payload)
+        except Exception as e:
+            return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(e))
+
+        active_generation = self._rpc_server.runner_generation
+        staged_generation = self._rpc_server.staged_generation
+        if envelope.generation not in {active_generation, staged_generation}:
+            return envelope.make_error_response(
+                ErrorCode.E_GENERATION_MISMATCH.value,
+                f"插件 bootstrap generation 过期: {envelope.generation} 不在已知代际中",
+            )
+
+        if bootstrap.capabilities_required:
+            self._policy.register_plugin(
+                plugin_id=bootstrap.plugin_id,
+                generation=envelope.generation,
+                capabilities=bootstrap.capabilities_required,
+            )
+        else:
+            self._policy.revoke_plugin(bootstrap.plugin_id, generation=envelope.generation)
+
+        return envelope.make_response(payload={"accepted": True})
 
     async def _handle_register_components(self, envelope: Envelope) -> Envelope:
         """处理插件组件注册请求"""
@@ -456,6 +493,22 @@ class PluginSupervisor:
             f"注册表总计: {stats}"
         )
 
+        return envelope.make_response(payload={"accepted": True})
+
+    async def _handle_runner_ready(self, envelope: Envelope) -> Envelope:
+        """处理 Runner 初始化完成信号。"""
+        try:
+            ready = RunnerReadyPayload.model_validate(envelope.payload)
+        except Exception as e:
+            return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(e))
+
+        event = self._runner_ready_events.setdefault(envelope.generation, asyncio.Event())
+        self._runner_ready_payloads[envelope.generation] = ready
+        event.set()
+        logger.info(
+            f"Runner generation={envelope.generation} 已就绪，成功插件数: {len(ready.loaded_plugins)}，"
+            f"失败插件数: {len(ready.failed_plugins)}"
+        )
         return envelope.make_response(payload={"accepted": True})
 
     async def _spawn_runner(self) -> None:
@@ -581,6 +634,12 @@ class PluginSupervisor:
                 return
             await asyncio.sleep(0.1)
         raise TimeoutError(f"等待 Runner generation {expected_generation} 超时")
+
+    async def _wait_for_runner_ready(self, expected_generation: int, timeout_sec: float) -> RunnerReadyPayload:
+        """等待指定代际的 Runner 完成初始化。"""
+        event = self._runner_ready_events.setdefault(expected_generation, asyncio.Event())
+        await asyncio.wait_for(event.wait(), timeout=timeout_sec)
+        return self._runner_ready_payloads.get(expected_generation, RunnerReadyPayload())
 
     def _clear_runtime_state(self) -> None:
         """清空当前插件注册态。"""

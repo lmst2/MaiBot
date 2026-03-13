@@ -236,6 +236,24 @@ class TestHost:
         assert not ok
         assert "generation 不匹配" in reason
 
+    def test_policy_engine_allows_parallel_generations(self):
+        """同一插件在热重载期间应允许 active/staged 两代并行持有能力令牌。"""
+        from src.plugin_runtime.host.policy_engine import PolicyEngine
+
+        engine = PolicyEngine()
+        engine.register_plugin("test_plugin", generation=1, capabilities=["send.text"])
+        engine.register_plugin("test_plugin", generation=2, capabilities=["send.text", "llm.generate"])
+
+        ok, _ = engine.check_capability("test_plugin", "send.text", generation=1)
+        assert ok is True
+
+        ok, _ = engine.check_capability("test_plugin", "llm.generate", generation=2)
+        assert ok is True
+
+        ok, reason = engine.check_capability("test_plugin", "llm.generate", generation=1)
+        assert ok is False
+        assert "未获授权" in reason
+
     def test_circuit_breaker_removed(self):
         """熔断器已移除，验证 supervisor 不依赖它"""
         pass
@@ -408,6 +426,75 @@ class TestSDK:
         assert response.payload["acknowledged"] is True
         assert plugin.configs == [{"enabled": True}]
         assert plugin.updates == [({"enabled": True}, "v2", [{"enabled": True}])]
+
+    @pytest.mark.asyncio
+    async def test_runner_bootstraps_capabilities_before_on_load(self, monkeypatch):
+        """on_load 期间的 capability 调用应在 bootstrap 后生效。"""
+        from src.plugin_runtime.runner.runner_main import PluginRunner
+
+        class DummyRPCClient:
+            def __init__(self):
+                self.calls = []
+
+            async def connect_and_handshake(self):
+                return True
+
+            def register_method(self, method, handler):
+                return None
+
+            async def send_request(self, method, plugin_id="", payload=None, timeout_ms=30000):
+                self.calls.append(
+                    {
+                        "method": method,
+                        "plugin_id": plugin_id,
+                        "payload": payload,
+                        "timeout_ms": timeout_ms,
+                    }
+                )
+                if method == "cap.request":
+                    bootstrap_methods = [call["method"] for call in self.calls[:-1]]
+                    assert "plugin.bootstrap" in bootstrap_methods
+                    return SimpleNamespace(error=None, payload={"result": {"success": True}})
+                return SimpleNamespace(error=None, payload={"accepted": True})
+
+            async def disconnect(self):
+                return None
+
+        class DummyPlugin:
+            def __init__(self, runner):
+                self.runner = runner
+
+            def _set_context(self, ctx):
+                self.ctx = ctx
+
+            def get_components(self):
+                return [{"name": "handler", "type": "command", "metadata": {}}]
+
+            async def on_load(self):
+                result = await self.ctx.call_capability("send.text", text="hello", stream_id="stream-1")
+                assert result is True
+                self.runner._shutting_down = True
+
+        runner = PluginRunner(host_address="dummy", session_token="token", plugin_dirs=[])
+        runner._rpc_client = DummyRPCClient()
+
+        plugin = DummyPlugin(runner)
+        meta = SimpleNamespace(
+            plugin_id="demo_plugin",
+            plugin_dir="/tmp/demo_plugin",
+            instance=plugin,
+            version="1.0.0",
+            capabilities_required=["send.text"],
+        )
+
+        monkeypatch.setattr(runner, "_install_log_handler", lambda: None)
+        monkeypatch.setattr(runner, "_uninstall_log_handler", lambda: asyncio.sleep(0))
+        monkeypatch.setattr(runner._loader, "discover_and_load", lambda plugin_dirs: [meta])
+
+        await runner.run()
+
+        methods = [call["method"] for call in runner._rpc_client.calls]
+        assert methods == ["plugin.bootstrap", "cap.request", "plugin.register_components", "runner.ready"]
 
 
 class TestPluginSdkUsage:
@@ -1681,11 +1768,15 @@ class TestSupervisor:
         async def fake_spawn_runner():
             supervisor._runner_process = new_process
             supervisor._staged_registered_plugins["plugin_a"] = self._build_register_payload("plugin_a")
+            supervisor._runner_ready_payloads[2] = SimpleNamespace(loaded_plugins=["plugin_a"], failed_plugins=[])
+            supervisor._runner_ready_events[2] = asyncio.Event()
+            supervisor._runner_ready_events[2].set()
 
         monkeypatch.setattr(supervisor, "_spawn_runner", fake_spawn_runner)
 
-        await supervisor.reload_plugins("test")
+        reloaded = await supervisor.reload_plugins("test")
 
+        assert reloaded is True
         assert supervisor._runner_process is new_process
         assert supervisor._rpc_server.committed is True
         assert old_process.terminated is True
@@ -1740,11 +1831,15 @@ class TestSupervisor:
         async def fake_spawn_runner():
             supervisor._runner_process = new_process
             supervisor._staged_registered_plugins["plugin_a"] = self._build_register_payload("plugin_a")
+            supervisor._runner_ready_payloads[2] = SimpleNamespace(loaded_plugins=["plugin_a"], failed_plugins=[])
+            supervisor._runner_ready_events[2] = asyncio.Event()
+            supervisor._runner_ready_events[2].set()
 
         monkeypatch.setattr(supervisor, "_spawn_runner", fake_spawn_runner)
 
-        await supervisor.reload_plugins("test")
+        reloaded = await supervisor.reload_plugins("test")
 
+        assert reloaded is False
         assert supervisor._runner_process is old_process
         assert supervisor._rpc_server.rolled_back is True
         assert old_reg.plugin_id in supervisor._registered_plugins
@@ -1800,13 +1895,75 @@ class TestSupervisor:
         async def fake_spawn_runner():
             supervisor._runner_process = new_process
             supervisor._staged_registered_plugins[new_reg.plugin_id] = new_reg
+            supervisor._runner_ready_payloads[2] = SimpleNamespace(loaded_plugins=["plugin_a"], failed_plugins=[])
+            supervisor._runner_ready_events[2] = asyncio.Event()
+            supervisor._runner_ready_events[2].set()
 
         monkeypatch.setattr(supervisor, "_spawn_runner", fake_spawn_runner)
 
-        await supervisor.reload_plugins("test")
+        reloaded = await supervisor.reload_plugins("test")
 
+        assert reloaded is True
         assert supervisor.component_registry.get_component("plugin_a.handler") is not None
         assert supervisor.component_registry.get_component("plugin_a.obsolete") is None
+
+    @pytest.mark.asyncio
+    async def test_reload_rolls_back_when_runner_ready_not_received(self, monkeypatch):
+        from src.plugin_runtime.host.supervisor import PluginSupervisor
+
+        supervisor = PluginSupervisor(plugin_dirs=[], runner_spawn_timeout_sec=0.01)
+        old_process = self._make_process(1)
+        new_process = self._make_process(2)
+        old_reg = self._build_register_payload()
+
+        supervisor._runner_process = old_process
+        supervisor._registered_plugins[old_reg.plugin_id] = old_reg
+        supervisor._rebuild_runtime_state()
+
+        class FakeRPCServer:
+            def __init__(self):
+                self.runner_generation = 1
+                self.staged_generation = 0
+                self.is_connected = True
+                self.session_token = "fake-token"
+                self.rolled_back = False
+
+            def reset_session_token(self):
+                self.session_token = "new-fake-token"
+                return self.session_token
+
+            def restore_session_token(self, token):
+                self.session_token = token
+
+            def begin_staged_takeover(self):
+                self.staged_generation = 2
+
+            async def commit_staged_takeover(self):
+                raise AssertionError("runner.ready 未到达前不应提交 staged takeover")
+
+            async def rollback_staged_takeover(self):
+                self.rolled_back = True
+                self.staged_generation = 0
+
+            def has_generation(self, generation):
+                return generation in {self.runner_generation, self.staged_generation}
+
+            async def send_request(self, method, timeout_ms=5000, target_generation=None, **kwargs):
+                raise AssertionError("runner.ready 未到达前不应执行健康检查")
+
+        supervisor._rpc_server = FakeRPCServer()
+
+        async def fake_spawn_runner():
+            supervisor._runner_process = new_process
+            supervisor._staged_registered_plugins["plugin_a"] = self._build_register_payload("plugin_a")
+
+        monkeypatch.setattr(supervisor, "_spawn_runner", fake_spawn_runner)
+
+        reloaded = await supervisor.reload_plugins("test")
+
+        assert reloaded is False
+        assert supervisor._runner_process is old_process
+        assert supervisor._rpc_server.rolled_back is True
 
     @pytest.mark.asyncio
     async def test_attach_stderr_drain_drains_stream(self):
@@ -2045,3 +2202,60 @@ class TestIntegration:
         await manager.handle_config_reload()
 
         assert notified == [("alpha", ""), ("beta", ""), ("gamma", "")]
+
+    @pytest.mark.asyncio
+    async def test_component_reload_plugin_returns_failure_when_reload_rolls_back(self, monkeypatch):
+        from src.plugin_runtime import integration as integration_module
+
+        class FakeSupervisor:
+            def __init__(self):
+                self._registered_plugins = {"alpha": object()}
+
+            async def reload_plugins(self, reason="manual"):
+                return False
+
+        class FakeManager:
+            def __init__(self):
+                self.supervisors = [FakeSupervisor()]
+
+        monkeypatch.setattr(integration_module, "get_plugin_runtime_manager", lambda: FakeManager())
+
+        result = await integration_module.PluginRuntimeManager._cap_component_reload_plugin(
+            "plugin_a",
+            "component.reload_plugin",
+            {"plugin_name": "alpha"},
+        )
+
+        assert result["success"] is False
+        assert "已回滚" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_component_load_plugin_returns_failure_when_reload_rolls_back(self, monkeypatch, tmp_path):
+        from src.plugin_runtime import integration as integration_module
+
+        plugin_root = tmp_path / "plugins"
+        plugin_root.mkdir()
+        (plugin_root / "alpha").mkdir()
+
+        class FakeSupervisor:
+            def __init__(self):
+                self._registered_plugins = {}
+                self._plugin_dirs = [str(plugin_root)]
+
+            async def reload_plugins(self, reason="manual"):
+                return False
+
+        class FakeManager:
+            def __init__(self):
+                self.supervisors = [FakeSupervisor()]
+
+        monkeypatch.setattr(integration_module, "get_plugin_runtime_manager", lambda: FakeManager())
+
+        result = await integration_module.PluginRuntimeManager._cap_component_load_plugin(
+            "plugin_a",
+            "component.load_plugin",
+            {"plugin_name": "alpha"},
+        )
+
+        assert result["success"] is False
+        assert "已回滚" in result["error"]

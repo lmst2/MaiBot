@@ -26,12 +26,14 @@ import tomllib
 from src.common.logger import get_console_handler, get_logger, initialize_logging
 from src.plugin_runtime import ENV_IPC_ADDRESS, ENV_PLUGIN_DIRS, ENV_SESSION_TOKEN
 from src.plugin_runtime.protocol.envelope import (
+    BootstrapPluginPayload,
     ComponentDeclaration,
     Envelope,
     HealthPayload,
     InvokePayload,
     InvokeResultPayload,
     RegisterComponentsPayload,
+    RunnerReadyPayload,
 )
 from src.plugin_runtime.protocol.errors import ErrorCode
 from src.plugin_runtime.runner.log_handler import RunnerIPCLogHandler
@@ -99,6 +101,9 @@ class PluginRunner:
             instance = meta.instance
             self._inject_context(meta.plugin_id, instance)
             self._apply_plugin_config(meta)
+            if not await self._bootstrap_plugin(meta):
+                failed_plugins.add(meta.plugin_id)
+                continue
             if hasattr(instance, "on_load"):
                 try:
                     ret = instance.on_load()
@@ -107,12 +112,19 @@ class PluginRunner:
                 except Exception as e:
                     logger.error(f"插件 {meta.plugin_id} on_load 失败，跳过注册: {e}", exc_info=True)
                     failed_plugins.add(meta.plugin_id)
+                    await self._deactivate_plugin(meta)
 
         # 5. 向 Host 注册所有插件的组件（跳过 on_load 失败的插件）
         for meta in plugins:
             if meta.plugin_id in failed_plugins:
                 continue
-            await self._register_plugin(meta)
+            ok = await self._register_plugin(meta)
+            if not ok:
+                failed_plugins.add(meta.plugin_id)
+                await self._deactivate_plugin(meta)
+
+        successful_plugins = [meta.plugin_id for meta in plugins if meta.plugin_id not in failed_plugins]
+        await self._notify_ready(successful_plugins, sorted(failed_plugins))
 
         # 5. 等待直到收到关停信号
         with contextlib.suppress(asyncio.CancelledError):
@@ -256,7 +268,33 @@ class PluginRunner:
         self._rpc_client.register_method("plugin.shutdown", self._handle_shutdown)
         self._rpc_client.register_method("plugin.config_updated", self._handle_config_updated)
 
-    async def _register_plugin(self, meta: PluginMeta) -> None:
+    async def _bootstrap_plugin(self, meta: PluginMeta, capabilities_required: Optional[List[str]] = None) -> bool:
+        """向 Host 同步插件 bootstrap 能力令牌。"""
+        payload = BootstrapPluginPayload(
+            plugin_id=meta.plugin_id,
+            plugin_version=meta.version,
+            capabilities_required=capabilities_required
+            if capabilities_required is not None
+            else list(meta.capabilities_required or []),
+        )
+
+        try:
+            await self._rpc_client.send_request(
+                "plugin.bootstrap",
+                plugin_id=meta.plugin_id,
+                payload=payload.model_dump(),
+                timeout_ms=10000,
+            )
+            return True
+        except Exception as e:
+            logger.error(f"插件 {meta.plugin_id} bootstrap 失败: {e}")
+            return False
+
+    async def _deactivate_plugin(self, meta: PluginMeta) -> None:
+        """撤销 bootstrap 期间为插件签发的能力令牌。"""
+        await self._bootstrap_plugin(meta, capabilities_required=[])
+
+    async def _register_plugin(self, meta: PluginMeta) -> bool:
         """向 Host 注册单个插件"""
         # 收集插件组件声明
         components: List[ComponentDeclaration] = []
@@ -289,8 +327,22 @@ class PluginRunner:
                 timeout_ms=10000,
             )
             logger.info(f"插件 {meta.plugin_id} 注册完成")
+            return True
         except Exception as e:
             logger.error(f"插件 {meta.plugin_id} 注册失败: {e}")
+            return False
+
+    async def _notify_ready(self, loaded_plugins: List[str], failed_plugins: List[str]) -> None:
+        """通知 Host 当前 generation 已完成插件初始化。"""
+        payload = RunnerReadyPayload(
+            loaded_plugins=loaded_plugins,
+            failed_plugins=failed_plugins,
+        )
+        await self._rpc_client.send_request(
+            "runner.ready",
+            payload=payload.model_dump(),
+            timeout_ms=10000,
+        )
 
     async def _handle_invoke(self, envelope: Envelope) -> Envelope:
         """处理组件调用请求"""
