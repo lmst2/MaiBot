@@ -942,9 +942,9 @@ class PluginRuntimeManager:
 
             # 兼容 SDK 的 key_field/key_value 参数，自动转换为 filters
             filters = args.get("filters")
+            key_value = args.get("key_value")
             if not filters:
                 key_field = args.get("key_field", "id")
-                key_value = args.get("key_value")
                 if key_value is not None:
                     filters = {key_field: key_value}
 

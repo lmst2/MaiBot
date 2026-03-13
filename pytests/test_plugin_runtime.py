@@ -1833,6 +1833,44 @@ class TestIntegration:
     """运行时集成层启动/清理测试"""
 
     @pytest.mark.asyncio
+    async def test_cap_database_get_with_filters_does_not_reference_unbound_key_value(self, monkeypatch):
+        from src.plugin_runtime import integration as integration_module
+        import src.common.database.database_model as real_db_models
+        from src.services import database_service as real_database_service
+
+        captured: dict[str, object] = {}
+
+        class DummyModel:
+            pass
+
+        async def fake_db_get(model_class, filters=None, limit=None, order_by=None, single_result=False):
+            captured["model_class"] = model_class
+            captured["filters"] = filters
+            captured["limit"] = limit
+            captured["order_by"] = order_by
+            captured["single_result"] = single_result
+            return [{"id": 1}]
+
+        monkeypatch.setattr(real_database_service, "db_get", fake_db_get)
+        monkeypatch.setattr(real_db_models, "DemoTable", DummyModel, raising=False)
+
+        result = await integration_module.PluginRuntimeManager._cap_database_get(
+            "plugin_a",
+            "database.get",
+            {
+                "table": "DemoTable",
+                "filters": {"status": "active"},
+                "limit": 5,
+            },
+        )
+
+        assert result == {"success": True, "result": [{"id": 1}]}
+        assert captured["model_class"] is DummyModel
+        assert captured["filters"] == {"status": "active"}
+        assert captured["limit"] == 5
+        assert captured["single_result"] is False
+
+    @pytest.mark.asyncio
     async def test_component_enable_rejects_ambiguous_short_name(self, monkeypatch):
         from src.plugin_runtime import integration as integration_module
         from src.plugin_runtime.host.component_registry import ComponentRegistry
