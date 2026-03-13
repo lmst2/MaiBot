@@ -15,17 +15,17 @@ from src.common.logger import get_logger
 from src.chat.logger.plan_reply_logger import PlanReplyLogger
 from src.common.data_models.info_data_model import ActionPlannerInfo
 from src.prompt.prompt_manager import prompt_manager
-from src.chat.utils.chat_message_builder import (
+from src.services.message_service import (
     build_readable_messages_with_id,
-    get_raw_msg_before_timestamp_with_chat,
     replace_user_references,
+    get_messages_before_time_in_chat,
+    translate_pid_to_description,
 )
 from src.chat.utils.utils import get_chat_type_and_target_info, is_bot_self
 from src.chat.planner_actions.action_manager import ActionManager
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.core.types import ActionActivationType, ActionInfo, ComponentType
 from src.core.component_registry import component_registry
-from src.services.message_service import translate_pid_to_description
 from src.person_info.person_info import Person
 
 if TYPE_CHECKING:
@@ -389,7 +389,7 @@ class ActionPlanner:
         plan_start = time.perf_counter()
 
         # 获取聊天上下文
-        message_list_before_now = get_raw_msg_before_timestamp_with_chat(
+        message_list_before_now = get_messages_before_time_in_chat(
             chat_id=self.chat_id,
             timestamp=time.time(),
             limit=int(global_config.chat.max_context_size * 0.6),

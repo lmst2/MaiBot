@@ -6,7 +6,7 @@ from src.common.logger import get_logger
 from src.config.config import global_config
 from src.chat.message_receive.chat_manager import BotChatSession, chat_manager as _chat_manager
 from src.chat.planner_actions.action_manager import ActionManager
-from src.chat.utils.chat_message_builder import get_raw_msg_before_timestamp_with_chat, build_readable_messages
+from src.services.message_service import build_readable_messages, get_messages_before_time_in_chat
 from src.core.types import ActionActivationType, ActionInfo
 from src.core.announcement_manager import global_announcement_manager
 
@@ -51,7 +51,7 @@ class ActionModifier:
         self.action_manager.restore_actions()
         all_actions = self.action_manager.get_using_actions()
 
-        message_list_before_now_half = get_raw_msg_before_timestamp_with_chat(
+        message_list_before_now_half = get_messages_before_time_in_chat(
             chat_id=self.chat_stream.stream_id,
             timestamp=time.time(),
             limit=min(int(global_config.chat.max_context_size * 0.33), 10),

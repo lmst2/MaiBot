@@ -23,7 +23,7 @@ from src.prompt.prompt_manager import prompt_manager
 from src.chat.utils.common_utils import TempMethodsExpression
 from src.services.message_service import (
     build_readable_messages,
-    get_raw_msg_before_timestamp_with_chat,
+    get_messages_before_time_in_chat,
     replace_user_references,
     translate_pid_to_description,
 )
@@ -650,7 +650,7 @@ class PrivateReplyer:
         # 将[picid:xxx]替换为具体的图片描述
         target = self._replace_picids_with_descriptions(target)
 
-        message_list_before_now_long = get_raw_msg_before_timestamp_with_chat(
+        message_list_before_now_long = get_messages_before_time_in_chat(
             chat_id=chat_id,
             timestamp=time.time(),
             limit=global_config.chat.max_context_size,
@@ -666,7 +666,7 @@ class PrivateReplyer:
             long_time_notice=True,
         )
 
-        message_list_before_short = get_raw_msg_before_timestamp_with_chat(
+        message_list_before_short = get_messages_before_time_in_chat(
             chat_id=chat_id,
             timestamp=time.time(),
             limit=int(global_config.chat.max_context_size * 0.33),
@@ -857,7 +857,7 @@ class PrivateReplyer:
         # 将[picid:xxx]替换为具体的图片描述
         target = self._replace_picids_with_descriptions(target)
 
-        message_list_before_now_half = get_raw_msg_before_timestamp_with_chat(
+        message_list_before_now_half = get_messages_before_time_in_chat(
             chat_id=chat_id,
             timestamp=time.time(),
             limit=min(int(global_config.chat.max_context_size * 0.33), 15),

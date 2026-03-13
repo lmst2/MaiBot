@@ -35,7 +35,7 @@ logger = get_logger("generator_service")
 # =============================================================================
 
 
-def get_replyer(
+def _get_replyer(
     chat_stream: Optional[BotChatSession] = None,
     chat_id: Optional[str] = None,
     request_type: str = "replyer",
@@ -56,6 +56,35 @@ def get_replyer(
         logger.error(f"[GeneratorService] 获取回复器时发生意外错误: {e}", exc_info=True)
         traceback.print_exc()
         return None
+
+
+def _extract_unknown_words(action_data: Optional[Dict[str, Any]]) -> Optional[List[str]]:
+    if not action_data:
+        return None
+
+    unknown_words = action_data.get("unknown_words")
+    if not isinstance(unknown_words, list):
+        return None
+
+    cleaned_words: List[str] = []
+    for item in unknown_words:
+        if isinstance(item, str) and (cleaned_item := item.strip()):
+            cleaned_words.append(cleaned_item)
+
+    return cleaned_words or None
+
+
+def _build_message_sequence(
+    content: Optional[str],
+    *,
+    enable_splitter: bool,
+    enable_chinese_typo: bool,
+) -> tuple[Optional[MessageSequence], List[str]]:
+    if not content:
+        return None, []
+
+    processed_output = process_llm_response(content, enable_splitter, enable_chinese_typo)
+    return MessageSequence(components=[TextComponent(text) for text in processed_output]), processed_output
 
 
 # =============================================================================
@@ -87,7 +116,7 @@ async def generate_reply(
             reply_time_point = time.time()
 
         logger.debug("[GeneratorService] 开始生成回复")
-        replyer = get_replyer(chat_stream, chat_id, request_type=request_type)
+        replyer = _get_replyer(chat_stream, chat_id, request_type=request_type)
         if not replyer:
             logger.error("[GeneratorService] 无法获取回复器")
             return False, None
@@ -98,16 +127,7 @@ async def generate_reply(
             if not reply_reason:
                 reply_reason = action_data.get("reason", "")
             if unknown_words is None:
-                uw = action_data.get("unknown_words")
-                if isinstance(uw, list):
-                    cleaned: List[str] = []
-                    for item in uw:
-                        if isinstance(item, str):
-                            s = item.strip()
-                            if s:
-                                cleaned.append(s)
-                    if cleaned:
-                        unknown_words = cleaned
+                unknown_words = _extract_unknown_words(action_data)
 
         success, llm_response = await replyer.generate_reply_with_context(
             extra_info=extra_info,
@@ -126,13 +146,12 @@ async def generate_reply(
         if not success:
             logger.warning("[GeneratorService] 回复生成失败")
             return False, None
-        reply_set: Optional[MessageSequence] = None
-        if content := llm_response.content:
-            processed_response = process_llm_response(content, enable_splitter, enable_chinese_typo)
-            llm_response.processed_output = processed_response
-            reply_set = MessageSequence(components=[])
-            for text in processed_response:
-                reply_set.components.append(TextComponent(text))
+        reply_set, processed_output = _build_message_sequence(
+            llm_response.content,
+            enable_splitter=enable_splitter,
+            enable_chinese_typo=enable_chinese_typo,
+        )
+        llm_response.processed_output = processed_output
         llm_response.reply_set = reply_set
         logger.debug(
             f"[GeneratorService] 回复生成成功，生成了 {len(reply_set.components) if reply_set else 0} 个回复项"
@@ -181,7 +200,7 @@ async def rewrite_reply(
 ) -> Tuple[bool, Optional["LLMGenerationDataModel"]]:
     """重写回复"""
     try:
-        replyer = get_replyer(chat_stream, chat_id, request_type=request_type)
+        replyer = _get_replyer(chat_stream, chat_id, request_type=request_type)
         if not replyer:
             logger.error("[GeneratorService] 无法获取回复器")
             return False, None
@@ -198,9 +217,13 @@ async def rewrite_reply(
             reason=reason,
             reply_to=reply_to,
         )
-        reply_set: Optional[MessageSequence] = None
-        if success and llm_response and (content := llm_response.content):
-            reply_set = process_human_text(content, enable_splitter, enable_chinese_typo)
+        reply_set, processed_output = _build_message_sequence(
+            llm_response.content if success and llm_response else None,
+            enable_splitter=enable_splitter,
+            enable_chinese_typo=enable_chinese_typo,
+        )
+        if llm_response is not None:
+            llm_response.processed_output = processed_output
         llm_response.reply_set = reply_set
         if success:
             logger.info(
@@ -219,44 +242,3 @@ async def rewrite_reply(
         return False, None
 
 
-def process_human_text(content: str, enable_splitter: bool, enable_chinese_typo: bool) -> Optional[MessageSequence]:
-    """将文本处理为更拟人化的文本"""
-    if not isinstance(content, str):
-        raise ValueError("content 必须是字符串类型")
-    try:
-        reply_set = MessageSequence(components=[])
-        processed_response = process_llm_response(content, enable_splitter, enable_chinese_typo)
-
-        for text in processed_response:
-            reply_set.components.append(TextComponent(text))
-
-        return reply_set
-
-    except Exception as e:
-        logger.error(f"[GeneratorService] 处理人形文本时出错: {e}")
-        return None
-
-
-async def generate_response_custom(
-    chat_stream: Optional[BotChatSession] = None,
-    chat_id: Optional[str] = None,
-    request_type: str = "generator_api",
-    prompt: str = "",
-) -> Optional[str]:
-    replyer = get_replyer(chat_stream, chat_id, request_type=request_type)
-    if not replyer:
-        logger.error("[GeneratorService] 无法获取回复器")
-        return None
-
-    try:
-        logger.debug("[GeneratorService] 开始生成自定义回复")
-        response, _, _, _ = await replyer.llm_generate_content(prompt)
-        if response:
-            logger.debug("[GeneratorService] 自定义回复生成成功")
-            return response
-        else:
-            logger.warning("[GeneratorService] 自定义回复生成失败")
-            return None
-    except Exception as e:
-        logger.error(f"[GeneratorService] 生成自定义回复时出错: {e}")
-        return None

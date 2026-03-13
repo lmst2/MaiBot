@@ -14,11 +14,11 @@ from src.common.logger import get_logger
 from src.chat.logger.plan_reply_logger import PlanReplyLogger
 from src.common.data_models.info_data_model import ActionPlannerInfo
 from src.prompt.prompt_manager import prompt_manager
-from src.chat.utils.chat_message_builder import (
+from src.services.message_service import (
     build_readable_actions,
-    get_actions_by_timestamp_with_chat,
     build_readable_messages_with_id,
-    get_raw_msg_before_timestamp_with_chat,
+    get_actions_by_timestamp_with_chat,
+    get_messages_before_time_in_chat,
 )
 from src.chat.utils.utils import get_chat_type_and_target_info
 from src.chat.planner_actions.action_manager import ActionManager
@@ -163,7 +163,7 @@ class BrainPlanner:
         plan_start = time.perf_counter()
 
         # 获取聊天上下文
-        message_list_before_now = get_raw_msg_before_timestamp_with_chat(
+        message_list_before_now = get_messages_before_time_in_chat(
             chat_id=self.chat_id,
             timestamp=time.time(),
             limit=int(global_config.chat.max_context_size * 0.6),

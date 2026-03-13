@@ -14,7 +14,6 @@ from src.common.database.database_model import ActionRecord, Images, ImageType
 from src.common.message_repository import count_messages, find_messages
 from src.common.utils.math_utils import translate_timestamp_to_human_readable
 from src.common.utils.utils_action import ActionUtils
-from src.chat.utils.utils import is_bot_self
 from src.config.config import global_config
 
 
@@ -113,103 +112,6 @@ def get_messages_by_time_in_chat(
     return _normalize_messages(messages)
 
 
-def get_messages_by_time_in_chat_inclusive(
-    chat_id: str,
-    start_time: float,
-    end_time: float,
-    limit: int = 0,
-    limit_mode: str = "latest",
-    filter_mai: bool = False,
-    filter_command: bool = False,
-    filter_intercept_message_level: Optional[int] = None,
-) -> List[SessionMessage]:
-    if not isinstance(start_time, (int, float)) or not isinstance(end_time, (int, float)):
-        raise ValueError("start_time 和 end_time 必须是数字类型")
-    if limit < 0:
-        raise ValueError("limit 不能为负数")
-    if not chat_id:
-        raise ValueError("chat_id 不能为空")
-    if not isinstance(chat_id, str):
-        raise ValueError("chat_id 必须是字符串类型")
-    messages = find_messages(
-        message_filter={
-            "chat_id": chat_id,
-            "time": {
-                "$gte": start_time,
-                "$lte": end_time,
-            },
-        },
-        limit=limit,
-        limit_mode=limit_mode,
-        filter_bot=filter_mai,
-        filter_command=filter_command,
-        filter_intercept_message_level=filter_intercept_message_level,
-    )
-    return _normalize_messages(messages)
-
-
-def get_messages_by_time_in_chat_for_users(
-    chat_id: str,
-    start_time: float,
-    end_time: float,
-    person_ids: List[str],
-    limit: int = 0,
-    limit_mode: str = "latest",
-) -> List[SessionMessage]:
-    if not isinstance(start_time, (int, float)) or not isinstance(end_time, (int, float)):
-        raise ValueError("start_time 和 end_time 必须是数字类型")
-    if limit < 0:
-        raise ValueError("limit 不能为负数")
-    if not chat_id:
-        raise ValueError("chat_id 不能为空")
-    if not isinstance(chat_id, str):
-        raise ValueError("chat_id 必须是字符串类型")
-    messages = find_messages(
-        message_filter={
-            "chat_id": chat_id,
-            "time": {
-                "$gte": start_time,
-                "$lte": end_time,
-            },
-            "user_id": {"$in": person_ids},
-        },
-        limit=limit,
-        limit_mode=limit_mode,
-    )
-    return _normalize_messages(messages)
-
-
-def get_random_chat_messages(
-    start_time: float, end_time: float, limit: int = 0, limit_mode: str = "latest", filter_mai: bool = False
-) -> List[SessionMessage]:
-    if not isinstance(start_time, (int, float)) or not isinstance(end_time, (int, float)):
-        raise ValueError("start_time 和 end_time 必须是数字类型")
-    if limit < 0:
-        raise ValueError("limit 不能为负数")
-    return get_messages_by_time(start_time, end_time, limit, limit_mode, filter_mai)
-
-
-def get_messages_by_time_for_users(
-    start_time: float, end_time: float, person_ids: List[str], limit: int = 0, limit_mode: str = "latest"
-) -> List[SessionMessage]:
-    if not isinstance(start_time, (int, float)) or not isinstance(end_time, (int, float)):
-        raise ValueError("start_time 和 end_time 必须是数字类型")
-    if limit < 0:
-        raise ValueError("limit 不能为负数")
-    messages = find_messages(
-        message_filter={
-            "time": {
-                "$gte": start_time,
-                "$lte": end_time,
-            },
-            "user_id": {"$in": person_ids},
-        },
-        limit=limit,
-        limit_mode=limit_mode,
-    )
-    return _normalize_messages(messages)
-
-
 def get_messages_before_time(timestamp: float, limit: int = 0, filter_mai: bool = False) -> List[SessionMessage]:
     if not isinstance(timestamp, (int, float)):
         raise ValueError("timestamp 必须是数字类型")
@@ -252,24 +154,6 @@ def get_messages_before_time_in_chat(
     return _normalize_messages(messages)
 
 
-def get_messages_before_time_for_users(
-    timestamp: float, person_ids: List[str], limit: int = 0
-) -> List[SessionMessage]:
-    if not isinstance(timestamp, (int, float)):
-        raise ValueError("timestamp 必须是数字类型")
-    if limit < 0:
-        raise ValueError("limit 不能为负数")
-    messages = find_messages(
-        message_filter={
-            "time": {"$lt": timestamp},
-            "user_id": {"$in": person_ids},
-        },
-        limit=limit,
-        limit_mode="latest",
-    )
-    return _normalize_messages(messages)
-
-
 def get_recent_messages(
     chat_id: str, hours: float = 24.0, limit: int = 100, limit_mode: str = "latest", filter_mai: bool = False
 ) -> List[SessionMessage]:
@@ -305,22 +189,6 @@ def count_new_messages(chat_id: str, start_time: float = 0.0, end_time: Optional
     if end_time is not None:
         message_filter["time"]["$lte"] = end_time
     return count_messages(message_filter)
-
-
-def count_new_messages_for_users(chat_id: str, start_time: float, end_time: float, person_ids: List[str]) -> int:
-    if not isinstance(start_time, (int, float)) or not isinstance(end_time, (int, float)):
-        raise ValueError("start_time 和 end_time 必须是数字类型")
-    if not chat_id:
-        raise ValueError("chat_id 不能为空")
-    if not isinstance(chat_id, str):
-        raise ValueError("chat_id 必须是字符串类型")
-    return count_messages(
-        {
-            "chat_id": chat_id,
-            "time": {"$gt": start_time, "$lte": end_time},
-            "user_id": {"$in": person_ids},
-        }
-    )
 
 
 # =============================================================================
@@ -365,17 +233,6 @@ def build_readable_messages(
     return "\n".join(lines)
 
 
-def build_readable_messages_to_str(
-    messages: List[SessionMessage],
-    replace_bot_name: bool = True,
-    timestamp_mode: str = "relative",
-    read_mark: float = 0.0,
-    truncate: bool = False,
-    show_actions: bool = False,
-) -> str:
-    return build_readable_messages(messages, replace_bot_name, timestamp_mode, read_mark, truncate, show_actions)
-
-
 def build_readable_messages_with_id(
     messages: List[SessionMessage],
     replace_bot_name: bool = True,
@@ -413,148 +270,6 @@ def build_readable_messages_with_id(
         if action_lines:
             lines.append(action_lines)
     return "\n".join(lines), message_id_list
-
-
-async def build_readable_messages_with_details(
-    messages: List[SessionMessage],
-    replace_bot_name: bool = True,
-    timestamp_mode: str = "relative",
-    truncate: bool = False,
-) -> Tuple[str, List[Tuple[float, str, str]]]:
-    normalized_messages = _normalize_messages(messages)
-    message_list = [
-        (
-            message.timestamp.timestamp(),
-            message.message_info.user_info.user_id,
-            message.processed_plain_text or "",
-        )
-        for message in normalized_messages
-    ]
-    return build_readable_messages(normalized_messages, replace_bot_name, timestamp_mode, truncate=truncate), message_list
-
-
-async def get_person_ids_from_messages(messages: List[Any]) -> List[str]:
-    person_ids: List[str] = []
-    for message in messages:
-        if isinstance(message, SessionMessage):
-            person_ids.append(message.message_info.user_info.user_id)
-        elif isinstance(message, dict) and (user_id := message.get("user_id")):
-            person_ids.append(str(user_id))
-    return person_ids
-
-
-# =============================================================================
-# 消息过滤函数
-# =============================================================================
-
-
-def filter_mai_messages(messages: List[SessionMessage]) -> List[SessionMessage]:
-    """从消息列表中移除麦麦的消息"""
-    return [
-        msg
-        for msg in messages
-        if not is_bot_self(msg.platform, msg.message_info.user_info.user_id)
-    ]
-
-
-def get_raw_msg_by_timestamp(
-    timestamp_start: float,
-    timestamp_end: float,
-    limit: int = 0,
-    limit_mode: str = "latest",
-) -> List[SessionMessage]:
-    return get_messages_by_time(timestamp_start, timestamp_end, limit, limit_mode)
-
-
-def get_raw_msg_by_timestamp_with_chat(
-    chat_id: str,
-    timestamp_start: float,
-    timestamp_end: float,
-    limit: int = 0,
-    limit_mode: str = "latest",
-    filter_bot: bool = False,
-    filter_command: bool = False,
-    filter_intercept_message_level: Optional[int] = None,
-) -> List[SessionMessage]:
-    return get_messages_by_time_in_chat(
-        chat_id,
-        timestamp_start,
-        timestamp_end,
-        limit,
-        limit_mode,
-        filter_bot,
-        filter_command,
-        filter_intercept_message_level,
-    )
-
-
-def get_raw_msg_by_timestamp_with_chat_inclusive(
-    chat_id: str,
-    timestamp_start: float,
-    timestamp_end: float,
-    limit: int = 0,
-    limit_mode: str = "latest",
-    filter_bot: bool = False,
-    filter_command: bool = False,
-    filter_intercept_message_level: Optional[int] = None,
-) -> List[SessionMessage]:
-    return get_messages_by_time_in_chat_inclusive(
-        chat_id,
-        timestamp_start,
-        timestamp_end,
-        limit,
-        limit_mode,
-        filter_bot,
-        filter_command,
-        filter_intercept_message_level,
-    )
-
-
-def get_raw_msg_by_timestamp_with_chat_users(
-    chat_id: str,
-    timestamp_start: float,
-    timestamp_end: float,
-    person_ids: List[str],
-    limit: int = 0,
-    limit_mode: str = "latest",
-) -> List[SessionMessage]:
-    return get_messages_by_time_in_chat_for_users(chat_id, timestamp_start, timestamp_end, person_ids, limit, limit_mode)
-
-
-def get_raw_msg_by_timestamp_with_users(
-    timestamp_start: float,
-    timestamp_end: float,
-    person_ids: List[str],
-    limit: int = 0,
-    limit_mode: str = "latest",
-) -> List[SessionMessage]:
-    return get_messages_by_time_for_users(timestamp_start, timestamp_end, person_ids, limit, limit_mode)
-
-
-def get_raw_msg_before_timestamp(timestamp: float, limit: int = 0) -> List[SessionMessage]:
-    return get_messages_before_time(timestamp, limit)
-
-
-def get_raw_msg_before_timestamp_with_chat(
-    chat_id: str,
-    timestamp: float,
-    limit: int = 0,
-    filter_intercept_message_level: Optional[int] = None,
-) -> List[SessionMessage]:
-    return get_messages_before_time_in_chat(chat_id, timestamp, limit, False, filter_intercept_message_level)
-
-
-def get_raw_msg_before_timestamp_with_users(timestamp: float, person_ids: List[str], limit: int = 0) -> List[SessionMessage]:
-    return get_messages_before_time_for_users(timestamp, person_ids, limit)
-
-
-def get_raw_msg_by_timestamp_random(
-    timestamp_start: float,
-    timestamp_end: float,
-    limit: int = 0,
-    limit_mode: str = "latest",
-) -> List[SessionMessage]:
-    return get_random_chat_messages(timestamp_start, timestamp_end, limit, limit_mode)
 
 
 def get_actions_by_timestamp_with_chat(chat_id: str, timestamp_start: float, timestamp_end: float) -> List[MaiActionRecord]:

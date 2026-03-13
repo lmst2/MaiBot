@@ -28,10 +28,7 @@ from src.services import (
     message_service as message_api,
     database_service as database_api,
 )
-from src.chat.utils.chat_message_builder import (
-    build_readable_messages_with_id,
-    get_raw_msg_before_timestamp_with_chat,
-)
+from src.services.message_service import build_readable_messages_with_id, get_messages_before_time_in_chat
 
 if TYPE_CHECKING:
     from src.common.data_models.database_data_model import DatabaseMessages
@@ -275,7 +272,7 @@ class BrainChatting:
 
             # 一次思考迭代：Think - Act - Observe
             # 获取聊天上下文
-            message_list_before_now = get_raw_msg_before_timestamp_with_chat(
+            message_list_before_now = get_messages_before_time_in_chat(
                 chat_id=self.stream_id,
                 timestamp=time.time(),
                 limit=int(global_config.chat.max_context_size * 0.6),
