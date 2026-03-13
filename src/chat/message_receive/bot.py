@@ -152,21 +152,31 @@ class ChatBot:
                 args={
                     "text": message.processed_plain_text,
                     "stream_id": message.session_id or "",
+                    "matched_groups": matched.get("matched_groups") or {},
                 },
                 timeout_ms=30000,
             )
 
             payload = resp.payload
             success = payload.get("success", False)
-            result = payload.get("result", "")
-            intercept = bool(matched["metadata"].get("intercept_message_level", 0))
+            cmd_result = payload.get("result")
+
+            # 拦截位优先从命令返回值中获取（支持运行时动态决定），
+            # 回退到组件 metadata 中的静态声明
+            if isinstance(cmd_result, (list, tuple)) and len(cmd_result) >= 3:
+                # 命令返回 (found, response_text, intercept_bool) 三元组
+                response_text = cmd_result[1] if cmd_result[1] is not None else ""
+                intercept = bool(cmd_result[2])
+            else:
+                response_text = cmd_result if cmd_result is not None else ""
+                intercept = bool(matched["metadata"].get("intercept_message_level", 0))
 
             if success:
                 logger.info(f"[新运行时] 命令执行成功: {matched['full_name']}")
             else:
-                logger.warning(f"[新运行时] 命令执行失败: {matched['full_name']} - {result}")
+                logger.warning(f"[新运行时] 命令执行失败: {matched['full_name']} - {response_text}")
 
-            return True, result, not intercept
+            return True, response_text, not intercept
 
         except Exception as e:
             logger.error(f"[新运行时] 执行命令 {matched['full_name']} 异常: {e}", exc_info=True)

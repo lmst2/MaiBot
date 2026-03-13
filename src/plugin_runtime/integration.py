@@ -195,15 +195,17 @@ class PluginRuntimeManager:
             return None
 
         for sv in self.supervisors:
-            result = sv.component_registry.find_command_by_text(text)
-            if result is not None:
+            match_result = sv.component_registry.find_command_by_text(text)
+            if match_result is not None:
+                comp, matched_groups = match_result
                 return {
-                    "name": result.name,
-                    "full_name": result.full_name,
-                    "component_type": result.component_type,
-                    "plugin_id": result.plugin_id,
-                    "metadata": result.metadata,
-                    "enabled": result.enabled,
+                    "name": comp.name,
+                    "full_name": comp.full_name,
+                    "component_type": comp.component_type,
+                    "plugin_id": comp.plugin_id,
+                    "metadata": comp.metadata,
+                    "enabled": comp.enabled,
+                    "matched_groups": matched_groups,
                 }
         return None
 
@@ -1399,17 +1401,30 @@ class PluginRuntimeManager:
 
     @staticmethod
     async def _cap_component_get_all_plugins(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        """获取所有插件信息（汇总所有 Supervisor 的注册信息）"""
+        """获取所有插件信息（汇总所有 Supervisor 的注册信息，包含组件列表）"""
         mgr = get_plugin_runtime_manager()
         result: Dict[str, Any] = {}
         for sv in mgr.supervisors:
             for pid, reg in sv._registered_plugins.items():
+                # 从 ComponentRegistry 中获取该插件的所有组件
+                comps = sv.component_registry.get_components_by_plugin(pid, enabled_only=False)
+                components_list = [
+                    {
+                        "name": c.name,
+                        "full_name": c.full_name,
+                        "type": c.component_type,
+                        "enabled": c.enabled,
+                        "metadata": c.metadata,
+                    }
+                    for c in comps
+                ]
                 result[pid] = {
                     "name": pid,
                     "version": reg.plugin_version,
                     "description": "",
                     "author": "",
                     "enabled": True,
+                    "components": components_list,
                 }
         return {"success": True, "plugins": result}
 
@@ -1458,43 +1473,58 @@ class PluginRuntimeManager:
     async def _cap_component_enable(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """启用组件
 
-        args: name, component_type
+        args: name, component_type, scope, stream_id
         """
         name: str = args.get("name", "")
         component_type: str = args.get("component_type", "")
         if not name or not component_type:
             return {"success": False, "error": "缺少必要参数 name 或 component_type"}
 
+        # TODO: scope 和 stream_id 参数尚未实现，当前均为全局启用
         mgr = get_plugin_runtime_manager()
         for sv in mgr.supervisors:
+            # 先尝试按全名查找（plugin_id.component_name）
             comp = sv.component_registry.get_component(name)
-            if comp is not None:
+            if comp is not None and comp.component_type == component_type:
                 comp.enabled = True
                 return {"success": True}
-        return {"success": False, "error": f"未找到组件: {name}"}
+            # 回退：按短名 + 类型在该类型索引中搜索
+            for c in sv.component_registry.get_components_by_type(component_type, enabled_only=False):
+                if c.name == name:
+                    c.enabled = True
+                    return {"success": True}
+        return {"success": False, "error": f"未找到组件: {name} ({component_type})"}
 
     @staticmethod
     async def _cap_component_disable(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """禁用组件
 
-        args: name, component_type
+        args: name, component_type, scope, stream_id
         """
         name: str = args.get("name", "")
         component_type: str = args.get("component_type", "")
         if not name or not component_type:
             return {"success": False, "error": "缺少必要参数 name 或 component_type"}
 
+        # TODO: scope 和 stream_id 参数尚未实现，当前均为全局禁用
         mgr = get_plugin_runtime_manager()
         for sv in mgr.supervisors:
             comp = sv.component_registry.get_component(name)
-            if comp is not None:
+            if comp is not None and comp.component_type == component_type:
                 comp.enabled = False
                 return {"success": True}
-        return {"success": False, "error": f"未找到组件: {name}"}
+            for c in sv.component_registry.get_components_by_type(component_type, enabled_only=False):
+                if c.name == name:
+                    c.enabled = False
+                    return {"success": True}
+        return {"success": False, "error": f"未找到组件: {name} ({component_type})"}
 
     @staticmethod
     async def _cap_component_load_plugin(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """加载插件（在新运行时中通过热重载实现）
+
+        先验证目标插件是否已注册或插件目录是否存在于某个 Supervisor，
+        然后只对拥有该插件的 Supervisor 执行热重载。
 
         args: plugin_name
         """
@@ -1502,14 +1532,32 @@ class PluginRuntimeManager:
         if not plugin_name:
             return {"success": False, "error": "缺少必要参数 plugin_name"}
 
+        import os
+
         mgr = get_plugin_runtime_manager()
+
+        # 优先查找已注册该插件的 Supervisor
         for sv in mgr.supervisors:
-            try:
-                await sv.reload_plugins(reason=f"load {plugin_name}")
-                return {"success": True, "count": 1}
-            except Exception as e:
-                logger.error(f"[cap.component.load_plugin] 热重载失败: {e}")
-        return {"success": False, "error": f"无法加载插件: {plugin_name}"}
+            if plugin_name in sv._registered_plugins:
+                try:
+                    await sv.reload_plugins(reason=f"load {plugin_name}")
+                    return {"success": True, "count": 1}
+                except Exception as e:
+                    logger.error(f"[cap.component.load_plugin] 热重载失败: {e}")
+                    return {"success": False, "error": str(e)}
+
+        # 插件尚未注册，检查是否有 Supervisor 的 plugin_dirs 下包含该插件目录
+        for sv in mgr.supervisors:
+            for pdir in sv._plugin_dirs:
+                if os.path.isdir(os.path.join(pdir, plugin_name)):
+                    try:
+                        await sv.reload_plugins(reason=f"load {plugin_name}")
+                        return {"success": True, "count": 1}
+                    except Exception as e:
+                        logger.error(f"[cap.component.load_plugin] 热重载失败: {e}")
+                        return {"success": False, "error": str(e)}
+
+        return {"success": False, "error": f"未找到插件: {plugin_name}"}
 
     @staticmethod
     async def _cap_component_unload_plugin(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:

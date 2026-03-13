@@ -225,6 +225,19 @@ class RPCServer:
 
         if old_connection and old_connection is not conn and not old_connection.is_closed:
             logger.info("检测到新 Runner 已接管连接，关闭旧连接")
+            # 新连接接管后，旧 Runner 的 in-flight 请求不会再收到响应
+            # （过期 generation 响应会被 _handle_response 丢弃），
+            # 在此处立即 fail-fast 所有 pending 请求，避免挂到超时
+            stale_count = 0
+            for _req_id, future in list(self._pending_requests.items()):
+                if not future.done():
+                    future.set_exception(
+                        RPCError(ErrorCode.E_PLUGIN_CRASHED, "Runner 连接已被新 generation 接管")
+                    )
+                    stale_count += 1
+            self._pending_requests.clear()
+            if stale_count:
+                logger.info(f"已清理 {stale_count} 个旧 Runner 的 pending 请求")
             await old_connection.close()
 
         # 启动消息接收循环
@@ -237,7 +250,7 @@ class RPCServer:
                 self._connection = None
                 self._runner_id = None
                 # 连接断开时，立即让所有等待中的请求失败，避免挂起至超时
-                for req_id, future in list(self._pending_requests.items()):
+                for _req_id, future in list(self._pending_requests.items()):
                     if not future.done():
                         future.set_exception(RPCError(ErrorCode.E_PLUGIN_CRASHED, "Runner 连接已断开"))
                 self._pending_requests.clear()

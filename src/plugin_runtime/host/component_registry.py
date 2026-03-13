@@ -181,18 +181,23 @@ class ComponentRegistry:
         comps = self._by_plugin.get(plugin_id, [])
         return [c for c in comps if c.enabled] if enabled_only else list(comps)
 
-    def find_command_by_text(self, text: str) -> Optional[RegisteredComponent]:
-        """通过文本匹配命令正则，返回第一个匹配的 command 组件。"""
+    def find_command_by_text(self, text: str) -> Optional[tuple[RegisteredComponent, Dict[str, Any]]]:
+        """通过文本匹配命令正则，返回 (组件, matched_groups) 元组。
+
+        matched_groups 为正则命名捕获组 dict，别名匹配时为空 dict。
+        """
         for comp in self._by_type.get("command", {}).values():
             if not comp.enabled:
                 continue
-            if comp._compiled_pattern and comp._compiled_pattern.search(text):
-                return comp
+            if comp._compiled_pattern:
+                m = comp._compiled_pattern.search(text)
+                if m:
+                    return comp, m.groupdict()
             # 别名匹配
             aliases = comp.metadata.get("aliases", [])
             for alias in aliases:
                 if text.startswith(alias):
-                    return comp
+                    return comp, {}
         return None
 
     def get_event_handlers(
