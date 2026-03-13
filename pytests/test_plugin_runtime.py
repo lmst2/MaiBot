@@ -1372,6 +1372,53 @@ class TestRPCServer:
         finally:
             loop.close()
 
+    @pytest.mark.asyncio
+    async def test_send_queue_backpressure_is_enforced(self):
+        from src.plugin_runtime.host.rpc_server import RPCServer
+        from src.plugin_runtime.protocol.errors import ErrorCode, RPCError
+
+        class DummyTransport:
+            async def start(self, handler):
+                return None
+
+            async def stop(self):
+                return None
+
+            def get_address(self):
+                return "dummy"
+
+        class BlockingConnection:
+            def __init__(self):
+                self.is_closed = False
+                self.release = asyncio.Event()
+
+            async def send_frame(self, data):
+                await self.release.wait()
+
+            async def close(self):
+                self.is_closed = True
+
+        server = RPCServer(transport=DummyTransport(), send_queue_size=1)
+        await server.start()
+
+        conn = BlockingConnection()
+        server._connection = conn
+        server._runner_generation = 1
+
+        first_send = asyncio.create_task(server.send_event("runner.log_batch"))
+        await asyncio.sleep(0)
+        second_send = asyncio.create_task(server.send_event("runner.log_batch"))
+        await asyncio.sleep(0)
+
+        with pytest.raises(RPCError) as exc_info:
+            await server.send_event("runner.log_batch")
+
+        assert exc_info.value.code == ErrorCode.E_BACKPRESSURE
+
+        conn.release.set()
+        await asyncio.gather(first_send, second_send)
+        await server.stop()
+
 
 class TestRPCClient:
     """Runner RPCClient 后台任务生命周期测试"""
