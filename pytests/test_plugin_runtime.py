@@ -1697,6 +1697,66 @@ class TestIntegration:
     """运行时集成层启动/清理测试"""
 
     @pytest.mark.asyncio
+    async def test_component_enable_rejects_ambiguous_short_name(self, monkeypatch):
+        from src.plugin_runtime import integration as integration_module
+        from src.plugin_runtime.host.component_registry import ComponentRegistry
+
+        class FakeSupervisor:
+            def __init__(self, plugin_id: str):
+                self.component_registry = ComponentRegistry()
+                self.component_registry.register_component(
+                    name="shared",
+                    component_type="tool",
+                    plugin_id=plugin_id,
+                    metadata={},
+                )
+
+        class FakeManager:
+            def __init__(self):
+                self.supervisors = [FakeSupervisor("plugin_a"), FakeSupervisor("plugin_b")]
+
+        monkeypatch.setattr(integration_module, "get_plugin_runtime_manager", lambda: FakeManager())
+
+        result = await integration_module.PluginRuntimeManager._cap_component_enable(
+            "plugin_a",
+            "component.enable",
+            {"name": "shared", "component_type": "tool", "scope": "global", "stream_id": ""},
+        )
+
+        assert result["success"] is False
+        assert "组件名不唯一" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_component_disable_rejects_non_global_scope(self, monkeypatch):
+        from src.plugin_runtime import integration as integration_module
+        from src.plugin_runtime.host.component_registry import ComponentRegistry
+
+        class FakeSupervisor:
+            def __init__(self):
+                self.component_registry = ComponentRegistry()
+                self.component_registry.register_component(
+                    name="handler",
+                    component_type="tool",
+                    plugin_id="plugin_a",
+                    metadata={},
+                )
+
+        class FakeManager:
+            def __init__(self):
+                self.supervisors = [FakeSupervisor()]
+
+        monkeypatch.setattr(integration_module, "get_plugin_runtime_manager", lambda: FakeManager())
+
+        result = await integration_module.PluginRuntimeManager._cap_component_disable(
+            "plugin_a",
+            "component.disable",
+            {"name": "plugin_a.handler", "component_type": "tool", "scope": "stream", "stream_id": "s1"},
+        )
+
+        assert result["success"] is False
+        assert "仅支持全局组件禁用" in result["error"]
+
+    @pytest.mark.asyncio
     async def test_start_cleans_up_started_supervisors_on_failure(self, monkeypatch):
         from src.plugin_runtime import integration as integration_module
 
@@ -1740,8 +1800,6 @@ class TestIntegration:
 
     @pytest.mark.asyncio
     async def test_handle_plugin_file_changes_routes_reload_and_config_update(self, monkeypatch, tmp_path):
-        from pathlib import Path
-
         from src.config.file_watcher import FileChange
         from src.plugin_runtime import integration as integration_module
 

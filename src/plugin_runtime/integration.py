@@ -1653,6 +1653,31 @@ class PluginRuntimeManager:
         return {"success": True, "plugins": plugins}
 
     @staticmethod
+    def _resolve_component_toggle_target(name: str, component_type: str) -> tuple[Optional[Any], Optional[str]]:
+        """解析组件启停目标。
+
+        支持全名 plugin_id.component_name；短名仅在全局唯一时允许，
+        否则返回歧义错误，避免跨 Supervisor 误操作。
+        """
+        mgr = get_plugin_runtime_manager()
+        short_name_matches: List[Any] = []
+
+        for sv in mgr.supervisors:
+            comp = sv.component_registry.get_component(name)
+            if comp is not None and comp.component_type == component_type:
+                return comp, None
+
+            for candidate in sv.component_registry.get_components_by_type(component_type, enabled_only=False):
+                if candidate.name == name:
+                    short_name_matches.append(candidate)
+
+        if len(short_name_matches) == 1:
+            return short_name_matches[0], None
+        if len(short_name_matches) > 1:
+            return None, f"组件名不唯一: {name} ({component_type})，请使用完整名 plugin_id.component_name"
+        return None, f"未找到组件: {name} ({component_type})"
+
+    @staticmethod
     async def _cap_component_enable(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """启用组件
 
@@ -1660,23 +1685,19 @@ class PluginRuntimeManager:
         """
         name: str = args.get("name", "")
         component_type: str = args.get("component_type", "")
+        scope: str = args.get("scope", "global")
+        stream_id: str = args.get("stream_id", "")
         if not name or not component_type:
             return {"success": False, "error": "缺少必要参数 name 或 component_type"}
+        if scope != "global" or stream_id:
+            return {"success": False, "error": "当前仅支持全局组件启用，不支持 scope/stream_id 定位"}
 
-        # TODO: scope 和 stream_id 参数尚未实现，当前均为全局启用
-        mgr = get_plugin_runtime_manager()
-        for sv in mgr.supervisors:
-            # 先尝试按全名查找（plugin_id.component_name）
-            comp = sv.component_registry.get_component(name)
-            if comp is not None and comp.component_type == component_type:
-                comp.enabled = True
-                return {"success": True}
-            # 回退：按短名 + 类型在该类型索引中搜索
-            for c in sv.component_registry.get_components_by_type(component_type, enabled_only=False):
-                if c.name == name:
-                    c.enabled = True
-                    return {"success": True}
-        return {"success": False, "error": f"未找到组件: {name} ({component_type})"}
+        comp, error = PluginRuntimeManager._resolve_component_toggle_target(name, component_type)
+        if comp is None:
+            return {"success": False, "error": error or f"未找到组件: {name} ({component_type})"}
+
+        comp.enabled = True
+        return {"success": True}
 
     @staticmethod
     async def _cap_component_disable(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
@@ -1686,21 +1707,19 @@ class PluginRuntimeManager:
         """
         name: str = args.get("name", "")
         component_type: str = args.get("component_type", "")
+        scope: str = args.get("scope", "global")
+        stream_id: str = args.get("stream_id", "")
         if not name or not component_type:
             return {"success": False, "error": "缺少必要参数 name 或 component_type"}
+        if scope != "global" or stream_id:
+            return {"success": False, "error": "当前仅支持全局组件禁用，不支持 scope/stream_id 定位"}
 
-        # TODO: scope 和 stream_id 参数尚未实现，当前均为全局禁用
-        mgr = get_plugin_runtime_manager()
-        for sv in mgr.supervisors:
-            comp = sv.component_registry.get_component(name)
-            if comp is not None and comp.component_type == component_type:
-                comp.enabled = False
-                return {"success": True}
-            for c in sv.component_registry.get_components_by_type(component_type, enabled_only=False):
-                if c.name == name:
-                    c.enabled = False
-                    return {"success": True}
-        return {"success": False, "error": f"未找到组件: {name} ({component_type})"}
+        comp, error = PluginRuntimeManager._resolve_component_toggle_target(name, component_type)
+        if comp is None:
+            return {"success": False, "error": error or f"未找到组件: {name} ({component_type})"}
+
+        comp.enabled = False
+        return {"success": True}
 
     @staticmethod
     async def _cap_component_load_plugin(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
