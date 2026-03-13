@@ -194,9 +194,9 @@ class HealthPayload(BaseModel):
 # ─── 配置更新 ──────────────────────────────────────────────────────
 
 
-# TODO: Host 侧尚未实现配置变更检测与推送。Runner 端的 _handle_config_updated
-#       已就绪，但当前无任何调用方通过 RPC 发送 plugin.config_updated 消息。
-#       需要在 Supervisor 或 CapabilityService 中监听配置文件变化并主动推送。
+# Host 侧现已支持配置更新推送：
+# - 总配置热重载完成后，PluginRuntimeManager 会向已加载插件推送配置更新事件。
+# - 插件目录下的 config.toml 变化由现有 FileWatcher 监听并转发为 plugin.config_updated。
 class ConfigUpdatedPayload(BaseModel):
     """plugin.config_updated 事件 payload"""
 

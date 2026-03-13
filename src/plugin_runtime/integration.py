@@ -7,14 +7,16 @@
 4. 提供统一的能力实现注册接口，使插件可以调用主程序功能
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import asyncio
 import os
+from pathlib import Path
 
 from src.chat.message_receive.chat_manager import BotChatSession
 from src.common.logger import get_logger
-from src.config.config import global_config
+from src.config.config import config_manager, global_config
+from src.config.file_watcher import FileChange, FileWatcher
 
 logger = get_logger("plugin_runtime.integration")
 
@@ -45,6 +47,9 @@ class PluginRuntimeManager:
         self._builtin_supervisor: Optional[PluginSupervisor] = None
         self._thirdparty_supervisor: Optional[PluginSupervisor] = None
         self._started: bool = False
+        self._config_reload_callback_registered: bool = False
+        self._plugin_file_watcher: Optional[FileWatcher] = None
+        self._plugin_file_watcher_subscription_id: Optional[str] = None
 
     # ─── 插件目录 ─────────────────────────────────────────────
 
@@ -112,10 +117,14 @@ class PluginRuntimeManager:
             if self._thirdparty_supervisor:
                 await self._thirdparty_supervisor.start()
                 started_supervisors.append(self._thirdparty_supervisor)
+            self._register_config_reload_callback()
+            await self._start_plugin_file_watcher()
             self._started = True
             logger.info(f"插件运行时已启动 — 内置: {builtin_dirs or '无'}, 第三方: {thirdparty_dirs or '无'}")
         except Exception as e:
             logger.error(f"插件运行时启动失败: {e}", exc_info=True)
+            await self._stop_plugin_file_watcher()
+            self._unregister_config_reload_callback()
             await asyncio.gather(*(sv.stop() for sv in started_supervisors), return_exceptions=True)
             self._started = False
             self._builtin_supervisor = None
@@ -125,6 +134,9 @@ class PluginRuntimeManager:
         """停止所有插件运行时"""
         if not self._started:
             return
+
+        await self._stop_plugin_file_watcher()
+        self._unregister_config_reload_callback()
 
         coros = []
         if self._builtin_supervisor:
@@ -150,6 +162,44 @@ class PluginRuntimeManager:
     def supervisors(self) -> List[Any]:
         """获取所有活跃的 Supervisor"""
         return [s for s in (self._builtin_supervisor, self._thirdparty_supervisor) if s is not None]
+
+    async def notify_plugin_config_updated(
+        self,
+        plugin_id: str,
+        config_data: Optional[Dict[str, Any]] = None,
+        config_version: str = "",
+    ) -> bool:
+        """向拥有该插件的 Supervisor 推送配置更新事件。"""
+        if not self._started:
+            return False
+
+        for sv in self.supervisors:
+            if plugin_id in sv._registered_plugins:
+                config_payload = (
+                    config_data
+                    if config_data is not None
+                    else self._load_plugin_config_for_supervisor(plugin_id, getattr(sv, "_plugin_dirs", []))
+                )
+                await sv.notify_plugin_config_updated(
+                    plugin_id=plugin_id,
+                    config_data=config_payload,
+                    config_version=config_version,
+                )
+                return True
+        return False
+
+    async def handle_config_reload(self) -> None:
+        """处理主配置热重载后的插件配置通知。"""
+        if not self._started:
+            return
+
+        tasks = [
+            self.notify_plugin_config_updated(plugin_id)
+            for sv in self.supervisors
+            for plugin_id in list(sv._registered_plugins.keys())
+        ]
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     # ─── 事件桥接 ──────────────────────────────────────────────
 
@@ -227,6 +277,127 @@ class PluginRuntimeManager:
                     timeout_ms=timeout_ms,
                 )
         raise RuntimeError(f"插件 {plugin_id} 未在任何 Supervisor 中注册")
+
+    def _register_config_reload_callback(self) -> None:
+        if self._config_reload_callback_registered:
+            return
+        config_manager.register_reload_callback(self.handle_config_reload)
+        self._config_reload_callback_registered = True
+
+    def _unregister_config_reload_callback(self) -> None:
+        if not self._config_reload_callback_registered:
+            return
+        config_manager.unregister_reload_callback(self.handle_config_reload)
+        self._config_reload_callback_registered = False
+
+    async def _start_plugin_file_watcher(self) -> None:
+        if self._plugin_file_watcher is not None and self._plugin_file_watcher.running:
+            return
+
+        watch_paths = [Path(path).resolve() for path in self._iter_plugin_dirs() if os.path.isdir(path)]
+        if not watch_paths:
+            return
+
+        watcher = FileWatcher(
+            paths=watch_paths,
+            debounce_ms=600,
+            callback_timeout_s=15.0,
+            callback_failure_threshold=3,
+            callback_cooldown_s=30.0,
+        )
+        subscription_id = watcher.subscribe(self._handle_plugin_file_changes, paths=watch_paths)
+        await watcher.start()
+        self._plugin_file_watcher = watcher
+        self._plugin_file_watcher_subscription_id = subscription_id
+
+    async def _stop_plugin_file_watcher(self) -> None:
+        if self._plugin_file_watcher is None:
+            return
+        if self._plugin_file_watcher_subscription_id is not None:
+            self._plugin_file_watcher.unsubscribe(self._plugin_file_watcher_subscription_id)
+            self._plugin_file_watcher_subscription_id = None
+        await self._plugin_file_watcher.stop()
+        self._plugin_file_watcher = None
+
+    def _iter_plugin_dirs(self) -> Iterable[str]:
+        for supervisor in self.supervisors:
+            for plugin_dir in getattr(supervisor, "_plugin_dirs", []):
+                yield plugin_dir
+
+    async def _handle_plugin_file_changes(self, changes: List[FileChange]) -> None:
+        if not self._started or not changes:
+            return
+
+        reload_supervisors: List[Any] = []
+        config_updates: Dict[str, set[str]] = {}
+        changed_paths = [change.path.resolve() for change in changes]
+
+        for supervisor in self.supervisors:
+            plugin_ids_for_config = config_updates.setdefault(self._get_supervisor_key(supervisor), set())
+            for path in changed_paths:
+                plugin_id = self._match_plugin_id_for_supervisor(supervisor, path)
+                if plugin_id is None:
+                    continue
+                if path.name == "config.toml":
+                    plugin_ids_for_config.add(plugin_id)
+                elif path.name in {"plugin.py", "_manifest.json"} or path.suffix == ".py":
+                    if supervisor not in reload_supervisors:
+                        reload_supervisors.append(supervisor)
+
+        for supervisor in reload_supervisors:
+            await supervisor.reload_plugins(reason="file_watcher")
+
+        for supervisor in self.supervisors:
+            if supervisor in reload_supervisors:
+                continue
+            for plugin_id in config_updates.get(self._get_supervisor_key(supervisor), set()):
+                try:
+                    await supervisor.notify_plugin_config_updated(
+                        plugin_id=plugin_id,
+                        config_data=self._load_plugin_config_for_supervisor(
+                            plugin_id, getattr(supervisor, "_plugin_dirs", [])
+                        ),
+                    )
+                except Exception as exc:
+                    logger.warning(f"插件 {plugin_id} 配置热更新通知失败: {exc}")
+
+    @staticmethod
+    def _get_supervisor_key(supervisor: Any) -> str:
+        return str(id(supervisor))
+
+    @staticmethod
+    def _plugin_dir_matches(path: Path, plugin_dir: str) -> bool:
+        plugin_root = Path(plugin_dir).resolve()
+        return path == plugin_root or path.is_relative_to(plugin_root)
+
+    def _match_plugin_id_for_supervisor(self, supervisor: Any, path: Path) -> Optional[str]:
+        for plugin_id, reg in getattr(supervisor, "_registered_plugins", {}).items():
+            for plugin_dir in getattr(supervisor, "_plugin_dirs", []):
+                candidate_dir = Path(plugin_dir).resolve() / plugin_id
+                if path == candidate_dir or path.is_relative_to(candidate_dir):
+                    return plugin_id
+
+        for plugin_dir in getattr(supervisor, "_plugin_dirs", []):
+            plugin_root = Path(plugin_dir).resolve()
+            if self._plugin_dir_matches(path, plugin_dir):
+                relative_parts = path.relative_to(plugin_root).parts
+                if relative_parts:
+                    return relative_parts[0]
+        return None
+
+    @staticmethod
+    def _load_plugin_config_for_supervisor(plugin_id: str, plugin_dirs: Iterable[str]) -> Dict[str, Any]:
+        import tomlkit
+
+        for plugin_dir in plugin_dirs:
+            plugin_path = Path(plugin_dir).resolve() / plugin_id
+            if plugin_path.is_dir():
+                config_path = plugin_path / "config.toml"
+                if not config_path.exists():
+                    return {}
+                with open(config_path, "r", encoding="utf-8") as handle:
+                    return dict(tomlkit.load(handle))
+        return {}
 
     # ─── 能力实现注册 ──────────────────────────────────────────
 

@@ -25,6 +25,7 @@ from src.plugin_runtime.host.policy_engine import PolicyEngine
 from src.plugin_runtime.host.rpc_server import RPCServer
 from src.plugin_runtime.host.workflow_executor import WorkflowExecutor, WorkflowContext, WorkflowResult
 from src.plugin_runtime.protocol.envelope import (
+    ConfigUpdatedPayload,
     Envelope,
     HealthPayload,
     LogBatchPayload,
@@ -374,6 +375,29 @@ class PluginSupervisor:
                 old_process.kill()
 
         logger.info("热重载完成")
+
+    async def notify_plugin_config_updated(
+        self,
+        plugin_id: str,
+        config_data: Dict[str, Any],
+        config_version: str = "",
+    ) -> bool:
+        """通知指定插件其配置已更新。"""
+        if plugin_id not in self._registered_plugins:
+            return False
+
+        payload = ConfigUpdatedPayload(
+            plugin_id=plugin_id,
+            config_version=config_version,
+            config_data=config_data,
+        )
+        await self._rpc_server.send_request(
+            "plugin.config_updated",
+            plugin_id=plugin_id,
+            payload=payload.model_dump(),
+            timeout_ms=5000,
+        )
+        return True
 
     # ─── 内部方法 ──────────────────────────────────────────────
 
