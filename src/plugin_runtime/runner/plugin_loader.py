@@ -78,6 +78,7 @@ class PluginLoader:
         """
         # 第一阶段：发现并校验 manifest
         candidates: Dict[str, Tuple[str, Dict[str, Any], str]] = {}  # id -> (dir, manifest, plugin_path)
+        duplicate_candidates: Dict[str, List[str]] = {}
         for base_dir in plugin_dirs:
             if not os.path.isdir(base_dir):
                 logger.warning(f"插件目录不存在: {base_dir}")
@@ -107,8 +108,24 @@ class PluginLoader:
                     self._failed_plugins[entry] = f"manifest 校验失败: {errors}"
                     continue
 
-                plugin_id = manifest.get("name", entry)
+                plugin_id = str(manifest.get("name", entry)).strip() or entry
+                if plugin_id in duplicate_candidates:
+                    duplicate_candidates[plugin_id].append(plugin_dir)
+                    continue
+
+                previous = candidates.get(plugin_id)
+                if previous is not None:
+                    duplicate_candidates[plugin_id] = [previous[0], plugin_dir]
+                    candidates.pop(plugin_id, None)
+                    continue
+
                 candidates[plugin_id] = (plugin_dir, manifest, plugin_path)
+
+        for plugin_id, conflict_dirs in duplicate_candidates.items():
+            unique_dirs = sorted(dict.fromkeys(conflict_dirs))
+            reason = f"检测到重复插件 ID: {plugin_id} -> {', '.join(unique_dirs)}"
+            self._failed_plugins[plugin_id] = reason
+            logger.error(reason)
 
         # 第二阶段：依赖解析（拓扑排序）
         load_order, failed_deps = self._resolve_dependencies(candidates)

@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 import asyncio
 import contextlib
+import re
 import secrets
 
 from src.common.logger import get_logger
@@ -561,12 +562,21 @@ class RPCServer:
     def _check_sdk_version(sdk_version: str) -> bool:
         """检查 SDK 版本是否在支持范围内"""
         try:
-            sdk_parts = [int(x) for x in sdk_version.split(".")]
-            min_parts = [int(x) for x in MIN_SDK_VERSION.split(".")]
-            max_parts = [int(x) for x in MAX_SDK_VERSION.split(".")]
+            sdk_parts = RPCServer._parse_version_tuple(sdk_version)
+            min_parts = RPCServer._parse_version_tuple(MIN_SDK_VERSION)
+            max_parts = RPCServer._parse_version_tuple(MAX_SDK_VERSION)
             return min_parts <= sdk_parts <= max_parts
         except (ValueError, AttributeError):
             return False
+
+    @staticmethod
+    def _parse_version_tuple(version: str) -> Tuple[int, int, int]:
+        base_version = re.split(r"[-.](?:snapshot|dev|alpha|beta|rc)", version or "", flags=re.IGNORECASE)[0]
+        base_version = base_version.split("+", 1)[0]
+        parts = [part for part in base_version.split(".") if part != ""]
+        while len(parts) < 3:
+            parts.append("0")
+        return (int(parts[0]), int(parts[1]), int(parts[2]))
 
     def _get_connection_for_generation(self, generation: int) -> Optional[Connection]:
         if generation == self._runner_generation:

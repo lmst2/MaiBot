@@ -16,8 +16,8 @@ import os
 import sys
 
 from src.common.logger import get_logger
-from src.config.config import global_config
-from src.plugin_runtime import ENV_IPC_ADDRESS, ENV_PLUGIN_DIRS, ENV_SESSION_TOKEN
+from src.config.config import MMC_VERSION, global_config
+from src.plugin_runtime import ENV_HOST_VERSION, ENV_IPC_ADDRESS, ENV_PLUGIN_DIRS, ENV_SESSION_TOKEN
 from src.plugin_runtime.host.capability_service import CapabilityService
 from src.plugin_runtime.host.component_registry import ComponentRegistry
 from src.plugin_runtime.host.event_dispatcher import EventDispatcher
@@ -521,6 +521,7 @@ class PluginSupervisor:
         env[ENV_IPC_ADDRESS] = address
         env[ENV_SESSION_TOKEN] = token
         env[ENV_PLUGIN_DIRS] = os.pathsep.join(self._plugin_dirs)
+        env[ENV_HOST_VERSION] = MMC_VERSION
 
         self._runner_process = await asyncio.create_subprocess_exec(
             sys.executable,

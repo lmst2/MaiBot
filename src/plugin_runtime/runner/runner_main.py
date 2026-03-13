@@ -24,7 +24,7 @@ import time
 import tomllib
 
 from src.common.logger import get_console_handler, get_logger, initialize_logging
-from src.plugin_runtime import ENV_IPC_ADDRESS, ENV_PLUGIN_DIRS, ENV_SESSION_TOKEN
+from src.plugin_runtime import ENV_HOST_VERSION, ENV_IPC_ADDRESS, ENV_PLUGIN_DIRS, ENV_SESSION_TOKEN
 from src.plugin_runtime.protocol.envelope import (
     BootstrapPluginPayload,
     ComponentDeclaration,
@@ -68,7 +68,7 @@ class PluginRunner:
         self._plugin_dirs: list[str] = plugin_dirs
 
         self._rpc_client: RPCClient = RPCClient(host_address, session_token)
-        self._loader: PluginLoader = PluginLoader()
+        self._loader: PluginLoader = PluginLoader(host_version=os.getenv(ENV_HOST_VERSION, ""))
         self._start_time: float = time.monotonic()
         self._shutting_down: bool = False
 

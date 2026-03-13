@@ -13,3 +13,6 @@ ENV_SESSION_TOKEN = "MAIBOT_SESSION_TOKEN"
 
 ENV_PLUGIN_DIRS = "MAIBOT_PLUGIN_DIRS"
 """Runner 需要加载的插件目录列表（os.pathsep 分隔）"""
+
+ENV_HOST_VERSION = "MAIBOT_HOST_VERSION"
+"""Runner 读取的 Host 应用版本号，用于 manifest 兼容性校验"""
