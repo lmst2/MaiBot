@@ -1,40 +1,52 @@
-from typing import List, Optional, Dict, Any, Set
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Set
+
 from maim_message import UserInfo
 import time
+
+from src.chat.message_receive.message import SessionMessage
 from src.common.logger import get_logger
+from src.common.data_models.mai_message_data_model import MessageInfo, UserInfo as MaiUserInfo
+from src.services.message_service import build_readable_messages
+
 from .chat_observer import ChatObserver
 from .chat_states import NotificationHandler, NotificationType, Notification
-from src.chat.utils.chat_message_builder import build_readable_messages
-from src.common.data_models.database_data_model import DatabaseMessages
 import traceback  # 导入 traceback 用于调试
 
 logger = get_logger("observation_info")
 
 
-def dict_to_database_message(msg_dict: Dict[str, Any]) -> DatabaseMessages:
-    """Convert PFC dict format to DatabaseMessages object
+def dict_to_session_message(msg_dict: Dict[str, Any]) -> SessionMessage:
+    """Convert PFC dict format to SessionMessage object.
 
     Args:
         msg_dict: Message in PFC dict format with nested user_info
 
     Returns:
-        DatabaseMessages object compatible with build_readable_messages()
+        SessionMessage object compatible with build_readable_messages()
     """
     user_info_dict: Dict[str, Any] = msg_dict.get("user_info", {})
-
-    return DatabaseMessages(
+    timestamp = msg_dict.get("time", 0.0)
+    platform = user_info_dict.get("platform", "")
+    message = SessionMessage(
         message_id=msg_dict.get("message_id", ""),
-        time=msg_dict.get("time", 0.0),
-        chat_id=msg_dict.get("chat_id", ""),
-        processed_plain_text=msg_dict.get("processed_plain_text", ""),
-        display_message=msg_dict.get("display_message", ""),
-        is_mentioned=msg_dict.get("is_mentioned", False),
-        is_command=msg_dict.get("is_command", False),
-        user_id=user_info_dict.get("user_id", ""),
-        user_nickname=user_info_dict.get("user_nickname", ""),
-        user_cardname=user_info_dict.get("user_cardname"),
-        user_platform=user_info_dict.get("platform", ""),
+        timestamp=datetime.fromtimestamp(timestamp),
+        platform=platform,
     )
+    message.message_info = MessageInfo(
+        user_info=MaiUserInfo(
+            user_id=user_info_dict.get("user_id", ""),
+            user_nickname=user_info_dict.get("user_nickname", ""),
+            user_cardname=user_info_dict.get("user_cardname"),
+        )
+    )
+    message.session_id = msg_dict.get("chat_id", "")
+    message.processed_plain_text = msg_dict.get("processed_plain_text", "")
+    message.display_message = msg_dict.get("display_message", "")
+    message.is_mentioned = msg_dict.get("is_mentioned", False)
+    message.is_command = msg_dict.get("is_command", False)
+    message.initialized = True
+    return message
 
 
 class ObservationInfoHandler(NotificationHandler):
@@ -393,10 +405,10 @@ class ObservationInfo:
         # 更新历史记录字符串 (只使用最近一部分生成，例如20条)
         history_slice_for_str = self.chat_history[-20:]
         try:
-            # Convert dict format to DatabaseMessages objects
-            db_messages = [dict_to_database_message(m) for m in history_slice_for_str]
+            # Convert dict format to SessionMessage objects.
+            session_messages = [dict_to_session_message(m) for m in history_slice_for_str]
             self.chat_history_str = build_readable_messages(
-                db_messages,
+                session_messages,
                 replace_bot_name=True,
                 timestamp_mode="relative",
                 read_mark=0.0,  # read_mark 可能需要根据逻辑调整

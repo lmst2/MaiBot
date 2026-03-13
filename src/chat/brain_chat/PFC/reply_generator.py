@@ -5,9 +5,10 @@ from src.config.config import global_config, model_config
 import random
 from .chat_observer import ChatObserver
 from .reply_checker import ReplyChecker
-from .observation_info import ObservationInfo, dict_to_database_message
+from src.services.message_service import build_readable_messages
+
+from .observation_info import ObservationInfo, dict_to_session_message
 from .conversation_info import ConversationInfo
-from src.chat.utils.chat_message_builder import build_readable_messages
 
 logger = get_logger("reply_generator")
 
@@ -163,7 +164,7 @@ class ReplyGenerator:
                         knowledge = knowledge_item.get("knowledge", "无知识内容")
                         source = knowledge_item.get("source", "未知来源")
                         # 只取知识内容的前 2000 个字
-                        knowledge_snippet = knowledge[:2000] + "..." if len(knowledge) > 2000 else knowledge
+                        knowledge_snippet = f"{knowledge[:2000]}..." if len(knowledge) > 2000 else knowledge
                         knowledge_info_str += (
                             f"{i + 1}. 关于 '{query}' (来源: {source}): {knowledge_snippet}\n"  # 格式微调，更简洁
                         )
@@ -186,9 +187,9 @@ class ReplyGenerator:
         chat_history_text = observation_info.chat_history_str
         if observation_info.new_messages_count > 0 and observation_info.unprocessed_messages:
             new_messages_list = observation_info.unprocessed_messages
-            db_messages = [dict_to_database_message(m) for m in new_messages_list]
+            session_messages = [dict_to_session_message(m) for m in new_messages_list]
             new_messages_str = build_readable_messages(
-                db_messages,
+                session_messages,
                 replace_bot_name=True,
                 timestamp_mode="relative",
                 read_mark=0.0,

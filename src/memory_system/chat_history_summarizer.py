@@ -14,12 +14,11 @@ from typing import Any, Dict, List, Optional, Set
 from dataclasses import dataclass, field
 from json_repair import repair_json
 
+from src.chat.message_receive.message import SessionMessage
 from src.common.logger import get_logger
-from src.common.data_models.database_data_model import DatabaseMessages
 from src.config.config import model_config, global_config
 from src.llm_models.utils_model import LLMRequest
 from src.services import message_service as message_api
-from src.chat.utils.chat_message_builder import build_readable_messages
 from src.chat.utils.utils import is_bot_self
 from src.person_info.person_info import Person
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
@@ -34,7 +33,7 @@ HIPPO_CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "hippo_memorize
 class MessageBatch:
     """消息批次（用于触发话题检查的原始消息累积）"""
 
-    messages: List[DatabaseMessages]
+    messages: List[SessionMessage]
     start_time: float
     end_time: float
 
@@ -101,7 +100,7 @@ class ChatHistorySummarizer:
     def _get_chat_display_name(self) -> str:
         """获取聊天显示名称"""
         try:
-            chat_name = _chat_manager.get_session_name(self.chat_id)
+            chat_name = _chat_manager.get_session_name(self.session_id)
             if chat_name:
                 return chat_name
             # 如果获取失败，使用简化的chat_id显示
@@ -268,7 +267,7 @@ class ChatHistorySummarizer:
                 # 创建新批次
                 self.current_batch = MessageBatch(
                     messages=new_messages,
-                    start_time=new_messages[0].time if new_messages else current_time,
+                    start_time=new_messages[0].timestamp.timestamp() if new_messages else current_time,
                     end_time=current_time,
                 )
                 logger.debug(f"{self.log_prefix} 新建聊天检查批次: {len(new_messages)} 条消息")
@@ -340,7 +339,7 @@ class ChatHistorySummarizer:
             self.last_topic_check_time = current_time
             self._persist_topic_cache()
 
-    async def _run_topic_check_and_update_cache(self, messages: List[DatabaseMessages]):
+    async def _run_topic_check_and_update_cache(self, messages: List[SessionMessage]):
         """
         执行一次“话题检查”：
         1. 首先确认这段消息里是否有 Bot 发言，没有则直接丢弃本次批次；
@@ -355,8 +354,8 @@ class ChatHistorySummarizer:
         if not messages:
             return
 
-        start_time = messages[0].time
-        end_time = messages[-1].time
+        start_time = messages[0].timestamp.timestamp()
+        end_time = messages[-1].timestamp.timestamp()
 
         logger.info(
             f"{self.log_prefix} 开始话题检查 | 消息数: {len(messages)} | 时间范围: {start_time:.2f} - {end_time:.2f}"
@@ -365,13 +364,9 @@ class ChatHistorySummarizer:
         # 1. 检查当前批次内是否有 bot 发言（只检查当前批次，不往前推）
         # 原因：我们要记录的是 bot 参与过的对话片段，如果当前批次内 bot 没有发言，
         # 说明 bot 没有参与这段对话，不应该记录
-        has_bot_message = False
-
-        for msg in messages:
-            # 使用统一的 is_bot_self 函数判断是否是机器人自己（支持多平台，包括 WebUI）
-            if is_bot_self(msg.user_info.platform, msg.user_info.user_id):
-                has_bot_message = True
-                break
+        has_bot_message = any(
+            is_bot_self(msg.platform, msg.message_info.user_info.user_id) for msg in messages
+        )
 
         if not has_bot_message:
             logger.info(
@@ -575,7 +570,7 @@ class ChatHistorySummarizer:
         return topic_mapping
 
     def _build_numbered_messages_for_llm(
-        self, messages: List[DatabaseMessages]
+        self, messages: List[SessionMessage]
     ) -> tuple[List[str], Dict[int, str], Dict[int, str], Dict[int, Set[str]]]:
         """
         将消息转为带编号的字符串，供 LLM 选择使用。
@@ -594,7 +589,7 @@ class ChatHistorySummarizer:
         for idx, msg in enumerate(messages, start=1):
             # 使用 build_readable_messages 生成可读文本
             try:
-                text = build_readable_messages(
+                text = message_api.build_readable_messages(
                     messages=[msg],
                     replace_bot_name=True,
                     timestamp_mode="normal_no_YMD",
@@ -609,12 +604,8 @@ class ChatHistorySummarizer:
             # 获取发言人昵称
             participants: Set[str] = set()
             try:
-                platform = (
-                    getattr(msg, "user_platform", None)
-                    or (msg.user_info.platform if msg.user_info else None)
-                    or msg.chat_info.platform
-                )
-                user_id = msg.user_info.user_id if msg.user_info else None
+                platform = msg.platform
+                user_id = msg.message_info.user_info.user_id
                 if platform and user_id:
                     person = Person(platform=platform, user_id=user_id)
                     if person.person_name:

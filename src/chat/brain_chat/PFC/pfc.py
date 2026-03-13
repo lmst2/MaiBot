@@ -6,8 +6,9 @@ import random
 from .chat_observer import ChatObserver
 from .pfc_utils import get_items_from_json
 from .conversation_info import ConversationInfo
-from .observation_info import ObservationInfo, dict_to_database_message
-from src.chat.utils.chat_message_builder import build_readable_messages
+from src.services.message_service import build_readable_messages
+
+from .observation_info import ObservationInfo, dict_to_session_message
 from rich.traceback import install
 
 install(extra_lines=3)
@@ -103,9 +104,9 @@ class GoalAnalyzer:
 
         if observation_info.new_messages_count > 0:
             new_messages_list = observation_info.unprocessed_messages
-            db_messages = [dict_to_database_message(m) for m in new_messages_list]
+            session_messages = [dict_to_session_message(m) for m in new_messages_list]
             new_messages_str = build_readable_messages(
-                db_messages,
+                session_messages,
                 replace_bot_name=True,
                 timestamp_mode="relative",
                 read_mark=0.0,
@@ -238,9 +239,9 @@ class GoalAnalyzer:
 
     async def analyze_conversation(self, goal, reasoning):
         messages = self.chat_observer.get_cached_messages()
-        db_messages = [dict_to_database_message(m) for m in messages]
+        session_messages = [dict_to_session_message(m) for m in messages]
         chat_history_text = build_readable_messages(
-            db_messages,
+            session_messages,
             replace_bot_name=True,
             timestamp_mode="relative",
             read_mark=0.0,

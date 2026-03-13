@@ -1,13 +1,14 @@
-import time
 import asyncio
 import datetime
+import time
+
+from typing import Dict, Any, Optional
+
+from src.common.data_models.mai_message_data_model import MaiMessage
+from src.services.message_service import build_readable_messages, get_messages_before_time_in_chat
 
 # from .message_storage import MongoDBMessageStorage
-from src.chat.utils.chat_message_builder import build_readable_messages, get_raw_msg_before_timestamp_with_chat
-
 # from src.config.config import global_config
-from typing import Dict, Any, Optional
-from src.common.data_models.mai_message_data_model import MaiMessage
 from .pfc_types import ConversationState
 from .pfc import ChatObserver, GoalAnalyzer
 from .message_sender import DirectMessageSender
@@ -83,7 +84,7 @@ class Conversation:
             raise
         try:
             logger.info(f"[私聊][{self.private_name}]为 {self.stream_id} 加载初始聊天记录...")
-            initial_messages = get_raw_msg_before_timestamp_with_chat(  #
+            initial_messages = get_messages_before_time_in_chat(
                 chat_id=self.stream_id,
                 timestamp=time.time(),
                 limit=30,  # 加载最近30条作为初始上下文，可以调整
@@ -95,22 +96,23 @@ class Conversation:
                 read_mark=0.0,
             )
             if initial_messages:
-                # 将 DatabaseMessages 列表转换为 PFC 期望的 dict 格式（保持嵌套结构）
+                # 将 SessionMessage 列表转换为 PFC 期望的 dict 格式（保持嵌套结构）
                 initial_messages_dict: list[dict] = []
                 for msg in initial_messages:
+                    user_info = msg.message_info.user_info
                     msg_dict = {
                         "message_id": msg.message_id,
-                        "time": msg.time,
-                        "chat_id": msg.chat_id,
+                        "time": msg.timestamp.timestamp(),
+                        "chat_id": msg.session_id,
                         "processed_plain_text": msg.processed_plain_text,
                         "display_message": msg.display_message,
                         "is_mentioned": msg.is_mentioned,
                         "is_command": msg.is_command,
                         "user_info": {
-                            "user_id": msg.user_info.user_id if msg.user_info else "",
-                            "user_nickname": msg.user_info.user_nickname if msg.user_info else "",
-                            "user_cardname": msg.user_info.user_cardname if msg.user_info else None,
-                            "platform": msg.user_info.platform if msg.user_info else "",
+                            "user_id": user_info.user_id,
+                            "user_nickname": user_info.user_nickname,
+                            "user_cardname": user_info.user_cardname,
+                            "platform": msg.platform,
                         },
                     }
                     initial_messages_dict.append(msg_dict)

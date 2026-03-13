@@ -1,14 +1,16 @@
 import time
 from typing import Tuple, Optional  # 增加了 Optional
+
 from src.common.logger import get_logger
 from src.llm_models.utils_model import LLMRequest
 from src.config.config import global_config, model_config
 import random
 from .chat_observer import ChatObserver
 from .pfc_utils import get_items_from_json
-from .observation_info import ObservationInfo, dict_to_database_message
+from src.services.message_service import build_readable_messages
+
+from .observation_info import ObservationInfo, dict_to_session_message
 from .conversation_info import ConversationInfo
-from src.chat.utils.chat_message_builder import build_readable_messages
 
 
 logger = get_logger("pfc_action_planner")
@@ -271,19 +273,17 @@ class ActionPlanner:
         # 获取聊天历史记录 (chat_history_text)
         try:
             if hasattr(observation_info, "chat_history") and observation_info.chat_history:
-                chat_history_text = observation_info.chat_history_str
-                if not chat_history_text:
-                    chat_history_text = "还没有聊天记录。\n"
+                chat_history_text = observation_info.chat_history_str or "还没有聊天记录。\n"
             else:
                 chat_history_text = "还没有聊天记录。\n"
 
             if hasattr(observation_info, "new_messages_count") and observation_info.new_messages_count > 0:
                 if hasattr(observation_info, "unprocessed_messages") and observation_info.unprocessed_messages:
                     new_messages_list = observation_info.unprocessed_messages
-                    # Convert dict format to DatabaseMessages objects
-                    db_messages = [dict_to_database_message(m) for m in new_messages_list]
+                    # Convert dict format to SessionMessage objects.
+                    session_messages = [dict_to_session_message(m) for m in new_messages_list]
                     new_messages_str = build_readable_messages(
-                        db_messages,
+                        session_messages,
                         replace_bot_name=True,
                         timestamp_mode="relative",
                         read_mark=0.0,
