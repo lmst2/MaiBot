@@ -186,12 +186,21 @@ class PluginRunner:
             return
 
         rpc_client = self._rpc_client
+        bound_plugin_id = plugin_id
 
         async def _rpc_call(method: str, plugin_id: str = "", payload: dict = None) -> Any:
-            """桥接 PluginContext.call_capability → RPCClient.send_request"""
+            """桥接 PluginContext.call_capability → RPCClient.send_request。
+
+            无论调用方传入何种 plugin_id，实际发往 Host 的 plugin_id
+            始终绑定为当前插件实例，避免伪造其他插件身份申请能力。
+            """
+            if plugin_id and plugin_id != bound_plugin_id:
+                logger.warning(
+                    f"插件 {bound_plugin_id} 尝试以 {plugin_id} 身份发起 RPC，已强制绑定回自身身份"
+                )
             resp = await rpc_client.send_request(
                 method=method,
-                plugin_id=plugin_id,
+                plugin_id=bound_plugin_id,
                 payload=payload or {},
             )
             # 从响应信封中提取业务结果

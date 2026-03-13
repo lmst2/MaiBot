@@ -17,7 +17,7 @@
 - modification_log: 消息修改审计
 """
 
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple
 
 import asyncio
 import time
@@ -113,6 +113,7 @@ class WorkflowExecutor:
 
     def __init__(self, registry: ComponentRegistry) -> None:
         self._registry = registry
+        self._background_tasks: Set[asyncio.Task] = set()
 
     async def execute(
         self,
@@ -134,8 +135,6 @@ class WorkflowExecutor:
         """
         ctx = context or WorkflowContext(stream_id=stream_id)
         current_message = dict(message) if message else None
-        # 保持非阻塞任务引用，防止被 GC 回收
-        background_tasks: List[asyncio.Task] = []
 
         for stage in STAGE_SEQUENCE:
             stage_start = time.perf_counter()
@@ -220,14 +219,12 @@ class WorkflowExecutor:
 
                 # 4. 并发执行 non-blocking hook（只读，忽略返回值中的 modified_message）
                 if nonblocking_steps and not skip_stage:
-                    nb_tasks = [
-                        asyncio.create_task(
-                            self._invoke_step_fire_and_forget(invoke_fn, step, stage, ctx, current_message)
+                    for step in nonblocking_steps:
+                        self._track_background_task(
+                            asyncio.create_task(
+                                self._invoke_step_fire_and_forget(invoke_fn, step, stage, ctx, current_message)
+                            )
                         )
-                        for step in nonblocking_steps
-                    ]
-                    # 保持任务引用以防止被 GC 回收
-                    background_tasks.extend(nb_tasks)
 
                 ctx.timings[stage] = time.perf_counter() - stage_start
 
@@ -255,6 +252,11 @@ class WorkflowExecutor:
             current_message,
             ctx,
         )
+
+    def _track_background_task(self, task: asyncio.Task) -> None:
+        """保持 non-blocking workflow task 的强引用，直到任务结束。"""
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     # ─── 内部方法 ──────────────────────────────────────────────
 
