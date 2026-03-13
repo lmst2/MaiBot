@@ -9,7 +9,7 @@
 6. 转发插件的能力调用到 Host
 """
 
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Protocol, cast
 
 from pathlib import Path
 
@@ -41,6 +41,10 @@ from src.plugin_runtime.runner.plugin_loader import PluginLoader, PluginMeta
 from src.plugin_runtime.runner.rpc_client import RPCClient
 
 logger = get_logger("plugin_runtime.runner.main")
+
+
+class _ContextAwarePlugin(Protocol):
+    def _set_context(self, context: Any) -> None: ...
 
 
 def _disable_runner_console_logging() -> None:
@@ -204,7 +208,9 @@ class PluginRunner:
         rpc_client = self._rpc_client
         bound_plugin_id = plugin_id
 
-        async def _rpc_call(method: str, plugin_id: str = "", payload: dict = None) -> Any:
+        async def _rpc_call(
+            method: str, plugin_id: str = "", payload: Optional[dict[str, Any]] = None
+        ) -> Any:
             """桥接 PluginContext.call_capability → RPCClient.send_request。
 
             无论调用方传入何种 plugin_id，实际发往 Host 的 plugin_id
@@ -225,7 +231,7 @@ class PluginRunner:
             return resp.payload.get("result")
 
         ctx = PluginContext(plugin_id=plugin_id, rpc_call=_rpc_call)
-        instance._set_context(ctx)
+        cast(_ContextAwarePlugin, instance)._set_context(ctx)
         logger.debug(f"已为插件 {plugin_id} 注入 PluginContext")
 
     def _apply_plugin_config(self, meta: PluginMeta, config_data: Optional[dict[str, Any]] = None) -> None:
@@ -543,8 +549,7 @@ class PluginRunner:
     async def _handle_config_updated(self, envelope: Envelope) -> Envelope:
         """处理配置更新事件"""
         plugin_id = envelope.plugin_id
-        meta = self._loader.get_plugin(plugin_id)
-        if meta:
+        if meta := self._loader.get_plugin(plugin_id):
             try:
                 config_data = envelope.payload.get("config_data", {})
                 config_version = envelope.payload.get("config_version", "")

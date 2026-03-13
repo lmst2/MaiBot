@@ -8,7 +8,7 @@
 5. 发送能力调用请求到 Host
 """
 
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional, cast
 
 import asyncio
 import contextlib
@@ -90,6 +90,13 @@ class RPCClient:
         """注册方法处理器（处理 Host 发来的请求）"""
         self._method_handlers[method] = handler
 
+    def _require_connection(self) -> Connection:
+        """返回当前可用连接；若连接不可用则抛出 RPCError。"""
+        connection = self._connection
+        if connection is None or connection.is_closed:
+            raise RPCError(ErrorCode.E_UNKNOWN, "未连接到 Host")
+        return cast(Connection, connection)
+
     async def connect_and_handshake(self) -> bool:
         """连接 Host 并完成握手
 
@@ -98,6 +105,7 @@ class RPCClient:
         """
         client = create_transport_client(self._host_address)
         self._connection = await client.connect()
+        connection = self._require_connection()
 
         # 发送 runner.hello
         hello = HelloPayload(
@@ -114,10 +122,10 @@ class RPCClient:
         )
 
         data = self._codec.encode_envelope(envelope)
-        await self._connection.send_frame(data)
+        await connection.send_frame(data)
 
         # 接收握手响应
-        resp_data = await asyncio.wait_for(self._connection.recv_frame(), timeout=10.0)
+        resp_data = await asyncio.wait_for(connection.recv_frame(), timeout=10.0)
         resp = self._codec.decode_envelope(resp_data)
 
         resp_payload = HelloResponsePayload.model_validate(resp.payload)
@@ -170,8 +178,7 @@ class RPCClient:
         timeout_ms: int = 30000,
     ) -> Envelope:
         """向 Host 发送 RPC 请求并等待响应"""
-        if not self.is_connected:
-            raise RPCError(ErrorCode.E_UNKNOWN, "未连接到 Host")
+        connection = self._require_connection()
 
         request_id = self._id_gen.next()
         envelope = Envelope(
@@ -190,7 +197,7 @@ class RPCClient:
 
         try:
             data = self._codec.encode_envelope(envelope)
-            await self._connection.send_frame(data)
+            await connection.send_frame(data)
 
             timeout_sec = timeout_ms / 1000.0
             return await asyncio.wait_for(future, timeout=timeout_sec)
@@ -221,6 +228,8 @@ class RPCClient:
         if not self.is_connected:
             return
 
+        connection = self._require_connection()
+
         request_id = self._id_gen.next()
         envelope = Envelope(
             request_id=request_id,
@@ -231,7 +240,7 @@ class RPCClient:
             payload=payload or {},
         )
         data = self._codec.encode_envelope(envelope)
-        await self._connection.send_frame(data)
+        await connection.send_frame(data)
 
     async def _recv_loop(self) -> None:
         """消息接收主循环"""
@@ -271,25 +280,31 @@ class RPCClient:
 
     async def _handle_request(self, envelope: Envelope) -> None:
         """处理来自 Host 的请求（调用插件组件）"""
+        connection = self._connection
+        if connection is None or connection.is_closed:
+            logger.warning(f"处理请求 {envelope.method} 时连接已关闭，跳过响应")
+            return
+        connection = cast(Connection, connection)
+
         handler = self._method_handlers.get(envelope.method)
         if handler is None:
             error_resp = envelope.make_error_response(
                 ErrorCode.E_METHOD_NOT_ALLOWED.value,
                 f"未注册的方法: {envelope.method}",
             )
-            await self._connection.send_frame(self._codec.encode_envelope(error_resp))
+            await connection.send_frame(self._codec.encode_envelope(error_resp))
             return
 
         try:
             response = await handler(envelope)
-            await self._connection.send_frame(self._codec.encode_envelope(response))
+            await connection.send_frame(self._codec.encode_envelope(response))
         except RPCError as e:
             error_resp = envelope.make_error_response(e.code.value, e.message, e.details)
-            await self._connection.send_frame(self._codec.encode_envelope(error_resp))
+            await connection.send_frame(self._codec.encode_envelope(error_resp))
         except Exception as e:
             logger.error(f"处理请求 {envelope.method} 异常: {e}", exc_info=True)
             error_resp = envelope.make_error_response(ErrorCode.E_UNKNOWN.value, str(e))
-            await self._connection.send_frame(self._codec.encode_envelope(error_resp))
+            await connection.send_frame(self._codec.encode_envelope(error_resp))
 
     async def _handle_event(self, envelope: Envelope) -> None:
         """处理来自 Host 的事件"""
