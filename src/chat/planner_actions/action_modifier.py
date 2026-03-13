@@ -1,6 +1,6 @@
 import random
 import time
-from typing import List, Dict, TYPE_CHECKING, Tuple
+from typing import List, Dict, Tuple
 
 from src.common.logger import get_logger
 from src.config.config import global_config

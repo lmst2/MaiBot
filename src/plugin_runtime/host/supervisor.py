@@ -39,6 +39,7 @@ logger = get_logger("plugin_runtime.host.supervisor")
 
 # ─── 日志桥 ──────────────────────────────────────────────────────
 
+
 class RunnerLogBridge:
     """将 Runner 进程上报的批量日志重放到主进程的 Logger 中。
 
@@ -80,9 +81,7 @@ class RunnerLogBridge:
 
             stdlib_logging.getLogger(entry.logger_name).handle(record)
 
-        return envelope.make_response(
-            payload={"accepted": True, "count": len(batch.entries)}
-        )
+        return envelope.make_response(payload={"accepted": True, "count": len(batch.entries)})
 
 
 class PluginSupervisor:
@@ -101,8 +100,12 @@ class PluginSupervisor:
     ):
         _cfg = global_config.plugin_runtime
         self._plugin_dirs = plugin_dirs or []
-        self._health_interval = health_check_interval_sec if health_check_interval_sec is not None else _cfg.health_check_interval_sec
-        self._runner_spawn_timeout = runner_spawn_timeout_sec if runner_spawn_timeout_sec is not None else _cfg.runner_spawn_timeout_sec
+        self._health_interval = (
+            health_check_interval_sec if health_check_interval_sec is not None else _cfg.health_check_interval_sec
+        )
+        self._runner_spawn_timeout = (
+            runner_spawn_timeout_sec if runner_spawn_timeout_sec is not None else _cfg.runner_spawn_timeout_sec
+        )
 
         # 基础设施
         self._transport = create_transport_server(socket_path=socket_path)
@@ -114,6 +117,7 @@ class PluginSupervisor:
 
         # 编解码
         from src.plugin_runtime.protocol.codec import MsgPackCodec
+
         codec = MsgPackCodec()
 
         self._rpc_server = RPCServer(
@@ -124,7 +128,9 @@ class PluginSupervisor:
         # Runner 子进程
         self._runner_process: Optional[asyncio.subprocess.Process] = None
         self._runner_generation: int = 0
-        self._max_restart_attempts: int = max_restart_attempts if max_restart_attempts is not None else _cfg.max_restart_attempts
+        self._max_restart_attempts: int = (
+            max_restart_attempts if max_restart_attempts is not None else _cfg.max_restart_attempts
+        )
         self._restart_count: int = 0
 
         # 已注册的插件组件信息
@@ -173,6 +179,7 @@ class PluginSupervisor:
         extra_args: Optional[Dict[str, Any]] = None,
     ) -> Tuple[bool, Optional[Dict[str, Any]]]:
         """分发事件到所有对应 handler 的快捷方法。"""
+
         async def _invoke(plugin_id: str, component_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             resp = await self.invoke_plugin(
                 method="plugin.emit_event",
@@ -196,6 +203,7 @@ class PluginSupervisor:
         context: Optional[WorkflowContext] = None,
     ) -> Tuple[WorkflowResult, Optional[Dict[str, Any]], WorkflowContext]:
         """执行 Workflow Pipeline 的快捷方法。"""
+
         async def _invoke(plugin_id: str, component_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
             resp = await self.invoke_plugin(
                 method="plugin.invoke_workflow_step",
@@ -415,7 +423,9 @@ class PluginSupervisor:
         env[ENV_PLUGIN_DIRS] = os.pathsep.join(self._plugin_dirs)
 
         self._runner_process = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", runner_module,
+            sys.executable,
+            "-m",
+            runner_module,
             env=env,
             # stdout 不捕获：Runner 的日志均通过 IPC 传㛹（RunnerIPCLogHandler）
             stdout=None,
@@ -557,9 +567,7 @@ class PluginSupervisor:
         )
         self._stderr_drain_task = task
         task.add_done_callback(
-            lambda done_task: None
-            if self._stderr_drain_task is not done_task
-            else self._clear_stderr_drain_task()
+            lambda done_task: None if self._stderr_drain_task is not done_task else self._clear_stderr_drain_task()
         )
 
     def _clear_stderr_drain_task(self) -> None:

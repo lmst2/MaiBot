@@ -95,9 +95,7 @@ def load_mcp_config(config_path: str = "mcp_config.json") -> list[MCPServerConfi
         )
 
         if server.transport_type == "unknown":
-            console.print(
-                f"[warning]⚠️ MCP 服务器 '{name}' 缺少 command 或 url，已跳过[/warning]"
-            )
+            console.print(f"[warning]⚠️ MCP 服务器 '{name}' 缺少 command 或 url，已跳过[/warning]")
             continue
 
         configs.append(server)

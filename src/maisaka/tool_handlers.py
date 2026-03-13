@@ -4,7 +4,6 @@ MaiSaka - 工具调用处理器
 """
 
 import json as _json
-import asyncio
 import os
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
@@ -92,27 +91,33 @@ async def handle_say(tc, chat_history: list, ctx: ToolHandlerContext):
             )
         )
         # 生成的回复作为 tool 结果写入上下文
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": f"已向用户展示（实际输出）：{reply}",
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": f"已向用户展示（实际输出）：{reply}",
+            }
+        )
     else:
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": "reason 内容为空，未展示",
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": "reason 内容为空，未展示",
+            }
+        )
 
 
 async def handle_stop(tc, chat_history: list):
     """处理 stop 工具：结束对话循环。"""
     console.print("[accent]🔧 调用工具: stop()[/accent]")
-    chat_history.append({
-        "role": "tool",
-        "tool_call_id": tc.id,
-        "content": "对话循环已停止，等待用户下次输入。",
-    })
+    chat_history.append(
+        {
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": "对话循环已停止，等待用户下次输入。",
+        }
+    )
 
 
 async def handle_wait(tc, chat_history: list, ctx: ToolHandlerContext) -> str:
@@ -128,11 +133,13 @@ async def handle_wait(tc, chat_history: list, ctx: ToolHandlerContext) -> str:
 
     tool_result = await _do_wait(seconds, ctx)
 
-    chat_history.append({
-        "role": "tool",
-        "tool_call_id": tc.id,
-        "content": tool_result,
-    })
+    chat_history.append(
+        {
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": tool_result,
+        }
+    )
     return tool_result
 
 
@@ -193,28 +200,32 @@ async def handle_mcp_tool(tc, chat_history: list, mcp_manager: "MCPManager"):
         )
     )
 
-    chat_history.append({
-        "role": "tool",
-        "tool_call_id": tc.id,
-        "content": result,
-    })
+    chat_history.append(
+        {
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": result,
+        }
+    )
 
 
 async def handle_unknown_tool(tc, chat_history: list):
     """处理未知工具调用。"""
     console.print(f"[accent]🔧 调用工具: {tc.name}({tc.arguments})[/accent]")
-    chat_history.append({
-        "role": "tool",
-        "tool_call_id": tc.id,
-        "content": f"未知工具: {tc.name}",
-    })
+    chat_history.append(
+        {
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": f"未知工具: {tc.name}",
+        }
+    )
 
 
 async def handle_write_file(tc, chat_history: list):
     """处理 write_file 工具：在 mai_files 目录下写入文件。"""
     filename = tc.arguments.get("filename", "")
     content = tc.arguments.get("content", "")
-    console.print(f"[accent]🔧 调用工具: write_file(\"{filename}\")[/accent]")
+    console.print(f'[accent]🔧 调用工具: write_file("{filename}")[/accent]')
 
     # 确保目录存在
     MAI_FILES_DIR.mkdir(parents=True, exist_ok=True)
@@ -242,25 +253,29 @@ async def handle_write_file(tc, chat_history: list):
             )
         )
 
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": f"文件「{filename}」已成功写入，共 {file_size} 个字符。",
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": f"文件「{filename}」已成功写入，共 {file_size} 个字符。",
+            }
+        )
     except Exception as e:
         error_msg = f"写入文件失败: {e}"
         console.print(f"[error]{error_msg}[/error]")
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": error_msg,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": error_msg,
+            }
+        )
 
 
 async def handle_read_file(tc, chat_history: list):
     """处理 read_file 工具：读取 mai_files 目录下的文件。"""
     filename = tc.arguments.get("filename", "")
-    console.print(f"[accent]🔧 调用工具: read_file(\"{filename}\")[/accent]")
+    console.print(f'[accent]🔧 调用工具: read_file("{filename}")[/accent]')
 
     # 构建完整文件路径
     file_path = MAI_FILES_DIR / filename
@@ -269,21 +284,25 @@ async def handle_read_file(tc, chat_history: list):
         if not file_path.exists():
             error_msg = f"文件「{filename}」不存在。"
             console.print(f"[warning]{error_msg}[/warning]")
-            chat_history.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": error_msg,
-            })
+            chat_history.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": error_msg,
+                }
+            )
             return
 
         if not file_path.is_file():
             error_msg = f"「{filename}」不是一个文件。"
             console.print(f"[warning]{error_msg}[/warning]")
-            chat_history.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": error_msg,
-            })
+            chat_history.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": error_msg,
+                }
+            )
             return
 
         # 读取文件内容
@@ -304,19 +323,23 @@ async def handle_read_file(tc, chat_history: list):
             )
         )
 
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": f"文件「{filename}」内容：\n{file_content}",
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": f"文件「{filename}」内容：\n{file_content}",
+            }
+        )
     except Exception as e:
         error_msg = f"读取文件失败: {e}"
         console.print(f"[error]{error_msg}[/error]")
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": error_msg,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": error_msg,
+            }
+        )
 
 
 async def handle_list_files(tc, chat_history: list):
@@ -334,11 +357,13 @@ async def handle_list_files(tc, chat_history: list):
                 # 获取相对路径
                 rel_path = item.relative_to(MAI_FILES_DIR)
                 stat = item.stat()
-                files_info.append({
-                    "name": str(rel_path),
-                    "size": stat.st_size,
-                    "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
-                })
+                files_info.append(
+                    {
+                        "name": str(rel_path),
+                        "size": stat.st_size,
+                        "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                )
 
         if not files_info:
             result_text = "mai_files 目录为空，没有任何文件。"
@@ -360,19 +385,23 @@ async def handle_list_files(tc, chat_history: list):
             )
         )
 
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": result_text,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result_text,
+            }
+        )
     except Exception as e:
         error_msg = f"获取文件列表失败: {e}"
         console.print(f"[error]{error_msg}[/error]")
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": error_msg,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": error_msg,
+            }
+        )
 
 
 async def handle_store_context(tc, chat_history: list, ctx: ToolHandlerContext):
@@ -385,16 +414,18 @@ async def handle_store_context(tc, chat_history: list, ctx: ToolHandlerContext):
     """
     count = tc.arguments.get("count", 0)
     reason = tc.arguments.get("reason", "")
-    console.print(f"[accent]🔧 调用工具: store_context(count={count}, reason=\"{reason}\")[/accent]")
+    console.print(f'[accent]🔧 调用工具: store_context(count={count}, reason="{reason}")[/accent]')
 
     if count <= 0:
         error_msg = "count 参数必须大于 0"
         console.print(f"[error]{error_msg}[/error]")
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": error_msg,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": error_msg,
+            }
+        )
         return
 
     # 计算实际消息数量（排除 role=tool 的工具返回消息）
@@ -423,9 +454,7 @@ async def handle_store_context(tc, chat_history: list, ctx: ToolHandlerContext):
         if role == "assistant" and "tool_calls" in msg:
             # 检查这个消息是否包含当前的 tool_call（store_context 自己）
             # 如果包含，跳过不删除（否则会导致 tool 响应孤儿）
-            contains_current_call = any(
-                tc.get("id") == tc.id for tc in msg.get("tool_calls", [])
-            )
+            contains_current_call = any(tc.get("id") == tc.id for tc in msg.get("tool_calls", []))
             if contains_current_call:
                 i += 1
                 continue
@@ -453,11 +482,13 @@ async def handle_store_context(tc, chat_history: list, ctx: ToolHandlerContext):
 
     if not indices_to_remove:
         result_msg = "没有找到可存入记忆的消息"
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": result_msg,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result_msg,
+            }
+        )
         return
 
     # 收集要总结的消息（在删除前）
@@ -516,38 +547,45 @@ async def handle_store_context(tc, chat_history: list, ctx: ToolHandlerContext):
                 chat_history.pop(i)
         i -= 1
 
-    chat_history.append({
-        "role": "tool",
-        "tool_call_id": tc.id,
-        "content": result_msg,
-    })
+    chat_history.append(
+        {
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": result_msg,
+        }
+    )
 
 
 async def handle_get_qq_chat_info(tc, chat_history: list):
     """处理 get_qq_chat_info 工具：通过 HTTP 获取 QQ 聊天内容。"""
     chat = tc.arguments.get("chat", "")
     limit = tc.arguments.get("limit", 20)
-    console.print(f"[accent]🔧 调用工具: get_qq_chat_info(\"{chat}\", limit={limit})[/accent]")
+    console.print(f'[accent]🔧 调用工具: get_qq_chat_info("{chat}", limit={limit})[/accent]')
 
     if not AIOHTTP_AVAILABLE:
         error_msg = "aiohttp 模块未安装，请运行: pip install aiohttp"
         console.print(f"[error]{error_msg}[/error]")
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": error_msg,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": error_msg,
+            }
+        )
         return
 
     from config import QQ_API_BASE_URL, QQ_API_KEY
+
     if not QQ_API_BASE_URL:
         error_msg = "QQ_API_BASE_URL 未配置，请在 .env 中设置"
         console.print(f"[error]{error_msg}[/error]")
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": error_msg,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": error_msg,
+            }
+        )
         return
 
     try:
@@ -577,55 +615,66 @@ async def handle_get_qq_chat_info(tc, chat_history: list):
                         )
                     )
 
-                    chat_history.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": text if text.strip() else "暂无聊天记录",
-                    })
+                    chat_history.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": text if text.strip() else "暂无聊天记录",
+                        }
+                    )
                 else:
                     error_text = await response.text()
                     error_msg = f"HTTP 请求失败 (状态码 {response.status}): {error_text}"
                     console.print(f"[error]{error_msg}[/error]")
-                    chat_history.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": error_msg,
-                    })
+                    chat_history.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": error_msg,
+                        }
+                    )
     except Exception as e:
         error_msg = f"获取 QQ 聊天记录失败: {e}"
         console.print(f"[error]{error_msg}[/error]")
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": error_msg,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": error_msg,
+            }
+        )
 
 
 async def handle_send_info(tc, chat_history: list):
     """处理 send_info 工具：通过 HTTP 发送消息到 QQ。"""
     chat = tc.arguments.get("chat", "")
     message = tc.arguments.get("message", "")
-    console.print(f"[accent]🔧 调用工具: send_info(\"{chat}\")[/accent]")
+    console.print(f'[accent]🔧 调用工具: send_info("{chat}")[/accent]')
 
     if not AIOHTTP_AVAILABLE:
         error_msg = "aiohttp 模块未安装，请运行: pip install aiohttp"
         console.print(f"[error]{error_msg}[/error]")
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": error_msg,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": error_msg,
+            }
+        )
         return
 
     from config import QQ_API_BASE_URL, QQ_API_KEY
+
     if not QQ_API_BASE_URL:
         error_msg = "QQ_API_BASE_URL 未配置，请在 .env 中设置"
         console.print(f"[error]{error_msg}[/error]")
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": error_msg,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": error_msg,
+            }
+        )
         return
 
     try:
@@ -654,27 +703,33 @@ async def handle_send_info(tc, chat_history: list):
                         )
                     )
 
-                    chat_history.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": f"消息发送成功: {data.get('message', '发送成功')}",
-                    })
+                    chat_history.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": f"消息发送成功: {data.get('message', '发送成功')}",
+                        }
+                    )
                 else:
                     error_msg = f"发送失败: {data.get('message', '未知错误')}"
                     console.print(f"[error]{error_msg}[/error]")
-                    chat_history.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": error_msg,
-                    })
+                    chat_history.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": error_msg,
+                        }
+                    )
     except Exception as e:
         error_msg = f"发送消息失败: {e}"
         console.print(f"[error]{error_msg}[/error]")
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": error_msg,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": error_msg,
+            }
+        )
 
 
 async def handle_list_qq_chats(tc, chat_history: list):
@@ -684,22 +739,27 @@ async def handle_list_qq_chats(tc, chat_history: list):
     if not AIOHTTP_AVAILABLE:
         error_msg = "aiohttp 模块未安装，请运行: pip install aiohttp"
         console.print(f"[error]{error_msg}[/error]")
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": error_msg,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": error_msg,
+            }
+        )
         return
 
     from config import QQ_API_BASE_URL, QQ_API_KEY
+
     if not QQ_API_BASE_URL:
         error_msg = "QQ_API_BASE_URL 未配置，请在 .env 中设置"
         console.print(f"[error]{error_msg}[/error]")
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": error_msg,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": error_msg,
+            }
+        )
         return
 
     try:
@@ -721,10 +781,12 @@ async def handle_list_qq_chats(tc, chat_history: list):
 
                     # 格式化聊天列表
                     if chats:
-                        chat_list_text = "\n".join([
-                            f"  • [{c.get('platform', 'qq')}] {c.get('name', '未知')} (chat: {c.get('chat', 'N/A')})"
-                            for c in chats
-                        ])
+                        chat_list_text = "\n".join(
+                            [
+                                f"  • [{c.get('platform', 'qq')}] {c.get('name', '未知')} (chat: {c.get('chat', 'N/A')})"
+                                for c in chats
+                            ]
+                        )
                         result_text = f"可用的聊天 (共 {len(chats)} 个):\n{chat_list_text}"
                     else:
                         result_text = "没有可用的聊天"
@@ -738,27 +800,33 @@ async def handle_list_qq_chats(tc, chat_history: list):
                         )
                     )
 
-                    chat_history.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": result_text,
-                    })
+                    chat_history.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": result_text,
+                        }
+                    )
                 else:
                     error_msg = f"获取失败: {data.get('message', '未知错误')}"
                     console.print(f"[error]{error_msg}[/error]")
-                    chat_history.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": error_msg,
-                    })
+                    chat_history.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": error_msg,
+                        }
+                    )
     except Exception as e:
         error_msg = f"获取聊天列表失败: {e}"
         console.print(f"[error]{error_msg}[/error]")
-        chat_history.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": error_msg,
-        })
+        chat_history.append(
+            {
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": error_msg,
+            }
+        )
 
 
 # ──────────────────── 初始化 mai_files 目录 ────────────────────

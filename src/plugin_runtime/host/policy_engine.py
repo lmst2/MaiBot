@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Set, Tuple
 @dataclass
 class CapabilityToken:
     """能力令牌"""
+
     plugin_id: str
     generation: int
     capabilities: Set[str] = field(default_factory=set)

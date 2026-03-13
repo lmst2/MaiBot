@@ -4,7 +4,7 @@ from src.chat.message_receive.chat_manager import BotChatSession
 from src.common.logger import get_logger
 from src.common.data_models.database_data_model import DatabaseMessages
 from src.core.component_registry import component_registry, ActionExecutor
-from src.core.types import ActionInfo, ComponentType
+from src.core.types import ActionInfo
 
 logger = get_logger("action_manager")
 

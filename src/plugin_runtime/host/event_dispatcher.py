@@ -22,6 +22,7 @@ InvokeFn = Callable[[str, str, Dict[str, Any]], Awaitable[Dict[str, Any]]]
 
 class EventResult:
     """单个 EventHandler 的执行结果"""
+
     __slots__ = ("handler_name", "success", "continue_processing", "modified_message", "custom_result")
 
     def __init__(
@@ -107,9 +108,7 @@ class EventDispatcher:
                     modified_message = result.modified_message
             else:
                 # 非阻塞：保持实例级强引用，防止 task 被 GC 回收
-                task = asyncio.create_task(
-                    self._invoke_handler(invoke_fn, handler, args, event_type)
-                )
+                task = asyncio.create_task(self._invoke_handler(invoke_fn, handler, args, event_type))
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
 

@@ -551,9 +551,7 @@ async def get_expression_vibe(year: int = 2025) -> ExpressionVibeData:
     try:
         # 1. 表情包之王 - 使用次数最多的表情包
         with get_db_session() as session:
-            statement = (
-                select(Images).where(col(Images.is_registered)).order_by(desc(col(Images.query_count))).limit(5)
-            )
+            statement = select(Images).where(col(Images.is_registered)).order_by(desc(col(Images.query_count))).limit(5)
             top_emojis = session.exec(statement).all()
         if top_emojis:
             data.top_emoji = {

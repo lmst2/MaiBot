@@ -1,5 +1,5 @@
 from rich.traceback import install
-from typing import Optional, List, TYPE_CHECKING, Tuple, Dict
+from typing import Optional, List, TYPE_CHECKING
 
 import asyncio
 import time
@@ -14,7 +14,7 @@ from src.chat.message_receive.chat_manager import chat_manager
 from src.bw_learner.expression_learner import ExpressionLearner
 from src.bw_learner.jargon_miner import JargonMiner
 
-from .heartFC_utils import CycleDetail, CycleActionInfo, CyclePlanInfo
+from .heartFC_utils import CycleDetail
 
 if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage

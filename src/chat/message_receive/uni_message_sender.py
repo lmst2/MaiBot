@@ -22,6 +22,7 @@ _webui_chat_broadcaster = None
 # 虚拟群 ID 前缀（与 chat_routes.py 保持一致）
 VIRTUAL_GROUP_ID_PREFIX = "webui_virtual_group_"
 
+
 # TODO: 重构完成后完成webui相关
 def get_webui_chat_broadcaster():
     """获取 WebUI 聊天室广播器"""

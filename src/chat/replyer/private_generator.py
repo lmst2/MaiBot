@@ -119,9 +119,7 @@ class PrivateReplyer:
 
             if not from_plugin:
                 _event_msg = build_event_message(EventType.POST_LLM, llm_prompt=prompt, stream_id=stream_id)
-                continue_flag, modified_message = await event_bus.emit(
-                    EventType.POST_LLM, _event_msg
-                )
+                continue_flag, modified_message = await event_bus.emit(EventType.POST_LLM, _event_msg)
                 if not continue_flag:
                     raise UserWarning("插件于请求前中断了内容生成")
                 if modified_message and modified_message._modify_flags.modify_llm_prompt:
@@ -140,10 +138,10 @@ class PrivateReplyer:
                 llm_response.reasoning = reasoning_content
                 llm_response.model = model_name
                 llm_response.tool_calls = tool_call
-                _event_msg = build_event_message(EventType.AFTER_LLM, llm_prompt=prompt, llm_response=llm_response, stream_id=stream_id)
-                continue_flag, modified_message = await event_bus.emit(
-                    EventType.AFTER_LLM, _event_msg
+                _event_msg = build_event_message(
+                    EventType.AFTER_LLM, llm_prompt=prompt, llm_response=llm_response, stream_id=stream_id
                 )
+                continue_flag, modified_message = await event_bus.emit(EventType.AFTER_LLM, _event_msg)
                 if not from_plugin and not continue_flag:
                     raise UserWarning("插件于请求后取消了内容生成")
                 if modified_message:

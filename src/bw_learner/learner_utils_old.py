@@ -1,20 +1,12 @@
-import re
-import difflib
 import random
 import json
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any
 
 from src.common.logger import get_logger
 from src.config.config import global_config
-from src.chat.utils.chat_message_builder import (
-    build_readable_messages,
-)
-from src.chat.utils.utils import parse_platform_accounts
-from json_repair import repair_json
 
 
 logger = get_logger("learner_utils")
-
 
 
 def _compute_weights(population: List[Dict]) -> List[float]:

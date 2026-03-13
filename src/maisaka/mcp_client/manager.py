@@ -10,10 +10,16 @@ from .config import MCPServerConfig, load_mcp_config
 from .connection import MCPConnection, MCP_AVAILABLE
 
 # 内置工具名称集合 —— MCP 工具不允许与这些名称冲突
-BUILTIN_TOOL_NAMES = frozenset({
-    "say", "wait", "stop",
-    "create_table", "list_tables", "view_table",
-})
+BUILTIN_TOOL_NAMES = frozenset(
+    {
+        "say",
+        "wait",
+        "stop",
+        "create_table",
+        "list_tables",
+        "view_table",
+    }
+)
 
 
 class MCPManager:
@@ -35,7 +41,8 @@ class MCPManager:
 
     @classmethod
     async def from_config(
-        cls, config_path: str = "mcp_config.json",
+        cls,
+        config_path: str = "mcp_config.json",
     ) -> Optional["MCPManager"]:
         """
         从配置文件创建并初始化 MCPManager。
@@ -51,10 +58,7 @@ class MCPManager:
             return None
 
         if not MCP_AVAILABLE:
-            console.print(
-                "[warning]⚠️ 发现 MCP 配置但未安装 mcp SDK，"
-                "请运行: pip install mcp[/warning]"
-            )
+            console.print("[warning]⚠️ 发现 MCP 配置但未安装 mcp SDK，请运行: pip install mcp[/warning]")
             return None
 
         manager = cls()
@@ -85,8 +89,7 @@ class MCPManager:
 
                 if tool_name in BUILTIN_TOOL_NAMES:
                     console.print(
-                        f"[warning]⚠️ MCP 工具 '{tool_name}' "
-                        f"(来自 {cfg.name}) 与内置工具冲突，已跳过[/warning]"
+                        f"[warning]⚠️ MCP 工具 '{tool_name}' (来自 {cfg.name}) 与内置工具冲突，已跳过[/warning]"
                     )
                     continue
 
@@ -102,8 +105,7 @@ class MCPManager:
                 registered += 1
 
             console.print(
-                f"[success]✓ MCP 服务器 '{cfg.name}' 已连接[/success] "
-                f"[muted]({registered} 个工具已注册)[/muted]"
+                f"[success]✓ MCP 服务器 '{cfg.name}' 已连接[/success] [muted]({registered} 个工具已注册)[/muted]"
             )
 
     # ──────── 工具发现 ────────
@@ -134,17 +136,16 @@ class MCPManager:
                 # 移除 $schema 字段（部分 MCP 服务器会带上，OpenAI 不接受）
                 parameters.pop("$schema", None)
 
-                tools.append({
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": (
-                            tool.description
-                            or f"MCP tool from {server_name}"
-                        ),
-                        "parameters": parameters,
-                    },
-                })
+                tools.append(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": tool.name,
+                            "description": (tool.description or f"MCP tool from {server_name}"),
+                            "parameters": parameters,
+                        },
+                    }
+                )
 
         return tools
 
@@ -184,9 +185,9 @@ class MCPManager:
         parts: list[str] = []
         for server_name, conn in self._connections.items():
             tool_names = [
-                t.name for t in conn.tools
-                if t.name in self._tool_to_server
-                and self._tool_to_server[t.name] == server_name
+                t.name
+                for t in conn.tools
+                if t.name in self._tool_to_server and self._tool_to_server[t.name] == server_name
             ]
             if tool_names:
                 parts.append(f"  • {server_name}: {', '.join(tool_names)}")

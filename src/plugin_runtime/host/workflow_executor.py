@@ -44,6 +44,7 @@ HOOK_CONTINUE = "continue"
 HOOK_SKIP_STAGE = "skip_stage"
 HOOK_ABORT = "abort"
 
+
 # blocking hook 全局最大超时（秒）：即使 hook 声明 timeout_ms=0 也不会无限等待
 # 从配置文件读取，允许用户调整
 def _get_blocking_timeout() -> float:
@@ -52,6 +53,7 @@ def _get_blocking_timeout() -> float:
 
 class ModificationRecord:
     """消息修改记录"""
+
     __slots__ = ("stage", "hook_name", "timestamp", "fields_changed")
 
     def __init__(self, stage: str, hook_name: str, fields_changed: List[str]) -> None:
@@ -141,9 +143,7 @@ class WorkflowExecutor:
             try:
                 # PLAN 阶段: 先做 Command 路由
                 if stage == "plan" and current_message:
-                    cmd_result = await self._route_command(
-                        command_invoke_fn or invoke_fn, current_message, ctx
-                    )
+                    cmd_result = await self._route_command(command_invoke_fn or invoke_fn, current_message, ctx)
                     if cmd_result is not None:
                         # 命令匹配成功，跳过 PLAN 阶段的 hook，直接存结果进 stage_outputs
                         ctx.set_stage_output("plan", "command_result", cmd_result)
@@ -195,10 +195,10 @@ class WorkflowExecutor:
 
                     # 更新消息（仅 blocking hook 有权修改）
                     if modified:
-                        changed_fields = _diff_keys(current_message, modified) if current_message else list(modified.keys())
-                        ctx.modification_log.append(
-                            ModificationRecord(stage, step.full_name, changed_fields)
+                        changed_fields = (
+                            _diff_keys(current_message, modified) if current_message else list(modified.keys())
                         )
+                        ctx.modification_log.append(ModificationRecord(stage, step.full_name, changed_fields))
                         current_message = modified
 
                     if hook_result == HOOK_ABORT:
@@ -222,9 +222,7 @@ class WorkflowExecutor:
                 if nonblocking_steps and not skip_stage:
                     nb_tasks = [
                         asyncio.create_task(
-                            self._invoke_step_fire_and_forget(
-                                invoke_fn, step, stage, ctx, current_message
-                            )
+                            self._invoke_step_fire_and_forget(invoke_fn, step, stage, ctx, current_message)
                         )
                         for step in nonblocking_steps
                     ]
@@ -314,12 +312,16 @@ class WorkflowExecutor:
         step_start = time.perf_counter()
 
         try:
-            coro = invoke_fn(step.plugin_id, step.name, {
-                "stage": stage,
-                "trace_id": ctx.trace_id,
-                "message": message,
-                "stage_outputs": ctx.stage_outputs,
-            })
+            coro = invoke_fn(
+                step.plugin_id,
+                step.name,
+                {
+                    "stage": stage,
+                    "trace_id": ctx.trace_id,
+                    "message": message,
+                    "stage_outputs": ctx.stage_outputs,
+                },
+            )
             resp = await asyncio.wait_for(coro, timeout=timeout_sec)
             ctx.timings[step_key] = time.perf_counter() - step_start
 
@@ -355,12 +357,16 @@ class WorkflowExecutor:
         timeout_sec = timeout_ms / 1000 if timeout_ms > 0 else _get_blocking_timeout()
 
         try:
-            coro = invoke_fn(step.plugin_id, step.name, {
-                "stage": stage,
-                "trace_id": ctx.trace_id,
-                "message": message,
-                "stage_outputs": ctx.stage_outputs,
-            })
+            coro = invoke_fn(
+                step.plugin_id,
+                step.name,
+                {
+                    "stage": stage,
+                    "trace_id": ctx.trace_id,
+                    "message": message,
+                    "stage_outputs": ctx.stage_outputs,
+                },
+            )
             await asyncio.wait_for(coro, timeout=timeout_sec)
         except asyncio.TimeoutError:
             logger.warning(f"[{ctx.trace_id}] non-blocking hook {step.full_name} 超时 ({timeout_sec}s)")
@@ -393,12 +399,16 @@ class WorkflowExecutor:
         logger.info(f"[{ctx.trace_id}] 命令匹配: {matched.full_name}")
 
         try:
-            return await invoke_fn(matched.plugin_id, matched.name, {
-                "text": plain_text,
-                "message": message,
-                "trace_id": ctx.trace_id,
-                "matched_groups": matched_groups,
-            })
+            return await invoke_fn(
+                matched.plugin_id,
+                matched.name,
+                {
+                    "text": plain_text,
+                    "message": message,
+                    "trace_id": ctx.trace_id,
+                    "matched_groups": matched_groups,
+                },
+            )
         except Exception as e:
             logger.error(f"[{ctx.trace_id}] 命令 {matched.full_name} 执行失败: {e}", exc_info=True)
             ctx.errors.append(f"command:{matched.full_name}: {e}")

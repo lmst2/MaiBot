@@ -1,4 +1,4 @@
-from typing import Optional, Dict
+from typing import Dict
 
 import traceback
 
@@ -9,6 +9,7 @@ from src.chat.heart_flow.heartFC_chat import HeartFChatting
 
 logger = get_logger("heartflow")
 
+
 # TODO: 恢复PFC，现在暂时禁用
 class HeartflowManager:
     """主心流协调器，负责初始化并协调聊天，控制聊天属性"""
@@ -17,7 +18,7 @@ class HeartflowManager:
         # self.heartflow_chat_list: Dict[str, HeartFChatting | BrainChatting] = {}
         self.heartflow_chat_list: Dict[str, HeartFChatting] = {}
 
-    async def get_or_create_heartflow_chat(self, session_id: str): # -> Optional[HeartFChatting | BrainChatting]:
+    async def get_or_create_heartflow_chat(self, session_id: str):  # -> Optional[HeartFChatting | BrainChatting]:
         """获取或创建一个新的HeartFChatting实例"""
         try:
             if chat := self.heartflow_chat_list.get(session_id):

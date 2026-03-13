@@ -24,14 +24,17 @@ MAX_SDK_VERSION = "1.99.99"
 
 # ─── 消息类型 ──────────────────────────────────────────────────────
 
+
 class MessageType(str, Enum):
     """RPC 消息类型"""
+
     REQUEST = "request"
     RESPONSE = "response"
     EVENT = "event"
 
 
 # ─── 请求 ID 生成器 ───────────────────────────────────────────────
+
 
 class RequestIdGenerator:
     """单调递增 int64 请求 ID 生成器（线程安全由调用方保证或使用 asyncio）"""
@@ -46,6 +49,7 @@ class RequestIdGenerator:
 
 
 # ─── Envelope 模型 ─────────────────────────────────────────────────
+
 
 class Envelope(BaseModel):
     """RPC 统一信封
@@ -75,7 +79,9 @@ class Envelope(BaseModel):
     def is_event(self) -> bool:
         return self.message_type == MessageType.EVENT
 
-    def make_response(self, payload: Optional[Dict[str, Any]] = None, error: Optional[Dict[str, Any]] = None) -> "Envelope":
+    def make_response(
+        self, payload: Optional[Dict[str, Any]] = None, error: Optional[Dict[str, Any]] = None
+    ) -> "Envelope":
         """基于当前请求创建对应的响应信封"""
         return Envelope(
             protocol_version=self.protocol_version,
@@ -101,8 +107,10 @@ class Envelope(BaseModel):
 
 # ─── 握手消息 ──────────────────────────────────────────────────────
 
+
 class HelloPayload(BaseModel):
     """runner.hello 握手请求 payload"""
+
     runner_id: str = Field(description="Runner 进程唯一标识")
     sdk_version: str = Field(description="SDK 版本号")
     session_token: str = Field(description="一次性会话令牌")
@@ -110,6 +118,7 @@ class HelloPayload(BaseModel):
 
 class HelloResponsePayload(BaseModel):
     """runner.hello 握手响应 payload"""
+
     accepted: bool = Field(description="是否接受连接")
     host_version: str = Field(default="", description="Host 版本号")
     assigned_generation: int = Field(default=0, description="分配的 generation 编号")
@@ -118,8 +127,10 @@ class HelloResponsePayload(BaseModel):
 
 # ─── 组件注册消息 ──────────────────────────────────────────────────
 
+
 class ComponentDeclaration(BaseModel):
     """单个组件声明"""
+
     name: str = Field(description="组件名称")
     component_type: str = Field(description="组件类型: action/command/tool/event_handler")
     plugin_id: str = Field(description="所属插件 ID")
@@ -128,6 +139,7 @@ class ComponentDeclaration(BaseModel):
 
 class RegisterComponentsPayload(BaseModel):
     """plugin.register_components 请求 payload"""
+
     plugin_id: str = Field(description="插件 ID")
     plugin_version: str = Field(default="1.0.0", description="插件版本")
     components: List[ComponentDeclaration] = Field(default_factory=list, description="组件列表")
@@ -136,36 +148,44 @@ class RegisterComponentsPayload(BaseModel):
 
 # ─── 调用消息 ──────────────────────────────────────────────────────
 
+
 class InvokePayload(BaseModel):
     """plugin.invoke_* 请求 payload"""
+
     component_name: str = Field(description="要调用的组件名称")
     args: Dict[str, Any] = Field(default_factory=dict, description="调用参数")
 
 
 class InvokeResultPayload(BaseModel):
     """plugin.invoke_* 响应 payload"""
+
     success: bool = Field(description="是否成功")
     result: Any = Field(default=None, description="返回值")
 
 
 # ─── 能力调用消息 ──────────────────────────────────────────────────
 
+
 class CapabilityRequestPayload(BaseModel):
     """cap.* 请求 payload（插件 -> Host 能力调用）"""
+
     capability: str = Field(description="能力名称，如 send.text, db.query")
     args: Dict[str, Any] = Field(default_factory=dict, description="调用参数")
 
 
 class CapabilityResponsePayload(BaseModel):
     """cap.* 响应 payload"""
+
     success: bool = Field(description="是否成功")
     result: Any = Field(default=None, description="返回值")
 
 
 # ─── 健康检查 ──────────────────────────────────────────────────────
 
+
 class HealthPayload(BaseModel):
     """plugin.health 响应 payload"""
+
     healthy: bool = Field(description="是否健康")
     loaded_plugins: List[str] = Field(default_factory=list, description="已加载的插件列表")
     uptime_ms: int = Field(default=0, description="运行时长(ms)")
@@ -173,11 +193,13 @@ class HealthPayload(BaseModel):
 
 # ─── 配置更新 ──────────────────────────────────────────────────────
 
+
 # TODO: Host 侧尚未实现配置变更检测与推送。Runner 端的 _handle_config_updated
 #       已就绪，但当前无任何调用方通过 RPC 发送 plugin.config_updated 消息。
 #       需要在 Supervisor 或 CapabilityService 中监听配置文件变化并主动推送。
 class ConfigUpdatedPayload(BaseModel):
     """plugin.config_updated 事件 payload"""
+
     plugin_id: str = Field(description="插件 ID")
     config_version: str = Field(description="新配置版本")
     config_data: Dict[str, Any] = Field(default_factory=dict, description="配置内容")
@@ -185,13 +207,16 @@ class ConfigUpdatedPayload(BaseModel):
 
 # ─── 关停 ──────────────────────────────────────────────────────────
 
+
 class ShutdownPayload(BaseModel):
     """plugin.shutdown / plugin.prepare_shutdown payload"""
+
     reason: str = Field(default="normal", description="关停原因")
     drain_timeout_ms: int = Field(default=5000, description="排空超时(ms)")
 
 
 # ─── 日志传输 ──────────────────────────────────────────────────────
+
 
 class LogEntry(BaseModel):
     """单条日志记录（Runner → Host 传输格式）"""
@@ -200,10 +225,7 @@ class LogEntry(BaseModel):
         description="日志时间戳，Unix epoch 毫秒",
     )
     level: int = Field(
-        description=(
-            "stdlib logging 整数级别："
-            " 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL"
-        ),
+        description=("stdlib logging 整数级别： 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL"),
     )
     logger_name: str = Field(
         description="Logger 名称，如 plugin.my_plugin.submodule",

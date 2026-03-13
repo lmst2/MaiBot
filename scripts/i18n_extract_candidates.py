@@ -22,11 +22,7 @@ def should_skip(path: Path) -> bool:
 
 
 def iter_python_files(root: Path) -> list[Path]:
-    return sorted(
-        path
-        for path in root.rglob("*.py")
-        if path.is_file() and not should_skip(path.relative_to(root))
-    )
+    return sorted(path for path in root.rglob("*.py") if path.is_file() and not should_skip(path.relative_to(root)))
 
 
 class CandidateExtractor(ast.NodeVisitor):

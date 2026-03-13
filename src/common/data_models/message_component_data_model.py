@@ -13,7 +13,9 @@ from src.common.logger import get_logger
 
 logger = get_logger("base_message_component_model")
 
+
 class UnknownUser(str): ...
+
 
 class BaseMessageComponentModel(ABC):
     @property

@@ -231,9 +231,7 @@ class RPCServer:
             stale_count = 0
             for _req_id, future in list(self._pending_requests.items()):
                 if not future.done():
-                    future.set_exception(
-                        RPCError(ErrorCode.E_PLUGIN_CRASHED, "Runner 连接已被新 generation 接管")
-                    )
+                    future.set_exception(RPCError(ErrorCode.E_PLUGIN_CRASHED, "Runner 连接已被新 generation 接管"))
                     stale_count += 1
             self._pending_requests.clear()
             if stale_count:
@@ -399,9 +397,7 @@ class RPCServer:
                 result = await handler(envelope)
                 # 检查 handler 返回的信封是否包含错误信息
                 if result is not None and isinstance(result, Envelope) and result.error:
-                    logger.warning(
-                        f"事件 {envelope.method} handler 返回错误: {result.error.get('message', '')}"
-                    )
+                    logger.warning(f"事件 {envelope.method} handler 返回错误: {result.error.get('message', '')}")
             except Exception as e:
                 logger.error(f"处理事件 {envelope.method} 异常: {e}", exc_info=True)
 

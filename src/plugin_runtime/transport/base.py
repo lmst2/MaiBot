@@ -20,6 +20,7 @@ MAX_FRAME_SIZE = 16 * 1024 * 1024  # 16 MB 最大帧大小
 
 class ConnectionClosed(Exception):
     """连接已关闭"""
+
     pass
 
 

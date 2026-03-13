@@ -3,7 +3,7 @@ MaiSaka - 了解模块
 负责从对话中提取和存储用户个人特征信息。
 """
 
-from typing import List, Optional
+from typing import List
 from knowledge_store import get_knowledge_store, KNOWLEDGE_CATEGORIES
 
 
@@ -100,9 +100,7 @@ async def store_knowledge_from_context(
 
     try:
         # 第一步：分析涉及哪些分类
-        category_ids = await llm_service.analyze_knowledge_categories(
-            context_messages, categories_summary
-        )
+        category_ids = await llm_service.analyze_knowledge_categories(context_messages, categories_summary)
 
         if not category_ids:
             return 0
@@ -119,25 +117,19 @@ async def store_knowledge_from_context(
                 if extracted_content:
                     # 存储到了解列表
                     success = store.add_knowledge(
-                        category_id=category_id,
-                        content=extracted_content,
-                        metadata={"source": "context_compression"}
+                        category_id=category_id, content=extracted_content, metadata={"source": "context_compression"}
                     )
                     if success:
                         stored_count += 1
                         if store_result_callback:
-                            store_result_callback(
-                                category_id,
-                                store.get_category_name(category_id),
-                                extracted_content
-                            )
-            except Exception as e:
+                            store_result_callback(category_id, store.get_category_name(category_id), extracted_content)
+            except Exception:
                 # 单个分类失败不影响其他分类
                 continue
 
         return stored_count
 
-    except Exception as e:
+    except Exception:
         return 0
 
 
@@ -165,9 +157,7 @@ async def retrieve_relevant_knowledge(
 
     try:
         # 分析需要哪些分类
-        category_ids = await llm_service.analyze_knowledge_need(
-            chat_history, categories_summary
-        )
+        category_ids = await llm_service.analyze_knowledge_need(chat_history, categories_summary)
 
         if not category_ids:
             return ""

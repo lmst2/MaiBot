@@ -817,6 +817,8 @@ def assign_message_ids(messages: List[SessionMessage]) -> List[Tuple[str, Sessio
         result.append((message_id, message))
 
     return result
+
+
 #                 break
 #         result.append((message_id, message))
 

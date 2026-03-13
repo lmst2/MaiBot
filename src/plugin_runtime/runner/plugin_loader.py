@@ -240,8 +240,7 @@ class PluginLoader:
         instance = self._try_load_legacy_plugin(module, plugin_id)
         if instance is not None:
             logger.info(
-                f"插件 {plugin_id} v{manifest.get('version', '?')} "
-                f"通过旧版兼容层加载成功（请尽快迁移到 maibot_sdk）"
+                f"插件 {plugin_id} v{manifest.get('version', '?')} 通过旧版兼容层加载成功（请尽快迁移到 maibot_sdk）"
             )
             return PluginMeta(
                 plugin_id=plugin_id,
@@ -261,6 +260,7 @@ class PluginLoader:
             return
         try:
             from maibot_sdk.compat._import_hook import install_hook
+
             install_hook()
             self._compat_hook_installed = True
         except ImportError:
@@ -281,11 +281,7 @@ class PluginLoader:
 
             for attr_name in dir(module):
                 obj = getattr(module, attr_name, None)
-                if (
-                    isinstance(obj, type)
-                    and issubclass(obj, LegacyBasePlugin)
-                    and obj is not LegacyBasePlugin
-                ):
+                if isinstance(obj, type) and issubclass(obj, LegacyBasePlugin) and obj is not LegacyBasePlugin:
                     legacy_cls = obj
                     break
 
@@ -294,6 +290,7 @@ class PluginLoader:
 
         try:
             from maibot_sdk.compat.legacy_adapter import LegacyPluginAdapter
+
             legacy_instance = legacy_cls()
             return LegacyPluginAdapter(legacy_instance)
         except Exception as e:

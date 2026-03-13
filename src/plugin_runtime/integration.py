@@ -113,9 +113,7 @@ class PluginRuntimeManager:
                 await self._thirdparty_supervisor.start()
                 started_supervisors.append(self._thirdparty_supervisor)
             self._started = True
-            logger.info(
-                f"插件运行时已启动 — 内置: {builtin_dirs or '无'}, 第三方: {thirdparty_dirs or '无'}"
-            )
+            logger.info(f"插件运行时已启动 — 内置: {builtin_dirs or '无'}, 第三方: {thirdparty_dirs or '无'}")
         except Exception as e:
             logger.error(f"插件运行时启动失败: {e}", exc_info=True)
             await asyncio.gather(*(sv.stop() for sv in started_supervisors), return_exceptions=True)
@@ -303,7 +301,9 @@ class PluginRuntimeManager:
         cap_service.register_capability("component.get_all_plugins", self._cap_component_get_all_plugins)
         cap_service.register_capability("component.get_plugin_info", self._cap_component_get_plugin_info)
         cap_service.register_capability("component.list_loaded_plugins", self._cap_component_list_loaded_plugins)
-        cap_service.register_capability("component.list_registered_plugins", self._cap_component_list_registered_plugins)
+        cap_service.register_capability(
+            "component.list_registered_plugins", self._cap_component_list_registered_plugins
+        )
         cap_service.register_capability("component.enable", self._cap_component_enable)
         cap_service.register_capability("component.disable", self._cap_component_disable)
         cap_service.register_capability("component.load_plugin", self._cap_component_load_plugin)
@@ -1232,9 +1232,7 @@ class PluginRuntimeManager:
         count: int = args.get("count", 1)
         try:
             results = await emoji_api.get_random(count=count)
-            emojis = [
-                {"base64": b64, "description": desc, "emotion": emo} for b64, desc, emo in results
-            ]
+            emojis = [{"base64": b64, "description": desc, "emotion": emo} for b64, desc, emo in results]
             return {"success": True, "emojis": emojis}
         except Exception as e:
             logger.error(f"[cap.emoji.get_random] 执行失败: {e}", exc_info=True)
@@ -1269,9 +1267,9 @@ class PluginRuntimeManager:
 
         try:
             results = await emoji_api.get_all()
-            emojis = [
-                {"base64": b64, "description": desc, "emotion": emo} for b64, desc, emo in results
-            ] if results else []
+            emojis = (
+                [{"base64": b64, "description": desc, "emotion": emo} for b64, desc, emo in results] if results else []
+            )
             return {"success": True, "emojis": emojis}
         except Exception as e:
             logger.error(f"[cap.emoji.get_all] 执行失败: {e}", exc_info=True)

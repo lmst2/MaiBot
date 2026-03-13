@@ -14,8 +14,16 @@ class KnowledgePlugin(MaiBotPlugin):
         "lpmm_search_knowledge",
         description="从知识库中搜索相关信息，如果你需要知识，就使用这个工具",
         parameters=[
-            ToolParameterInfo(name="query", param_type=ToolParamType.STRING, description="搜索查询关键词", required=True),
-            ToolParameterInfo(name="limit", param_type=ToolParamType.INTEGER, description="希望返回的相关知识条数，默认5", required=False, default=5),
+            ToolParameterInfo(
+                name="query", param_type=ToolParamType.STRING, description="搜索查询关键词", required=True
+            ),
+            ToolParameterInfo(
+                name="limit",
+                param_type=ToolParamType.INTEGER,
+                description="希望返回的相关知识条数，默认5",
+                required=False,
+                default=5,
+            ),
         ],
     )
     async def handle_lpmm_search_knowledge(self, query: str = "", limit: int = 5, **kwargs):

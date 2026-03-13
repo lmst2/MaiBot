@@ -105,9 +105,7 @@ class ManifestValidator:
     def _check_manifest_version(self, manifest: Dict[str, Any]) -> None:
         mv = manifest.get("manifest_version")
         if mv is not None and mv not in self.SUPPORTED_MANIFEST_VERSIONS:
-            self.errors.append(
-                f"不支持的 manifest_version: {mv}，支持: {self.SUPPORTED_MANIFEST_VERSIONS}"
-            )
+            self.errors.append(f"不支持的 manifest_version: {mv}，支持: {self.SUPPORTED_MANIFEST_VERSIONS}")
 
     def _check_author(self, manifest: Dict[str, Any]) -> None:
         author = manifest.get("author")

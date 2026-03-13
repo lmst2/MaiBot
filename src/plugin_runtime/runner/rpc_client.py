@@ -37,6 +37,7 @@ def _get_sdk_version() -> str:
     """从 maibot_sdk 包元数据中读取实际版本号，失败时回退到 1.0.0。"""
     try:
         from importlib.metadata import version
+
         return version("maibot-plugin-sdk")
     except Exception:
         return "1.0.0"

@@ -67,7 +67,9 @@ class CapabilityService:
         # 1. 权限校验
         allowed, reason = self._policy.check_capability(plugin_id, capability, envelope.generation)
         if not allowed:
-            error_code = ErrorCode.E_GENERATION_MISMATCH if "generation 不匹配" in reason else ErrorCode.E_CAPABILITY_DENIED
+            error_code = (
+                ErrorCode.E_GENERATION_MISMATCH if "generation 不匹配" in reason else ErrorCode.E_CAPABILITY_DENIED
+            )
             return envelope.make_error_response(
                 error_code.value,
                 reason,

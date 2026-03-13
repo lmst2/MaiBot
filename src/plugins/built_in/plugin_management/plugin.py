@@ -231,9 +231,7 @@ class PluginManagementPlugin(MaiBotPlugin):
         text = ", ".join(f"{c['name']} ({c['type']})" for c in filtered)
         await self.ctx.send.text(f"满足条件的{label}{scope_label}组件: {text}", stream_id)
 
-    async def _handle_component_toggle(
-        self, action: str, scope: str, comp_name: str, comp_type: str, stream_id: str
-    ):
+    async def _handle_component_toggle(self, action: str, scope: str, comp_name: str, comp_type: str, stream_id: str):
         if action not in ("enable", "disable"):
             await self.ctx.send.text("插件管理命令不合法", stream_id)
             return
@@ -245,13 +243,9 @@ class PluginManagementPlugin(MaiBotPlugin):
             return
 
         if action == "enable":
-            result = await self.ctx.component.enable_component(
-                comp_name, comp_type, scope=scope, stream_id=stream_id
-            )
+            result = await self.ctx.component.enable_component(comp_name, comp_type, scope=scope, stream_id=stream_id)
         else:
-            result = await self.ctx.component.disable_component(
-                comp_name, comp_type, scope=scope, stream_id=stream_id
-            )
+            result = await self.ctx.component.disable_component(comp_name, comp_type, scope=scope, stream_id=stream_id)
 
         ok = result.get("success", False) if isinstance(result, dict) else bool(result)
         scope_label = "全局" if scope == "global" else "本地"

@@ -44,7 +44,9 @@ def get_replyer(
     if not chat_id and not chat_stream:
         raise ValueError("chat_stream 和 chat_id 不可均为空")
     try:
-        logger.debug(f"[GeneratorService] 正在获取回复器，chat_id: {chat_id}, chat_stream: {'有' if chat_stream else '无'}")
+        logger.debug(
+            f"[GeneratorService] 正在获取回复器，chat_id: {chat_id}, chat_stream: {'有' if chat_stream else '无'}"
+        )
         return replyer_manager.get_replyer(
             chat_stream=chat_stream,
             chat_id=chat_id,

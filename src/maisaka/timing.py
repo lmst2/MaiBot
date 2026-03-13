@@ -49,8 +49,7 @@ def build_timing_info(
 
     if len(user_input_times) >= 2:
         intervals = [
-            (user_input_times[i] - user_input_times[i - 1]).total_seconds()
-            for i in range(1, len(user_input_times))
+            (user_input_times[i] - user_input_times[i - 1]).total_seconds() for i in range(1, len(user_input_times))
         ]
         avg_interval = sum(intervals) / len(intervals)
         parts.append(f"用户平均回复间隔: {int(avg_interval)}秒")

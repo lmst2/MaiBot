@@ -9,7 +9,7 @@ from src.config.config import global_config
 from src.common.logger import get_logger
 from src.common.data_models.info_data_model import ActionPlannerInfo
 from src.common.data_models.message_data_model import ReplyContentType
-from src.chat.message_receive.chat_manager import BotChatSession, chat_manager as _chat_manager
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.chat.utils.prompt_builder import global_prompt_manager
 from src.chat.utils.timer_calculator import Timer
 from src.chat.brain_chat.brain_planner import BrainPlanner
@@ -22,7 +22,12 @@ from src.person_info.person_info import Person
 from src.core.types import ActionInfo, EventType
 from src.core.event_bus import event_bus
 from src.chat.event_helpers import build_event_message
-from src.services import generator_service as generator_api, send_service as send_api, message_service as message_api, database_service as database_api
+from src.services import (
+    generator_service as generator_api,
+    send_service as send_api,
+    message_service as message_api,
+    database_service as database_api,
+)
 from src.chat.utils.chat_message_builder import (
     build_readable_messages_with_id,
     get_raw_msg_before_timestamp_with_chat,
@@ -294,10 +299,10 @@ class BrainChatting:
                 message_id_list=message_id_list,
                 prompt_key="brain_planner",
             )
-            _event_msg = build_event_message(EventType.ON_PLAN, llm_prompt=prompt_info[0], stream_id=self.chat_stream.stream_id)
-            continue_flag, modified_message = await event_bus.emit(
-                EventType.ON_PLAN, _event_msg
+            _event_msg = build_event_message(
+                EventType.ON_PLAN, llm_prompt=prompt_info[0], stream_id=self.chat_stream.stream_id
             )
+            continue_flag, modified_message = await event_bus.emit(EventType.ON_PLAN, _event_msg)
             if not continue_flag:
                 return False
             if modified_message and modified_message._modify_flags.modify_llm_prompt:

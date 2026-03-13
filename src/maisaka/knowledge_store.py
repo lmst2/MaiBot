@@ -45,9 +45,7 @@ class KnowledgeStore:
 
     def __init__(self):
         """初始化了解存储"""
-        self._knowledge: Dict[str, List[Dict[str, Any]]] = {
-            category_id: [] for category_id in KNOWLEDGE_CATEGORIES
-        }
+        self._knowledge: Dict[str, List[Dict[str, Any]]] = {category_id: [] for category_id in KNOWLEDGE_CATEGORIES}
         self._ensure_data_dir()
         self._load()
 
@@ -58,9 +56,7 @@ class KnowledgeStore:
     def _load(self):
         """从文件加载了解数据"""
         if not KNOWLEDGE_FILE.exists():
-            self._knowledge = {
-                category_id: [] for category_id in KNOWLEDGE_CATEGORIES
-            }
+            self._knowledge = {category_id: [] for category_id in KNOWLEDGE_CATEGORIES}
             return
 
         try:
@@ -73,9 +69,7 @@ class KnowledgeStore:
                 self._knowledge = loaded
         except Exception as e:
             print(f"[warning]加载了解数据失败: {e}[/warning]")
-            self._knowledge = {
-                category_id: [] for category_id in KNOWLEDGE_CATEGORIES
-            }
+            self._knowledge = {category_id: [] for category_id in KNOWLEDGE_CATEGORIES}
 
     def _save(self):
         """保存了解数据到文件"""

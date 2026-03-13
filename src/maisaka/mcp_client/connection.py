@@ -63,9 +63,7 @@ class MCPConnection:
             True 表示连接成功，False 表示失败。
         """
         if not MCP_AVAILABLE:
-            console.print(
-                "[warning]⚠️ 未安装 mcp SDK，请运行: pip install mcp[/warning]"
-            )
+            console.print("[warning]⚠️ 未安装 mcp SDK，请运行: pip install mcp[/warning]")
             return False
 
         try:
@@ -76,15 +74,11 @@ class MCPConnection:
             elif self.config.transport_type == "sse":
                 read_stream, write_stream = await self._connect_sse()
             else:
-                console.print(
-                    f"[warning]MCP '{self.config.name}': 未知传输类型[/warning]"
-                )
+                console.print(f"[warning]MCP '{self.config.name}': 未知传输类型[/warning]")
                 return False
 
             # 创建并初始化 MCP 会话
-            self.session = await self._exit_stack.enter_async_context(
-                ClientSession(read_stream, write_stream)
-            )
+            self.session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
             await self.session.initialize()
 
             # 发现工具
@@ -94,9 +88,7 @@ class MCPConnection:
             return True
 
         except Exception as e:
-            console.print(
-                f"[warning]⚠️ MCP 服务器 '{self.config.name}' 连接失败: {e}[/warning]"
-            )
+            console.print(f"[warning]⚠️ MCP 服务器 '{self.config.name}' 连接失败: {e}[/warning]")
             await self.close()
             return False
 
@@ -107,19 +99,13 @@ class MCPConnection:
             args=self.config.args,
             env=self.config.env,
         )
-        return await self._exit_stack.enter_async_context(
-            stdio_client(params)
-        )
+        return await self._exit_stack.enter_async_context(stdio_client(params))
 
     async def _connect_sse(self):
         """建立 SSE 传输连接。"""
         if not SSE_AVAILABLE:
-            raise ImportError(
-                "SSE 传输需要额外依赖，请运行: pip install mcp[sse]"
-            )
-        return await self._exit_stack.enter_async_context(
-            sse_client(url=self.config.url, headers=self.config.headers)
-        )
+            raise ImportError("SSE 传输需要额外依赖，请运行: pip install mcp[sse]")
+        return await self._exit_stack.enter_async_context(sse_client(url=self.config.url, headers=self.config.headers))
 
     async def call_tool(self, tool_name: str, arguments: dict) -> str:
         """

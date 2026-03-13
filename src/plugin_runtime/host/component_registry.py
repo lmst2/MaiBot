@@ -22,8 +22,13 @@ class RegisteredComponent:
     """已注册的组件条目"""
 
     __slots__ = (
-        "name", "full_name", "component_type", "plugin_id",
-        "metadata", "enabled", "_compiled_pattern",
+        "name",
+        "full_name",
+        "component_type",
+        "plugin_id",
+        "metadata",
+        "enabled",
+        "_compiled_pattern",
     )
 
     def __init__(
@@ -165,18 +170,14 @@ class ComponentRegistry:
         """按全名查询。"""
         return self._components.get(full_name)
 
-    def get_components_by_type(
-        self, component_type: str, *, enabled_only: bool = True
-    ) -> List[RegisteredComponent]:
+    def get_components_by_type(self, component_type: str, *, enabled_only: bool = True) -> List[RegisteredComponent]:
         """按类型查询。"""
         type_dict = self._by_type.get(component_type, {})
         if enabled_only:
             return [c for c in type_dict.values() if c.enabled]
         return list(type_dict.values())
 
-    def get_components_by_plugin(
-        self, plugin_id: str, *, enabled_only: bool = True
-    ) -> List[RegisteredComponent]:
+    def get_components_by_plugin(self, plugin_id: str, *, enabled_only: bool = True) -> List[RegisteredComponent]:
         """按插件查询。"""
         comps = self._by_plugin.get(plugin_id, [])
         return [c for c in comps if c.enabled] if enabled_only else list(comps)
@@ -200,9 +201,7 @@ class ComponentRegistry:
                     return comp, {}
         return None
 
-    def get_event_handlers(
-        self, event_type: str, *, enabled_only: bool = True
-    ) -> List[RegisteredComponent]:
+    def get_event_handlers(self, event_type: str, *, enabled_only: bool = True) -> List[RegisteredComponent]:
         """获取特定事件类型的所有 event_handler，按 weight 降序排列。"""
         handlers = []
         for comp in self._by_type.get("event_handler", {}).values():
@@ -213,9 +212,7 @@ class ComponentRegistry:
         handlers.sort(key=lambda c: c.metadata.get("weight", 0), reverse=True)
         return handlers
 
-    def get_workflow_steps(
-        self, stage: str, *, enabled_only: bool = True
-    ) -> List[RegisteredComponent]:
+    def get_workflow_steps(self, stage: str, *, enabled_only: bool = True) -> List[RegisteredComponent]:
         """获取特定 workflow 阶段的所有步骤，按 priority 降序。"""
         steps = []
         for comp in self._by_type.get("workflow_step", {}).values():

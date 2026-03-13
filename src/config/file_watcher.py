@@ -182,7 +182,9 @@ class FileWatcher:
                 self._stats.callbacks_skipped_cooldown += 1
                 continue
             try:
-                await asyncio.wait_for(self._invoke_callback(subscription.callback, matched_changes), timeout=self._callback_timeout_s)
+                await asyncio.wait_for(
+                    self._invoke_callback(subscription.callback, matched_changes), timeout=self._callback_timeout_s
+                )
                 state.consecutive_failures = 0
                 self._stats.callbacks_succeeded += 1
             except asyncio.TimeoutError:

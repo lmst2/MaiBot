@@ -847,11 +847,7 @@ def _get_recent_found_answers(chat_id: str, time_window_seconds: float = 600.0) 
         if not records:
             return []
 
-        return [
-            f"问题：{record.question}\n答案：{record.answer}"
-            for record in records
-            if record.answer
-        ]
+        return [f"问题：{record.question}\n答案：{record.answer}" for record in records if record.answer]
 
     except Exception as e:
         logger.error(f"获取最近已找到答案的记录失败: {e}")

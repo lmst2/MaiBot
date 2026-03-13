@@ -15,6 +15,7 @@ from .base import Connection, ConnectionHandler, TransportClient, TransportServe
 
 class UDSConnection(Connection):
     """基于 UDS 的连接"""
+
     pass  # 直接复用 Connection 基类的分帧读写
 
 
@@ -30,16 +31,17 @@ class UDSTransportServer(TransportServer):
         if socket_path is None:
             # 默认放在临时目录，使用 uuid 确保同一进程多实例不碰撞
             import uuid
-            socket_path = os.path.join(tempfile.gettempdir(), f"maibot-plugin-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock")
+
+            socket_path = os.path.join(
+                tempfile.gettempdir(), f"maibot-plugin-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock"
+            )
 
             # 如果路径超出 UDS 限制，回退到更短的路径
             if len(socket_path.encode()) > _UDS_PATH_MAX:
                 socket_path = os.path.join("/tmp", f"mb-{os.getpid()}-{uuid.uuid4().hex[:8]}.sock")
 
         if len(socket_path.encode()) > _UDS_PATH_MAX:
-            raise OSError(
-                f"UDS socket 路径过长 ({len(socket_path.encode())} > {_UDS_PATH_MAX} 字节): {socket_path}"
-            )
+            raise OSError(f"UDS socket 路径过长 ({len(socket_path.encode())} > {_UDS_PATH_MAX} 字节): {socket_path}")
 
         self._socket_path = socket_path
         self._server: Optional[asyncio.AbstractServer] = None

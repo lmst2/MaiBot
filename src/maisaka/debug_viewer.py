@@ -16,10 +16,10 @@ from rich import box
 console = Console()
 
 ROLE_STYLES = {
-    "system":    ("📋", "bold blue"),
-    "user":      ("👤", "bold green"),
+    "system": ("📋", "bold blue"),
+    "user": ("👤", "bold green"),
     "assistant": ("🤖", "bold magenta"),
-    "tool":      ("🔧", "bold yellow"),
+    "tool": ("🔧", "bold yellow"),
 }
 
 
@@ -54,8 +54,10 @@ def format_message(idx: int, msg: dict) -> str:
 
         # 正文
         if content:
-            display = content if len(content) <= 3000 else (
-                content[:3000] + f"\n[dim]... (截断, 共 {len(content)} 字符)[/dim]"
+            display = (
+                content
+                if len(content) <= 3000
+                else (content[:3000] + f"\n[dim]... (截断, 共 {len(content)} 字符)[/dim]")
             )
             parts.append(display)
 
@@ -88,8 +90,7 @@ def main():
 
     console.print(
         Panel(
-            f"[bold cyan]MaiSaka Debug Viewer[/bold cyan]\n"
-            f"[dim]监听端口: {port}  等待主进程连接...[/dim]",
+            f"[bold cyan]MaiSaka Debug Viewer[/bold cyan]\n[dim]监听端口: {port}  等待主进程连接...[/dim]",
             box=box.DOUBLE_EDGE,
             border_style="cyan",
         )
@@ -131,8 +132,7 @@ def main():
                 # ── 标题栏 ──
                 console.print(f"\n{'═' * 90}")
                 console.print(
-                    f"[bold yellow]#{call_count}  {label}[/bold yellow]  "
-                    f"[dim]({len(messages)} messages)[/dim]"
+                    f"[bold yellow]#{call_count}  {label}[/bold yellow]  [dim]({len(messages)} messages)[/dim]"
                 )
                 console.print(f"{'═' * 90}")
 
@@ -144,12 +144,8 @@ def main():
 
                 # ── tools 信息 ──
                 if tools:
-                    tool_names = [
-                        t.get("function", {}).get("name", "?") for t in tools
-                    ]
-                    console.print(
-                        f"\n[dim]可用工具: {', '.join(tool_names)}[/dim]"
-                    )
+                    tool_names = [t.get("function", {}).get("name", "?") for t in tools]
+                    console.print(f"\n[dim]可用工具: {', '.join(tool_names)}[/dim]")
             except Exception as e:
                 console.print(f"\n[red]数据处理错误: {e}[/red]")
                 console.print(f"[dim]Payload: {payload}[/dim]")
@@ -161,8 +157,12 @@ def main():
                     console.print("\n[bold cyan]📤 LLM 响应:[/bold cyan]")
                     resp_content = response.get("content", "")
                     if resp_content:
-                        display = resp_content if len(str(resp_content)) <= 3000 else (
-                            str(resp_content)[:3000] + f"\n[dim]... (截断, 共 {len(str(resp_content))} 字符)[/dim]"
+                        display = (
+                            resp_content
+                            if len(str(resp_content)) <= 3000
+                            else (
+                                str(resp_content)[:3000] + f"\n[dim]... (截断, 共 {len(str(resp_content))} 字符)[/dim]"
+                            )
                         )
                         console.print(Panel(display, border_style="cyan", padding=(0, 1)))
                     resp_tool_calls = response.get("tool_calls", [])

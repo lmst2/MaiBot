@@ -20,10 +20,12 @@ def create_transport_server(socket_path: Optional[str] = None) -> TransportServe
     """
     if sys.platform != "win32":
         from .uds import UDSTransportServer
+
         return UDSTransportServer(socket_path=socket_path)
     else:
         # Windows 回退到 TCP（后续可改为 Named Pipe）
         from .tcp import TCPTransportServer
+
         return TCPTransportServer()
 
 
@@ -39,9 +41,11 @@ def create_transport_client(address: str) -> TransportClient:
     """
     if "/" in address or address.endswith(".sock"):
         from .uds import UDSTransportClient
+
         return UDSTransportClient(socket_path=address)
     elif ":" in address:
         from .tcp import TCPTransportClient
+
         host, port_str = address.rsplit(":", 1)
         return TCPTransportClient(host=host, port=int(port_str))
     else:

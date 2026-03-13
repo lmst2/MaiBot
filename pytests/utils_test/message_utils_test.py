@@ -9,16 +9,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from src.common.data_models.message_component_data_model import MessageSequence, ForwardComponent
+    from src.common.data_models.message_component_data_model import MessageSequence
     from src.chat.message_receive.message import (
         SessionMessage,
         TextComponent,
         ImageComponent,
-        EmojiComponent,
-        VoiceComponent,
         AtComponent,
-        ReplyComponent,
-        ForwardNodeComponent,
     )
 
 
@@ -203,8 +199,10 @@ def load_message_via_file(monkeypatch):
 def dummy_number_to_short_id(original_id: int, salt: str, length: int = 6) -> str:
     return "X" * length  # 返回固定的字符串，长度由参数决定，模拟生成短ID的行为
 
+
 def dummy_is_bot_self(user_id: str, platform) -> bool:
     return user_id == "bot_self"
+
 
 def load_utils_via_file(monkeypatch):
     setup_mocks(monkeypatch)
@@ -212,8 +210,12 @@ def load_utils_via_file(monkeypatch):
     # Mock math_utils 模块，供 from .math_utils import number_to_short_id 使用
     math_utils_mod = ModuleType("src.common.utils.math_utils")
     math_utils_mod.number_to_short_id = dummy_number_to_short_id
-    math_utils_mod.TimestampMode = type("TimestampMode", (), {"NORMAL": "%Y-%m-%d %H:%M:%S", "NORMAL_NO_YMD": "%H:%M:%S", "RELATIVE": "relative"})
-    math_utils_mod.translate_timestamp_to_human_readable = lambda timestamp, mode: "2024-01-01 12:00:00"  # 返回固定的时间字符串
+    math_utils_mod.TimestampMode = type(
+        "TimestampMode", (), {"NORMAL": "%Y-%m-%d %H:%M:%S", "NORMAL_NO_YMD": "%H:%M:%S", "RELATIVE": "relative"}
+    )
+    math_utils_mod.translate_timestamp_to_human_readable = lambda timestamp, mode: (
+        "2024-01-01 12:00:00"
+    )  # 返回固定的时间字符串
     monkeypatch.setitem(sys.modules, "src.common.utils.math_utils", math_utils_mod)
 
     # 确保包层级模块存在于 sys.modules 中，使相对导入能正确解析
@@ -349,6 +351,7 @@ async def test_build_readable_message_anonymize_and_replace_bot_name_and_lineno(
     assert "u_comb" in mapping
     assert mapping["u_comb"][0] == "XXXXXX"
 
+
 @pytest.mark.asyncio
 async def test_build_readable_message_with_at(monkeypatch):
     """包含@组件的消息：验证@组件中的用户信息也被匿名化和替换"""
@@ -363,7 +366,9 @@ async def test_build_readable_message_with_at(monkeypatch):
     msg.session_id = "s_at"
     msg.raw_message = MessageSequence([at_comp])
     msg.message_info = MessageInfo(UserInfo(user_id="u_main", user_nickname="MainUser"))
-    text, mapping, _ = await MessageUtils.build_readable_message([msg], anonymize=True, replace_bot_name=True, target_bot_name="MAIBot")
+    text, mapping, _ = await MessageUtils.build_readable_message(
+        [msg], anonymize=True, replace_bot_name=True, target_bot_name="MAIBot"
+    )
     # 验证主消息和@组件中的用户信息都被处理
     assert "XXXXXX说：" in text  # 主消息用户被匿名化
     assert "XXXXXX说：@XXXXXX" in text  # @组件用户被匿名化

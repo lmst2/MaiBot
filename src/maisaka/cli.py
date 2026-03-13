@@ -13,10 +13,17 @@ from rich.markdown import Markdown
 from rich.text import Text
 from rich import box
 
-from config import console, ENABLE_EMOTION_MODULE, ENABLE_COGNITION_MODULE, ENABLE_TIMING_MODULE, ENABLE_KNOWLEDGE_MODULE, ENABLE_MCP
+from config import (
+    console,
+    ENABLE_EMOTION_MODULE,
+    ENABLE_COGNITION_MODULE,
+    ENABLE_TIMING_MODULE,
+    ENABLE_KNOWLEDGE_MODULE,
+    ENABLE_MCP,
+)
 from input_reader import InputReader
 from timing import build_timing_info
-from knowledge import store_knowledge_from_context, retrieve_relevant_knowledge, build_knowledge_summary
+from knowledge import store_knowledge_from_context, retrieve_relevant_knowledge
 from knowledge_store import get_knowledge_store
 from llm_service import MaiSakaLLMService, build_message, remove_last_perception
 from mcp_client import MCPManager
@@ -64,11 +71,7 @@ class BufferCLI:
     def _init_llm(self):
         """初始化 LLM 服务 - 使用主项目配置系统"""
         thinking_env = os.getenv("ENABLE_THINKING", "").strip().lower()
-        enable_thinking: Optional[bool] = (
-            True if thinking_env == "true"
-            else False if thinking_env == "false"
-            else None
-        )
+        enable_thinking: Optional[bool] = True if thinking_env == "true" else False if thinking_env == "false" else None
 
         # MaiSakaLLMService 现在使用主项目的配置系统
         # 参数仅为兼容性保留，实际从 config_manager 读取配置
@@ -210,7 +213,7 @@ class BufferCLI:
                                     to_compress,
                                     store_result_callback=lambda cat_id, cat_name, content: console.print(
                                         f"[muted]  [OK] 存储了解信息: {cat_name}[/muted]"
-                                    )
+                                    ),
                                 )
                                 if knowledge_count > 0:
                                     console.print(f"[success][OK] 了解模块: 存储{knowledge_count}条特征信息[/success]")
@@ -272,10 +275,12 @@ class BufferCLI:
             self._chat_history = self.llm_service.build_chat_context(user_text)
         else:
             # 后续对话：追加用户消息到已有上下文
-            self._chat_history.append({
-                "role": "user",
-                "content": user_text,
-            })
+            self._chat_history.append(
+                {
+                    "role": "user",
+                    "content": user_text,
+                }
+            )
 
         await self._run_llm_loop(self._chat_history)
 
@@ -436,15 +441,16 @@ class BufferCLI:
 
                 if perception_parts:
                     # 添加感知消息（AI 的感知能力结果）
-                    chat_history.append(build_message(
-                        role="assistant",
-                        content="\n\n".join(perception_parts),
-                        msg_type="perception",
-                    ))
+                    chat_history.append(
+                        build_message(
+                            role="assistant",
+                            content="\n\n".join(perception_parts),
+                            msg_type="perception",
+                        )
+                    )
             else:
                 # 上次没有调用工具，跳过模块分析
                 console.print("[muted]ℹ️  上次未调用工具，跳过模块分析[/muted]")
-
 
             # ── 调用 LLM ──
             with console.status("[info]💬 AI 正在思考...[/info]", spinner="dots"):
@@ -540,7 +546,8 @@ class BufferCLI:
     async def _init_mcp(self):
         """初始化 MCP 服务器连接，发现并注册外部工具。"""
         config_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "mcp_config.json",
+            os.path.dirname(os.path.abspath(__file__)),
+            "mcp_config.json",
         )
         self._mcp_manager = await MCPManager.from_config(config_path)
 

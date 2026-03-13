@@ -70,10 +70,10 @@ async def _send_to_target(
         if reply_message:
             anchor_message = db_message_to_mai_message(reply_message)
             if anchor_message:
-                logger.debug(f"[SendService] 找到匹配的回复消息，发送者: {anchor_message.message_info.user_info.user_id}")
-                reply_to_platform_id = (
-                    f"{anchor_message.platform}:{anchor_message.message_info.user_info.user_id}"
+                logger.debug(
+                    f"[SendService] 找到匹配的回复消息，发送者: {anchor_message.message_info.user_info.user_id}"
                 )
+                reply_to_platform_id = f"{anchor_message.platform}:{anchor_message.message_info.user_info.user_id}"
 
         sender_info = None
         if target_stream.context and target_stream.context.message:

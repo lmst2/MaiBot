@@ -14,9 +14,7 @@ class BetterFrequencyPlugin(MaiBotPlugin):
         description="设置当前聊天的talk_frequency值：/chat talk_frequency <数字> 或 /chat t <数字>",
         pattern=r"^/chat\s+(?:talk_frequency|t)\s+(?P<value>[+-]?\d*\.?\d+)$",
     )
-    async def handle_set_talk_frequency(
-        self, stream_id: str = "", matched_groups: dict | None = None, **kwargs
-    ):
+    async def handle_set_talk_frequency(self, stream_id: str = "", matched_groups: dict | None = None, **kwargs):
         """设置当前聊天的 talk_frequency"""
         if not matched_groups or "value" not in matched_groups:
             return False, "命令格式错误", False

@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "packages", "ma
 
 # ─── 协议层测试 ───────────────────────────────────────────
 
+
 class TestProtocol:
     """协议层测试"""
 
@@ -111,6 +112,7 @@ class TestProtocol:
 
 # ─── 传输层测试 ───────────────────────────────────────────
 
+
 class TestTransport:
     """传输层测试"""
 
@@ -198,6 +200,7 @@ class TestTransport:
 
 # ─── Host 层测试 ──────────────────────────────────────────
 
+
 class TestHost:
     """Host 端基础设施测试"""
 
@@ -243,6 +246,7 @@ class TestHost:
 
 
 # ─── SDK 测试 ─────────────────────────────────────────────
+
 
 class TestSDK:
     """SDK 框架测试"""
@@ -311,6 +315,7 @@ class TestSDK:
 
 
 # ─── 端到端集成测试 ────────────────────────────────────────
+
 
 class TestE2E:
     """端到端集成测试（Host + Runner 通信）"""
@@ -391,6 +396,7 @@ class TestE2E:
 
 
 # ─── Manifest 校验测试 ─────────────────────────────────────
+
 
 class TestManifestValidator:
     """Manifest 校验器测试"""
@@ -489,6 +495,7 @@ class TestVersionComparator:
 
 # ─── 依赖解析测试 ──────────────────────────────────────────
 
+
 class TestDependencyResolution:
     """插件依赖解析测试"""
 
@@ -498,8 +505,16 @@ class TestDependencyResolution:
         loader = PluginLoader()
         candidates = {
             "core": ("dir_core", {"name": "core", "version": "1.0", "description": "d", "author": "a"}, "plugin.py"),
-            "auth": ("dir_auth", {"name": "auth", "version": "1.0", "description": "d", "author": "a", "dependencies": ["core"]}, "plugin.py"),
-            "api": ("dir_api", {"name": "api", "version": "1.0", "description": "d", "author": "a", "dependencies": ["core", "auth"]}, "plugin.py"),
+            "auth": (
+                "dir_auth",
+                {"name": "auth", "version": "1.0", "description": "d", "author": "a", "dependencies": ["core"]},
+                "plugin.py",
+            ),
+            "api": (
+                "dir_api",
+                {"name": "api", "version": "1.0", "description": "d", "author": "a", "dependencies": ["core", "auth"]},
+                "plugin.py",
+            ),
         }
 
         order, failed = loader._resolve_dependencies(candidates)
@@ -512,7 +527,17 @@ class TestDependencyResolution:
 
         loader = PluginLoader()
         candidates = {
-            "plugin_a": ("dir_a", {"name": "plugin_a", "version": "1.0", "description": "d", "author": "a", "dependencies": ["nonexistent"]}, "plugin.py"),
+            "plugin_a": (
+                "dir_a",
+                {
+                    "name": "plugin_a",
+                    "version": "1.0",
+                    "description": "d",
+                    "author": "a",
+                    "dependencies": ["nonexistent"],
+                },
+                "plugin.py",
+            ),
         }
 
         order, failed = loader._resolve_dependencies(candidates)
@@ -524,8 +549,16 @@ class TestDependencyResolution:
 
         loader = PluginLoader()
         candidates = {
-            "a": ("dir_a", {"name": "a", "version": "1.0", "description": "d", "author": "x", "dependencies": ["b"]}, "p.py"),
-            "b": ("dir_b", {"name": "b", "version": "1.0", "description": "d", "author": "x", "dependencies": ["a"]}, "p.py"),
+            "a": (
+                "dir_a",
+                {"name": "a", "version": "1.0", "description": "d", "author": "x", "dependencies": ["b"]},
+                "p.py",
+            ),
+            "b": (
+                "dir_b",
+                {"name": "b", "version": "1.0", "description": "d", "author": "x", "dependencies": ["a"]},
+                "p.py",
+            ),
         }
 
         order, failed = loader._resolve_dependencies(candidates)
@@ -534,6 +567,7 @@ class TestDependencyResolution:
 
 # ─── Host-side ComponentRegistry 测试 ──────────────────────
 
+
 class TestComponentRegistry:
     """Host-side 组件注册表测试"""
 
@@ -541,17 +575,32 @@ class TestComponentRegistry:
         from src.plugin_runtime.host.component_registry import ComponentRegistry
 
         reg = ComponentRegistry()
-        reg.register_component("greet", "action", "plugin_a", {
-            "description": "打招呼",
-            "activation_type": "keyword",
-            "activation_keywords": ["hi"],
-        })
-        reg.register_component("help", "command", "plugin_a", {
-            "command_pattern": r"^/help",
-        })
-        reg.register_component("search", "tool", "plugin_b", {
-            "description": "搜索",
-        })
+        reg.register_component(
+            "greet",
+            "action",
+            "plugin_a",
+            {
+                "description": "打招呼",
+                "activation_type": "keyword",
+                "activation_keywords": ["hi"],
+            },
+        )
+        reg.register_component(
+            "help",
+            "command",
+            "plugin_a",
+            {
+                "command_pattern": r"^/help",
+            },
+        )
+        reg.register_component(
+            "search",
+            "tool",
+            "plugin_b",
+            {
+                "description": "搜索",
+            },
+        )
 
         stats = reg.get_stats()
         assert stats["total"] == 3
@@ -573,12 +622,22 @@ class TestComponentRegistry:
         from src.plugin_runtime.host.component_registry import ComponentRegistry
 
         reg = ComponentRegistry()
-        reg.register_component("help", "command", "p1", {
-            "command_pattern": r"^/help",
-        })
-        reg.register_component("echo", "command", "p1", {
-            "command_pattern": r"^/echo\s",
-        })
+        reg.register_component(
+            "help",
+            "command",
+            "p1",
+            {
+                "command_pattern": r"^/help",
+            },
+        )
+        reg.register_component(
+            "echo",
+            "command",
+            "p1",
+            {
+                "command_pattern": r"^/echo\s",
+            },
+        )
 
         match = reg.find_command_by_text("/help me")
         assert match is not None
@@ -622,12 +681,24 @@ class TestComponentRegistry:
         from src.plugin_runtime.host.component_registry import ComponentRegistry
 
         reg = ComponentRegistry()
-        reg.register_component("h_low", "event_handler", "p1", {
-            "event_type": "on_message", "weight": 10,
-        })
-        reg.register_component("h_high", "event_handler", "p2", {
-            "event_type": "on_message", "weight": 100,
-        })
+        reg.register_component(
+            "h_low",
+            "event_handler",
+            "p1",
+            {
+                "event_type": "on_message",
+                "weight": 10,
+            },
+        )
+        reg.register_component(
+            "h_high",
+            "event_handler",
+            "p2",
+            {
+                "event_type": "on_message",
+                "weight": 100,
+            },
+        )
 
         handlers = reg.get_event_handlers("on_message")
         assert handlers[0].name == "h_high"
@@ -637,10 +708,15 @@ class TestComponentRegistry:
         from src.plugin_runtime.host.component_registry import ComponentRegistry
 
         reg = ComponentRegistry()
-        reg.register_component("search", "tool", "p1", {
-            "description": "搜索工具",
-            "parameters_raw": {"query": {"type": "string"}},
-        })
+        reg.register_component(
+            "search",
+            "tool",
+            "p1",
+            {
+                "description": "搜索工具",
+                "parameters_raw": {"query": {"type": "string"}},
+            },
+        )
 
         tools = reg.get_tools_for_llm()
         assert len(tools) == 1
@@ -649,6 +725,7 @@ class TestComponentRegistry:
 
 
 # ─── EventDispatcher 测试 ─────────────────────────────────
+
 
 class TestEventDispatcher:
     """Host-side 事件分发器测试"""
@@ -659,11 +736,16 @@ class TestEventDispatcher:
         from src.plugin_runtime.host.event_dispatcher import EventDispatcher
 
         reg = ComponentRegistry()
-        reg.register_component("h1", "event_handler", "p1", {
-            "event_type": "on_start",
-            "weight": 0,
-            "intercept_message": False,
-        })
+        reg.register_component(
+            "h1",
+            "event_handler",
+            "p1",
+            {
+                "event_type": "on_start",
+                "weight": 0,
+                "intercept_message": False,
+            },
+        )
 
         dispatcher = EventDispatcher(reg)
         call_log = []
@@ -672,9 +754,7 @@ class TestEventDispatcher:
             call_log.append((plugin_id, comp_name))
             return {"success": True, "continue_processing": True}
 
-        should_continue, modified = await dispatcher.dispatch_event(
-            "on_start", mock_invoke
-        )
+        should_continue, modified = await dispatcher.dispatch_event("on_start", mock_invoke)
         assert should_continue
         # 非阻塞分发是异步的，等一下让 task 完成
         await asyncio.sleep(0.1)
@@ -687,11 +767,16 @@ class TestEventDispatcher:
         from src.plugin_runtime.host.event_dispatcher import EventDispatcher
 
         reg = ComponentRegistry()
-        reg.register_component("filter", "event_handler", "p1", {
-            "event_type": "on_message_pre_process",
-            "weight": 100,
-            "intercept_message": True,
-        })
+        reg.register_component(
+            "filter",
+            "event_handler",
+            "p1",
+            {
+                "event_type": "on_message_pre_process",
+                "weight": 100,
+                "intercept_message": True,
+            },
+        )
 
         dispatcher = EventDispatcher(reg)
 
@@ -755,6 +840,7 @@ class TestEventBus:
 
 # ─── MaiMessages 测试 ─────────────────────────────────────
 
+
 class TestMaiMessages:
     """统一消息模型测试"""
 
@@ -799,6 +885,7 @@ class TestMaiMessages:
 
 # ─── WorkflowExecutor 测试 ────────────────────────────────
 
+
 class TestWorkflowExecutor:
     """Host-side Workflow 执行器测试（新 pipeline 模型）"""
 
@@ -829,11 +916,16 @@ class TestWorkflowExecutor:
         from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
 
         reg = ComponentRegistry()
-        reg.register_component("upper", "workflow_step", "p1", {
-            "stage": "pre_process",
-            "priority": 10,
-            "blocking": True,
-        })
+        reg.register_component(
+            "upper",
+            "workflow_step",
+            "p1",
+            {
+                "stage": "pre_process",
+                "priority": 10,
+                "blocking": True,
+            },
+        )
         executor = WorkflowExecutor(reg)
 
         async def mock_invoke(plugin_id, comp_name, args):
@@ -859,11 +951,16 @@ class TestWorkflowExecutor:
         from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
 
         reg = ComponentRegistry()
-        reg.register_component("blocker", "workflow_step", "p1", {
-            "stage": "pre_process",
-            "priority": 10,
-            "blocking": True,
-        })
+        reg.register_component(
+            "blocker",
+            "workflow_step",
+            "p1",
+            {
+                "stage": "pre_process",
+                "priority": 10,
+                "blocking": True,
+            },
+        )
         executor = WorkflowExecutor(reg)
 
         async def mock_invoke(plugin_id, comp_name, args):
@@ -884,17 +981,27 @@ class TestWorkflowExecutor:
 
         reg = ComponentRegistry()
         # high-priority hook 返回 skip_stage
-        reg.register_component("skipper", "workflow_step", "p1", {
-            "stage": "ingress",
-            "priority": 100,
-            "blocking": True,
-        })
+        reg.register_component(
+            "skipper",
+            "workflow_step",
+            "p1",
+            {
+                "stage": "ingress",
+                "priority": 100,
+                "blocking": True,
+            },
+        )
         # low-priority hook 不应被执行
-        reg.register_component("checker", "workflow_step", "p2", {
-            "stage": "ingress",
-            "priority": 1,
-            "blocking": True,
-        })
+        reg.register_component(
+            "checker",
+            "workflow_step",
+            "p2",
+            {
+                "stage": "ingress",
+                "priority": 1,
+                "blocking": True,
+            },
+        )
         executor = WorkflowExecutor(reg)
 
         call_log = []
@@ -905,9 +1012,7 @@ class TestWorkflowExecutor:
                 return {"hook_result": "skip_stage"}
             return {"hook_result": "continue"}
 
-        result, _, _ = await executor.execute(
-            mock_invoke, message={"plain_text": "test"}
-        )
+        result, _, _ = await executor.execute(mock_invoke, message={"plain_text": "test"})
         assert result.status == "completed"
         # 只有 skipper 被调用，checker 被跳过
         assert call_log == ["skipper"]
@@ -919,12 +1024,17 @@ class TestWorkflowExecutor:
         from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
 
         reg = ComponentRegistry()
-        reg.register_component("only_dm", "workflow_step", "p1", {
-            "stage": "ingress",
-            "priority": 10,
-            "blocking": True,
-            "filter": {"chat_type": "direct"},
-        })
+        reg.register_component(
+            "only_dm",
+            "workflow_step",
+            "p1",
+            {
+                "stage": "ingress",
+                "priority": 10,
+                "blocking": True,
+                "filter": {"chat_type": "direct"},
+            },
+        )
         executor = WorkflowExecutor(reg)
 
         call_log = []
@@ -934,15 +1044,11 @@ class TestWorkflowExecutor:
             return {"hook_result": "continue"}
 
         # 不匹配 filter —— hook 不应被调用
-        await executor.execute(
-            mock_invoke, message={"plain_text": "hi", "chat_type": "group"}
-        )
+        await executor.execute(mock_invoke, message={"plain_text": "hi", "chat_type": "group"})
         assert not call_log
 
         # 匹配 filter —— hook 应被调用
-        await executor.execute(
-            mock_invoke, message={"plain_text": "hi", "chat_type": "direct"}
-        )
+        await executor.execute(mock_invoke, message={"plain_text": "hi", "chat_type": "direct"})
         assert call_log == ["only_dm"]
 
     @pytest.mark.asyncio
@@ -952,17 +1058,27 @@ class TestWorkflowExecutor:
         from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
 
         reg = ComponentRegistry()
-        reg.register_component("failer", "workflow_step", "p1", {
-            "stage": "ingress",
-            "priority": 100,
-            "blocking": True,
-            "error_policy": "skip",
-        })
-        reg.register_component("ok_step", "workflow_step", "p2", {
-            "stage": "ingress",
-            "priority": 1,
-            "blocking": True,
-        })
+        reg.register_component(
+            "failer",
+            "workflow_step",
+            "p1",
+            {
+                "stage": "ingress",
+                "priority": 100,
+                "blocking": True,
+                "error_policy": "skip",
+            },
+        )
+        reg.register_component(
+            "ok_step",
+            "workflow_step",
+            "p2",
+            {
+                "stage": "ingress",
+                "priority": 1,
+                "blocking": True,
+            },
+        )
         executor = WorkflowExecutor(reg)
 
         call_log = []
@@ -973,9 +1089,7 @@ class TestWorkflowExecutor:
                 raise RuntimeError("boom")
             return {"hook_result": "continue"}
 
-        result, _, ctx = await executor.execute(
-            mock_invoke, message={"plain_text": "test"}
-        )
+        result, _, ctx = await executor.execute(mock_invoke, message={"plain_text": "test"})
         assert result.status == "completed"
         assert "failer" in call_log
         assert "ok_step" in call_log
@@ -988,20 +1102,23 @@ class TestWorkflowExecutor:
         from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
 
         reg = ComponentRegistry()
-        reg.register_component("failer", "workflow_step", "p1", {
-            "stage": "ingress",
-            "priority": 10,
-            "blocking": True,
-            # error_policy defaults to "abort"
-        })
+        reg.register_component(
+            "failer",
+            "workflow_step",
+            "p1",
+            {
+                "stage": "ingress",
+                "priority": 10,
+                "blocking": True,
+                # error_policy defaults to "abort"
+            },
+        )
         executor = WorkflowExecutor(reg)
 
         async def mock_invoke(plugin_id, comp_name, args):
             raise RuntimeError("fatal")
 
-        result, _, ctx = await executor.execute(
-            mock_invoke, message={"plain_text": "test"}
-        )
+        result, _, ctx = await executor.execute(mock_invoke, message={"plain_text": "test"})
         assert result.status == "failed"
         assert result.stopped_at == "ingress"
 
@@ -1013,11 +1130,16 @@ class TestWorkflowExecutor:
 
         reg = ComponentRegistry()
         for i in range(3):
-            reg.register_component(f"nb_{i}", "workflow_step", f"p{i}", {
-                "stage": "post_process",
-                "priority": 0,
-                "blocking": False,
-            })
+            reg.register_component(
+                f"nb_{i}",
+                "workflow_step",
+                f"p{i}",
+                {
+                    "stage": "post_process",
+                    "priority": 0,
+                    "blocking": False,
+                },
+            )
         executor = WorkflowExecutor(reg)
 
         call_log = []
@@ -1026,9 +1148,7 @@ class TestWorkflowExecutor:
             call_log.append(comp_name)
             return {"hook_result": "continue", "modified_message": {"plain_text": "ignored"}}
 
-        result, final_msg, _ = await executor.execute(
-            mock_invoke, message={"plain_text": "original"}
-        )
+        result, final_msg, _ = await executor.execute(mock_invoke, message={"plain_text": "original"})
         # non-blocking 的 modified_message 被忽略
         assert final_msg["plain_text"] == "original"
         # 给异步 task 时间完成
@@ -1042,9 +1162,14 @@ class TestWorkflowExecutor:
         from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
 
         reg = ComponentRegistry()
-        reg.register_component("help", "command", "p1", {
-            "command_pattern": r"^/help",
-        })
+        reg.register_component(
+            "help",
+            "command",
+            "p1",
+            {
+                "command_pattern": r"^/help",
+            },
+        )
         executor = WorkflowExecutor(reg)
 
         async def mock_invoke(plugin_id, comp_name, args):
@@ -1052,9 +1177,7 @@ class TestWorkflowExecutor:
                 return {"output": "帮助信息"}
             return {"hook_result": "continue"}
 
-        result, _, ctx = await executor.execute(
-            mock_invoke, message={"plain_text": "/help topic"}
-        )
+        result, _, ctx = await executor.execute(mock_invoke, message={"plain_text": "/help topic"})
         assert result.status == "completed"
         assert ctx.matched_command == "p1.help"
         cmd_result = ctx.get_stage_output("plan", "command_result")
@@ -1069,17 +1192,27 @@ class TestWorkflowExecutor:
 
         reg = ComponentRegistry()
         # ingress 阶段写入数据
-        reg.register_component("writer", "workflow_step", "p1", {
-            "stage": "ingress",
-            "priority": 10,
-            "blocking": True,
-        })
+        reg.register_component(
+            "writer",
+            "workflow_step",
+            "p1",
+            {
+                "stage": "ingress",
+                "priority": 10,
+                "blocking": True,
+            },
+        )
         # pre_process 阶段读取数据
-        reg.register_component("reader", "workflow_step", "p2", {
-            "stage": "pre_process",
-            "priority": 10,
-            "blocking": True,
-        })
+        reg.register_component(
+            "reader",
+            "workflow_step",
+            "p2",
+            {
+                "stage": "pre_process",
+                "priority": 10,
+                "blocking": True,
+            },
+        )
         executor = WorkflowExecutor(reg)
 
         async def mock_invoke(plugin_id, comp_name, args):
@@ -1096,9 +1229,7 @@ class TestWorkflowExecutor:
                 return {"hook_result": "continue"}
             return {"hook_result": "continue"}
 
-        result, _, ctx = await executor.execute(
-            mock_invoke, message={"plain_text": "hi"}
-        )
+        result, _, ctx = await executor.execute(mock_invoke, message={"plain_text": "hi"})
         assert result.status == "completed"
         assert ctx.get_stage_output("ingress", "parsed_intent") == "greeting"
 
@@ -1324,10 +1455,15 @@ class TestIntegration:
             async def stop(self):
                 self.stopped = True
 
-        monkeypatch.setattr(integration_module.PluginRuntimeManager, "_get_builtin_plugin_dirs", staticmethod(lambda: ["builtin"]))
-        monkeypatch.setattr(integration_module.PluginRuntimeManager, "_get_thirdparty_plugin_dirs", staticmethod(lambda: ["thirdparty"]))
+        monkeypatch.setattr(
+            integration_module.PluginRuntimeManager, "_get_builtin_plugin_dirs", staticmethod(lambda: ["builtin"])
+        )
+        monkeypatch.setattr(
+            integration_module.PluginRuntimeManager, "_get_thirdparty_plugin_dirs", staticmethod(lambda: ["thirdparty"])
+        )
 
         import src.plugin_runtime.host.supervisor as supervisor_module
+
         monkeypatch.setattr(supervisor_module, "PluginSupervisor", FakeSupervisor)
 
         manager = integration_module.PluginRuntimeManager()

@@ -8,7 +8,7 @@ import asyncio
 from src.common.logger import get_logger
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Messages
-from src.common.data_models.mai_message_data_model import MaiMessage, UserInfo, GroupInfo, MessageInfo
+from src.common.data_models.mai_message_data_model import MaiMessage, UserInfo
 from src.common.data_models.message_component_data_model import (
     TextComponent,
     ImageComponent,

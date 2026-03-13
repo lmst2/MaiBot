@@ -13,4 +13,3 @@ ENV_SESSION_TOKEN = "MAIBOT_SESSION_TOKEN"
 
 ENV_PLUGIN_DIRS = "MAIBOT_PLUGIN_DIRS"
 """Runner 需要加载的插件目录列表（os.pathsep 分隔）"""
-

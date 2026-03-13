@@ -116,7 +116,9 @@ class HelloWorldPlugin(MaiBotPlugin):
             print(f"接收到消息: {raw}")
         return True, True, "消息已打印", None, None
 
-    @EventHandler("forward_messages_handler", description="把接收到的消息转发到指定聊天ID", event_type=EventType.ON_MESSAGE)
+    @EventHandler(
+        "forward_messages_handler", description="把接收到的消息转发到指定聊天ID", event_type=EventType.ON_MESSAGE
+    )
     async def handle_forward_messages(self, message=None, stream_id: str = "", **kwargs):
         """收集消息并定期转发"""
         if not message:

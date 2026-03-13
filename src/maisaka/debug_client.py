@@ -48,9 +48,7 @@ class DebugViewer:
                 conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 conn.connect(("127.0.0.1", self._port))
                 self._conn = conn
-                console.print(
-                    f"[success]✓ 调试窗口已启动[/success] [muted](port {self._port})[/muted]"
-                )
+                console.print(f"[success]✓ 调试窗口已启动[/success] [muted](port {self._port})[/muted]")
                 return
             except ConnectionRefusedError:
                 conn.close()

@@ -15,15 +15,19 @@ if str(_root) not in sys.path:
 
 # ──────────────────── 从主配置读取 ────────────────────
 
+
 def _get_maisaka_config():
     """获取 MaiSaka 配置"""
     try:
         from src.config.config import config_manager
+
         return config_manager.config.maisaka
     except Exception:
         # 如果配置加载失败，返回默认值
         from src.config.official_configs import MaiSakaConfig
+
         return MaiSakaConfig()
+
 
 _maisaka_config = _get_maisaka_config()
 

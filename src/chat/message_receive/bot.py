@@ -9,11 +9,10 @@ from src.common.logger import get_logger
 from src.common.utils.utils_message import MessageUtils
 from src.common.utils.utils_session import SessionUtils
 from src.chat.heart_flow.heartflow_message_processor import HeartFCMessageReceiver
+
 # from src.chat.brain_chat.PFC.pfc_manager import PFCManager
-from src.chat.utils.prompt_builder import Prompt, global_prompt_manager
 from src.core.announcement_manager import global_announcement_manager
 from src.core.component_registry import component_registry
-from src.core.types import EventType
 
 from .message import SessionMessage
 from .chat_manager import chat_manager
@@ -391,6 +390,7 @@ class ChatBot:
                 else:
                     logger.debug("[群聊]检测到群聊消息，路由到HeartFlow系统")
                     await self.heartflow_message_receiver.process_message(message)
+
             await preprocess()
 
         except Exception as e:

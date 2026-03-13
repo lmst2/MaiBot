@@ -133,7 +133,9 @@ class PluginRunner:
         self._suspend_console_handlers()
         stdlib_logging.root.addHandler(handler)
         self._log_handler = handler
-        logger.debug("RunnerIPCLogHandler \u5df2\u5b89\u88c3\uff0c\u63d2\u4ef6\u65e5\u5fd7\u5c06\u901a\u8fc7 IPC \u8f6c\u53d1\u5230\u4e3b\u8fdb\u7a0b")
+        logger.debug(
+            "RunnerIPCLogHandler \u5df2\u5b89\u88c3\uff0c\u63d2\u4ef6\u65e5\u5fd7\u5c06\u901a\u8fc7 IPC \u8f6c\u53d1\u5230\u4e3b\u8fdb\u7a0b"
+        )
 
     async def _uninstall_log_handler(self) -> None:
         """关停前从 logging.root 移除 Handler 并刷空缓冲。
@@ -291,7 +293,11 @@ class PluginRunner:
             )
 
         try:
-            result = await handler_method(**invoke.args) if inspect.iscoroutinefunction(handler_method) else handler_method(**invoke.args)
+            result = (
+                await handler_method(**invoke.args)
+                if inspect.iscoroutinefunction(handler_method)
+                else handler_method(**invoke.args)
+            )
             resp_payload = InvokeResultPayload(success=True, result=result)
             return envelope.make_response(payload=resp_payload.model_dump())
         except Exception as e:
@@ -332,7 +338,11 @@ class PluginRunner:
             )
 
         try:
-            raw = await handler_method(**invoke.args) if inspect.iscoroutinefunction(handler_method) else handler_method(**invoke.args)
+            raw = (
+                await handler_method(**invoke.args)
+                if inspect.iscoroutinefunction(handler_method)
+                else handler_method(**invoke.args)
+            )
 
             # 规范化返回值：将 EventHandler 返回展平到 payload 顶层
             if raw is None:
@@ -341,7 +351,9 @@ class PluginRunner:
                 result = {
                     "success": True,
                     # 兼容 guide.md 中文档的 {"blocked": True} 写法
-                    "continue_processing": not raw.get("blocked", False) if "blocked" in raw else raw.get("continue_processing", True),
+                    "continue_processing": not raw.get("blocked", False)
+                    if "blocked" in raw
+                    else raw.get("continue_processing", True),
                     "modified_message": raw.get("modified_message"),
                     "custom_result": raw.get("custom_result"),
                 }
@@ -383,7 +395,11 @@ class PluginRunner:
             )
 
         try:
-            raw = await handler_method(**invoke.args) if inspect.iscoroutinefunction(handler_method) else handler_method(**invoke.args)
+            raw = (
+                await handler_method(**invoke.args)
+                if inspect.iscoroutinefunction(handler_method)
+                else handler_method(**invoke.args)
+            )
 
             # 规范化返回值
             if isinstance(raw, str):
@@ -455,6 +471,7 @@ class PluginRunner:
 
 # ─── sys.path 隔离 ────────────────────────────────────────
 
+
 def _isolate_sys_path(plugin_dirs: List[str]) -> None:
     """清理 sys.path，限制 Runner 子进程只能访问标准库、SDK 和插件目录。
 
@@ -504,9 +521,7 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
             return self if self._should_block(fullname) else None
 
         def load_module(self, fullname):
-            raise ImportError(
-                f"Runner 子进程不允许导入主程序模块: {fullname}"
-            )
+            raise ImportError(f"Runner 子进程不允许导入主程序模块: {fullname}")
 
         def _should_block(self, fullname: str) -> bool:
             # 放行非 src.* 的导入、以及 "src" 本身
@@ -514,14 +529,14 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
                 return False
             # 放行白名单前缀
             return not any(
-                fullname == prefix or fullname.startswith(f"{prefix}.")
-                for prefix in self._ALLOWED_SRC_PREFIXES
+                fullname == prefix or fullname.startswith(f"{prefix}.") for prefix in self._ALLOWED_SRC_PREFIXES
             )
 
     sys.meta_path.insert(0, _PluginImportBlocker())
 
 
 # ─── 进程入口 ──────────────────────────────────────────────
+
 
 async def _async_main() -> None:
     """异步主入口"""

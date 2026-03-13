@@ -10,11 +10,10 @@
 """
 
 import re
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Pattern, Tuple, Union
+from typing import Any, Awaitable, Callable, Dict, Optional, Pattern, Tuple
 
 from src.common.logger import get_logger
 from src.core.types import (
-    ActionActivationType,
     ActionInfo,
     CommandInfo,
     ComponentInfo,
@@ -130,9 +129,7 @@ class ComponentRegistry:
         logger.debug(f"注册 Command: {name}")
         return True
 
-    def find_command_by_text(
-        self, text: str
-    ) -> Optional[Tuple[CommandExecutor, dict, CommandInfo]]:
+    def find_command_by_text(self, text: str) -> Optional[Tuple[CommandExecutor, dict, CommandInfo]]:
         """根据文本查找匹配的命令
 
         Returns:

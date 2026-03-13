@@ -142,13 +142,21 @@ class ChatManager:
 
             if chat_stream.is_group_session:
                 info["group_id"] = chat_stream.group_id
-                if chat_stream.context and chat_stream.context.message and chat_stream.context.message.message_info.group_info:
+                if (
+                    chat_stream.context
+                    and chat_stream.context.message
+                    and chat_stream.context.message.message_info.group_info
+                ):
                     info["group_name"] = chat_stream.context.message.message_info.group_info.group_name or "未知群聊"
                 else:
                     info["group_name"] = "未知群聊"
             else:
                 info["user_id"] = chat_stream.user_id
-                if chat_stream.context and chat_stream.context.message and chat_stream.context.message.message_info.user_info:
+                if (
+                    chat_stream.context
+                    and chat_stream.context.message
+                    and chat_stream.context.message.message_info.user_info
+                ):
                     info["user_name"] = chat_stream.context.message.message_info.user_info.user_nickname
                 else:
                     info["user_name"] = "未知用户"

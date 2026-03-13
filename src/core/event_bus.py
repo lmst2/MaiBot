@@ -117,9 +117,7 @@ class EventBus:
                 self._fire_and_forget(entry, event_type, current_message)
 
         # 桥接到 IPC 插件运行时
-        continue_flag, current_message = await self._bridge_to_ipc_runtime(
-            event_type, continue_flag, current_message
-        )
+        continue_flag, current_message = await self._bridge_to_ipc_runtime(event_type, continue_flag, current_message)
 
         return continue_flag, current_message
 

@@ -16,7 +16,7 @@ from .action_planner import ActionPlanner
 from .observation_info import ObservationInfo
 from .conversation_info import ConversationInfo  # 确保导入 ConversationInfo
 from .reply_generator import ReplyGenerator
-from src.chat.message_receive.chat_manager import BotChatSession, chat_manager as _chat_manager
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from maim_message import UserInfo
 from .pfc_KnowledgeFetcher import KnowledgeFetcher
 from .waiter import Waiter
