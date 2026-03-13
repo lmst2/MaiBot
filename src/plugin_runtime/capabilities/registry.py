@@ -18,8 +18,6 @@ def register_capability_impls(manager: "PluginRuntimeManager", supervisor: Plugi
     cap_service.register_capability("send.image", manager._cap_send_image)
     cap_service.register_capability("send.command", manager._cap_send_command)
     cap_service.register_capability("send.custom", manager._cap_send_custom)
-    cap_service.register_capability("send.forward", manager._cap_send_forward)
-    cap_service.register_capability("send.hybrid", manager._cap_send_hybrid)
 
     cap_service.register_capability("llm.generate", manager._cap_llm_generate)
     cap_service.register_capability("llm.generate_with_tools", manager._cap_llm_generate_with_tools)

@@ -13,9 +13,9 @@ from src.config.config import global_config, model_config
 from src.common.logger import get_logger
 from src.chat.logger.plan_reply_logger import PlanReplyLogger
 from src.common.data_models.info_data_model import ActionPlannerInfo
+from src.common.utils.utils_action import ActionUtils
 from src.prompt.prompt_manager import prompt_manager
 from src.services.message_service import (
-    build_readable_actions,
     build_readable_messages_with_id,
     get_actions_by_timestamp_with_chat,
     get_messages_before_time_in_chat,
@@ -28,7 +28,7 @@ from src.core.component_registry import component_registry
 
 if TYPE_CHECKING:
     from src.common.data_models.info_data_model import TargetPersonInfo
-    from src.common.data_models.database_data_model import DatabaseMessages
+    from src.chat.message_receive.message import SessionMessage
 
 logger = get_logger("planner")
 
@@ -51,8 +51,8 @@ class BrainPlanner:
         self.plan_log: List[Tuple[str, float, List[ActionPlannerInfo]]] = []
 
     def find_message_by_id(
-        self, message_id: str, message_id_list: List[Tuple[str, "DatabaseMessages"]]
-    ) -> Optional["DatabaseMessages"]:
+        self, message_id: str, message_id_list: List[Tuple[str, "SessionMessage"]]
+    ) -> Optional["SessionMessage"]:
         # sourcery skip: use-next
         """
         根据message_id从message_id_list中查找对应的原始消息
@@ -72,7 +72,7 @@ class BrainPlanner:
     def _parse_single_action(
         self,
         action_json: dict,
-        message_id_list: List[Tuple[str, "DatabaseMessages"]],
+        message_id_list: List[Tuple[str, "SessionMessage"]],
         current_available_actions: List[Tuple[str, ActionInfo]],
     ) -> List[ActionPlannerInfo]:
         """解析单个action JSON并返回ActionPlannerInfo列表"""
@@ -169,7 +169,7 @@ class BrainPlanner:
             limit=int(global_config.chat.max_context_size * 0.6),
             filter_intercept_message_level=1,
         )
-        message_id_list: list[Tuple[str, "DatabaseMessages"]] = []
+        message_id_list: list[Tuple[str, "SessionMessage"]] = []
         chat_content_block, message_id_list = build_readable_messages_with_id(
             messages=message_list_before_now,
             timestamp_mode="normal_no_YMD",
@@ -251,11 +251,11 @@ class BrainPlanner:
         self,
         chat_target_info: Optional["TargetPersonInfo"],
         current_available_actions: Dict[str, ActionInfo],
-        message_id_list: List[Tuple[str, "DatabaseMessages"]],
+        message_id_list: List[Tuple[str, "SessionMessage"]],
         chat_content_block: str = "",
         interest: str = "",
         prompt_key: str = "brain_planner",
-    ) -> tuple[str, List[Tuple[str, "DatabaseMessages"]]]:
+    ) -> tuple[str, List[Tuple[str, "SessionMessage"]]]:
         """构建 Planner LLM 的提示词 (获取模板并填充数据)"""
         try:
             # 获取最近执行过的动作
@@ -265,7 +265,7 @@ class BrainPlanner:
                 timestamp_end=time.time(),
                 limit=6,
             )
-            actions_before_now_block = build_readable_actions(actions=actions_before_now)
+            actions_before_now_block = ActionUtils.build_readable_action_records(actions_before_now)
             if actions_before_now_block:
                 actions_before_now_block = f"你刚刚选择并执行过的action是：\n{actions_before_now_block}"
             else:
@@ -395,7 +395,7 @@ class BrainPlanner:
     async def _execute_main_planner(
         self,
         prompt: str,
-        message_id_list: List[Tuple[str, "DatabaseMessages"]],
+        message_id_list: List[Tuple[str, "SessionMessage"]],
         filtered_actions: Dict[str, ActionInfo],
         available_actions: Dict[str, ActionInfo],
         loop_start_time: float,

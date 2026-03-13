@@ -1,8 +1,24 @@
 from typing import Any, Dict
 
+from src.config.config import global_config
 from src.common.logger import get_logger
 
 logger = get_logger("plugin_runtime.integration")
+
+
+def _get_nested_config_value(source: Any, key: str, default: Any = None) -> Any:
+    current = source
+    try:
+        for part in key.split("."):
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+            elif hasattr(current, part):
+                current = getattr(current, part)
+            else:
+                raise KeyError(part)
+        return current
+    except Exception:
+        return default
 
 
 class RuntimeCoreCapabilityMixin:
@@ -74,8 +90,9 @@ class RuntimeCoreCapabilityMixin:
             return {"success": False, "error": "缺少必要参数 command 或 stream_id"}
 
         try:
-            result = await send_api.command_to_stream(
-                command=command,
+            result = await send_api.custom_to_stream(
+                message_type="command",
+                content=command,
                 stream_id=stream_id,
                 storage_message=args.get("storage_message", True),
                 display_message=args.get("display_message", ""),
@@ -108,36 +125,6 @@ class RuntimeCoreCapabilityMixin:
             return {"success": result}
         except Exception as e:
             logger.error(f"[cap.send.custom] 执行失败: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
-
-    async def _cap_send_forward(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        from src.services import send_service as send_api
-
-        messages = args.get("messages", [])
-        stream_id: str = args.get("stream_id", "")
-        if not messages or not stream_id:
-            return {"success": False, "error": "缺少必要参数 messages 或 stream_id"}
-
-        try:
-            result = await send_api.forward_to_stream(messages=messages, stream_id=stream_id)
-            return {"success": result}
-        except Exception as e:
-            logger.error(f"[cap.send.forward] 执行失败: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
-
-    async def _cap_send_hybrid(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        from src.services import send_service as send_api
-
-        segments = args.get("segments", [])
-        stream_id: str = args.get("stream_id", "")
-        if not segments or not stream_id:
-            return {"success": False, "error": "缺少必要参数 segments 或 stream_id"}
-
-        try:
-            result = await send_api.hybrid_to_stream(segments=segments, stream_id=stream_id)
-            return {"success": result}
-        except Exception as e:
-            logger.error(f"[cap.send.hybrid] 执行失败: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
     async def _cap_llm_generate(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
@@ -235,15 +222,13 @@ class RuntimeCoreCapabilityMixin:
             return {"success": False, "error": str(e)}
 
     async def _cap_config_get(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        from src.services import config_service as config_api
-
         key: str = args.get("key", "")
         default = args.get("default")
         if not key:
             return {"success": False, "value": None, "error": "缺少必要参数 key"}
 
         try:
-            value = config_api.get_global_config(key, default)
+            value = _get_nested_config_value(global_config, key, default)
             return {"success": True, "value": value}
         except Exception as e:
             return {"success": False, "value": None, "error": str(e)}
@@ -261,9 +246,7 @@ class RuntimeCoreCapabilityMixin:
                 return {"success": False, "value": default, "error": f"未找到插件 {plugin_name} 的配置"}
 
             if key:
-                from src.services import config_service as config_api
-
-                value = config_api.get_plugin_config(config, key, default)
+                value = _get_nested_config_value(config, key, default)
                 return {"success": True, "value": value}
 
             return {"success": True, "value": config}

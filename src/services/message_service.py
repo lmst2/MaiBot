@@ -154,22 +154,6 @@ def get_messages_before_time_in_chat(
     return _normalize_messages(messages)
 
 
-def get_recent_messages(
-    chat_id: str, hours: float = 24.0, limit: int = 100, limit_mode: str = "latest", filter_mai: bool = False
-) -> List[SessionMessage]:
-    if not isinstance(hours, (int, float)) or hours < 0:
-        raise ValueError("hours 不能是负数")
-    if not isinstance(limit, int) or limit < 0:
-        raise ValueError("limit 必须是非负整数")
-    if not chat_id:
-        raise ValueError("chat_id 不能为空")
-    if not isinstance(chat_id, str):
-        raise ValueError("chat_id 必须是字符串类型")
-    now = time.time()
-    start_time = now - hours * 3600
-    return get_messages_by_time_in_chat(chat_id, start_time, now, limit, limit_mode, filter_mai)
-
-
 # =============================================================================
 # 消息计数函数
 # =============================================================================
@@ -221,14 +205,14 @@ def build_readable_messages(
             line = f"{line[:200]}......（内容太长了）"
         lines.append(line)
     if show_actions and normalized_messages:
-        action_lines = build_readable_actions(
+        if action_lines := ActionUtils.build_readable_action_records(
             get_actions_by_timestamp_with_chat(
                 normalized_messages[0].session_id,
                 normalized_messages[0].timestamp.timestamp(),
                 normalized_messages[-1].timestamp.timestamp(),
-            )
-        )
-        if action_lines:
+            ),
+            "relative",
+        ):
             lines.append(action_lines)
     return "\n".join(lines)
 
@@ -260,19 +244,24 @@ def build_readable_messages_with_id(
         lines.append(line)
         message_id_list.append((message.message_id, message))
     if show_actions and normalized_messages:
-        action_lines = build_readable_actions(
+        if action_lines := ActionUtils.build_readable_action_records(
             get_actions_by_timestamp_with_chat(
                 normalized_messages[0].session_id,
                 normalized_messages[0].timestamp.timestamp(),
                 normalized_messages[-1].timestamp.timestamp(),
-            )
-        )
-        if action_lines:
+            ),
+            "relative",
+        ):
             lines.append(action_lines)
     return "\n".join(lines), message_id_list
 
 
-def get_actions_by_timestamp_with_chat(chat_id: str, timestamp_start: float, timestamp_end: float) -> List[MaiActionRecord]:
+def get_actions_by_timestamp_with_chat(
+    chat_id: str,
+    timestamp_start: float,
+    timestamp_end: float,
+    limit: Optional[int] = None,
+) -> List[MaiActionRecord]:
     with get_db_session() as session:
         statement = (
             select(ActionRecord)
@@ -281,11 +270,9 @@ def get_actions_by_timestamp_with_chat(chat_id: str, timestamp_start: float, tim
             .where(col(ActionRecord.timestamp) <= datetime.fromtimestamp(timestamp_end))
             .order_by(col(ActionRecord.timestamp))
         )
+        if limit is not None:
+            statement = statement.limit(limit)
         return [MaiActionRecord.from_db_instance(item) for item in session.exec(statement).all()]
-
-
-def build_readable_actions(actions: List[MaiActionRecord], timestamp_mode: str = "relative") -> str:
-    return ActionUtils.build_readable_action_records(actions, timestamp_mode)
 
 
 def replace_user_references(text: str, platform: str, replace_bot_name: bool = False) -> str:
@@ -312,9 +299,4 @@ def translate_pid_to_description(pid: str) -> str:
             else None
         )
         image = session.exec(statement).first() if statement is not None else None
-    description = ""
-    if image and image.description and image.description.strip():
-        description = image.description.strip()
-    else:
-        description = "[图片]"
-    return description
+    return image.description.strip() if image and image.description and image.description.strip() else "[图片]"

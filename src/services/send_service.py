@@ -4,9 +4,9 @@
 提供发送各种类型消息的核心功能。
 """
 
-import traceback
 import time
-from typing import Optional, Union, Dict, List, TYPE_CHECKING
+import traceback
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 from maim_message import BaseMessageInfo, GroupInfo as MaimGroupInfo, MessageBase, Seg, UserInfo as MaimUserInfo
 
@@ -61,7 +61,7 @@ async def _send_to_target(
 
         anchor_message: Optional[MaiMessage] = None
         if reply_message:
-            anchor_message = db_message_to_mai_message(reply_message)
+            anchor_message = reply_message.deepcopy()
             if anchor_message:
                 logger.debug(
                     f"[SendService] 找到匹配的回复消息，发送者: {anchor_message.message_info.user_info.user_id}"
@@ -127,11 +127,6 @@ async def _send_to_target(
         return False
 
 
-def db_message_to_mai_message(message_obj: "SessionMessage") -> Optional[MaiMessage]:
-    """将数据库消息重建为 MaiMessage 对象，用于回复引用。"""
-    return message_obj.deepcopy()
-
-
 # =============================================================================
 # 公共函数 - 预定义类型的发送函数
 # =============================================================================
@@ -194,23 +189,6 @@ async def image_to_stream(
         storage_message=storage_message,
         set_reply=set_reply,
         reply_message=reply_message,
-    )
-
-
-async def command_to_stream(
-    command: Union[str, dict],
-    stream_id: str,
-    storage_message: bool = True,
-    display_message: str = "",
-) -> bool:
-    """向指定流发送命令"""
-    return await _send_to_target(
-        message_segment=Seg(type="command", data=command),  # type: ignore
-        stream_id=stream_id,
-        display_message=display_message,
-        typing=False,
-        storage_message=storage_message,
-        set_reply=False,
     )
 
 

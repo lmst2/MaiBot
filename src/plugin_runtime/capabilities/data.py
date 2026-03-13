@@ -34,7 +34,7 @@ class RuntimeDataCapabilityMixin:
         return EMOJI_DIR / f"emoji_cap_{int(time.time() * 1000000)}.png"
 
     async def _cap_database_query(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        from src.services import database_service as database_api
+        from src.services import database_service 
 
         model_name: str = args.get("model_name", "")
         if not model_name:
@@ -49,7 +49,7 @@ class RuntimeDataCapabilityMixin:
 
             query_type = args.get("query_type", "get")
             if query_type == "get":
-                result = await database_api.db_get(
+                result = await database_service.db_get(
                     model_class=model_class,
                     filters=args.get("filters"),
                     limit=args.get("limit"),
@@ -59,19 +59,19 @@ class RuntimeDataCapabilityMixin:
             elif query_type == "create":
                 if not (data := args.get("data")):
                     return {"success": False, "error": "create 需要 data"}
-                result = await database_api.db_save(model_class=model_class, data=data)
+                result = await database_service.db_save(model_class=model_class, data=data)
             elif query_type == "update":
                 if not (data := args.get("data")):
                     return {"success": False, "error": "update 需要 data"}
-                result = await database_api.db_update(
+                result = await database_service.db_update(
                     model_class=model_class,
                     data=data,
                     filters=args.get("filters"),
                 )
             elif query_type == "delete":
-                result = await database_api.db_delete(model_class=model_class, filters=args.get("filters"))
+                result = await database_service.db_delete(model_class=model_class, filters=args.get("filters"))
             elif query_type == "count":
-                result = await database_api.db_count(model_class=model_class, filters=args.get("filters"))
+                result = await database_service.db_count(model_class=model_class, filters=args.get("filters"))
             else:
                 return {"success": False, "error": f"不支持的 query_type: {query_type}"}
             return {"success": True, "result": result}
@@ -80,7 +80,7 @@ class RuntimeDataCapabilityMixin:
             return {"success": False, "error": str(e)}
 
     async def _cap_database_save(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        from src.services import database_service as database_api
+        from src.services import database_service 
 
         model_name: str = args.get("model_name", "")
         data: Optional[Dict[str, Any]] = args.get("data")
@@ -94,7 +94,7 @@ class RuntimeDataCapabilityMixin:
             if model_class is None:
                 return {"success": False, "error": f"未找到数据模型: {model_name}"}
 
-            result = await database_api.db_save(
+            result = await database_service.db_save(
                 model_class=model_class,
                 data=data,
                 key_field=args.get("key_field"),
@@ -106,7 +106,7 @@ class RuntimeDataCapabilityMixin:
             return {"success": False, "error": str(e)}
 
     async def _cap_database_get(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        from src.services import database_service as database_api
+        from src.services import database_service 
 
         model_name: str = args.get("model_name", "")
         if not model_name:
@@ -119,7 +119,7 @@ class RuntimeDataCapabilityMixin:
             if model_class is None:
                 return {"success": False, "error": f"未找到数据模型: {model_name}"}
 
-            result = await database_api.db_get(
+            result = await database_service.db_get(
                 model_class=model_class,
                 filters=args.get("filters"),
                 limit=args.get("limit"),
@@ -132,7 +132,7 @@ class RuntimeDataCapabilityMixin:
             return {"success": False, "error": str(e)}
 
     async def _cap_database_delete(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        from src.services import database_service as database_api
+        from src.services import database_service 
 
         model_name: str = args.get("model_name", "")
         filters = args.get("filters", {})
@@ -148,14 +148,14 @@ class RuntimeDataCapabilityMixin:
             if model_class is None:
                 return {"success": False, "error": f"未找到数据模型: {model_name}"}
 
-            result = await database_api.db_delete(model_class=model_class, filters=filters)
+            result = await database_service.db_delete(model_class=model_class, filters=filters)
             return {"success": True, "result": result}
         except Exception as e:
             logger.error(f"[cap.database.delete] 执行失败: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
     async def _cap_database_count(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        from src.services import database_service as database_api
+        from src.services import database_service 
 
         model_name: str = args.get("model_name", "")
         if not model_name:
@@ -168,7 +168,7 @@ class RuntimeDataCapabilityMixin:
             if model_class is None:
                 return {"success": False, "error": f"未找到数据模型: {model_name}"}
 
-            result = await database_api.db_count(model_class=model_class, filters=args.get("filters"))
+            result = await database_service.db_count(model_class=model_class, filters=args.get("filters"))
             return {"success": True, "count": result}
         except Exception as e:
             logger.error(f"[cap.database.count] 执行失败: {e}", exc_info=True)
@@ -272,10 +272,10 @@ class RuntimeDataCapabilityMixin:
         return result
 
     async def _cap_message_get_by_time(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        from src.services import message_service as message_api
+        from src.services import message_service 
 
         try:
-            messages = message_api.get_messages_by_time(
+            messages = message_service.get_messages_by_time(
                 start_time=float(args.get("start_time", 0.0)),
                 end_time=float(args.get("end_time", 0.0)),
                 limit=args.get("limit", 0),
@@ -288,14 +288,14 @@ class RuntimeDataCapabilityMixin:
             return {"success": False, "error": str(e)}
 
     async def _cap_message_get_by_time_in_chat(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        from src.services import message_service as message_api
+        from src.services import message_service 
 
         chat_id: str = args.get("chat_id", "")
         if not chat_id:
             return {"success": False, "error": "缺少必要参数 chat_id"}
 
         try:
-            messages = message_api.get_messages_by_time_in_chat(
+            messages = message_service.get_messages_by_time_in_chat(
                 chat_id=chat_id,
                 start_time=float(args.get("start_time", 0.0)),
                 end_time=float(args.get("end_time", 0.0)),
@@ -310,16 +310,21 @@ class RuntimeDataCapabilityMixin:
             return {"success": False, "error": str(e)}
 
     async def _cap_message_get_recent(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        from src.services import message_service as message_api
+        from src.services import message_service 
 
         chat_id: str = args.get("chat_id", "")
         if not chat_id:
             return {"success": False, "error": "缺少必要参数 chat_id"}
 
         try:
-            messages = message_api.get_recent_messages(
+            hours = float(args.get("hours", 24.0))
+            if hours < 0:
+                return {"success": False, "error": "hours 不能是负数"}
+            current_time = time.time()
+            messages = message_service.get_messages_by_time_in_chat(
                 chat_id=chat_id,
-                hours=float(args.get("hours", 24.0)),
+                start_time=current_time - hours * 3600,
+                end_time=current_time,
                 limit=args.get("limit", 100),
                 limit_mode=args.get("limit_mode", "latest"),
                 filter_mai=args.get("filter_mai", False),
@@ -330,7 +335,7 @@ class RuntimeDataCapabilityMixin:
             return {"success": False, "error": str(e)}
 
     async def _cap_message_count_new(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        from src.services import message_service as message_api
+        from src.services import message_service 
 
         chat_id: str = args.get("chat_id", "")
         if not chat_id:
@@ -339,7 +344,7 @@ class RuntimeDataCapabilityMixin:
         try:
             since = args.get("since")
             start_time = float(since) if since is not None else float(args.get("start_time", 0.0))
-            count = message_api.count_new_messages(
+            count = message_service.count_new_messages(
                 chat_id=chat_id,
                 start_time=start_time,
                 end_time=args.get("end_time"),
@@ -350,21 +355,21 @@ class RuntimeDataCapabilityMixin:
             return {"success": False, "error": str(e)}
 
     async def _cap_message_build_readable(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
-        from src.services import message_service as message_api
+        from src.services import message_service 
 
         try:
             messages = args.get("messages")
             if messages is None:
                 if not (chat_id := args.get("chat_id", "")):
                     return {"success": False, "error": "缺少必要参数: messages 或 chat_id"}
-                messages = message_api.get_messages_by_time_in_chat(
+                messages = message_service.get_messages_by_time_in_chat(
                     chat_id=chat_id,
                     start_time=float(args.get("start_time", 0.0)),
                     end_time=float(args.get("end_time", 0.0)),
                     limit=args.get("limit", 0),
                 )
 
-            readable = message_api.build_readable_messages(
+            readable = message_service.build_readable_messages(
                 messages=messages,
                 replace_bot_name=args.get("replace_bot_name", True),
                 timestamp_mode=args.get("timestamp_mode", "relative"),
