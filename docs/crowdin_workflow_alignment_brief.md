@@ -41,6 +41,7 @@ Only source-language assets should trigger source uploads to Crowdin.
 Current source-language assets:
 - `locales/zh-CN/*.json`
 - `prompts/zh-CN/**/*.prompt`
+- `dashboard/src/i18n/locales/zh.json`
 - `crowdin.yml`
 
 ### Prompt template extension
@@ -162,6 +163,9 @@ This workflow must remain the repository-side structural validation layer for lo
 
 #### Required validation role
 It should validate localization assets and i18n-relevant code changes.
+That includes both:
+- backend locale JSON under `locales/`
+- dashboard locale JSON under `dashboard/src/i18n/locales/`
 
 #### Prompt trigger scope
 It must cover the actual prompt template extension used in the repository.

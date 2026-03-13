@@ -37,7 +37,9 @@ External prerequisite:
 
 - source locale for JSON translations: `locales/zh-CN/*.json`
 - source locale for prompt templates: `prompts/zh-CN/**/*.prompt`
+- source locale for dashboard WebUI translations: `dashboard/src/i18n/locales/zh.json`
 - current prompt template extension in the repository: `.prompt`
+- dashboard WebUI keeps short runtime locale filenames (`zh`, `en`, `ja`, `ko`) in Git, but `dashboard/src/i18n/locales/zh.json` is still the repository-side `zh-CN` source asset for that file group
 
 Normal push-triggered source uploads remain strictly source-driven.
 Translated target assets are not part of the steady-state upload trigger set.
@@ -94,6 +96,7 @@ Triggers:
   - `crowdin.yml`
   - `locales/zh-CN/*.json`
   - `prompts/zh-CN/**/*.prompt`
+  - `dashboard/src/i18n/locales/zh.json`
 
 Branch behavior:
 
@@ -127,6 +130,8 @@ Triggers:
 - pull requests that touch:
   - `locales/**/*.json`
   - `prompts/**/*.prompt`
+  - `dashboard/src/i18n/index.ts`
+  - `dashboard/src/i18n/locales/*.json`
   - `scripts/i18n_validate.py`
   - `src/common/i18n/**/*.py`
   - `src/common/prompt_i18n.py`
@@ -136,7 +141,9 @@ Triggers:
 Validation scope:
 
 - JSON locale key alignment against `zh-CN`
+- dashboard nested JSON locale key alignment against `dashboard/src/i18n/locales/zh.json`
 - placeholder consistency
+- dashboard i18next interpolation placeholder consistency
 - plural structure consistency
 - prompt placeholder consistency
 - English locale protection against Chinese source-language leakage
@@ -192,7 +199,7 @@ Effect:
 ### B. Normal source-language update on `main` or `r-dev`
 
 1. A source-language change is pushed to `main` or `r-dev`.
-2. `crowdin-sync.yml` uploads `zh-CN` source assets to Crowdin.
+2. `crowdin-sync.yml` uploads source-language assets to Crowdin, including the dashboard WebUI source file `dashboard/src/i18n/locales/zh.json`.
 3. The same workflow may also download any translations currently available in Crowdin when that workflow run executes.
 4. A localization pull request is opened or updated:
    - `l10n_main -> main`
@@ -218,6 +225,7 @@ Effect:
   - `crowdin.yml`
   - `locales/zh-CN/*.json`
   - `prompts/zh-CN/**/*.prompt`
+  - `dashboard/src/i18n/locales/zh.json`
 - translated target files do not trigger another steady-state upload cycle
 - the bootstrap path is manual and confirmation-gated
 - translations return through `l10n_` branches and PRs instead of direct pushes to base branches

@@ -12,6 +12,7 @@ on:
       - "crowdin.yml"
       - "locales/zh-CN/*.json"
       - "prompts/zh-CN/**/*.prompt"
+      - "dashboard/src/i18n/locales/zh.json"
 
 permissions:
   contents: write
