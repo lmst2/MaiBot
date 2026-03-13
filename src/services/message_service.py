@@ -1,9 +1,8 @@
 """消息服务模块。"""
 
 import re
-import time
 from datetime import datetime
-from typing import Any, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from sqlmodel import col, select
 
@@ -15,20 +14,6 @@ from src.common.message_repository import count_messages, find_messages
 from src.common.utils.math_utils import translate_timestamp_to_human_readable
 from src.common.utils.utils_action import ActionUtils
 from src.config.config import global_config
-
-
-# =============================================================================
-# 消息查询函数
-# =============================================================================
-
-
-def _build_time_range_filter(start_time: float, end_time: float) -> dict[str, Any]:
-    return {
-        "time": {
-            "$gte": start_time,
-            "$lte": end_time,
-        }
-    }
 
 
 def _build_readable_line(
@@ -72,7 +57,8 @@ def get_messages_by_time(
     if limit < 0:
         raise ValueError("limit 不能为负数")
     messages = find_messages(
-        message_filter=_build_time_range_filter(start_time, end_time),
+        start_time=start_time,
+        end_time=end_time,
         limit=limit,
         limit_mode=limit_mode,
         filter_bot=filter_mai,
@@ -99,10 +85,9 @@ def get_messages_by_time_in_chat(
     if not isinstance(chat_id, str):
         raise ValueError("chat_id 必须是字符串类型")
     messages = find_messages(
-        message_filter={
-            "chat_id": chat_id,
-            **_build_time_range_filter(start_time, end_time),
-        },
+        session_id=chat_id,
+        start_time=start_time,
+        end_time=end_time,
         limit=limit,
         limit_mode=limit_mode,
         filter_bot=filter_mai,
@@ -118,7 +103,7 @@ def get_messages_before_time(timestamp: float, limit: int = 0, filter_mai: bool 
     if limit < 0:
         raise ValueError("limit 不能为负数")
     messages = find_messages(
-        message_filter={"time": {"$lt": timestamp}},
+        before_time=timestamp,
         limit=limit,
         limit_mode="latest",
         filter_bot=filter_mai,
@@ -142,10 +127,8 @@ def get_messages_before_time_in_chat(
     if not isinstance(chat_id, str):
         raise ValueError("chat_id 必须是字符串类型")
     messages = find_messages(
-        message_filter={
-            "chat_id": chat_id,
-            "time": {"$lt": timestamp},
-        },
+        session_id=chat_id,
+        before_time=timestamp,
         limit=limit,
         limit_mode="latest",
         filter_bot=filter_mai,
@@ -166,13 +149,7 @@ def count_new_messages(chat_id: str, start_time: float = 0.0, end_time: Optional
         raise ValueError("chat_id 不能为空")
     if not isinstance(chat_id, str):
         raise ValueError("chat_id 必须是字符串类型")
-    message_filter: dict[str, Any] = {
-        "chat_id": chat_id,
-        "time": {"$gt": start_time},
-    }
-    if end_time is not None:
-        message_filter["time"]["$lte"] = end_time
-    return count_messages(message_filter)
+    return count_messages(session_id=chat_id, after_time=start_time, end_time=end_time)
 
 
 # =============================================================================
