@@ -76,6 +76,7 @@ class RPCClient:
         # 运行状态
         self._running = False
         self._recv_task: Optional[asyncio.Task] = None
+        self._background_tasks: set[asyncio.Task] = set()
 
     @property
     def generation(self) -> int:
@@ -143,6 +144,13 @@ class RPCClient:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._recv_task
             self._recv_task = None
+
+        for task in list(self._background_tasks):
+            task.cancel()
+        if self._background_tasks:
+            with contextlib.suppress(Exception):
+                await asyncio.gather(*self._background_tasks, return_exceptions=True)
+        self._background_tasks.clear()
 
         # 取消所有 pending 请求
         for future in self._pending_requests.values():
@@ -248,9 +256,9 @@ class RPCClient:
             if envelope.is_response():
                 self._handle_response(envelope)
             elif envelope.is_request():
-                asyncio.create_task(self._handle_request(envelope))
+                self._track_background_task(asyncio.create_task(self._handle_request(envelope)))
             elif envelope.is_event():
-                asyncio.create_task(self._handle_event(envelope))
+                self._track_background_task(asyncio.create_task(self._handle_event(envelope)))
 
     def _handle_response(self, envelope: Envelope) -> None:
         """处理来自 Host 的响应"""
@@ -290,3 +298,8 @@ class RPCClient:
                 await handler(envelope)
             except Exception as e:
                 logger.error(f"处理事件 {envelope.method} 异常: {e}", exc_info=True)
+
+    def _track_background_task(self, task: asyncio.Task) -> None:
+        """保持后台任务强引用，直到其完成或被取消。"""
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)

@@ -7,7 +7,7 @@
 4. 请求-响应关联与超时管理
 """
 
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 import asyncio
 import secrets
@@ -55,12 +55,16 @@ class RPCServer:
         self._connection: Optional[Connection] = None  # 当前活跃的 Runner 连接
         self._runner_id: Optional[str] = None
         self._runner_generation: int = 0
+        self._staged_connection: Optional[Connection] = None
+        self._staged_runner_id: Optional[str] = None
+        self._staged_runner_generation: int = 0
+        self._staging_takeover: bool = False
 
         # 方法处理器注册表
         self._method_handlers: Dict[str, MethodHandler] = {}
 
-        # 等待响应的 pending 请求: request_id -> Future
-        self._pending_requests: Dict[int, asyncio.Future] = {}
+        # 等待响应的 pending 请求: request_id -> (Future, target_generation)
+        self._pending_requests: Dict[int, Tuple[asyncio.Future, int]] = {}
 
         # 发送队列（背压控制）
         self._send_queue: Optional[asyncio.Queue[bytes]] = None
@@ -87,8 +91,70 @@ class RPCServer:
         return self._runner_generation
 
     @property
+    def staged_generation(self) -> int:
+        return self._staged_runner_generation
+
+    @property
     def is_connected(self) -> bool:
         return self._connection is not None and not self._connection.is_closed
+
+    def has_generation(self, generation: int) -> bool:
+        return generation == self._runner_generation or (
+            self._staged_connection is not None
+            and not self._staged_connection.is_closed
+            and generation == self._staged_runner_generation
+        )
+
+    def begin_staged_takeover(self) -> None:
+        """允许新 Runner 以 staged 方式接入，待 Supervisor 验证后再切换为活跃连接。"""
+        self._staging_takeover = True
+
+    async def commit_staged_takeover(self) -> None:
+        """提交 staged Runner，原活跃连接在提交后被关闭。"""
+        if self._staged_connection is None or self._staged_connection.is_closed:
+            raise RPCError(ErrorCode.E_PLUGIN_CRASHED, "没有可提交的新 Runner 连接")
+
+        old_connection = self._connection
+        old_generation = self._runner_generation
+
+        self._connection = self._staged_connection
+        self._runner_id = self._staged_runner_id
+        self._runner_generation = self._staged_runner_generation
+
+        self._staged_connection = None
+        self._staged_runner_id = None
+        self._staged_runner_generation = 0
+        self._staging_takeover = False
+
+        stale_count = self._fail_pending_requests(
+            ErrorCode.E_PLUGIN_CRASHED,
+            "Runner 连接已被新 generation 接管",
+            generation=old_generation,
+        )
+        if stale_count:
+            logger.info(f"已清理 {stale_count} 个旧 Runner 的 pending 请求")
+
+        if old_connection and old_connection is not self._connection and not old_connection.is_closed:
+            await old_connection.close()
+
+    async def rollback_staged_takeover(self) -> None:
+        """放弃 staged Runner，保留当前活跃连接。"""
+        staged_connection = self._staged_connection
+        staged_generation = self._staged_runner_generation
+
+        self._staged_connection = None
+        self._staged_runner_id = None
+        self._staged_runner_generation = 0
+        self._staging_takeover = False
+
+        self._fail_pending_requests(
+            ErrorCode.E_PLUGIN_CRASHED,
+            "新 Runner 预热失败，已回滚",
+            generation=staged_generation,
+        )
+
+        if staged_connection and not staged_connection.is_closed:
+            await staged_connection.close()
 
     def register_method(self, method: str, handler: MethodHandler) -> None:
         """注册 RPC 方法处理器"""
@@ -106,7 +172,7 @@ class RPCServer:
         self._running = False
 
         # 取消所有 pending 请求
-        for future in self._pending_requests.values():
+        for future, _generation in self._pending_requests.values():
             if not future.done():
                 future.set_exception(RPCError(ErrorCode.E_TIMEOUT, "服务器关闭"))
         self._pending_requests.clear()
@@ -121,6 +187,10 @@ class RPCServer:
             await self._connection.close()
             self._connection = None
 
+        if self._staged_connection:
+            await self._staged_connection.close()
+            self._staged_connection = None
+
         await self._transport.stop()
         logger.info("RPC Server 已停止")
 
@@ -130,6 +200,7 @@ class RPCServer:
         plugin_id: str = "",
         payload: Optional[Dict[str, Any]] = None,
         timeout_ms: int = 30000,
+        target_generation: Optional[int] = None,
     ) -> Envelope:
         """向 Runner 发送 RPC 请求并等待响应
 
@@ -145,7 +216,9 @@ class RPCServer:
         Raises:
             RPCError: 调用失败
         """
-        if not self.is_connected:
+        generation = target_generation or self._runner_generation
+        conn = self._get_connection_for_generation(generation)
+        if conn is None or conn.is_closed:
             raise RPCError(ErrorCode.E_PLUGIN_CRASHED, "Runner 未连接")
 
         request_id = self._id_gen.next()
@@ -154,7 +227,7 @@ class RPCServer:
             message_type=MessageType.REQUEST,
             method=method,
             plugin_id=plugin_id,
-            generation=self._runner_generation,
+            generation=generation,
             timeout_ms=timeout_ms,
             payload=payload or {},
         )
@@ -166,12 +239,12 @@ class RPCServer:
         # 注册 pending future
         loop = asyncio.get_running_loop()
         future: asyncio.Future[Envelope] = loop.create_future()
-        self._pending_requests[request_id] = future
+        self._pending_requests[request_id] = (future, generation)
 
         try:
             # 发送请求
             data = self._codec.encode_envelope(envelope)
-            await self._connection.send_frame(data)
+            await conn.send_frame(data)
 
             # 等待响应
             timeout_sec = timeout_ms / 1000.0
@@ -207,11 +280,13 @@ class RPCServer:
     async def _handle_connection(self, conn: Connection) -> None:
         """处理新的 Runner 连接"""
         logger.info("收到 Runner 连接")
+        previous_connection = self._connection
+        previous_generation = self._runner_generation
 
         # 第一条消息必须是 runner.hello 握手
         try:
-            handshake_ok = await self._handle_handshake(conn)
-            if not handshake_ok:
+            role = await self._handle_handshake(conn)
+            if role is None:
                 await conn.close()
                 return
         except Exception as e:
@@ -219,41 +294,52 @@ class RPCServer:
             await conn.close()
             return
 
-        old_connection = self._connection
-        self._connection = conn
-        logger.info(f"Runner 握手成功: runner_id={self._runner_id}, generation={self._runner_generation}")
+        if role == "staged":
+            expected_generation = self._staged_runner_generation
+            logger.info(
+                f"Runner staged 握手成功: runner_id={self._staged_runner_id}, generation={self._staged_runner_generation}"
+            )
+        else:
+            self._connection = conn
+            expected_generation = self._runner_generation
+            logger.info(f"Runner 握手成功: runner_id={self._runner_id}, generation={self._runner_generation}")
 
-        if old_connection and old_connection is not conn and not old_connection.is_closed:
-            logger.info("检测到新 Runner 已接管连接，关闭旧连接")
-            # 新连接接管后，旧 Runner 的 in-flight 请求不会再收到响应
-            # （过期 generation 响应会被 _handle_response 丢弃），
-            # 在此处立即 fail-fast 所有 pending 请求，避免挂到超时
-            stale_count = 0
-            for _req_id, future in list(self._pending_requests.items()):
-                if not future.done():
-                    future.set_exception(RPCError(ErrorCode.E_PLUGIN_CRASHED, "Runner 连接已被新 generation 接管"))
-                    stale_count += 1
-            self._pending_requests.clear()
-            if stale_count:
-                logger.info(f"已清理 {stale_count} 个旧 Runner 的 pending 请求")
-            await old_connection.close()
+            if previous_connection and previous_connection is not conn and not previous_connection.is_closed:
+                logger.info("检测到新 Runner 已接管连接，关闭旧连接")
+                stale_count = self._fail_pending_requests(
+                    ErrorCode.E_PLUGIN_CRASHED,
+                    "Runner 连接已被新 generation 接管",
+                    generation=previous_generation,
+                )
+                if stale_count:
+                    logger.info(f"已清理 {stale_count} 个旧 Runner 的 pending 请求")
+                await previous_connection.close()
 
         # 启动消息接收循环
         try:
-            await self._recv_loop(conn)
+            await self._recv_loop(conn, expected_generation=expected_generation)
         except Exception as e:
             logger.error(f"连接异常断开: {e}")
         finally:
             if self._connection is conn:
                 self._connection = None
                 self._runner_id = None
-                # 连接断开时，立即让所有等待中的请求失败，避免挂起至超时
-                for _req_id, future in list(self._pending_requests.items()):
-                    if not future.done():
-                        future.set_exception(RPCError(ErrorCode.E_PLUGIN_CRASHED, "Runner 连接已断开"))
-                self._pending_requests.clear()
+                self._fail_pending_requests(
+                    ErrorCode.E_PLUGIN_CRASHED,
+                    "Runner 连接已断开",
+                    generation=expected_generation,
+                )
+            elif self._staged_connection is conn:
+                self._staged_connection = None
+                self._staged_runner_id = None
+                self._staged_runner_generation = 0
+                self._fail_pending_requests(
+                    ErrorCode.E_PLUGIN_CRASHED,
+                    "Staged Runner 连接已断开",
+                    generation=expected_generation,
+                )
 
-    async def _handle_handshake(self, conn: Connection) -> bool:
+    async def _handle_handshake(self, conn: Connection) -> Optional[str]:
         """处理 runner.hello 握手"""
         # 接收握手请求
         data = await asyncio.wait_for(conn.recv_frame(), timeout=10.0)
@@ -266,7 +352,7 @@ class RPCServer:
                 "首条消息必须为 runner.hello",
             )
             await conn.send_frame(self._codec.encode_envelope(error_resp))
-            return False
+            return None
 
         # 解析握手 payload
         hello = HelloPayload.model_validate(envelope.payload)
@@ -280,7 +366,7 @@ class RPCServer:
             )
             resp = envelope.make_response(payload=resp_payload.model_dump())
             await conn.send_frame(self._codec.encode_envelope(resp))
-            return False
+            return None
 
         # 校验 SDK 版本
         if not self._check_sdk_version(hello.sdk_version):
@@ -291,23 +377,31 @@ class RPCServer:
             )
             resp = envelope.make_response(payload=resp_payload.model_dump())
             await conn.send_frame(self._codec.encode_envelope(resp))
-            return False
+            return None
 
         # 握手成功
-        self._runner_id = hello.runner_id
-        self._runner_generation += 1
+        role = "active"
+        assigned_generation = self._runner_generation + 1
+        if self._staging_takeover and self.is_connected:
+            role = "staged"
+            self._staged_connection = conn
+            self._staged_runner_id = hello.runner_id
+            self._staged_runner_generation = assigned_generation
+        else:
+            self._runner_id = hello.runner_id
+            self._runner_generation = assigned_generation
 
         resp_payload = HelloResponsePayload(
             accepted=True,
             host_version=PROTOCOL_VERSION,
-            assigned_generation=self._runner_generation,
+            assigned_generation=assigned_generation,
         )
         resp = envelope.make_response(payload=resp_payload.model_dump())
         await conn.send_frame(self._codec.encode_envelope(resp))
 
-        return True
+        return role
 
-    async def _recv_loop(self, conn: Connection) -> None:
+    async def _recv_loop(self, conn: Connection, expected_generation: int) -> None:
         """消息接收主循环"""
         while self._running and not conn.is_closed:
             try:
@@ -329,10 +423,10 @@ class RPCServer:
             if envelope.is_response():
                 self._handle_response(envelope)
             elif envelope.is_request():
-                if not self._is_current_generation(envelope):
+                if envelope.generation != expected_generation:
                     error_resp = envelope.make_error_response(
                         ErrorCode.E_GENERATION_MISMATCH.value,
-                        f"过期 generation: {envelope.generation} != {self._runner_generation}",
+                        f"过期 generation: {envelope.generation} != {expected_generation}",
                     )
                     await conn.send_frame(self._codec.encode_envelope(error_resp))
                     continue
@@ -341,9 +435,9 @@ class RPCServer:
                 self._tasks.append(task)
                 task.add_done_callback(lambda t: self._tasks.remove(t) if t in self._tasks else None)
             elif envelope.is_event():
-                if not self._is_current_generation(envelope):
+                if envelope.generation != expected_generation:
                     logger.warning(
-                        f"忽略过期 generation 事件 {envelope.method}: {envelope.generation} != {self._runner_generation}"
+                        f"忽略过期 generation 事件 {envelope.method}: {envelope.generation} != {expected_generation}"
                     )
                     continue
                 task = asyncio.create_task(self._handle_event(envelope))
@@ -352,21 +446,23 @@ class RPCServer:
 
     def _handle_response(self, envelope: Envelope) -> None:
         """处理来自 Runner 的响应"""
-        if not self._is_current_generation(envelope):
+        pending = self._pending_requests.get(envelope.request_id)
+        if pending is None:
+            return
+
+        future, expected_generation = pending
+        if envelope.generation != expected_generation:
             logger.warning(
-                f"忽略过期 generation 响应 {envelope.method}: {envelope.generation} != {self._runner_generation}"
+                f"忽略过期 generation 响应 {envelope.method}: {envelope.generation} != {expected_generation}"
             )
             return
 
-        future = self._pending_requests.pop(envelope.request_id, None)
-        if future and not future.done():
+        self._pending_requests.pop(envelope.request_id, None)
+        if not future.done():
             if envelope.error:
                 future.set_exception(RPCError.from_dict(envelope.error))
             else:
                 future.set_result(envelope)
-
-    def _is_current_generation(self, envelope: Envelope) -> bool:
-        return envelope.generation == self._runner_generation
 
     async def _handle_request(self, envelope: Envelope, conn: Connection) -> None:
         """处理来自 Runner 的请求（通常是能力调用 cap.*）"""
@@ -411,3 +507,26 @@ class RPCServer:
             return min_parts <= sdk_parts <= max_parts
         except (ValueError, AttributeError):
             return False
+
+    def _get_connection_for_generation(self, generation: int) -> Optional[Connection]:
+        if generation == self._runner_generation:
+            return self._connection
+        if generation == self._staged_runner_generation:
+            return self._staged_connection
+        return None
+
+    def _fail_pending_requests(
+        self,
+        error_code: ErrorCode,
+        message: str,
+        generation: Optional[int] = None,
+    ) -> int:
+        stale_count = 0
+        for request_id, (future, request_generation) in list(self._pending_requests.items()):
+            if generation is not None and request_generation != generation:
+                continue
+            if not future.done():
+                future.set_exception(RPCError(error_code, message))
+                stale_count += 1
+            self._pending_requests.pop(request_id, None)
+        return stale_count

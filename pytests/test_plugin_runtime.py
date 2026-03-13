@@ -677,6 +677,28 @@ class TestComponentRegistry:
         assert removed == 2
         assert reg.get_stats()["total"] == 1
 
+    def test_reregister_same_plugin_replaces_component_set(self):
+        from src.plugin_runtime.host.component_registry import ComponentRegistry
+
+        reg = ComponentRegistry()
+        reg.register_plugin_components(
+            "p1",
+            [
+                {"name": "a1", "component_type": "action", "metadata": {}},
+                {"name": "a2", "component_type": "action", "metadata": {}},
+            ],
+        )
+        reg.remove_components_by_plugin("p1")
+        reg.register_plugin_components(
+            "p1",
+            [
+                {"name": "a1", "component_type": "action", "metadata": {}},
+            ],
+        )
+
+        assert reg.get_component("p1.a1") is not None
+        assert reg.get_component("p1.a2") is None
+
     def test_event_handlers_sorted_by_weight(self):
         from src.plugin_runtime.host.component_registry import ComponentRegistry
 
@@ -1257,7 +1279,7 @@ class TestRPCServer:
         loop = asyncio.new_event_loop()
         try:
             future = loop.create_future()
-            server._pending_requests[1] = future
+            server._pending_requests[1] = (future, 2)
 
             stale_response = Envelope(
                 request_id=1,
@@ -1274,23 +1296,53 @@ class TestRPCServer:
             loop.close()
 
 
+class TestRPCClient:
+    """Runner RPCClient 后台任务生命周期测试"""
+
+    @pytest.mark.asyncio
+    async def test_background_tasks_retained_and_cancelled_on_disconnect(self):
+        from src.plugin_runtime.runner.rpc_client import RPCClient
+
+        client = RPCClient(host_address="dummy", session_token="token")
+        release = asyncio.Event()
+
+        async def pending_task():
+            await release.wait()
+
+        task = asyncio.create_task(pending_task())
+        client._track_background_task(task)
+
+        assert task in client._background_tasks
+
+        await asyncio.sleep(0)
+        assert task in client._background_tasks
+
+        await client.disconnect()
+
+        assert task.cancelled() is True
+        assert not client._background_tasks
+
+
 class TestSupervisor:
     """Supervisor 生命周期边界测试"""
 
     @staticmethod
-    def _build_register_payload(plugin_id: str = "plugin_a"):
+    def _build_register_payload(plugin_id: str = "plugin_a", component_names=None):
         from src.plugin_runtime.protocol.envelope import ComponentDeclaration, RegisterComponentsPayload
+
+        component_names = component_names or ["handler"]
 
         return RegisterComponentsPayload(
             plugin_id=plugin_id,
             plugin_version="1.0.0",
             components=[
                 ComponentDeclaration(
-                    name="handler",
+                    name=name,
                     component_type="event_handler",
                     plugin_id=plugin_id,
                     metadata={"event_type": "on_message"},
                 )
+                for name in component_names
             ],
             capabilities_required=["send.text"],
         )
@@ -1331,8 +1383,11 @@ class TestSupervisor:
         class FakeRPCServer:
             def __init__(self):
                 self.runner_generation = 1
+                self.staged_generation = 0
                 self.is_connected = True
                 self.session_token = "fake-token"
+                self.committed = False
+                self.staging_started = False
 
             def reset_session_token(self):
                 self.session_token = "new-fake-token"
@@ -1341,8 +1396,23 @@ class TestSupervisor:
             def restore_session_token(self, token):
                 self.session_token = token
 
-            async def send_request(self, method, timeout_ms=5000, **kwargs):
-                assert self.runner_generation == 2
+            def begin_staged_takeover(self):
+                self.staging_started = True
+                self.staged_generation = 2
+
+            async def commit_staged_takeover(self):
+                self.runner_generation = self.staged_generation
+                self.staged_generation = 0
+                self.committed = True
+
+            async def rollback_staged_takeover(self):
+                self.staged_generation = 0
+
+            def has_generation(self, generation):
+                return generation in {self.runner_generation, self.staged_generation}
+
+            async def send_request(self, method, timeout_ms=5000, target_generation=None, **kwargs):
+                assert target_generation == 2
                 return SimpleNamespace(payload=HealthPayload(healthy=True).model_dump())
 
         supervisor._rpc_server = FakeRPCServer()
@@ -1350,18 +1420,14 @@ class TestSupervisor:
 
         async def fake_spawn_runner():
             supervisor._runner_process = new_process
-
-            async def advance_generation():
-                await asyncio.sleep(0.01)
-                supervisor._rpc_server.runner_generation = 2
-
-            asyncio.create_task(advance_generation())
+            supervisor._staged_registered_plugins["plugin_a"] = self._build_register_payload("plugin_a")
 
         monkeypatch.setattr(supervisor, "_spawn_runner", fake_spawn_runner)
 
         await supervisor.reload_plugins("test")
 
         assert supervisor._runner_process is new_process
+        assert supervisor._rpc_server.committed is True
         assert old_process.terminated is True
 
     @pytest.mark.asyncio
@@ -1380,6 +1446,69 @@ class TestSupervisor:
         class FakeRPCServer:
             def __init__(self):
                 self.runner_generation = 1
+                self.staged_generation = 0
+                self.is_connected = True
+                self.session_token = "fake-token"
+                self.rolled_back = False
+
+            def reset_session_token(self):
+                self.session_token = "new-fake-token"
+                return self.session_token
+
+            def restore_session_token(self, token):
+                self.session_token = token
+
+            def begin_staged_takeover(self):
+                self.staged_generation = 2
+
+            async def commit_staged_takeover(self):
+                self.runner_generation = self.staged_generation
+                self.staged_generation = 0
+
+            async def rollback_staged_takeover(self):
+                self.rolled_back = True
+                self.staged_generation = 0
+
+            def has_generation(self, generation):
+                return generation in {self.runner_generation, self.staged_generation}
+
+            async def send_request(self, method, timeout_ms=5000, target_generation=None, **kwargs):
+                raise RuntimeError("new runner unhealthy")
+
+        supervisor._rpc_server = FakeRPCServer()
+
+        async def fake_spawn_runner():
+            supervisor._runner_process = new_process
+            supervisor._staged_registered_plugins["plugin_a"] = self._build_register_payload("plugin_a")
+
+        monkeypatch.setattr(supervisor, "_spawn_runner", fake_spawn_runner)
+
+        await supervisor.reload_plugins("test")
+
+        assert supervisor._runner_process is old_process
+        assert supervisor._rpc_server.rolled_back is True
+        assert old_reg.plugin_id in supervisor._registered_plugins
+        assert supervisor.component_registry.get_component("plugin_a.handler") is not None
+
+    @pytest.mark.asyncio
+    async def test_reload_rebuilds_exact_component_set(self, monkeypatch):
+        from src.plugin_runtime.host.supervisor import PluginSupervisor
+        from src.plugin_runtime.protocol.envelope import HealthPayload
+
+        supervisor = PluginSupervisor(plugin_dirs=[])
+        old_process = self._make_process(1)
+        new_process = self._make_process(2)
+        old_reg = self._build_register_payload("plugin_a", component_names=["handler", "obsolete"])
+        new_reg = self._build_register_payload("plugin_a", component_names=["handler"])
+
+        supervisor._runner_process = old_process
+        supervisor._registered_plugins[old_reg.plugin_id] = old_reg
+        supervisor._rebuild_runtime_state()
+
+        class FakeRPCServer:
+            def __init__(self):
+                self.runner_generation = 1
+                self.staged_generation = 0
                 self.is_connected = True
                 self.session_token = "fake-token"
 
@@ -1390,22 +1519,34 @@ class TestSupervisor:
             def restore_session_token(self, token):
                 self.session_token = token
 
-            async def send_request(self, method, timeout_ms=5000, **kwargs):
-                raise RuntimeError("new runner unhealthy")
+            def begin_staged_takeover(self):
+                self.staged_generation = 2
+
+            async def commit_staged_takeover(self):
+                self.runner_generation = self.staged_generation
+                self.staged_generation = 0
+
+            async def rollback_staged_takeover(self):
+                self.staged_generation = 0
+
+            def has_generation(self, generation):
+                return generation in {self.runner_generation, self.staged_generation}
+
+            async def send_request(self, method, timeout_ms=5000, target_generation=None, **kwargs):
+                return SimpleNamespace(payload=HealthPayload(healthy=True).model_dump())
 
         supervisor._rpc_server = FakeRPCServer()
 
         async def fake_spawn_runner():
             supervisor._runner_process = new_process
-            supervisor._rpc_server.runner_generation = 2
+            supervisor._staged_registered_plugins[new_reg.plugin_id] = new_reg
 
         monkeypatch.setattr(supervisor, "_spawn_runner", fake_spawn_runner)
 
         await supervisor.reload_plugins("test")
 
-        assert supervisor._runner_process is old_process
-        assert old_reg.plugin_id in supervisor._registered_plugins
         assert supervisor.component_registry.get_component("plugin_a.handler") is not None
+        assert supervisor.component_registry.get_component("plugin_a.obsolete") is None
 
     @pytest.mark.asyncio
     async def test_attach_stderr_drain_drains_stream(self):

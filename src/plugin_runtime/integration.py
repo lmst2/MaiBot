@@ -430,8 +430,10 @@ class PluginRuntimeManager:
         """
         from src.services import send_service as send_api
 
-        message_type: str = args.get("message_type", "")
-        content = args.get("content", "")
+        message_type: str = args.get("message_type", "") or args.get("custom_type", "")
+        content = args.get("content")
+        if content is None:
+            content = args.get("data", "")
         stream_id: str = args.get("stream_id", "")
         if not message_type or not stream_id:
             return {"success": False, "error": "缺少必要参数 message_type 或 stream_id"}
