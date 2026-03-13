@@ -1,23 +1,26 @@
 import asyncio
+import random
 import time
 import traceback
-import random
-from typing import List, Optional, Dict, Any, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from rich.traceback import install
 
 from src.config.config import global_config
 from src.common.logger import get_logger
+from src.common.utils.utils_config import ExpressionConfigUtils
+from src.bw_learner.expression_learner import ExpressionLearner
+from src.bw_learner.jargon_miner import JargonMiner
+from src.chat.message_receive.chat_manager import BotChatSession
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
+from src.chat.message_receive.message import SessionMessage
 from src.common.data_models.info_data_model import ActionPlannerInfo
 from src.common.data_models.message_component_data_model import MessageSequence, TextComponent
-from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.chat.utils.prompt_builder import global_prompt_manager
 from src.chat.utils.timer_calculator import Timer
 from src.chat.brain_chat.brain_planner import BrainPlanner
 from src.chat.planner_actions.action_modifier import ActionModifier
 from src.chat.planner_actions.action_manager import ActionManager
-from src.chat.heart_flow.hfc_utils_old import CycleDetail
-from src.bw_learner.expression_learner_old import expression_learner_manager
-from src.bw_learner.message_recorder_old import extract_and_distribute_messages
+from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.person_info.person_info import Person
 from src.core.types import ActionInfo, EventType
 from src.core.event_bus import event_bus
@@ -31,7 +34,7 @@ from src.services import (
 from src.services.message_service import build_readable_messages_with_id, get_messages_before_time_in_chat
 
 if TYPE_CHECKING:
-    from src.common.data_models.database_data_model import DatabaseMessages
+    from src.chat.message_receive.message import SessionMessage
 
 
 ERROR_LOOP_INFO = {
@@ -75,12 +78,20 @@ class BrainChatting:
         """
         # 基础属性
         self.stream_id: str = session_id  # 聊天流ID
-        self.chat_stream: ChatStream = get_chat_manager().get_stream(self.stream_id)  # type: ignore
+        self.chat_stream: BotChatSession = _chat_manager.get_session_by_session_id(self.stream_id)  # type: ignore[assignment]
         if not self.chat_stream:
             raise ValueError(f"无法找到聊天流: {self.stream_id}")
         self.log_prefix = f"[{_chat_manager.get_session_name(self.stream_id) or self.stream_id}]"
 
-        self.expression_learner = expression_learner_manager.get_expression_learner(self.stream_id)
+        expr_use, jargon_learn, expr_learn = ExpressionConfigUtils.get_expression_config_for_chat(self.stream_id)
+        self._enable_expression_use = expr_use
+        self._enable_expression_learning = expr_learn
+        self._enable_jargon_learning = jargon_learn
+        self._expression_learner = ExpressionLearner(self.stream_id)
+        self._jargon_miner = JargonMiner(self.stream_id, session_name=self.log_prefix.strip("[]"))
+        self._min_messages_for_extraction = 30
+        self._min_extraction_interval = 60
+        self._last_extraction_time = 0.0
 
         self.action_manager = ActionManager()
         self.action_planner = BrainPlanner(chat_id=self.stream_id, action_manager=self.action_manager)
@@ -163,6 +174,25 @@ class BrainChatting:
             + (f"\n详情: {'; '.join(timer_strings)}" if timer_strings else "")
         )
 
+    async def _trigger_expression_learning(self, messages: List[SessionMessage]) -> None:
+        if not messages:
+            return
+
+        self._expression_learner.add_messages(messages)
+        if time.time() - self._last_extraction_time < self._min_extraction_interval:
+            return
+        if self._expression_learner.get_cache_size() < self._min_messages_for_extraction:
+            return
+        if not self._enable_expression_learning:
+            return
+
+        self._last_extraction_time = time.time()
+        try:
+            jargon_miner = self._jargon_miner if self._enable_jargon_learning else None
+            await self._expression_learner.learn(jargon_miner)
+        except Exception as exc:
+            logger.error(f"{self.log_prefix} 表达学习失败: {exc}", exc_info=True)
+
     async def _loopbody(self):  # sourcery skip: hoist-if-from-if
         # 获取最新消息（用于上下文，但不影响是否调用 observe）
         recent_messages_list = message_api.get_messages_by_time_in_chat(
@@ -197,8 +227,8 @@ class BrainChatting:
 
     async def _send_and_store_reply(
         self,
-        response_set: "ReplySetModel",
-        action_message: "DatabaseMessages",
+        response_set: MessageSequence,
+        action_message: SessionMessage,
         cycle_timers: Dict[str, float],
         thinking_id,
         actions,
@@ -212,11 +242,11 @@ class BrainChatting:
             )
 
         # 获取 platform，如果不存在则从 chat_stream 获取，如果还是 None 则使用默认值
-        platform = action_message.chat_info.platform
+        platform = action_message.platform
         if platform is None:
             platform = getattr(self.chat_stream, "platform", "unknown")
 
-        person = Person(platform=platform, user_id=action_message.user_info.user_id)
+        person = Person(platform=platform, user_id=action_message.message_info.user_info.user_id)
         person_name = person.person_name
         action_prompt_display = f"你对{person_name}进行了回复：{reply_text}"
 
@@ -245,16 +275,15 @@ class BrainChatting:
 
     async def _observe(
         self,  # interest_value: float = 0.0,
-        recent_messages_list: Optional[List["DatabaseMessages"]] = None,
+        recent_messages_list: Optional[List[SessionMessage]] = None,
     ) -> bool:  # sourcery skip: merge-else-if-into-elif, remove-redundant-if
         if recent_messages_list is None:
             recent_messages_list = []
         _reply_text = ""  # 初始化reply_text变量，避免UnboundLocalError
 
         async with global_prompt_manager.async_message_scope(self.chat_stream.context.get_template_name()):
-            # 通过 MessageRecorder 统一提取消息并分发给 expression_learner 和 jargon_miner
-            # 在 replyer 执行时触发，统一管理时间窗口，避免重复获取消息
-            asyncio.create_task(extract_and_distribute_messages(self.stream_id))
+            if recent_messages_list:
+                asyncio.create_task(self._trigger_expression_learning(recent_messages_list))
 
             cycle_timers, thinking_id = self.start_cycle()
             logger.info(f"{self.log_prefix} 开始第{self._cycle_counter}次思考")
@@ -294,7 +323,7 @@ class BrainChatting:
                 prompt_key="brain_planner",
             )
             _event_msg = build_event_message(
-                EventType.ON_PLAN, llm_prompt=prompt_info[0], stream_id=self.chat_stream.stream_id
+                EventType.ON_PLAN, llm_prompt=prompt_info[0], stream_id=self.chat_stream.session_id
             )
             continue_flag, modified_message = await event_bus.emit(EventType.ON_PLAN, _event_msg)
             if not continue_flag:
@@ -454,7 +483,7 @@ class BrainChatting:
         action_data: dict,
         cycle_timers: Dict[str, float],
         thinking_id: str,
-        action_message: Optional["DatabaseMessages"] = None,
+        action_message: Optional[SessionMessage] = None,
     ) -> tuple[bool, str, str]:
         """
         处理规划动作，使用动作工厂创建相应的动作处理器
@@ -508,11 +537,11 @@ class BrainChatting:
     async def _send_response(
         self,
         reply_set: MessageSequence,
-        message_data: "DatabaseMessages",
+        message_data: SessionMessage,
         selected_expressions: Optional[List[int]] = None,
     ) -> str:
         new_message_count = message_api.count_new_messages(
-            chat_id=self.chat_stream.stream_id, start_time=self.last_read_time, end_time=time.time()
+            chat_id=self.chat_stream.session_id, start_time=self.last_read_time, end_time=time.time()
         )
 
         need_reply = new_message_count >= random.randint(2, 4)
@@ -529,7 +558,7 @@ class BrainChatting:
             if not first_replied:
                 await send_api.text_to_stream(
                     text=data,
-                    stream_id=self.chat_stream.stream_id,
+                    stream_id=self.chat_stream.session_id,
                     reply_message=message_data,
                     set_reply=need_reply,
                     typing=False,
@@ -539,7 +568,7 @@ class BrainChatting:
             else:
                 await send_api.text_to_stream(
                     text=data,
-                    stream_id=self.chat_stream.stream_id,
+                    stream_id=self.chat_stream.session_id,
                     reply_message=message_data,
                     set_reply=False,
                     typing=True,
@@ -585,9 +614,8 @@ class BrainChatting:
                                 cleaned_uw: List[str] = []
                                 for item in uw:
                                     if isinstance(item, str):
-                                        s = item.strip()
-                                        if s:
-                                            cleaned_uw.append(s)
+                                        if stripped_item := item.strip():
+                                            cleaned_uw.append(stripped_item)
                                 if cleaned_uw:
                                     unknown_words = cleaned_uw
 

@@ -24,13 +24,13 @@ from src.services.message_service import (
 from src.chat.utils.utils import get_chat_type_and_target_info, is_bot_self
 from src.chat.planner_actions.action_manager import ActionManager
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
+from src.chat.message_receive.message import SessionMessage
 from src.core.types import ActionActivationType, ActionInfo, ComponentType
 from src.core.component_registry import component_registry
 from src.person_info.person_info import Person
 
 if TYPE_CHECKING:
     from src.common.data_models.info_data_model import TargetPersonInfo
-    from src.common.data_models.database_data_model import DatabaseMessages
 
 logger = get_logger("planner")
 
@@ -56,8 +56,8 @@ class ActionPlanner:
         self.unknown_words_cache_limit = 10
 
     def find_message_by_id(
-        self, message_id: str, message_id_list: List[Tuple[str, "DatabaseMessages"]]
-    ) -> Optional["DatabaseMessages"]:
+        self, message_id: str, message_id_list: List[Tuple[str, "SessionMessage"]]
+    ) -> Optional["SessionMessage"]:
         # sourcery skip: use-next
         """
         根据message_id从message_id_list中查找对应的原始消息
@@ -75,7 +75,7 @@ class ActionPlanner:
         return None
 
     def _replace_message_ids_with_text(
-        self, text: Optional[str], message_id_list: List[Tuple[str, "DatabaseMessages"]]
+        self, text: Optional[str], message_id_list: List[Tuple[str, "SessionMessage"]]
     ) -> Optional[str]:
         """将文本中的 m+数字 消息ID替换为原消息内容，并添加双引号"""
         if not text:
@@ -122,13 +122,7 @@ class ActionPlanner:
             msg_text = re.sub(pic_pattern, replace_pic_id, msg_text)
 
             # 替换用户引用格式：回复<aaa:bbb> 和 @<aaa:bbb>
-            platform = (
-                getattr(message, "user_info", None)
-                and message.user_info.platform
-                or getattr(message, "chat_info", None)
-                and message.chat_info.platform
-                or "qq"
-            )
+            platform = message.platform or "qq"
             msg_text = replace_user_references(msg_text, platform, replace_bot_name=True)
 
             # 替换单独的 <用户名:用户ID> 格式（replace_user_references 已处理回复<和@<格式）
@@ -160,7 +154,7 @@ class ActionPlanner:
     def _parse_single_action(
         self,
         action_json: dict,
-        message_id_list: List[Tuple[str, "DatabaseMessages"]],
+        message_id_list: List[Tuple[str, "SessionMessage"]],
         current_available_actions: List[Tuple[str, ActionInfo]],
         extracted_reasoning: str = "",
     ) -> List[ActionPlannerInfo]:
@@ -245,10 +239,10 @@ class ActionPlanner:
 
         return action_planner_infos
 
-    def _is_message_from_self(self, message: "DatabaseMessages") -> bool:
+    def _is_message_from_self(self, message: "SessionMessage") -> bool:
         """判断消息是否由机器人自身发送（支持多平台，包括 WebUI）"""
         try:
-            return is_bot_self(message.user_info.platform or "", str(message.user_info.user_id))
+            return is_bot_self(message.platform or "", str(message.message_info.user_info.user_id))
         except AttributeError:
             logger.warning(f"{self.log_prefix}检测消息发送者失败，缺少必要字段")
             return False
@@ -380,7 +374,7 @@ class ActionPlanner:
         self,
         available_actions: Dict[str, ActionInfo],
         loop_start_time: float = 0.0,
-        force_reply_message: Optional["DatabaseMessages"] = None,
+        force_reply_message: Optional["SessionMessage"] = None,
     ) -> List[ActionPlannerInfo]:
         # sourcery skip: use-named-expression
         """
@@ -395,7 +389,7 @@ class ActionPlanner:
             limit=int(global_config.chat.max_context_size * 0.6),
             filter_intercept_message_level=1,
         )
-        message_id_list: list[Tuple[str, "DatabaseMessages"]] = []
+        message_id_list: list[Tuple[str, "SessionMessage"]] = []
         chat_content_block, message_id_list = build_readable_messages_with_id(
             messages=message_list_before_now,
             timestamp_mode="normal_no_YMD",
@@ -552,10 +546,10 @@ class ActionPlanner:
         is_group_chat: bool,
         chat_target_info: Optional["TargetPersonInfo"],
         current_available_actions: Dict[str, ActionInfo],
-        message_id_list: List[Tuple[str, "DatabaseMessages"]],
+        message_id_list: List[Tuple[str, "SessionMessage"]],
         chat_content_block: str = "",
         interest: str = "",
-    ) -> tuple[str, List[Tuple[str, "DatabaseMessages"]]]:
+    ) -> tuple[str, List[Tuple[str, "SessionMessage"]]]:
         """构建 Planner LLM 的提示词 (获取模板并填充数据)"""
         try:
             actions_before_now_block = self.get_plan_log_str()
@@ -710,7 +704,7 @@ class ActionPlanner:
     async def _execute_main_planner(
         self,
         prompt: str,
-        message_id_list: List[Tuple[str, "DatabaseMessages"]],
+        message_id_list: List[Tuple[str, "SessionMessage"]],
         filtered_actions: Dict[str, ActionInfo],
         available_actions: Dict[str, ActionInfo],
         loop_start_time: float,

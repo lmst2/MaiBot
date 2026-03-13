@@ -1,8 +1,8 @@
 from typing import Dict, Optional, Tuple
 
 from src.chat.message_receive.chat_manager import BotChatSession
+from src.chat.message_receive.message import SessionMessage
 from src.common.logger import get_logger
-from src.common.data_models.database_data_model import DatabaseMessages
 from src.core.component_registry import component_registry, ActionExecutor
 from src.core.types import ActionInfo
 
@@ -52,7 +52,7 @@ class ActionManager:
         chat_stream: BotChatSession,
         log_prefix: str,
         shutting_down: bool = False,
-        action_message: Optional[DatabaseMessages] = None,
+        action_message: Optional[SessionMessage] = None,
     ) -> Optional[ActionHandle]:
         """
         创建动作执行句柄
