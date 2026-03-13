@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
 from datetime import date, datetime
 from decimal import Decimal
 from functools import lru_cache
@@ -35,7 +34,7 @@ def tn(key: str, count: int | float, locale: str | None = None, **kwargs: object
     return _get_manager().tn(key, count=count, locale=locale, **kwargs)
 
 
-def use_locale(locale: str) -> Iterator[None]:
+def use_locale(locale: str):
     return _get_manager().use_locale(locale)
 
 
