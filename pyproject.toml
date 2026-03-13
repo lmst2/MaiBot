@@ -25,6 +25,7 @@ dependencies = [
     "python-dotenv>=1.1.1",
     "python-multipart>=0.0.20",
     "python-levenshtein",
+    "pytz>=2024.1",             # Babel 的依赖，需要显式声明
     "quick-algo>=0.1.4",
     "rich>=14.0.0",
     "ruff>=0.12.2",
@@ -67,7 +68,7 @@ select = [
     "B", # flake8-bugbear
 ]
 
-ignore = ["E711","E501"]
+ignore = ["E711", "E501"]
 
 [tool.ruff.format]
 docstring-code-format = true
