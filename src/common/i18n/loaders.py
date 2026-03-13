@@ -5,8 +5,6 @@ from string import Formatter
 
 import json
 
-_FORMATTER = Formatter()
-
 from .exceptions import (
     DuplicateTranslationKeyError,
     InvalidLocaleError,
@@ -14,6 +12,7 @@ from .exceptions import (
     LocaleNotFoundError,
 )
 
+_FORMATTER = Formatter()
 DEFAULT_LOCALE = "zh-CN"
 PLURAL_CATEGORIES = {"zero", "one", "two", "few", "many", "other"}
 TranslationValue = str | dict[str, str]
