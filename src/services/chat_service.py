@@ -4,7 +4,7 @@
 提供聊天信息查询和管理的核心功能。
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from enum import Enum
 
 from src.chat.message_receive.chat_manager import BotChatSession, chat_manager as _chat_manager
@@ -23,50 +23,58 @@ class ChatManager:
     """聊天管理器 - 负责聊天信息的查询和管理"""
 
     @staticmethod
-    def get_all_streams(platform: Optional[str] | SpecialTypes = "qq") -> List[BotChatSession]:
-        # sourcery skip: for-append-to-extend
+    def _validate_platform(platform: Optional[str] | SpecialTypes) -> None:
         if not isinstance(platform, (str, SpecialTypes)):
             raise TypeError("platform 必须是字符串或是 SpecialTypes 枚举")
-        streams = []
+
+    @staticmethod
+    def _match_platform(chat_stream: BotChatSession, platform: Optional[str] | SpecialTypes) -> bool:
+        return platform == SpecialTypes.ALL_PLATFORMS or chat_stream.platform == platform
+
+    @staticmethod
+    def _get_streams(
+        platform: Optional[str] | SpecialTypes = "qq", is_group_session: Optional[bool] = None
+    ) -> List[BotChatSession]:
+        ChatManager._validate_platform(platform)
+
         try:
-            for _, stream in _chat_manager.sessions.items():
-                if platform == SpecialTypes.ALL_PLATFORMS or stream.platform == platform:
-                    streams.append(stream)
-            logger.debug(f"[ChatService] 获取到 {len(streams)} 个 {platform} 平台的聊天流")
+            streams = [
+                stream
+                for stream in _chat_manager.sessions.values()
+                if ChatManager._match_platform(stream, platform)
+                and (is_group_session is None or stream.is_group_session == is_group_session)
+            ]
+            return streams
         except Exception as e:
             logger.error(f"[ChatService] 获取聊天流失败: {e}")
+            return []
+
+    @staticmethod
+    def _find_stream(
+        predicate: Callable[[BotChatSession], bool],
+        platform: Optional[str] | SpecialTypes = "qq",
+    ) -> Optional[BotChatSession]:
+        for stream in ChatManager._get_streams(platform=platform):
+            if predicate(stream):
+                return stream
+        return None
+
+    @staticmethod
+    def get_all_streams(platform: Optional[str] | SpecialTypes = "qq") -> List[BotChatSession]:
+        streams = ChatManager._get_streams(platform=platform)
+        logger.debug(f"[ChatService] 获取到 {len(streams)} 个 {platform} 平台的聊天流")
         return streams
 
     @staticmethod
     def get_group_streams(platform: Optional[str] | SpecialTypes = "qq") -> List[BotChatSession]:
-        # sourcery skip: for-append-to-extend
-        if not isinstance(platform, (str, SpecialTypes)):
-            raise TypeError("platform 必须是字符串或是 SpecialTypes 枚举")
-        streams = []
-        try:
-            for _, stream in _chat_manager.sessions.items():
-                if (platform == SpecialTypes.ALL_PLATFORMS or stream.platform == platform) and stream.is_group_session:
-                    streams.append(stream)
-            logger.debug(f"[ChatService] 获取到 {len(streams)} 个 {platform} 平台的群聊流")
-        except Exception as e:
-            logger.error(f"[ChatService] 获取群聊流失败: {e}")
+        streams = ChatManager._get_streams(platform=platform, is_group_session=True)
+        logger.debug(f"[ChatService] 获取到 {len(streams)} 个 {platform} 平台的群聊流")
         return streams
 
     @staticmethod
     def get_private_streams(platform: Optional[str] | SpecialTypes = "qq") -> List[BotChatSession]:
-        # sourcery skip: for-append-to-extend
-        if not isinstance(platform, (str, SpecialTypes)):
-            raise TypeError("platform 必须是字符串或是 SpecialTypes 枚举")
-        streams = []
-        try:
-            for _, stream in _chat_manager.sessions.items():
-                if (
-                    platform == SpecialTypes.ALL_PLATFORMS or stream.platform == platform
-                ) and not stream.is_group_session:
-                    streams.append(stream)
-            logger.debug(f"[ChatService] 获取到 {len(streams)} 个 {platform} 平台的私聊流")
-        except Exception as e:
-            logger.error(f"[ChatService] 获取私聊流失败: {e}")
+        streams = ChatManager._get_streams(platform=platform, is_group_session=False)
+        logger.debug(f"[ChatService] 获取到 {len(streams)} 个 {platform} 平台的私聊流")
         return streams
 
     @staticmethod
@@ -75,19 +83,17 @@ class ChatManager:
     ) -> Optional[BotChatSession]:  # sourcery skip: remove-unnecessary-cast
         if not isinstance(group_id, str):
             raise TypeError("group_id 必须是字符串类型")
-        if not isinstance(platform, (str, SpecialTypes)):
-            raise TypeError("platform 必须是字符串或是 SpecialTypes 枚举")
+        ChatManager._validate_platform(platform)
         if not group_id:
             raise ValueError("group_id 不能为空")
         try:
-            for _, stream in _chat_manager.sessions.items():
-                if (
-                    stream.is_group_session
-                    and str(stream.group_id) == str(group_id)
-                    and (platform == SpecialTypes.ALL_PLATFORMS or stream.platform == platform)
-                ):
-                    logger.debug(f"[ChatService] 找到群ID {group_id} 的聊天流")
-                    return stream
+            stream = ChatManager._find_stream(
+                lambda item: item.is_group_session and str(item.group_id) == str(group_id),
+                platform=platform,
+            )
+            if stream is not None:
+                logger.debug(f"[ChatService] 找到群ID {group_id} 的聊天流")
+                return stream
             logger.warning(f"[ChatService] 未找到群ID {group_id} 的聊天流")
         except Exception as e:
             logger.error(f"[ChatService] 查找群聊流失败: {e}")
@@ -99,19 +105,17 @@ class ChatManager:
     ) -> Optional[BotChatSession]:  # sourcery skip: remove-unnecessary-cast
         if not isinstance(user_id, str):
             raise TypeError("user_id 必须是字符串类型")
-        if not isinstance(platform, (str, SpecialTypes)):
-            raise TypeError("platform 必须是字符串或是 SpecialTypes 枚举")
+        ChatManager._validate_platform(platform)
         if not user_id:
             raise ValueError("user_id 不能为空")
         try:
-            for _, stream in _chat_manager.sessions.items():
-                if (
-                    not stream.is_group_session
-                    and str(stream.user_id) == str(user_id)
-                    and (platform == SpecialTypes.ALL_PLATFORMS or stream.platform == platform)
-                ):
-                    logger.debug(f"[ChatService] 找到用户ID {user_id} 的私聊流")
-                    return stream
+            stream = ChatManager._find_stream(
+                lambda item: (not item.is_group_session) and str(item.user_id) == str(user_id),
+                platform=platform,
+            )
+            if stream is not None:
+                logger.debug(f"[ChatService] 找到用户ID {user_id} 的私聊流")
+                return stream
             logger.warning(f"[ChatService] 未找到用户ID {user_id} 的私聊流")
         except Exception as e:
             logger.error(f"[ChatService] 查找私聊流失败: {e}")

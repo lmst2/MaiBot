@@ -16,6 +16,38 @@ from src.llm_models.utils_model import LLMRequest
 logger = get_logger("llm_service")
 
 
+async def _generate_response(
+    model_config: TaskConfig,
+    request_type: str,
+    prompt: Optional[str] = None,
+    message_factory: Optional[Callable[[BaseClient], List[Message]]] = None,
+    tool_options: Optional[List[Dict[str, Any]]] = None,
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+) -> Tuple[str, str, str, List[ToolCall] | None]:
+    llm_request = LLMRequest(model_set=model_config, request_type=request_type)
+
+    if message_factory is not None:
+        response, (reasoning_content, model_name, tool_call) = await llm_request.generate_response_with_message_async(
+            message_factory=message_factory,
+            tools=tool_options,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        return response, reasoning_content, model_name, tool_call
+
+    if prompt is None:
+        raise ValueError("prompt 与 message_factory 不能同时为空")
+
+    response, (reasoning_content, model_name, tool_call) = await llm_request.generate_response_async(
+        prompt,
+        tools=tool_options,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    return response, reasoning_content, model_name, tool_call
+
+
 def get_available_models() -> Dict[str, TaskConfig]:
     """获取所有可用的模型配置
 
@@ -61,11 +93,12 @@ async def generate_with_model(
     """
     try:
         logger.debug(f"[LLMService] 完整提示词: {prompt}")
-
-        llm_request = LLMRequest(model_set=model_config, request_type=request_type)
-
-        response, (reasoning_content, model_name, _) = await llm_request.generate_response_async(
-            prompt, temperature=temperature, max_tokens=max_tokens
+        response, reasoning_content, model_name, _ = await _generate_response(
+            model_config=model_config,
+            request_type=request_type,
+            prompt=prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         return True, response, reasoning_content, model_name
 
@@ -101,10 +134,13 @@ async def generate_with_model_with_tools(
         logger.info(f"使用模型{model_name_list}生成内容")
         logger.debug(f"完整提示词: {prompt}")
 
-        llm_request = LLMRequest(model_set=model_config, request_type=request_type)
-
-        response, (reasoning_content, model_name, tool_call) = await llm_request.generate_response_async(
-            prompt, tools=tool_options, temperature=temperature, max_tokens=max_tokens
+        response, reasoning_content, model_name, tool_call = await _generate_response(
+            model_config=model_config,
+            request_type=request_type,
+            prompt=prompt,
+            tool_options=tool_options,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
         return True, response, reasoning_content, model_name, tool_call
 
@@ -139,11 +175,11 @@ async def generate_with_model_with_tools_by_message_factory(
         model_name_list = model_config.model_list
         logger.info(f"使用模型 {model_name_list} 生成内容")
 
-        llm_request = LLMRequest(model_set=model_config, request_type=request_type)
-
-        response, (reasoning_content, model_name, tool_call) = await llm_request.generate_response_with_message_async(
+        response, reasoning_content, model_name, tool_call = await _generate_response(
+            model_config=model_config,
+            request_type=request_type,
             message_factory=message_factory,
-            tools=tool_options,
+            tool_options=tool_options,
             temperature=temperature,
             max_tokens=max_tokens,
         )

@@ -8,6 +8,7 @@ import json
 import time
 import re
 import difflib
+import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 from dataclasses import dataclass, field
@@ -917,21 +918,18 @@ class ChatHistorySummarizer:
 
             # 准备数据
             data = {
-                "chat_id": self.session_id,
-                "start_time": start_time,
-                "end_time": end_time,
-                "original_text": original_text,
+                "session_id": self.session_id,
+                "start_timestamp": datetime.fromtimestamp(start_time),
+                "end_timestamp": datetime.fromtimestamp(end_time),
+                "original_messages": original_text,
                 "participants": json.dumps(participants, ensure_ascii=False),
                 "theme": theme,
                 "keywords": json.dumps(keywords, ensure_ascii=False),
                 "summary": summary,
-                "count": 0,
+                "query_count": 0,
+                "query_forget_count": 0,
             }
 
-            # 使用db_save存储（使用start_time和chat_id作为唯一标识）
-            # 由于可能有多条记录，我们使用组合键，但peewee不支持，所以使用start_time作为唯一标识
-            # 但为了避免冲突，我们使用组合键：chat_id + start_time
-            # 由于peewee不支持组合键，我们直接创建新记录（不提供key_field和key_value）
             saved_record = await database_api.db_save(
                 ChatHistory,
                 data=data,

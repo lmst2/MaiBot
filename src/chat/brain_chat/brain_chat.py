@@ -225,9 +225,7 @@ class BrainChatting:
 
         await database_api.store_action_info(
             chat_stream=self.chat_stream,
-            action_build_into_prompt=False,
-            action_prompt_display=action_prompt_display,
-            action_done=True,
+            display_prompt=action_prompt_display,
             thinking_id=thinking_id,
             action_data={"reply_text": reply_text},
             action_name="reply",
@@ -573,9 +571,7 @@ class BrainChatting:
                     # 存储complete_talk信息到数据库
                     await database_api.store_action_info(
                         chat_stream=self.chat_stream,
-                        action_build_into_prompt=False,
-                        action_prompt_display=reason,
-                        action_done=True,
+                        display_prompt=reason,
                         thinking_id=thinking_id,
                         action_data={"reason": reason},
                         action_name="complete_talk",
@@ -678,9 +674,7 @@ class BrainChatting:
                             # 记录动作信息
                             await database_api.store_action_info(
                                 chat_stream=self.chat_stream,
-                                action_build_into_prompt=False,
-                                action_prompt_display=reason or f"等待 {wait_seconds} 秒",
-                                action_done=True,
+                                display_prompt=reason or f"等待 {wait_seconds} 秒",
                                 thinking_id=thinking_id,
                                 action_data={"reason": reason, "wait_seconds": wait_seconds},
                                 action_name="wait",
@@ -722,9 +716,7 @@ class BrainChatting:
                             # 记录动作信息
                             await database_api.store_action_info(
                                 chat_stream=self.chat_stream,
-                                action_build_into_prompt=False,
-                                action_prompt_display=reason or f"倾听并等待 {wait_seconds} 秒",
-                                action_done=True,
+                                display_prompt=reason or f"倾听并等待 {wait_seconds} 秒",
                                 thinking_id=thinking_id,
                                 action_data={"reason": reason, "wait_seconds": wait_seconds},
                                 action_name="listening",
