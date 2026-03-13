@@ -56,6 +56,11 @@ Triggers:
 
 - manual dispatch only
 
+Visibility requirement:
+
+- because this workflow uses `workflow_dispatch`, GitHub only exposes it after the workflow file exists on the repository default branch
+- in this repository, maintainers should merge the workflow file into `main` before expecting it to appear in the Actions UI or be runnable through `gh workflow run`
+
 Inputs:
 
 - `base_branch`: `main` or `r-dev`
@@ -225,6 +230,7 @@ Effect:
 GitHub UI:
 
 - Actions -> `Crowdin Bootstrap Target Translations`
+- if it does not appear yet, first make sure the workflow file has already landed on the default branch (`main`)
 - choose `main` or `r-dev`
 - set `confirm_bootstrap` to `yes-bootstrap-current-target-translations`
 
@@ -232,7 +238,7 @@ GitHub CLI:
 
 ```bash
 gh workflow run crowdin-bootstrap.yml \
-  --ref r-dev \
+  --ref main \
   -f base_branch=r-dev \
   -f confirm_bootstrap=yes-bootstrap-current-target-translations
 ```
@@ -244,12 +250,13 @@ Use this only when seeding Crowdin from already-committed target translations, o
 GitHub UI:
 
 - Actions -> `Crowdin Sync`
+- if a newly added manual workflow does not appear, confirm that workflow file is already on the default branch
 - run the workflow on `main` or `r-dev`
 
 GitHub CLI:
 
 ```bash
-gh workflow run crowdin-sync.yml --ref r-dev
+gh workflow run crowdin-sync.yml --ref main
 ```
 
 ### Inspect workflow runs
