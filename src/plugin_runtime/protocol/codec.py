@@ -28,7 +28,10 @@ class MsgPackCodec(Codec):
     """MsgPack 编解码器"""
 
     def encode(self, obj: Dict[str, Any]) -> bytes:
-        return msgpack.packb(obj, use_bin_type=True)
+        result = msgpack.packb(obj, use_bin_type=True)
+        if result is None:
+            raise ValueError("msgpack.packb returned None, expected bytes")
+        return result
 
     def decode(self, data: bytes) -> Dict[str, Any]:
         result = msgpack.unpackb(data, raw=False)
