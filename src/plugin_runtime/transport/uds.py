@@ -26,7 +26,7 @@ _UDS_PATH_MAX = 104
 class UDSTransportServer(TransportServer):
     """UDS 传输服务端"""
 
-    def __init__(self, socket_path: Optional[str] = None):
+    def __init__(self, socket_path: Optional[str] = None) -> None:
         if socket_path is None:
             # 默认放在临时目录，使用 uuid 确保同一进程多实例不碰撞
             import uuid
@@ -80,7 +80,7 @@ class UDSTransportServer(TransportServer):
 class UDSTransportClient(TransportClient):
     """UDS 传输客户端"""
 
-    def __init__(self, socket_path: str):
+    def __init__(self, socket_path: str) -> None:
         self._socket_path = socket_path
 
     async def connect(self) -> Connection:

@@ -9,18 +9,16 @@
 6. 转发插件的能力调用到 Host
 """
 
-import logging as stdlib_logging
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import asyncio
 import contextlib
 import inspect
+import logging as stdlib_logging
 import os
 import signal
 import sys
 import time
-
-from typing import Any
 
 from src.common.logger import get_console_handler, get_logger, initialize_logging
 from src.plugin_runtime import ENV_IPC_ADDRESS, ENV_PLUGIN_DIRS, ENV_SESSION_TOKEN
@@ -543,9 +541,12 @@ async def _async_main() -> None:
     runner = PluginRunner(host_address, session_token, plugin_dirs)
 
     # 注册信号处理
+    def _mark_runner_shutting_down() -> None:
+        runner._shutting_down = True
+
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, lambda: setattr(runner, "_shutting_down", True))
+        loop.add_signal_handler(sig, _mark_runner_shutting_down)
 
     await runner.run()
 

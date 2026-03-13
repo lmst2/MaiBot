@@ -70,7 +70,7 @@ class ManifestValidator:
     RECOMMENDED_FIELDS = ["license", "keywords", "categories"]
     SUPPORTED_MANIFEST_VERSIONS = [1, 2]
 
-    def __init__(self, host_version: str = ""):
+    def __init__(self, host_version: str = "") -> None:
         self._host_version = host_version
         self.errors: List[str] = []
         self.warnings: List[str] = []

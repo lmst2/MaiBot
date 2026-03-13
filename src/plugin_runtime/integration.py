@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import asyncio
 import os
 
+from src.chat.message_receive.chat_manager import BotChatSession
 from src.common.logger import get_logger
 from src.config.config import global_config
 
@@ -852,14 +853,14 @@ class PluginRuntimeManager:
     # ═════════════════════════════════════════════════════════
 
     @staticmethod
-    def _serialize_stream(stream: Any) -> Dict[str, Any]:
+    def _serialize_stream(stream: BotChatSession) -> Dict[str, Any]:
         """将 BotChatSession 序列化为可通过 RPC 传输的字典"""
         return {
-            "session_id": getattr(stream, "session_id", ""),
-            "platform": getattr(stream, "platform", ""),
-            "user_id": getattr(stream, "user_id", ""),
-            "group_id": getattr(stream, "group_id", ""),
-            "is_group_session": getattr(stream, "is_group_session", False),
+            "session_id": stream.session_id,
+            "platform": stream.platform,
+            "user_id": stream.user_id,
+            "group_id": stream.group_id,
+            "is_group_session": stream.is_group_session,
         }
 
     @staticmethod

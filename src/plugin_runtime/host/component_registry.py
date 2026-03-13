@@ -11,9 +11,9 @@
 
 from typing import Any, Dict, List, Optional
 
-from src.common.logger import get_logger
-
 import re
+
+from src.common.logger import get_logger
 
 logger = get_logger("plugin_runtime.host.component_registry")
 
@@ -32,7 +32,7 @@ class RegisteredComponent:
         component_type: str,
         plugin_id: str,
         metadata: Dict[str, Any],
-    ):
+    ) -> None:
         self.name = name
         self.full_name = f"{plugin_id}.{name}"
         self.component_type = component_type
@@ -57,7 +57,7 @@ class ComponentRegistry:
     供业务层查询可用组件、匹配命令、调度 action/event 等。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # 全量索引
         self._components: Dict[str, RegisteredComponent] = {}  # full_name -> comp
 

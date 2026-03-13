@@ -7,11 +7,11 @@
 分帧协议：4-byte big-endian length prefix + payload
 """
 
+import asyncio
+import contextlib
+import struct
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable
-
-import asyncio
-import struct
 
 # 分帧常量
 FRAME_HEADER_SIZE = 4  # 4 字节长度前缀
@@ -23,13 +23,13 @@ class ConnectionClosed(Exception):
     pass
 
 
-class Connection(ABC):
+class Connection:
     """单个连接的抽象
 
     封装了底层 StreamReader/StreamWriter，提供分帧读写能力。
     """
 
-    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         self._reader = reader
         self._writer = writer
         self._closed = False
@@ -57,19 +57,16 @@ class Connection(ABC):
         if length > MAX_FRAME_SIZE:
             raise ValueError(f"帧大小 {length} 超过最大限制 {MAX_FRAME_SIZE}")
         # 读取 payload
-        payload = await self._reader.readexactly(length)
-        return payload
+        return await self._reader.readexactly(length)
 
     async def close(self) -> None:
         """关闭连接"""
         if self._closed:
             return
         self._closed = True
-        try:
+        with contextlib.suppress(Exception):
             self._writer.close()
             await self._writer.wait_closed()
-        except Exception:
-            pass
 
     @property
     def is_closed(self) -> bool:

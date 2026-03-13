@@ -5,11 +5,12 @@
 """
 
 from enum import Enum
-from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 
-import time
+from pydantic import BaseModel, Field
+
 import logging as stdlib_logging
+import time
 
 
 # ─── 协议常量 ──────────────────────────────────────────────────────
@@ -35,7 +36,7 @@ class MessageType(str, Enum):
 class RequestIdGenerator:
     """单调递增 int64 请求 ID 生成器（线程安全由调用方保证或使用 asyncio）"""
 
-    def __init__(self, start: int = 1):
+    def __init__(self, start: int = 1) -> None:
         self._counter = start
 
     def next(self) -> int:

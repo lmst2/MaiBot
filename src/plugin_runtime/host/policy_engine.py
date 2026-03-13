@@ -22,7 +22,7 @@ class PolicyEngine:
     管理所有插件的能力令牌，提供授权校验。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._tokens: Dict[str, CapabilityToken] = {}
 
     def register_plugin(

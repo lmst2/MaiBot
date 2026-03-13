@@ -39,7 +39,12 @@ class ErrorCode(str, Enum):
 class RPCError(Exception):
     """RPC 调用异常"""
 
-    def __init__(self, code: ErrorCode, message: str = "", details: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        code: ErrorCode,
+        message: str = "",
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
         self.code = code
         self.message = message or code.value
         self.details = details or {}

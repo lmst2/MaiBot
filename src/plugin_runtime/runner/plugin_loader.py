@@ -30,7 +30,7 @@ class PluginMeta:
         plugin_dir: str,
         plugin_instance: Any,
         manifest: Dict[str, Any],
-    ):
+    ) -> None:
         self.plugin_id = plugin_id
         self.plugin_dir = plugin_dir
         self.instance = plugin_instance
@@ -61,7 +61,7 @@ class PluginLoader:
     - plugin.py: 插件入口模块（导出 create_plugin 工厂函数）
     """
 
-    def __init__(self, host_version: str = ""):
+    def __init__(self, host_version: str = "") -> None:
         self._loaded_plugins: Dict[str, PluginMeta] = {}
         self._failed_plugins: Dict[str, str] = {}
         self._manifest_validator = ManifestValidator(host_version=host_version)

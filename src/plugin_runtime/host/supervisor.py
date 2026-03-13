@@ -7,11 +7,11 @@
 4. 优雅关停
 """
 
-import logging as stdlib_logging
 from typing import Any, Dict, List, Optional, Tuple
 
 import asyncio
 import contextlib
+import logging as stdlib_logging
 import os
 import sys
 
@@ -559,8 +559,11 @@ class PluginSupervisor:
         task.add_done_callback(
             lambda done_task: None
             if self._stderr_drain_task is not done_task
-            else setattr(self, "_stderr_drain_task", None)
+            else self._clear_stderr_drain_task()
         )
+
+    def _clear_stderr_drain_task(self) -> None:
+        self._stderr_drain_task = None
 
     async def _drain_runner_stderr(
         self,
@@ -578,8 +581,7 @@ class PluginSupervisor:
                 line = await stream.readline()
                 if not line:
                     break
-                message = line.decode(errors="replace").rstrip()
-                if message:
+                if message := line.decode(errors="replace").rstrip():
                     # 将 stderr 输出以 WARNING 级展示：
                     # 如果 Runner 正常运行，此流应当无输出；
                     # 有输出说明进程级错误发生，需要出现在主进程日志中

@@ -31,7 +31,7 @@ class CapabilityService:
     4. 执行实际操作并返回结果
     """
 
-    def __init__(self, policy_engine: PolicyEngine):
+    def __init__(self, policy_engine: PolicyEngine) -> None:
         self._policy = policy_engine
         # capability_name -> implementation
         self._implementations: Dict[str, CapabilityImpl] = {}

@@ -54,7 +54,7 @@ class ModificationRecord:
     """消息修改记录"""
     __slots__ = ("stage", "hook_name", "timestamp", "fields_changed")
 
-    def __init__(self, stage: str, hook_name: str, fields_changed: List[str]):
+    def __init__(self, stage: str, hook_name: str, fields_changed: List[str]) -> None:
         self.stage = stage
         self.hook_name = hook_name
         self.timestamp = time.perf_counter()
@@ -64,7 +64,7 @@ class ModificationRecord:
 class WorkflowContext:
     """Workflow 执行上下文"""
 
-    def __init__(self, trace_id: Optional[str] = None, stream_id: Optional[str] = None):
+    def __init__(self, trace_id: Optional[str] = None, stream_id: Optional[str] = None) -> None:
         self.trace_id = trace_id or uuid.uuid4().hex
         self.stream_id = stream_id
         self.timings: Dict[str, float] = {}
@@ -92,7 +92,7 @@ class WorkflowResult:
         return_message: str = "",
         stopped_at: str = "",
         diagnostics: Optional[Dict[str, Any]] = None,
-    ):
+    ) -> None:
         self.status = status
         self.return_message = return_message
         self.stopped_at = stopped_at
@@ -109,7 +109,7 @@ class WorkflowExecutor:
     实现 stage-based pipeline + per-stage hook chain with priority + early return。
     """
 
-    def __init__(self, registry: ComponentRegistry):
+    def __init__(self, registry: ComponentRegistry) -> None:
         self._registry = registry
 
     async def execute(

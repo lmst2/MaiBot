@@ -19,7 +19,7 @@ class TCPConnection(Connection):
 class TCPTransportServer(TransportServer):
     """TCP 传输服务端（回退方案）"""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 0):
+    def __init__(self, host: str = "127.0.0.1", port: int = 0) -> None:
         self._host = host
         self._port = port  # 0 表示自动分配
         self._server: Optional[asyncio.AbstractServer] = None
@@ -52,7 +52,7 @@ class TCPTransportServer(TransportServer):
 class TCPTransportClient(TransportClient):
     """TCP 传输客户端"""
 
-    def __init__(self, host: str, port: int):
+    def __init__(self, host: str, port: int) -> None:
         self._host = host
         self._port = port
 
