@@ -1060,7 +1060,7 @@ class PluginRuntimeManager:
     async def _cap_message_count_new(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """统计新消息数量
 
-        args: chat_id, start_time?, end_time?
+        args: chat_id, since? | start_time?, end_time?
         """
         from src.services import message_service as message_api
 
@@ -1069,9 +1069,12 @@ class PluginRuntimeManager:
             return {"success": False, "error": "缺少必要参数 chat_id"}
 
         try:
+            # 兼容 SDK 传 since 和直接传 start_time 两种方式
+            since = args.get("since")
+            start_time = float(since) if since is not None else float(args.get("start_time", 0.0))
             count = message_api.count_new_messages(
                 chat_id=chat_id,
-                start_time=float(args.get("start_time", 0.0)),
+                start_time=start_time,
                 end_time=args.get("end_time"),
             )
             return {"success": True, "count": count}
@@ -1083,21 +1086,29 @@ class PluginRuntimeManager:
     async def _cap_message_build_readable(plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
         """将消息列表构建成可读字符串
 
-        args: chat_id, start_time, end_time, limit?, replace_bot_name?, timestamp_mode?
+        支持两种调用方式:
+        1. SDK 方式: 传入 messages（已查询的消息列表）
+        2. 直接方式: 传入 chat_id + start_time + end_time（Host 端查询）
+
+        args: messages? | chat_id?, start_time?, end_time?, limit?, replace_bot_name?, timestamp_mode?
         """
         from src.services import message_service as message_api
 
-        chat_id: str = args.get("chat_id", "")
-        if not chat_id:
-            return {"success": False, "error": "缺少必要参数 chat_id"}
-
         try:
-            messages = message_api.get_messages_by_time_in_chat(
-                chat_id=chat_id,
-                start_time=float(args.get("start_time", 0.0)),
-                end_time=float(args.get("end_time", 0.0)),
-                limit=args.get("limit", 0),
-            )
+            # 优先使用调用方已提供的消息列表
+            messages = args.get("messages")
+            if messages is None:
+                # 回退到 chat_id + 时间范围查询
+                chat_id: str = args.get("chat_id", "")
+                if not chat_id:
+                    return {"success": False, "error": "缺少必要参数: messages 或 chat_id"}
+                messages = message_api.get_messages_by_time_in_chat(
+                    chat_id=chat_id,
+                    start_time=float(args.get("start_time", 0.0)),
+                    end_time=float(args.get("end_time", 0.0)),
+                    limit=args.get("limit", 0),
+                )
+
             readable = message_api.build_readable_messages_to_str(
                 messages=messages,
                 replace_bot_name=args.get("replace_bot_name", True),

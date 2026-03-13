@@ -582,11 +582,13 @@ class TestComponentRegistry:
 
         match = reg.find_command_by_text("/help me")
         assert match is not None
-        assert match.name == "help"
+        comp, groups = match
+        assert comp.name == "help"
 
         match = reg.find_command_by_text("/echo hello")
         assert match is not None
-        assert match.name == "echo"
+        comp, groups = match
+        assert comp.name == "echo"
 
         match = reg.find_command_by_text("no match")
         assert match is None

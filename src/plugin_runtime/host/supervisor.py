@@ -209,11 +209,22 @@ class PluginSupervisor:
                 return result if isinstance(result, dict) else {}
             raise RuntimeError(payload.get("result", "workflow step invoke failed"))
 
+        async def _command_invoke(plugin_id: str, component_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+            """命令走 plugin.invoke_command，保留原始返回值结构。"""
+            resp = await self.invoke_plugin(
+                method="plugin.invoke_command",
+                plugin_id=plugin_id,
+                component_name=component_name,
+                args=args,
+            )
+            return resp.payload
+
         return await self._workflow_executor.execute(
             invoke_fn=_invoke,
             message=message,
             stream_id=stream_id,
             context=context,
+            command_invoke_fn=_command_invoke,
         )
 
     async def start(self) -> None:

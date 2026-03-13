@@ -118,8 +118,14 @@ class WorkflowExecutor:
         message: Optional[Dict[str, Any]] = None,
         stream_id: Optional[str] = None,
         context: Optional[WorkflowContext] = None,
+        command_invoke_fn: Optional[InvokeFn] = None,
     ) -> Tuple[WorkflowResult, Optional[Dict[str, Any]], WorkflowContext]:
         """执行 workflow pipeline。
+
+        Args:
+            invoke_fn: 用于 workflow_step 的回调
+            command_invoke_fn: 用于 command 的回调（走 plugin.invoke_command），
+                               未传则复用 invoke_fn
 
         Returns:
             (result, final_message, context)
@@ -136,7 +142,7 @@ class WorkflowExecutor:
                 # PLAN 阶段: 先做 Command 路由
                 if stage == "plan" and current_message:
                     cmd_result = await self._route_command(
-                        invoke_fn, current_message, ctx
+                        command_invoke_fn or invoke_fn, current_message, ctx
                     )
                     if cmd_result is not None:
                         # 命令匹配成功，跳过 PLAN 阶段的 hook，直接存结果进 stage_outputs
@@ -377,9 +383,11 @@ class WorkflowExecutor:
         if not plain_text:
             return None
 
-        matched = self._registry.find_command_by_text(plain_text)
-        if matched is None:
+        match_result = self._registry.find_command_by_text(plain_text)
+        if match_result is None:
             return None
+
+        matched, matched_groups = match_result
 
         ctx.matched_command = matched.full_name
         logger.info(f"[{ctx.trace_id}] 命令匹配: {matched.full_name}")
@@ -389,6 +397,7 @@ class WorkflowExecutor:
                 "text": plain_text,
                 "message": message,
                 "trace_id": ctx.trace_id,
+                "matched_groups": matched_groups,
             })
         except Exception as e:
             logger.error(f"[{ctx.trace_id}] 命令 {matched.full_name} 执行失败: {e}", exc_info=True)
