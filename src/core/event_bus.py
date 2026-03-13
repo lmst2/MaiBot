@@ -9,7 +9,6 @@
 
 import asyncio
 import contextlib
-from dataclasses import fields
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from src.common.logger import get_logger
@@ -101,20 +100,30 @@ class EventBus:
 
         continue_flag = True
         current_message = message.deepcopy() if message else None
+        intercept_handlers: List[_HandlerEntry] = []
+        async_handlers: List[_HandlerEntry] = []
 
         for entry in handlers:
             if entry.intercept:
-                try:
-                    should_continue, modified = await entry.handler(current_message)
-                    if modified is not None:
-                        current_message = modified
-                    if not should_continue:
-                        continue_flag = False
-                        break
-                except Exception as e:
-                    logger.error(f"拦截型 handler {entry.name} 执行异常: {e}", exc_info=True)
+                intercept_handlers.append(entry)
             else:
-                self._fire_and_forget(entry, event_type, current_message)
+                async_handlers.append(entry)
+
+        for entry in intercept_handlers:
+            try:
+                should_continue, modified = await entry.handler(current_message)
+                if modified is not None:
+                    current_message = modified
+                if not should_continue:
+                    continue_flag = False
+                    break
+            except Exception as e:
+                logger.error(f"拦截型 handler {entry.name} 执行异常: {e}", exc_info=True)
+
+        if continue_flag:
+            for entry in async_handlers:
+                async_message = current_message.deepcopy() if current_message else None
+                self._fire_and_forget(entry, event_type, async_message)
 
         # 桥接到 IPC 插件运行时
         continue_flag, current_message = await self._bridge_to_ipc_runtime(event_type, continue_flag, current_message)
@@ -138,7 +147,7 @@ class EventBus:
         event_type: EventType | str,
         message: Optional[MaiMessages],
     ) -> None:
-        """创建异步任务执行非拦截型 handler"""
+        """创建异步任务执行非拦截型 handler。"""
         try:
             task = asyncio.create_task(entry.handler(message))
             task.set_name(entry.name)
@@ -179,7 +188,7 @@ class EventBus:
                 return continue_flag, message
 
             event_value = event_type.value if isinstance(event_type, EventType) else str(event_type)
-            message_dict = message.to_dict() if message and hasattr(message, "to_dict") else None
+            message_dict = message.to_transport_dict() if message else None
 
             new_continue, modified_dict = await prm.bridge_event(
                 event_type_value=event_value,
@@ -197,12 +206,7 @@ class EventBus:
     @staticmethod
     def _apply_ipc_message_update(message: MaiMessages, modified_dict: Dict[str, Any]) -> MaiMessages:
         """将 IPC 返回的消息字典回写到当前 MaiMessages。"""
-        updated_message = message.deepcopy()
-        valid_fields = {field.name for field in fields(MaiMessages)}
-        for key, value in modified_dict.items():
-            if key in valid_fields:
-                setattr(updated_message, key, value)
-        return updated_message
+        return message.apply_transport_update(modified_dict)
 
 
 class _HandlerEntry:

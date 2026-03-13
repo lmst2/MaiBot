@@ -90,23 +90,38 @@ class EventDispatcher:
 
         should_continue = True
         modified_message: Optional[Dict[str, Any]] = None
+        intercept_handlers: List[RegisteredComponent] = []
+        async_handlers: List[RegisteredComponent] = []
 
         for handler in handlers:
-            intercept = handler.metadata.get("intercept_message", False)
+            if handler.metadata.get("intercept_message", False):
+                intercept_handlers.append(handler)
+            else:
+                async_handlers.append(handler)
+
+        for handler in intercept_handlers:
             args = {
                 "event_type": event_type,
                 "message": modified_message or message,
                 **(extra_args or {}),
             }
 
-            if intercept:
-                # 阻塞执行
-                result = await self._invoke_handler(invoke_fn, handler, args, event_type)
-                if result and not result.continue_processing:
-                    should_continue = False
-                if result and result.modified_message:
-                    modified_message = result.modified_message
-            else:
+            result = await self._invoke_handler(invoke_fn, handler, args, event_type)
+            if result and not result.continue_processing:
+                should_continue = False
+                break
+            if result and result.modified_message:
+                modified_message = result.modified_message
+
+        if should_continue:
+            final_message = modified_message or message
+            for handler in async_handlers:
+                async_message = final_message.copy() if isinstance(final_message, dict) else final_message
+                args = {
+                    "event_type": event_type,
+                    "message": async_message,
+                    **(extra_args or {}),
+                }
                 # 非阻塞：保持实例级强引用，防止 task 被 GC 回收
                 task = asyncio.create_task(self._invoke_handler(invoke_fn, handler, args, event_type))
                 self._background_tasks.add(task)

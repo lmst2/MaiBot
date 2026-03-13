@@ -1,12 +1,33 @@
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Protocol
 
 from src.common.logger import get_logger
 
 logger = get_logger("plugin_runtime.integration")
 
+if TYPE_CHECKING:
+    from src.plugin_runtime.host.component_registry import RegisteredComponent
+    from src.plugin_runtime.host.supervisor import PluginSupervisor
+
+
+class _RuntimeComponentManagerProtocol(Protocol):
+    @property
+    def supervisors(self) -> List["PluginSupervisor"]: ...
+
+    def _get_supervisor_for_plugin(self, plugin_id: str) -> Optional["PluginSupervisor"]: ...
+
+    def _resolve_component_toggle_target(
+        self, name: str, component_type: str
+    ) -> tuple[Optional["RegisteredComponent"], Optional[str]]: ...
+
+    def _find_duplicate_plugin_ids(self, plugin_dirs: List[str]) -> Dict[str, List[str]]: ...
+
+    def _iter_plugin_dirs(self) -> Iterable[str]: ...
+
 
 class RuntimeComponentCapabilityMixin:
-    async def _cap_component_get_all_plugins(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
+    async def _cap_component_get_all_plugins(
+        self: _RuntimeComponentManagerProtocol, plugin_id: str, capability: str, args: Dict[str, Any]
+    ) -> Any:
         result: Dict[str, Any] = {}
         for sv in self.supervisors:
             for pid, reg in sv._registered_plugins.items():
@@ -34,7 +55,9 @@ class RuntimeComponentCapabilityMixin:
                 }
         return {"success": True, "plugins": result}
 
-    async def _cap_component_get_plugin_info(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
+    async def _cap_component_get_plugin_info(
+        self: _RuntimeComponentManagerProtocol, plugin_id: str, capability: str, args: Dict[str, Any]
+    ) -> Any:
         plugin_name: str = args.get("plugin_name", plugin_id)
         try:
             sv = self._get_supervisor_for_plugin(plugin_name)
@@ -54,20 +77,26 @@ class RuntimeComponentCapabilityMixin:
             }
         return {"success": False, "error": f"未找到插件: {plugin_name}"}
 
-    async def _cap_component_list_loaded_plugins(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
+    async def _cap_component_list_loaded_plugins(
+        self: _RuntimeComponentManagerProtocol, plugin_id: str, capability: str, args: Dict[str, Any]
+    ) -> Any:
         plugins: List[str] = []
         for sv in self.supervisors:
             plugins.extend(sv._registered_plugins.keys())
         return {"success": True, "plugins": plugins}
 
-    async def _cap_component_list_registered_plugins(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
+    async def _cap_component_list_registered_plugins(
+        self: _RuntimeComponentManagerProtocol, plugin_id: str, capability: str, args: Dict[str, Any]
+    ) -> Any:
         plugins: List[str] = []
         for sv in self.supervisors:
             plugins.extend(sv._registered_plugins.keys())
         return {"success": True, "plugins": plugins}
 
-    def _resolve_component_toggle_target(self, name: str, component_type: str) -> tuple[Optional[Any], Optional[str]]:
-        short_name_matches: List[Any] = []
+    def _resolve_component_toggle_target(
+        self: _RuntimeComponentManagerProtocol, name: str, component_type: str
+    ) -> tuple[Optional["RegisteredComponent"], Optional[str]]:
+        short_name_matches: List["RegisteredComponent"] = []
         for sv in self.supervisors:
             comp = sv.component_registry.get_component(name)
             if comp is not None and comp.component_type == component_type:
@@ -85,7 +114,9 @@ class RuntimeComponentCapabilityMixin:
             return None, f"组件名不唯一: {name} ({component_type})，请使用完整名 plugin_id.component_name"
         return None, f"未找到组件: {name} ({component_type})"
 
-    async def _cap_component_enable(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
+    async def _cap_component_enable(
+        self: _RuntimeComponentManagerProtocol, plugin_id: str, capability: str, args: Dict[str, Any]
+    ) -> Any:
         name: str = args.get("name", "")
         component_type: str = args.get("component_type", "")
         scope: str = args.get("scope", "global")
@@ -102,7 +133,9 @@ class RuntimeComponentCapabilityMixin:
         comp.enabled = True
         return {"success": True}
 
-    async def _cap_component_disable(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
+    async def _cap_component_disable(
+        self: _RuntimeComponentManagerProtocol, plugin_id: str, capability: str, args: Dict[str, Any]
+    ) -> Any:
         name: str = args.get("name", "")
         component_type: str = args.get("component_type", "")
         scope: str = args.get("scope", "global")
@@ -119,7 +152,9 @@ class RuntimeComponentCapabilityMixin:
         comp.enabled = False
         return {"success": True}
 
-    async def _cap_component_load_plugin(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
+    async def _cap_component_load_plugin(
+        self: _RuntimeComponentManagerProtocol, plugin_id: str, capability: str, args: Dict[str, Any]
+    ) -> Any:
         plugin_name: str = args.get("plugin_name", "")
         if not plugin_name:
             return {"success": False, "error": "缺少必要参数 plugin_name"}
@@ -162,10 +197,14 @@ class RuntimeComponentCapabilityMixin:
 
         return {"success": False, "error": f"未找到插件: {plugin_name}"}
 
-    async def _cap_component_unload_plugin(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
+    async def _cap_component_unload_plugin(
+        self: _RuntimeComponentManagerProtocol, plugin_id: str, capability: str, args: Dict[str, Any]
+    ) -> Any:
         return {"success": False, "error": "新运行时不支持单独卸载插件，请使用 reload"}
 
-    async def _cap_component_reload_plugin(self, plugin_id: str, capability: str, args: Dict[str, Any]) -> Any:
+    async def _cap_component_reload_plugin(
+        self: _RuntimeComponentManagerProtocol, plugin_id: str, capability: str, args: Dict[str, Any]
+    ) -> Any:
         plugin_name: str = args.get("plugin_name", "")
         if not plugin_name:
             return {"success": False, "error": "缺少必要参数 plugin_name"}

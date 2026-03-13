@@ -1,7 +1,8 @@
 from typing import Any, Dict
 
-from src.config.config import global_config
 from src.common.logger import get_logger
+from src.config.config import global_config
+from src.llm_models.payload_content.tool_option import ToolCall
 
 logger = get_logger("plugin_runtime.integration")
 
@@ -196,9 +197,12 @@ class RuntimeCoreCapabilityMixin:
             serialized_tool_calls = None
             if tool_calls:
                 serialized_tool_calls = [
-                    {"id": tc.id, "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                    for tc in tool_calls
-                    if hasattr(tc, "function")
+                    {
+                        "id": tool_call.call_id,
+                        "function": {"name": tool_call.func_name, "arguments": tool_call.args or {}},
+                    }
+                    for tool_call in tool_calls
+                    if isinstance(tool_call, ToolCall)
                 ]
             return {
                 "success": success,

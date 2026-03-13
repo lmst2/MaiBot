@@ -1,7 +1,7 @@
-import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import random
 import time
 
 from src.chat.message_receive.chat_manager import BotChatSession, chat_manager
@@ -260,8 +260,8 @@ class RuntimeDataCapabilityMixin:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    def _serialize_messages(messages: list) -> List[Dict[str, Any]]:
-        result: List[Dict[str, Any]] = []
+    def _serialize_messages(messages: list) -> List[Any]:
+        result: List[Any] = []
         for msg in messages:
             if hasattr(msg, "model_dump"):
                 result.append(msg.model_dump())

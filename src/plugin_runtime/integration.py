@@ -7,12 +7,12 @@
 4. 提供统一的能力实现注册接口，使插件可以调用主程序功能
 """
 
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import asyncio
 import json
 import os
-from pathlib import Path
 
 from src.common.logger import get_logger
 from src.config.config import config_manager, global_config
@@ -219,12 +219,11 @@ class PluginRuntimeManager(
         if not self._started:
             return
 
-        tasks = [
+        if tasks := [
             self.notify_plugin_config_updated(plugin_id)
             for sv in self.supervisors
             for plugin_id in list(sv._registered_plugins.keys())
-        ]
-        if tasks:
+        ]:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     # ─── 事件桥接 ──────────────────────────────────────────────
@@ -393,7 +392,7 @@ class PluginRuntimeManager(
         for supervisor in self.supervisors:
             yield from getattr(supervisor, "_plugin_dirs", [])
 
-    async def _handle_plugin_file_changes(self, changes: List[FileChange]) -> None:
+    async def _handle_plugin_file_changes(self, changes: Sequence[FileChange]) -> None:
         if not self._started or not changes:
             return
 
@@ -405,7 +404,7 @@ class PluginRuntimeManager(
             return
 
         reload_supervisors: List[Any] = []
-        config_updates: Dict[str, set[str]] = {}
+        config_updates: Dict[int, set[str]] = {}
         changed_paths = [change.path.resolve() for change in changes]
 
         for supervisor in self.supervisors:

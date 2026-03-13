@@ -1,8 +1,8 @@
 import copy
 import warnings
+from dataclasses import dataclass, field, fields
 from enum import Enum
-from typing import Dict, Any, List, Optional, Tuple
-from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
 from maim_message import Seg
 
 from src.llm_models.payload_content.tool_option import ToolParamType as ToolParamType
@@ -312,6 +312,86 @@ class MaiMessages:
 
     def deepcopy(self):
         return copy.deepcopy(self)
+
+    def to_transport_dict(self) -> Dict[str, Any]:
+        """将消息转换为可通过 IPC 传输的纯字典。"""
+        return {
+            field_info.name: self._serialize_transport_value(getattr(self, field_info.name))
+            for field_info in fields(MaiMessages)
+            if field_info.name != "_modify_flags"
+        }
+
+    def apply_transport_update(self, modified_dict: Dict[str, Any]) -> "MaiMessages":
+        """将 IPC 返回的消息字典回写到当前消息对象。"""
+        updated_message = self.deepcopy()
+        valid_fields = {field_info.name for field_info in fields(MaiMessages) if field_info.name != "_modify_flags"}
+
+        for key, value in modified_dict.items():
+            if key not in valid_fields:
+                continue
+            deserialized = self._deserialize_transport_field(key, value)
+            setattr(updated_message, key, deserialized)
+
+            if key == "message_segments":
+                updated_message._modify_flags.modify_message_segments = True
+            elif key == "plain_text":
+                updated_message._modify_flags.modify_plain_text = True
+            elif key == "llm_prompt":
+                updated_message._modify_flags.modify_llm_prompt = True
+            elif key == "llm_response_content":
+                updated_message._modify_flags.modify_llm_response_content = True
+            elif key == "llm_response_reasoning":
+                updated_message._modify_flags.modify_llm_response_reasoning = True
+
+        return updated_message
+
+    @staticmethod
+    def _serialize_transport_value(value: Any) -> Any:
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        if isinstance(value, Enum):
+            return value.value
+        if isinstance(value, list):
+            return [MaiMessages._serialize_transport_value(item) for item in value]
+        if isinstance(value, tuple):
+            return [MaiMessages._serialize_transport_value(item) for item in value]
+        if isinstance(value, dict):
+            return {key: MaiMessages._serialize_transport_value(item) for key, item in value.items()}
+        if hasattr(value, "__dict__"):
+            return {
+                key: MaiMessages._serialize_transport_value(item)
+                for key, item in vars(value).items()
+                if not key.startswith("_")
+            }
+        return value
+
+    @staticmethod
+    def _deserialize_transport_field(field_name: str, value: Any) -> Any:
+        if field_name == "message_segments" and isinstance(value, list):
+            deserialized_segments: List[Seg] = []
+            for segment in value:
+                if isinstance(segment, Seg):
+                    deserialized_segments.append(segment)
+                elif isinstance(segment, dict) and "type" in segment:
+                    deserialized_segments.append(Seg(type=segment.get("type", "text"), data=segment.get("data")))
+            return deserialized_segments
+
+        if field_name == "llm_response_tool_call" and isinstance(value, list):
+            deserialized_tool_calls: List[ToolCall] = []
+            for tool_call in value:
+                if isinstance(tool_call, ToolCall):
+                    deserialized_tool_calls.append(tool_call)
+                elif isinstance(tool_call, dict):
+                    deserialized_tool_calls.append(
+                        ToolCall(
+                            call_id=str(tool_call.get("call_id", "")),
+                            func_name=str(tool_call.get("func_name", "")),
+                            args=tool_call.get("args"),
+                        )
+                    )
+            return deserialized_tool_calls
+
+        return value
 
     def modify_message_segments(self, new_segments: List[Seg], suppress_warning: bool = False):
         """
