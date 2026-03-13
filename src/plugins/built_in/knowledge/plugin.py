@@ -36,7 +36,7 @@ class KnowledgePlugin(MaiBotPlugin):
         except (TypeError, ValueError):
             limit_value = 5
 
-        result = await self.ctx.call_capability("knowledge.search", query=query, limit=limit_value)
+        result = await self.ctx.knowledge.search(query=query, limit=limit_value)
         if result and result.get("success"):
             content = result.get("content", f"你不太了解有关{query}的知识")
             return {"type": "lpmm_knowledge", "id": query, "content": content}

@@ -11,6 +11,8 @@
 
 from typing import Any, List, Optional
 
+from pathlib import Path
+
 import asyncio
 import contextlib
 import inspect
@@ -19,6 +21,7 @@ import os
 import signal
 import sys
 import time
+import tomllib
 
 from src.common.logger import get_console_handler, get_logger, initialize_logging
 from src.plugin_runtime import ENV_IPC_ADDRESS, ENV_PLUGIN_DIRS, ENV_SESSION_TOKEN
@@ -95,6 +98,7 @@ class PluginRunner:
         for meta in plugins:
             instance = meta.instance
             self._inject_context(meta.plugin_id, instance)
+            self._apply_plugin_config(meta)
             if hasattr(instance, "on_load"):
                 try:
                     ret = instance.on_load()
@@ -211,6 +215,34 @@ class PluginRunner:
         ctx = PluginContext(plugin_id=plugin_id, rpc_call=_rpc_call)
         instance._set_context(ctx)
         logger.debug(f"已为插件 {plugin_id} 注入 PluginContext")
+
+    def _apply_plugin_config(self, meta: PluginMeta, config_data: Optional[dict[str, Any]] = None) -> None:
+        """在 Runner 侧为插件实例注入当前插件配置。"""
+        instance = meta.instance
+        if not hasattr(instance, "set_plugin_config"):
+            return
+
+        plugin_config = config_data if config_data is not None else self._load_plugin_config(meta.plugin_dir)
+        try:
+            instance.set_plugin_config(plugin_config)
+        except Exception as exc:
+            logger.warning(f"插件 {meta.plugin_id} 配置注入失败: {exc}")
+
+    @staticmethod
+    def _load_plugin_config(plugin_dir: str) -> dict[str, Any]:
+        """从插件目录读取 config.toml。"""
+        config_path = Path(plugin_dir) / "config.toml"
+        if not config_path.exists():
+            return {}
+
+        try:
+            with config_path.open("rb") as handle:
+                loaded = tomllib.load(handle)
+        except Exception as exc:
+            logger.warning(f"读取插件配置失败 {config_path}: {exc}")
+            return {}
+
+        return loaded if isinstance(loaded, dict) else {}
 
     def _register_handlers(self) -> None:
         """注册方法处理器"""
@@ -460,14 +492,16 @@ class PluginRunner:
         """处理配置更新事件"""
         plugin_id = envelope.plugin_id
         meta = self._loader.get_plugin(plugin_id)
-        if meta and hasattr(meta.instance, "on_config_update"):
+        if meta:
             try:
                 config_data = envelope.payload.get("config_data", {})
                 config_version = envelope.payload.get("config_version", "")
-                ret = meta.instance.on_config_update(config_data, config_version)
-                # 兼容同步和异步的 on_config_update 实现
-                if asyncio.iscoroutine(ret):
-                    await ret
+                self._apply_plugin_config(meta, config_data=config_data)
+                if hasattr(meta.instance, "on_config_update"):
+                    ret = meta.instance.on_config_update(config_data, config_version)
+                    # 兼容同步和异步的 on_config_update 实现
+                    if asyncio.iscoroutine(ret):
+                        await ret
             except Exception as e:
                 logger.error(f"插件 {plugin_id} 配置更新失败: {e}")
                 return envelope.make_error_response(ErrorCode.E_UNKNOWN.value, str(e))

@@ -5,7 +5,7 @@
 
 import re
 
-from maibot_sdk import MaiBotPlugin, Action
+from maibot_sdk import Action, MaiBotPlugin
 from maibot_sdk.types import ActivationType
 
 
@@ -40,15 +40,14 @@ class TTSPlugin(MaiBotPlugin):
             processed_text = f"{processed_text}。"
 
         # 发送自定义 tts 消息
-        result = await self.ctx.call_capability(
-            "send.custom",
-            message_type="tts_text",
-            content=processed_text,
+        send_ok = await self.ctx.send.custom(
+            custom_type="tts_text",
+            data=processed_text,
             stream_id=stream_id,
         )
-        if result and result.get("success"):
+        if send_ok:
             return True, "TTS动作执行成功"
-        return False, f"TTS动作执行失败: {result}"
+        return False, "TTS动作执行失败"
 
 
 def create_plugin():

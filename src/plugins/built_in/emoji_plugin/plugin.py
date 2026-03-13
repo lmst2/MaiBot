@@ -30,11 +30,7 @@ class EmojiPlugin(MaiBotPlugin):
         reason = reasoning or "表达当前情绪"
 
         # 1. 随机获取30个表情包
-        result = await self.ctx.emoji.get_random(30)
-        if not result or not result.get("success"):
-            return False, "无法获取随机表情包"
-
-        sampled_emojis = result.get("emojis", [])
+        sampled_emojis = await self.ctx.emoji.get_random(30)
         if not sampled_emojis:
             return False, "无法获取随机表情包"
 
@@ -57,19 +53,13 @@ class EmojiPlugin(MaiBotPlugin):
         # 3. 获取最近消息作为上下文
         messages_text = ""
         if chat_id:
-            recent_result = await self.ctx.message.get_recent(chat_id=chat_id, limit=5)
-            if recent_result and recent_result.get("success"):
-                readable_result = await self.ctx.call_capability(
-                    "message.build_readable",
-                    chat_id=chat_id,
-                    start_time=0,
-                    end_time=0,
-                    limit=5,
+            recent_messages = await self.ctx.message.get_recent(chat_id=chat_id, limit=5)
+            if recent_messages:
+                messages_text = await self.ctx.message.build_readable(
+                    recent_messages,
                     timestamp_mode="normal_no_YMD",
                     truncate=False,
                 )
-                if readable_result and readable_result.get("success"):
-                    messages_text = readable_result.get("text", "")
 
         # 4. 构建 prompt 让 LLM 选择情感
         available_emotions_str = "\n".join(available_emotions)
@@ -100,16 +90,14 @@ class EmojiPlugin(MaiBotPlugin):
             chosen = random.choice(sampled_emojis)
 
         # 7. 发送
-        send_result = await self.ctx.send.emoji(chosen["base64"], stream_id)
-        if send_result and send_result.get("success"):
+        send_ok = await self.ctx.send.emoji(chosen["base64"], stream_id)
+        if send_ok:
             return True, f"成功发送表情包:[表情包：{chosen_emotion}]"
         return False, "发送表情包失败"
 
     async def on_load(self):
         # 从插件配置读取 emoji_chance 来覆盖默认概率
-        config_result = await self.ctx.config.get("emoji.emoji_chance")
-        if config_result and isinstance(config_result, dict) and config_result.get("success"):
-            pass  # 配置已在宿主端管理
+        await self.ctx.config.get("emoji.emoji_chance")
 
 
 def create_plugin():

@@ -198,10 +198,7 @@ class EmojiManagePlugin(MaiBotPlugin):
     @Command("random_emojis", description="发送多张随机表情包", pattern=r"^/random_emojis$")
     async def handle_random_emojis(self, stream_id: str = "", **kwargs):
         """发送多张随机表情包"""
-        result = await self.ctx.emoji.get_random(5)
-        if not result or not result.get("success"):
-            return False, "未找到表情包", False
-        emojis = result.get("emojis", [])
+        emojis = await self.ctx.emoji.get_random(5)
         if not emojis:
             return False, "未找到表情包", False
         messages = [

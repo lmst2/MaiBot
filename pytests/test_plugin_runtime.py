@@ -350,6 +350,142 @@ class TestSDK:
         assert runner._rpc_client.calls[0]["plugin_id"] == "owner_plugin"
         assert runner._rpc_client.calls[0]["method"] == "cap.request"
 
+    @pytest.mark.asyncio
+    async def test_runner_applies_initial_plugin_config(self, tmp_path):
+        """Runner 应在 on_load 前为支持的插件实例注入 config.toml。"""
+        from src.plugin_runtime.runner.runner_main import PluginRunner
+
+        class DummyPlugin:
+            def __init__(self):
+                self.configs = []
+
+            def set_plugin_config(self, config):
+                self.configs.append(config)
+
+        plugin_dir = tmp_path / "demo_plugin"
+        plugin_dir.mkdir()
+        (plugin_dir / "config.toml").write_text("[section]\nvalue = 1\n", encoding="utf-8")
+
+        runner = PluginRunner(host_address="dummy", session_token="token", plugin_dirs=[])
+        plugin = DummyPlugin()
+        meta = SimpleNamespace(plugin_id="demo_plugin", plugin_dir=str(plugin_dir), instance=plugin)
+
+        runner._apply_plugin_config(meta)
+
+        assert plugin.configs == [{"section": {"value": 1}}]
+
+    @pytest.mark.asyncio
+    async def test_runner_config_update_refreshes_plugin_config_before_callback(self):
+        """配置更新时应先刷新插件配置，再调用 on_config_update。"""
+        from src.plugin_runtime.protocol.envelope import Envelope, MessageType
+        from src.plugin_runtime.runner.runner_main import PluginRunner
+
+        class DummyPlugin:
+            def __init__(self):
+                self.configs = []
+                self.updates = []
+
+            def set_plugin_config(self, config):
+                self.configs.append(config)
+
+            async def on_config_update(self, config, version):
+                self.updates.append((config, version, list(self.configs)))
+
+        runner = PluginRunner(host_address="dummy", session_token="token", plugin_dirs=[])
+        plugin = DummyPlugin()
+        runner._loader._loaded_plugins["demo_plugin"] = SimpleNamespace(instance=plugin)
+
+        envelope = Envelope(
+            request_id=1,
+            message_type=MessageType.REQUEST,
+            method="plugin.config_updated",
+            plugin_id="demo_plugin",
+            payload={"config_data": {"enabled": True}, "config_version": "v2"},
+        )
+
+        response = await runner._handle_config_updated(envelope)
+
+        assert response.payload["acknowledged"] is True
+        assert plugin.configs == [{"enabled": True}]
+        assert plugin.updates == [({"enabled": True}, "v2", [{"enabled": True}])]
+
+
+class TestPluginSdkUsage:
+    """验证仓库内插件按新 SDK 归一化返回值工作。"""
+
+    @pytest.mark.asyncio
+    async def test_builtin_emoji_plugin_handles_normalized_results(self):
+        from maibot_sdk.context import PluginContext
+        from src.plugins.built_in.emoji_plugin.plugin import EmojiPlugin
+
+        async def fake_rpc_call(method: str, plugin_id: str = "", payload: dict | None = None):
+            assert method == "cap.request"
+            assert payload is not None
+            capability = payload["capability"]
+            return {
+                "emoji.get_random": {
+                    "success": True,
+                    "emojis": [{"base64": "img-1", "emotion": "happy"}],
+                },
+                "message.get_recent": {"success": True, "messages": [{"id": 1}]},
+                "message.build_readable": {"success": True, "text": "最近消息"},
+                "llm.generate": {"success": True, "response": "happy", "reasoning": "", "model_name": "m"},
+                "send.emoji": {"success": True},
+            }[capability]
+
+        plugin = EmojiPlugin()
+        plugin._set_context(PluginContext(plugin_id="emoji", rpc_call=fake_rpc_call))
+
+        success, message = await plugin.handle_emoji(stream_id="stream-1", reasoning="测试", chat_id="chat-1")
+
+        assert success is True
+        assert "成功发送表情包" in message
+
+    @pytest.mark.asyncio
+    async def test_tts_plugin_uses_send_custom_bool_result(self):
+        from maibot_sdk.context import PluginContext
+        from src.plugins.built_in.tts_plugin.plugin import TTSPlugin
+
+        async def fake_rpc_call(method: str, plugin_id: str = "", payload: dict | None = None):
+            assert method == "cap.request"
+            assert payload is not None
+            assert payload["capability"] == "send.custom"
+            return {"success": True}
+
+        plugin = TTSPlugin()
+        plugin._set_context(PluginContext(plugin_id="tts", rpc_call=fake_rpc_call))
+
+        success, message = await plugin.handle_tts_action(
+            stream_id="stream-1",
+            action_data={"voice_text": "你好！！！"},
+        )
+
+        assert success is True
+        assert message == "TTS动作执行成功"
+
+    @pytest.mark.asyncio
+    async def test_hello_world_plugin_handles_random_emoji_list(self):
+        from maibot_sdk.context import PluginContext
+        from plugins.hello_world_plugin.plugin import HelloWorldPlugin
+
+        async def fake_rpc_call(method: str, plugin_id: str = "", payload: dict | None = None):
+            assert method == "cap.request"
+            assert payload is not None
+            capability = payload["capability"]
+            return {
+                "emoji.get_random": {"success": True, "emojis": [{"base64": "img-1"}, {"base64": "img-2"}]},
+                "send.forward": {"success": True},
+            }[capability]
+
+        plugin = HelloWorldPlugin()
+        plugin._set_context(PluginContext(plugin_id="hello", rpc_call=fake_rpc_call))
+
+        success, message, should_continue = await plugin.handle_random_emojis(stream_id="stream-1")
+
+        assert success is True
+        assert message == "已发送随机表情包"
+        assert should_continue is True
+
 
 # ─── 端到端集成测试 ────────────────────────────────────────
 
