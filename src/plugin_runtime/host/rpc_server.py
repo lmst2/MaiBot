@@ -129,12 +129,11 @@ class RPCServer:
         self._staged_runner_generation = 0
         self._staging_takeover = False
 
-        stale_count = self._fail_pending_requests(
+        if stale_count := self._fail_pending_requests(
             ErrorCode.E_PLUGIN_CRASHED,
             "Runner 连接已被新 generation 接管",
             generation=old_generation,
-        )
-        if stale_count:
+        ):
             logger.info(f"已清理 {stale_count} 个旧 Runner 的 pending 请求")
 
         if old_connection and old_connection is not self._connection and not old_connection.is_closed:
@@ -268,7 +267,8 @@ class RPCServer:
 
     async def send_event(self, method: str, plugin_id: str = "", payload: Optional[Dict[str, Any]] = None) -> None:
         """向 Runner 发送单向事件（不等待响应）"""
-        if not self.is_connected:
+        conn = self._connection
+        if conn is None or conn.is_closed:
             return
 
         request_id = self._id_gen.next()
@@ -281,7 +281,7 @@ class RPCServer:
             payload=payload or {},
         )
         data = self._codec.encode_envelope(envelope)
-        await self._enqueue_send(self._connection, data)
+        await self._enqueue_send(conn, data)
 
     # ─── 内部方法 ──────────────────────────────────────────────
 
@@ -314,12 +314,11 @@ class RPCServer:
 
             if previous_connection and previous_connection is not conn and not previous_connection.is_closed:
                 logger.info("检测到新 Runner 已接管连接，关闭旧连接")
-                stale_count = self._fail_pending_requests(
+                if stale_count := self._fail_pending_requests(
                     ErrorCode.E_PLUGIN_CRASHED,
                     "Runner 连接已被新 generation 接管",
                     generation=previous_generation,
-                )
-                if stale_count:
+                ):
                     logger.info(f"已清理 {stale_count} 个旧 Runner 的 pending 请求")
                 await previous_connection.close()
 
