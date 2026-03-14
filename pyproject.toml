@@ -50,6 +50,14 @@ dev = [
     "zstandard",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff>=0.12.2",
+    "zstandard",
+]
+
 
 [tool.uv]
 index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
