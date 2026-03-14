@@ -43,12 +43,11 @@ dependencies = [
 ]
 
 [dependency-groups]
-test = [
-    "pytest>=8.4.1",
-    "pytest-asyncio>=1.1.0",
-]
 dev = [
-    { include-group = "test" },
+    "pytest",
+    "pytest-asyncio",
+    "ruff>=0.12.2",
+    "zstandard",
 ]
 
 
