@@ -23,9 +23,6 @@ export const STORAGE_KEYS = {
   WS_MAX_RECONNECT_ATTEMPTS: 'maibot-ws-max-reconnect-attempts',
   
   // 用户数据
-  // 注意：ACCESS_TOKEN 已弃用，现在使用 HttpOnly Cookie 存储认证信息
-  // 保留此常量仅用于向后兼容和清理旧数据
-  ACCESS_TOKEN: 'access-token',
   COMPLETED_TOURS: 'maibot-completed-tours',
   CHAT_USER_ID: 'maibot_webui_user_id',
   CHAT_USER_NAME: 'maibot_webui_user_name',
@@ -211,10 +208,8 @@ export function clearLocalCache(): { clearedKeys: string[]; preservedKeys: strin
   const keysToRemove: string[] = []
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i)
-    if (key) {
-      if (key.startsWith('maibot') || key.startsWith('accent-color') || key === 'access-token') {
-        keysToRemove.push(key)
-      }
+    if (key && (key.startsWith('maibot') || key.startsWith('accent-color'))) {
+      keysToRemove.push(key)
     }
   }
   

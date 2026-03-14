@@ -2,11 +2,11 @@
 import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { ScrollArea } from '@/components/ui/scroll-area'
 
 import type { GraphNode, SelectedEdgeData } from './types'
 
@@ -24,7 +24,7 @@ export function NodeDetailDialog({ open, onOpenChange, selectedNodeData }: NodeD
           <DialogTitle>节点详情</DialogTitle>
         </DialogHeader>
         {selectedNodeData && (
-          <ScrollArea className="h-full pr-4">
+          <DialogBody className="h-full">
             <div className="space-y-4 pb-2">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -62,7 +62,7 @@ export function NodeDetailDialog({ open, onOpenChange, selectedNodeData }: NodeD
                 )}
               </div>
             </div>
-          </ScrollArea>
+          </DialogBody>
         )}
       </DialogContent>
     </Dialog>
@@ -83,7 +83,7 @@ export function EdgeDetailDialog({ open, onOpenChange, selectedEdgeData }: EdgeD
           <DialogTitle>边详情</DialogTitle>
         </DialogHeader>
         {selectedEdgeData && (
-          <ScrollArea className="flex-1 pr-4">
+          <DialogBody>
             <div className="space-y-4">
               <div className="flex items-center gap-4">
                 <div className="flex-1 min-w-0 p-3 bg-blue-50 dark:bg-blue-950 rounded border-2 border-blue-200 dark:border-blue-800">
@@ -114,7 +114,7 @@ export function EdgeDetailDialog({ open, onOpenChange, selectedEdgeData }: EdgeD
                 </div>
               </div>
             </div>
-          </ScrollArea>
+          </DialogBody>
         )}
       </DialogContent>
     </Dialog>

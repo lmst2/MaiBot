@@ -14,13 +14,13 @@ import {
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { useBackendConnections } from '@/hooks/useBackendConnections'
 import { isElectron } from '@/lib/runtime'
 import type { BackendConnection } from '@/types/electron'
@@ -78,7 +78,7 @@ export function BackendManager({ open, onOpenChange }: BackendManagerProps) {
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-md sm:max-w-[425px]">
+        <DialogContent className="max-w-md sm:max-w-106.25">
           <DialogHeader>
             <DialogTitle>后端连接管理</DialogTitle>
           </DialogHeader>
@@ -88,7 +88,7 @@ export function BackendManager({ open, onOpenChange }: BackendManagerProps) {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <ScrollArea className="max-h-[60vh] pr-4">
+            <DialogBody className="pr-4">
               <div className="flex flex-col gap-3 py-4">
                 {backends.map((backend) => {
                   const isActive = backend.id === activeId
@@ -100,7 +100,7 @@ export function BackendManager({ open, onOpenChange }: BackendManagerProps) {
                       }`}
                     >
                       <div className="flex flex-1 items-center gap-3 overflow-hidden">
-                        <div className="flex-shrink-0">
+                        <div className="shrink-0">
                           {isActive ? (
                             <Check className="h-5 w-5 text-blue-500" />
                           ) : (
@@ -156,7 +156,7 @@ export function BackendManager({ open, onOpenChange }: BackendManagerProps) {
                   )
                 })}
               </div>
-            </ScrollArea>
+            </DialogBody>
           )}
 
           <div className="flex justify-end pt-4 border-t">
@@ -173,7 +173,7 @@ export function BackendManager({ open, onOpenChange }: BackendManagerProps) {
 
       {/* Edit/Add Dialog */}
       <Dialog open={!!editConn} onOpenChange={(open) => !open && setEditConn(null)}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-106.25" confirmOnEnter>
           <DialogHeader>
             <DialogTitle>{editConn?.id ? '编辑连接' : '添加连接'}</DialogTitle>
           </DialogHeader>
@@ -212,6 +212,7 @@ export function BackendManager({ open, onOpenChange }: BackendManagerProps) {
                 !editConn?.url ||
                 !/^https?:\/\//.test(editConn.url)
               }
+              data-dialog-action="confirm"
             >
               保存
             </Button>

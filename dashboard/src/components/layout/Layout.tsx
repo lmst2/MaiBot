@@ -13,6 +13,7 @@ import { useAuthGuard } from '@/hooks/use-auth'
 import { useBackground } from '@/hooks/use-background'
 
 import { TitleBar } from '@/components/electron/TitleBar'
+import { matchesShortcut } from '@/lib/keyboard'
 import { isElectron } from '@/lib/runtime'
 import { cn } from '@/lib/utils'
 import { menuSections } from './constants'
@@ -49,7 +50,7 @@ export function Layout({ children }: LayoutProps) {
   // 搜索快捷键监听（Cmd/Ctrl + K）
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      if (matchesShortcut(e, ['mod', 'k'])) {
         e.preventDefault()
         setSearchOpen(true)
       }
@@ -68,9 +69,8 @@ export function Layout({ children }: LayoutProps) {
       }
     }
 
-    const unsubscribe = router.subscribe('onResolved', () => {
-      const pathname = router.state.location.pathname
-      const pageTitle = pathToLabel[pathname] ?? 'MaiBot Dashboard'
+    return router.subscribe('onResolved', () => {
+      const pageTitle = pathToLabel[router.state.location.pathname] ?? 'MaiBot Dashboard'
       const fullTitle = pageTitle === 'MaiBot Dashboard'
         ? 'MaiBot Dashboard'
         : `${pageTitle} — MaiBot Dashboard`
@@ -90,8 +90,6 @@ export function Layout({ children }: LayoutProps) {
         })
       }
     })
-
-    return unsubscribe
   }, [router, announce, t])
 
   // 获取实际应用的主题（处理 system 情况）

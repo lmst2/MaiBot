@@ -49,6 +49,7 @@ class WebUIServer:
             service_name="WebUI 服务器",
             logger=logger,
             config_hint="WEBUI_PORT (.env)",
+            allow_reuse_addr=True,
         )
 
         config = Config(

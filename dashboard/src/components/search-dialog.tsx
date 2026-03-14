@@ -1,16 +1,20 @@
-import { useState, useCallback, useMemo } from 'react'
-import { Search, FileText, Server, Boxes, Smile, MessageSquare, UserCircle, FileSearch, BarChart3, Package, Settings, Home, Hash } from 'lucide-react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { Search } from 'lucide-react'
 import { useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
+import type { LucideProps } from 'lucide-react'
 
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { ShortcutKbd } from '@/components/ui/kbd'
+import { menuSections } from '@/components/layout/constants'
+import { registeredRoutePaths } from '@/router'
 import { cn } from '@/lib/utils'
 
 interface SearchDialogProps {
@@ -19,7 +23,7 @@ interface SearchDialogProps {
 }
 
 interface SearchItem {
-  icon: React.ComponentType<{ className?: string }>
+  icon: React.ComponentType<LucideProps>
   title: string
   description: string
   path: string
@@ -29,95 +33,37 @@ interface SearchItem {
 export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const inputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const { t } = useTranslation()
 
-  const searchItems: SearchItem[] = useMemo(() => [
-    {
-      icon: Home,
-      title: t('search.items.home'),
-      description: t('search.items.homeDesc'),
-      path: '/',
-      category: t('search.categories.overview'),
-    },
-    {
-      icon: FileText,
-      title: t('search.items.botConfig'),
-      description: t('search.items.botConfigDesc'),
-      path: '/config/bot',
-      category: t('search.categories.config'),
-    },
-    {
-      icon: Server,
-      title: t('search.items.modelProvider'),
-      description: t('search.items.modelProviderDesc'),
-      path: '/config/modelProvider',
-      category: t('search.categories.config'),
-    },
-    {
-      icon: Boxes,
-      title: t('search.items.model'),
-      description: t('search.items.modelDesc'),
-      path: '/config/model',
-      category: t('search.categories.config'),
-    },
-    {
-      icon: Smile,
-      title: t('search.items.emoji'),
-      description: t('search.items.emojiDesc'),
-      path: '/resource/emoji',
-      category: t('search.categories.resources'),
-    },
-    {
-      icon: MessageSquare,
-      title: t('search.items.expression'),
-      description: t('search.items.expressionDesc'),
-      path: '/resource/expression',
-      category: t('search.categories.resources'),
-    },
-    {
-      icon: UserCircle,
-      title: t('search.items.person'),
-      description: t('search.items.personDesc'),
-      path: '/resource/person',
-      category: t('search.categories.resources'),
-    },
-    {
-      icon: Hash,
-      title: t('search.items.jargon'),
-      description: t('search.items.jargonDesc'),
-      path: '/resource/jargon',
-      category: t('search.categories.resources'),
-    },
-    {
-      icon: BarChart3,
-      title: t('search.items.statistics'),
-      description: t('search.items.statisticsDesc'),
-      path: '/statistics',
-      category: t('search.categories.monitor'),
-    },
-    {
-      icon: Package,
-      title: t('search.items.plugins'),
-      description: t('search.items.pluginsDesc'),
-      path: '/plugins',
-      category: t('search.categories.extensions'),
-    },
-    {
-      icon: FileSearch,
-      title: t('search.items.logs'),
-      description: t('search.items.logsDesc'),
-      path: '/logs',
-      category: t('search.categories.monitor'),
-    },
-    {
-      icon: Settings,
-      title: t('search.items.settings'),
-      description: t('search.items.settingsDesc'),
-      path: '/settings',
-      category: t('search.categories.system'),
-    },
-  ], [t])
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      inputRef.current?.focus()
+    })
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [open])
+
+  const searchItems: SearchItem[] = useMemo(
+    () =>
+      menuSections.flatMap((section) =>
+        section.items
+          .filter((item) => registeredRoutePaths.has(item.path))
+          .map((item) => ({
+            icon: item.icon,
+            title: t(item.label),
+            description: item.searchDescription ? t(item.searchDescription) : item.path,
+            path: item.path,
+            category: t(section.title),
+          }))
+      ),
+    [t]
+  )
 
   // 过滤搜索结果
   const filteredItems = searchItems.filter(
@@ -155,12 +101,13 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl p-0 gap-0">
+      <DialogContent className="max-w-2xl p-0 gap-0" confirmOnEnter>
         <DialogHeader className="px-4 pt-4 pb-0">
           <DialogTitle className="sr-only">{t('search.title')}</DialogTitle>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
             <Input
+              ref={inputRef}
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value)
@@ -169,13 +116,12 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
               onKeyDown={handleKeyDown}
               placeholder={t('search.placeholder')}
               className="h-12 pl-11 text-base border-0 focus-visible:ring-0 shadow-none"
-              autoFocus
             />
           </div>
         </DialogHeader>
 
         <div className="border-t">
-          <ScrollArea className="h-[400px]">
+          <DialogBody className="h-100" viewportClassName="px-0">
             {filteredItems.length > 0 ? (
               <div className="p-2">
                 {filteredItems.map((item, index) => {
@@ -192,7 +138,7 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
                           : 'hover:bg-accent/50'
                       )}
                     >
-                      <Icon className="h-5 w-5 flex-shrink-0" />
+                      <Icon className="h-5 w-5 shrink-0" />
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-sm">{item.title}</div>
                         <div className="text-xs text-muted-foreground truncate">
@@ -214,22 +160,22 @@ export function SearchDialog({ open, onOpenChange }: SearchDialogProps) {
                 </p>
               </div>
             )}
-          </ScrollArea>
+          </DialogBody>
         </div>
 
         <div className="border-t px-4 py-3 flex items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-muted rounded border">↑</kbd>
-              <kbd className="px-1.5 py-0.5 bg-muted rounded border">↓</kbd>
+              <ShortcutKbd size="sm" keys={['up']} />
+              <ShortcutKbd size="sm" keys={['down']} />
               {t('search.navigate')}
             </span>
             <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-muted rounded border">Enter</kbd>
+              <ShortcutKbd size="sm" keys={['enter']} />
               {t('search.select')}
             </span>
             <span className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-muted rounded border">Esc</kbd>
+              <ShortcutKbd size="sm" keys={['esc']} />
               {t('search.close')}
             </span>
           </div>

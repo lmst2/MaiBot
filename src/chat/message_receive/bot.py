@@ -190,7 +190,6 @@ class ChatBot:
     @staticmethod
     def _mark_command_message(message: SessionMessage, intercept_message_level: int) -> None:
         message.is_command = True
-        message.intercept_message_level = intercept_message_level
         message.message_info.additional_config["intercept_message_level"] = intercept_message_level
 
     @staticmethod

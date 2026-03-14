@@ -1,5 +1,4 @@
-import { Link } from '@tanstack/react-router'
-import { BookOpen, ChevronLeft, Globe, LogOut, Menu, Moon, PieChart, Search, Server, Sun } from 'lucide-react'
+import { BookOpen, ChevronLeft, Globe, LogOut, Menu, Moon, Search, Server, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -13,7 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Kbd } from '@/components/ui/kbd'
+import { ShortcutKbd } from '@/components/ui/kbd'
 import { toggleThemeWithTransition } from '@/components/use-theme'
 import { useBackground } from '@/hooks/use-background'
 import { logout } from '@/lib/fetch-with-auth'
@@ -99,7 +98,7 @@ export function Header({
               title={t('header.toggleConnection')}
             >
               <Server className="h-4 w-4" />
-              <span className="hidden sm:inline text-xs text-muted-foreground truncate max-w-[100px]">
+              <span className="hidden sm:inline text-xs text-muted-foreground truncate max-w-25">
                 {activeBackendName}
               </span>
             </Button>
@@ -107,19 +106,6 @@ export function Header({
             <div className="h-6 w-px bg-border" />
           </>
         )}
-        {/* 年度总结入口 */}
-        <Link to="/annual-report">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-2 bg-gradient-to-r from-pink-500/10 to-purple-500/10 hover:from-pink-500/20 hover:to-purple-500/20 border border-pink-500/20"
-            title={t('header.viewAnnualSummary')}
-          >
-            <PieChart className="h-4 w-4 text-pink-500" />
-            <span className="hidden sm:inline bg-gradient-to-r from-pink-500 to-purple-500 bg-clip-text text-transparent font-medium">{t('header.annualSummary')}</span>
-          </Button>
-        </Link>
-
         {/* 搜索框 */}
         <button
           onClick={() => onSearchOpenChange(true)}
@@ -128,9 +114,7 @@ export function Header({
         >
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <span className="text-sm text-muted-foreground">{t('header.searchPlaceholder')}</span>
-          <Kbd size="sm" className="absolute right-2 top-1/2 -translate-y-1/2">
-            <span className="text-xs">⌘</span>K
-          </Kbd>
+          <ShortcutKbd size="sm" className="absolute right-2 top-1/2 -translate-y-1/2" keys={['mod', 'k']} />
         </button>
 
         {/* 搜索对话框 */}

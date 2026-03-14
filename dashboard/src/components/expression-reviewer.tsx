@@ -22,6 +22,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { ShortcutKbd } from '@/components/ui/kbd'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -1689,19 +1690,19 @@ if (isCurrent) {
             {/* 底部快捷键提示（桌面端） */}
             <div className="hidden sm:flex items-center justify-center gap-6 px-6 py-3 border-t text-xs text-muted-foreground">
               <div className="flex items-center gap-1">
-                <kbd className="px-2 py-1 bg-muted rounded text-xs">←</kbd>
+                <ShortcutKbd size="sm" keys={['left']} />
                 <span>拒绝</span>
               </div>
               <div className="flex items-center gap-1">
-                <kbd className="px-2 py-1 bg-muted rounded text-xs">→</kbd>
+                <ShortcutKbd size="sm" keys={['right']} />
                 <span>通过</span>
               </div>
               <div className="flex items-center gap-1">
-                <kbd className="px-2 py-1 bg-muted rounded text-xs">↑</kbd>
+                <ShortcutKbd size="sm" keys={['up']} />
                 <span>上一条</span>
               </div>
               <div className="flex items-center gap-1">
-                <kbd className="px-2 py-1 bg-muted rounded text-xs">↓</kbd>
+                <ShortcutKbd size="sm" keys={['down']} />
                 <span>下一条</span>
               </div>
               <span className="text-muted-foreground/50">|</span>

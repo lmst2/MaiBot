@@ -1,9 +1,10 @@
 """表达方式管理 API 路由"""
 
-from fastapi import APIRouter, HTTPException, Header, Query, Cookie
-from pydantic import BaseModel
-from typing import Optional, List, Dict
 from datetime import datetime, timedelta
+from typing import Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from sqlalchemy import case, func
 from sqlmodel import col, select, delete
@@ -12,12 +13,12 @@ from src.common.logger import get_logger
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Expression
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
-from src.webui.core import verify_auth_token_from_cookie_or_header
+from src.webui.dependencies import require_auth
 
 logger = get_logger("webui.expression")
 
 # 创建路由器
-router = APIRouter(prefix="/expression", tags=["Expression"])
+router = APIRouter(prefix="/expression", tags=["Expression"], dependencies=[Depends(require_auth)])
 
 
 class ExpressionResponse(BaseModel):
@@ -90,14 +91,6 @@ class ExpressionCreateResponse(BaseModel):
     data: ExpressionResponse
 
 
-def verify_auth_token(
-    maibot_session: Optional[str] = None,
-    authorization: Optional[str] = None,
-) -> bool:
-    """验证认证 Token，支持 Cookie 和 Header"""
-    return verify_auth_token_from_cookie_or_header(maibot_session, authorization)
-
-
 def expression_to_response(expression: Expression) -> ExpressionResponse:
     """将 Expression 模型转换为响应对象"""
     last_active_time = expression.last_active_time.timestamp() if expression.last_active_time else 0.0
@@ -156,19 +149,14 @@ class ChatListResponse(BaseModel):
 
 
 @router.get("/chats", response_model=ChatListResponse)
-async def get_chat_list(maibot_session: Optional[str] = Cookie(None), authorization: Optional[str] = Header(None)):
+async def get_chat_list():
     """
     获取所有聊天列表（用于下拉选择）
-
-    Args:
-        authorization: Authorization header
 
     Returns:
         聊天列表
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         chat_list = []
         for session_id, session in _chat_manager.sessions.items():
             chat_name = _chat_manager.get_session_name(session_id) or session_id
@@ -199,8 +187,6 @@ async def get_expression_list(
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
     search: Optional[str] = Query(None, description="搜索关键词"),
     chat_id: Optional[str] = Query(None, description="聊天ID筛选"),
-    maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
 ):
     """
     获取表达方式列表
@@ -210,14 +196,11 @@ async def get_expression_list(
         page_size: 每页数量 (1-100)
         search: 搜索关键词 (匹配 situation, style)
         chat_id: 聊天ID筛选
-        authorization: Authorization header
 
     Returns:
         表达方式列表
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         # 构建查询
         statement = select(Expression)
 
@@ -264,22 +247,17 @@ async def get_expression_list(
 
 
 @router.get("/{expression_id}", response_model=ExpressionDetailResponse)
-async def get_expression_detail(
-    expression_id: int, maibot_session: Optional[str] = Cookie(None), authorization: Optional[str] = Header(None)
-):
+async def get_expression_detail(expression_id: int):
     """
     获取表达方式详细信息
 
     Args:
         expression_id: 表达方式ID
-        authorization: Authorization header
 
     Returns:
         表达方式详细信息
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         with get_db_session() as session:
             statement = select(Expression).where(col(Expression.id) == expression_id).limit(1)
             expression = session.exec(statement).first()
@@ -299,22 +277,17 @@ async def get_expression_detail(
 @router.post("/", response_model=ExpressionCreateResponse)
 async def create_expression(
     request: ExpressionCreateRequest,
-    maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
 ):
     """
     创建新的表达方式
 
     Args:
         request: 创建请求
-        authorization: Authorization header
 
     Returns:
         创建结果
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         current_time = datetime.now()
 
         # 创建表达方式
@@ -349,8 +322,6 @@ async def create_expression(
 async def update_expression(
     expression_id: int,
     request: ExpressionUpdateRequest,
-    maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
 ):
     """
     增量更新表达方式（只更新提供的字段）
@@ -358,14 +329,11 @@ async def update_expression(
     Args:
         expression_id: 表达方式ID
         request: 更新请求（只包含需要更新的字段）
-        authorization: Authorization header
 
     Returns:
         更新结果
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         with get_db_session() as session:
             statement = select(Expression).where(col(Expression.id) == expression_id).limit(1)
             expression = session.exec(statement).first()
@@ -411,22 +379,17 @@ async def update_expression(
 
 
 @router.delete("/{expression_id}", response_model=ExpressionDeleteResponse)
-async def delete_expression(
-    expression_id: int, maibot_session: Optional[str] = Cookie(None), authorization: Optional[str] = Header(None)
-):
+async def delete_expression(expression_id: int):
     """
     删除表达方式
 
     Args:
         expression_id: 表达方式ID
-        authorization: Authorization header
 
     Returns:
         删除结果
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         with get_db_session() as session:
             statement = select(Expression).where(col(Expression.id) == expression_id).limit(1)
             expression = session.exec(statement).first()
@@ -461,22 +424,17 @@ class BatchDeleteRequest(BaseModel):
 @router.post("/batch/delete", response_model=ExpressionDeleteResponse)
 async def batch_delete_expressions(
     request: BatchDeleteRequest,
-    maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
 ):
     """
     批量删除表达方式
 
     Args:
         request: 包含要删除的ID列表的请求
-        authorization: Authorization header
 
     Returns:
         删除结果
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         if not request.ids:
             raise HTTPException(status_code=400, detail="未提供要删除的表达方式ID")
 
@@ -506,21 +464,14 @@ async def batch_delete_expressions(
 
 
 @router.get("/stats/summary")
-async def get_expression_stats(
-    maibot_session: Optional[str] = Cookie(None), authorization: Optional[str] = Header(None)
-):
+async def get_expression_stats():
     """
     获取表达方式统计数据
-
-    Args:
-        authorization: Authorization header
 
     Returns:
         统计数据
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         with get_db_session() as session:
             total = len(session.exec(select(Expression.id)).all())
 
@@ -569,7 +520,7 @@ class ReviewStatsResponse(BaseModel):
 
 
 @router.get("/review/stats", response_model=ReviewStatsResponse)
-async def get_review_stats(maibot_session: Optional[str] = Cookie(None), authorization: Optional[str] = Header(None)):
+async def get_review_stats():
     """
     获取审核统计数据
 
@@ -577,8 +528,6 @@ async def get_review_stats(maibot_session: Optional[str] = Cookie(None), authori
         审核统计数据
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         with get_db_session() as session:
             total = len(session.exec(select(Expression.id)).all())
             unchecked = 0
@@ -620,8 +569,6 @@ async def get_review_list(
     filter_type: str = Query("unchecked", description="筛选类型: unchecked/passed/rejected/all"),
     search: Optional[str] = Query(None, description="搜索关键词"),
     chat_id: Optional[str] = Query(None, description="聊天ID筛选"),
-    maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
 ):
     """
     获取待审核/已审核的表达方式列表
@@ -637,8 +584,6 @@ async def get_review_list(
         表达方式列表
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         statement = select(Expression)
 
         if filter_type in {"unchecked", "passed", "rejected"}:
@@ -728,8 +673,6 @@ class BatchReviewResponse(BaseModel):
 @router.post("/review/batch", response_model=BatchReviewResponse)
 async def batch_review_expressions(
     request: BatchReviewRequest,
-    maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
 ):
     """
     批量审核表达方式
@@ -741,8 +684,6 @@ async def batch_review_expressions(
         批量审核结果
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         if not request.items:
             raise HTTPException(status_code=400, detail="未提供要审核的表达方式")
 

@@ -11,9 +11,9 @@ from src.common.data_models.info_data_model import ActionPlannerInfo
 from src.common.data_models.llm_data_model import LLMGenerationDataModel
 from src.config.config import global_config, model_config
 from src.llm_models.utils_model import LLMRequest
-from maim_message import BaseMessageInfo, MessageBase, Seg
+from maim_message import BaseMessageInfo, MessageBase, Seg, UserInfo as MaimUserInfo
 
-from src.common.data_models.mai_message_data_model import MaiMessage, UserInfo
+from src.common.data_models.mai_message_data_model import MaiMessage
 from src.chat.message_receive.message import SessionMessage
 from src.chat.message_receive.chat_manager import BotChatSession
 from src.chat.message_receive.uni_message_sender import UniversalMessageSender
@@ -636,11 +636,12 @@ class PrivateReplyer:
         target = "消息"
 
         if reply_message:
-            user_id = reply_message.user_info.user_id
+            reply_user_info = reply_message.message_info.user_info
+            user_id = reply_user_info.user_id
             person = Person(platform=platform, user_id=user_id)
             person_name = person.person_name or user_id
             sender = person_name
-            target = reply_message.processed_plain_text
+            target = reply_message.processed_plain_text or ""
 
         target = replace_user_references(target, chat_stream.platform, replace_bot_name=True)
 
@@ -663,7 +664,6 @@ class PrivateReplyer:
             timestamp_mode="relative",
             read_mark=0.0,
             show_actions=True,
-            long_time_notice=True,
         )
 
         message_list_before_short = get_messages_before_time_in_chat(
@@ -675,16 +675,17 @@ class PrivateReplyer:
 
         person_list_short: List[Person] = []
         for msg in message_list_before_short:
+            msg_user_info = msg.message_info.user_info
             # 使用统一的 is_bot_self 函数判断是否是机器人自己（支持多平台，包括 WebUI）
-            if is_bot_self(msg.user_info.platform, msg.user_info.user_id):
+            if is_bot_self(msg.platform, msg_user_info.user_id):
                 continue
             if (
                 reply_message
-                and reply_message.user_info.user_id == msg.user_info.user_id
-                and reply_message.user_info.platform == msg.user_info.platform
+                and reply_message.message_info.user_info.user_id == msg_user_info.user_id
+                and reply_message.platform == msg.platform
             ):
                 continue
-            person = Person(platform=msg.user_info.platform, user_id=msg.user_info.user_id)
+            person = Person(platform=msg.platform, user_id=msg_user_info.user_id)
             if person.is_known:
                 person_list_short.append(person)
 
@@ -960,7 +961,7 @@ class PrivateReplyer:
                 platform=self.chat_stream.platform,
                 message_id=message_id,
                 time=thinking_start_time,
-                user_info=UserInfo(
+                user_info=MaimUserInfo(
                     user_id=str(global_config.bot.qq_account),
                     user_nickname=global_config.bot.nickname,
                 ),

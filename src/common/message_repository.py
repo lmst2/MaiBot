@@ -1,6 +1,5 @@
 import traceback
 from datetime import datetime
-from types import SimpleNamespace
 from typing import Any
 
 import json
@@ -48,48 +47,8 @@ def _parse_additional_config(message: Messages) -> dict[str, Any]:
     return {}
 
 
-def _normalize_optional_str(value: object) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
-    try:
-        return json.dumps(value, ensure_ascii=False)
-    except (TypeError, ValueError):
-        return str(value)
-
-
 def _message_to_instance(message: Messages) -> SessionMessage:
-    config = _parse_additional_config(message)
-    instance = SessionMessage.from_db_instance(message)
-    instance.interest_value = config.get("interest_value")
-    instance.key_words = _normalize_optional_str(config.get("key_words"))
-    instance.key_words_lite = _normalize_optional_str(config.get("key_words_lite"))
-    instance.reply_probability_boost = config.get("reply_probability_boost")
-    instance.priority_mode = _normalize_optional_str(config.get("priority_mode"))
-    instance.priority_info = _normalize_optional_str(config.get("priority_info"))
-    instance.intercept_message_level = config.get("intercept_message_level", 0)
-    instance.selected_expressions = _normalize_optional_str(config.get("selected_expressions"))
-    group_info = instance.message_info.group_info
-    legacy_group_info = None
-    if group_info:
-        legacy_group_info = SimpleNamespace(
-            group_id=group_info.group_id,
-            group_name=group_info.group_name,
-        )
-    instance.user_info = SimpleNamespace(
-        user_id=instance.message_info.user_info.user_id,
-        user_nickname=instance.message_info.user_info.user_nickname,
-        user_cardname=instance.message_info.user_info.user_cardname,
-        platform=instance.platform,
-    )
-    instance.chat_info = SimpleNamespace(
-        platform=instance.platform,
-        stream_id=instance.session_id,
-        group_info=legacy_group_info,
-    )
-    instance.time = instance.timestamp.timestamp()
-    return instance
+    return SessionMessage.from_db_instance(message)
 
 
 def _coerce_datetime(value: Any) -> Any:
@@ -118,6 +77,7 @@ def _build_message_conditions(
     end_time: float | None = None,
     before_time: float | None = None,
     after_time: float | None = None,
+    has_reply_to: bool | None = None,
 ) -> list[Any]:
     conditions: list[Any] = [Messages.message_id != "notice"]
 
@@ -141,6 +101,10 @@ def _build_message_conditions(
         conditions.append(Messages.timestamp < _coerce_datetime(before_time))
     if after_time is not None:
         conditions.append(Messages.timestamp > _coerce_datetime(after_time))
+    if has_reply_to is True:
+        conditions.append(col(Messages.reply_to).is_not(None))
+    elif has_reply_to is False:
+        conditions.append(col(Messages.reply_to).is_(None))
 
     return conditions
 
@@ -261,6 +225,7 @@ def count_messages(
     end_time: float | None = None,
     before_time: float | None = None,
     after_time: float | None = None,
+    has_reply_to: bool | None = None,
 ) -> int:
     """
     根据提供的过滤器计算消息数量。
@@ -276,6 +241,7 @@ def count_messages(
         end_time: 结束时间，闭区间上界。
         before_time: 严格早于该时间。
         after_time: 严格晚于该时间。
+        has_reply_to: 是否要求存在 reply_to 字段。
 
     Returns:
         符合条件的消息数量，如果出错则返回 0。
@@ -292,6 +258,7 @@ def count_messages(
             end_time=end_time,
             before_time=before_time,
             after_time=after_time,
+            has_reply_to=has_reply_to,
         )
         statement = select(func.count()).select_from(Messages).where(*conditions)
         with get_db_session() as session:
@@ -302,7 +269,7 @@ def count_messages(
             "使用 SQLModel 计数消息失败 "
             f"(session_id={session_id}, user_id={user_id}, group_id={group_id}, platform={platform}, "
             f"message_id={message_id}, reply_to={reply_to}, start_time={start_time}, end_time={end_time}, "
-            f"before_time={before_time}, after_time={after_time}): {e}\n{traceback.format_exc()}"
+            f"before_time={before_time}, after_time={after_time}, has_reply_to={has_reply_to}): {e}\n{traceback.format_exc()}"
         )
         logger.error(log_message)
         return 0

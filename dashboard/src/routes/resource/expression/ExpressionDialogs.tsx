@@ -15,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -65,7 +66,7 @@ export function ExpressionDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl" confirmOnEnter>
         <DialogHeader>
           <DialogTitle>表达方式详情</DialogTitle>
           <DialogDescription>
@@ -73,6 +74,7 @@ export function ExpressionDetailDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <DialogBody>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <InfoItem label="情境" value={expression.situation} />
@@ -131,6 +133,7 @@ export function ExpressionDetailDialog({
             </div>
           </div>
         </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button onClick={() => onOpenChange(false)}>关闭</Button>
@@ -233,7 +236,7 @@ export function ExpressionCreateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl" confirmOnEnter>
         <DialogHeader>
           <DialogTitle>新增表达方式</DialogTitle>
           <DialogDescription>
@@ -241,6 +244,7 @@ export function ExpressionCreateDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <DialogBody>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -291,12 +295,13 @@ export function ExpressionCreateDialog({
             </Select>
           </div>
         </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
-          <Button onClick={handleCreate} disabled={saving}>
+          <Button data-dialog-action="confirm" onClick={handleCreate} disabled={saving}>
             {saving ? '创建中...' : '创建'}
           </Button>
         </DialogFooter>
@@ -371,7 +376,7 @@ export function ExpressionEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl" confirmOnEnter>
         <DialogHeader>
           <DialogTitle>编辑表达方式</DialogTitle>
           <DialogDescription>
@@ -379,6 +384,7 @@ export function ExpressionEditDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <DialogBody>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -474,12 +480,13 @@ export function ExpressionEditDialog({
             </div>
           </div>
         </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button data-dialog-action="confirm" onClick={handleSave} disabled={saving}>
             {saving ? '保存中...' : '保存'}
           </Button>
         </DialogFooter>

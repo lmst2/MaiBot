@@ -1,18 +1,28 @@
 """知识库图谱可视化 API 路由"""
 
-from typing import List, Optional
-from fastapi import APIRouter, Query, Depends, Cookie, Header
+from typing import Any, List, Optional
+
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 import logging
-from src.webui.core import verify_auth_token_from_cookie_or_header
 from src.config.config import global_config
+from src.webui.dependencies import require_auth
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/webui/knowledge", tags=["knowledge"])
+router = APIRouter(prefix="/api/webui/knowledge", tags=["knowledge"], dependencies=[Depends(require_auth)])
 
 # 延迟初始化的轻量级 embedding store（只读，仅用于获取段落完整文本）
-_paragraph_store_cache = None
+_paragraph_store_cache: Any = None
+
+
+def _get_embedding_dir() -> str:
+    """获取 embedding 数据目录。"""
+    import os
+
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    root_path = os.path.abspath(os.path.join(current_dir, "..", ".."))
+    return os.path.join(root_path, "data/embedding")
 
 
 def _get_paragraph_store():
@@ -31,17 +41,11 @@ def _get_paragraph_store():
 
     try:
         from src.chat.knowledge.embedding_store import EmbeddingStore
-        import os
-
-        # 获取数据路径
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        root_path = os.path.abspath(os.path.join(current_dir, "..", ".."))
-        embedding_dir = os.path.join(root_path, "data/embedding")
 
         # 只加载段落 embedding store（轻量级）
         paragraph_store = EmbeddingStore(
             namespace="paragraph",
-            dir_path=embedding_dir,
+            dir_path=_get_embedding_dir(),
             max_workers=1,  # 只读不需要多线程
             chunk_size=100,
         )
@@ -74,21 +78,12 @@ def _get_paragraph_content(node_id: str) -> tuple[Optional[str], bool]:
         paragraph_item = paragraph_store.store.get(node_id)
         if paragraph_item is not None:
             # paragraph_item 是 EmbeddingStoreItem，其 str 属性包含完整文本
-            content: str = getattr(paragraph_item, "str", "")
-            if content:
+            if content := getattr(paragraph_item, "str", ""):
                 return content, True
         return None, True
     except Exception as e:
         logger.debug(f"获取段落内容失败: {e}")
         return None, True
-
-
-def require_auth(
-    maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
-) -> bool:
-    """认证依赖：验证用户是否已登录"""
-    return verify_auth_token_from_cookie_or_header(maibot_session, authorization)
 
 
 class KnowledgeNode(BaseModel):
@@ -205,7 +200,6 @@ def _convert_graph_to_json(kg_manager) -> KnowledgeGraph:
 async def get_knowledge_graph(
     limit: int = Query(100, ge=1, le=10000, description="返回的最大节点数"),
     node_type: str = Query("all", description="节点类型过滤: all, entity, paragraph"),
-    _auth: bool = Depends(require_auth),
 ):
     """获取知识图谱(限制节点数量)
 
@@ -303,7 +297,7 @@ async def get_knowledge_graph(
 
 
 @router.get("/stats", response_model=KnowledgeStats)
-async def get_knowledge_stats(_auth: bool = Depends(require_auth)):
+async def get_knowledge_stats():
     """获取知识库统计信息
 
     Returns:
@@ -352,7 +346,7 @@ async def get_knowledge_stats(_auth: bool = Depends(require_auth)):
 
 
 @router.get("/search", response_model=List[KnowledgeNode])
-async def search_knowledge_node(query: str = Query(..., min_length=1), _auth: bool = Depends(require_auth)):
+async def search_knowledge_node(query: str = Query(..., min_length=1)):
     """搜索知识节点
 
     Args:

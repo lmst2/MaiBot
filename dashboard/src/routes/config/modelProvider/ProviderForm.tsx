@@ -3,7 +3,7 @@ import { Check, ChevronsUpDown, Copy, Eye, EyeOff } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { HelpTooltip } from '@/components/ui/help-tooltip'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -116,9 +116,10 @@ export function ProviderForm({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto"
+        className="max-w-[95vw] sm:max-w-2xl"
         data-tour="provider-dialog"
         preventOutsideClose={tourState.isRunning}
+        confirmOnEnter
       >
         <DialogHeader>
           <DialogTitle>
@@ -130,6 +131,7 @@ export function ProviderForm({
         </DialogHeader>
 
         <form onSubmit={(e) => { e.preventDefault(); handleSaveEdit(); }} autoComplete="off">
+          <DialogBody>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2" data-tour="provider-template-select">
               <Label htmlFor="template">提供商模板</Label>
@@ -450,12 +452,13 @@ export function ProviderForm({
               </div>
             </div>
           </div>
+          </DialogBody>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} data-tour="provider-cancel-button">
               取消
             </Button>
-            <Button type="submit" data-tour="provider-save-button">保存</Button>
+            <Button type="submit" data-dialog-action="confirm" data-tour="provider-save-button">保存</Button>
           </DialogFooter>
         </form>
       </DialogContent>

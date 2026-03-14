@@ -1,29 +1,22 @@
 """统计数据 API 路由"""
 
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, func, or_
 from sqlmodel import col, select
 
 from src.common.database.database import get_db_session
-from src.common.database.database_model import Messages, ModelUsage, OnlineTime
+from src.common.database.database_model import ModelUsage, OnlineTime
 from src.common.logger import get_logger
-from src.webui.core import verify_auth_token_from_cookie_or_header
+from src.common.message_repository import count_messages
+from src.webui.dependencies import require_auth
 
 logger = get_logger("webui.statistics")
 
-router = APIRouter(prefix="/statistics", tags=["statistics"])
-
-
-def require_auth(
-    maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
-) -> bool:
-    """认证依赖：验证用户是否已登录"""
-    return verify_auth_token_from_cookie_or_header(maibot_session, authorization)
+router = APIRouter(prefix="/statistics", tags=["statistics"], dependencies=[Depends(require_auth)])
 
 
 class StatisticsSummary(BaseModel):
@@ -70,7 +63,7 @@ class DashboardData(BaseModel):
 
 
 @router.get("/dashboard", response_model=DashboardData)
-async def get_dashboard_data(hours: int = 24, _auth: bool = Depends(require_auth)):
+async def get_dashboard_data(hours: int = 24):
     """
     获取仪表盘统计数据
 
@@ -159,24 +152,12 @@ async def _get_summary_statistics(start_time: datetime, end_time: datetime) -> S
             if end > start:
                 summary.online_time += (end - start).total_seconds()
 
-    # 查询消息数量 - 使用聚合优化
-    with get_db_session() as session:
-        statement = select(func.count()).where(
-            col(Messages.timestamp) >= start_time,
-            col(Messages.timestamp) <= end_time,
-        )
-        total_messages = session.exec(statement).one()
-    summary.total_messages = int(total_messages or 0)
-
-    # 统计回复数量
-    with get_db_session() as session:
-        statement = select(func.count()).where(
-            col(Messages.timestamp) >= start_time,
-            col(Messages.timestamp) <= end_time,
-            col(Messages.reply_to).is_not(None),
-        )
-        total_replies = session.exec(statement).one()
-    summary.total_replies = int(total_replies or 0)
+    summary.total_messages = count_messages(start_time=start_time.timestamp(), end_time=end_time.timestamp())
+    summary.total_replies = count_messages(
+        start_time=start_time.timestamp(),
+        end_time=end_time.timestamp(),
+        has_reply_to=True,
+    )
 
     # 计算派生指标
     if summary.online_time > 0:
@@ -351,7 +332,7 @@ async def _get_recent_activity(limit: int = 10) -> list[dict[str, Any]]:
 
 
 @router.get("/summary")
-async def get_summary(hours: int = 24, _auth: bool = Depends(require_auth)):
+async def get_summary(hours: int = 24):
     """
     获取统计摘要
 
@@ -369,7 +350,7 @@ async def get_summary(hours: int = 24, _auth: bool = Depends(require_auth)):
 
 
 @router.get("/models")
-async def get_model_stats(hours: int = 24, _auth: bool = Depends(require_auth)):
+async def get_model_stats(hours: int = 24):
     """
     获取模型统计
 

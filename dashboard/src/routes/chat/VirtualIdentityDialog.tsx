@@ -2,6 +2,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -54,7 +55,7 @@ export function VirtualIdentityDialog({
 }: VirtualIdentityDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px] max-h-[85vh] overflow-hidden flex flex-col">
+      <DialogContent className="sm:max-w-125 max-h-[85vh] overflow-hidden flex flex-col" confirmOnEnter>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserCircle2 className="h-5 w-5" />
@@ -65,7 +66,7 @@ export function VirtualIdentityDialog({
           </DialogDescription>
         </DialogHeader>
         
-        <div className="space-y-4 flex-1 overflow-hidden flex flex-col">
+        <DialogBody className="space-y-4 flex-1" viewportClassName="pr-0">
           {/* 平台选择 */}
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
@@ -113,7 +114,7 @@ export function VirtualIdentityDialog({
                   className="pl-9"
                 />
               </div>
-              <ScrollArea className="h-[250px] border rounded-md">
+              <ScrollArea className="h-62.5 border rounded-md">
                 <div className="p-2">
                   {isLoadingPersons ? (
                     <div className="flex items-center justify-center py-8">
@@ -187,13 +188,14 @@ export function VirtualIdentityDialog({
               </p>
             </div>
           )}
-        </div>
+        </DialogBody>
 
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
-          <Button 
+          <Button
+            data-dialog-action="confirm"
             onClick={onCreateVirtualTab}
             disabled={!tempVirtualConfig.platform || !tempVirtualConfig.personId}
           >

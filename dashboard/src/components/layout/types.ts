@@ -9,6 +9,7 @@ export interface MenuItem {
   icon: ComponentType<LucideProps>
   label: string
   path: string
+  searchDescription?: string
   tourId?: string
 }
 

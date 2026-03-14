@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -24,7 +25,6 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { MarkdownRenderer } from '@/components/markdown-renderer'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -92,7 +92,7 @@ export function JargonDetailDialog({
           <DialogDescription>查看黑话的完整信息</DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="h-full pr-4">
+        <DialogBody className="h-full">
           <div className="space-y-4 pb-2">
             <div className="grid grid-cols-2 gap-4">
               <InfoItem icon={Hash} label="记录ID" value={jargon.id.toString()} mono />
@@ -167,7 +167,7 @@ export function JargonDetailDialog({
               </div>
             )}
           </div>
-        </ScrollArea>
+        </DialogBody>
 
         <DialogFooter className="flex-shrink-0">
           <Button onClick={() => onOpenChange(false)}>关闭</Button>
@@ -234,12 +234,13 @@ export function JargonCreateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl" confirmOnEnter>
         <DialogHeader>
           <DialogTitle>新增黑话</DialogTitle>
           <DialogDescription>创建新的黑话记录</DialogDescription>
         </DialogHeader>
 
+        <DialogBody>
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="content">
@@ -294,10 +295,11 @@ export function JargonCreateDialog({
             <Label htmlFor="is_global">设为全局黑话</Label>
           </div>
         </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
-          <Button onClick={handleCreate} disabled={saving}>
+          <Button data-dialog-action="confirm" onClick={handleCreate} disabled={saving}>
             {saving ? '创建中...' : '创建'}
           </Button>
         </DialogFooter>
@@ -366,12 +368,13 @@ export function JargonEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl" confirmOnEnter>
         <DialogHeader>
           <DialogTitle>编辑黑话</DialogTitle>
           <DialogDescription>修改黑话的信息</DialogDescription>
         </DialogHeader>
 
+        <DialogBody>
         <div className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="edit_content">内容</Label>
@@ -439,10 +442,11 @@ export function JargonEditDialog({
             <Label htmlFor="edit_is_global">全局黑话</Label>
           </div>
         </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button data-dialog-action="confirm" onClick={handleSave} disabled={saving}>
             {saving ? '保存中...' : '保存'}
           </Button>
         </DialogFooter>

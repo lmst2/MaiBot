@@ -1,7 +1,12 @@
 import * as React from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
+
 import { cn } from "@/lib/utils"
 import { X } from "lucide-react"
+
+import { isEditableTarget, matchesShortcut } from "@/lib/keyboard"
+
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 const Dialog = DialogPrimitive.Root
 
@@ -32,22 +37,48 @@ interface DialogContentProps
   preventOutsideClose?: boolean
   /** 隐藏默认关闭按钮（当使用自定义关闭按钮时） */
   hideCloseButton?: boolean
+  /** 回车触发主操作按钮 */
+  confirmOnEnter?: boolean
+}
+
+interface DialogBodyProps extends React.ComponentPropsWithoutRef<typeof ScrollArea> {
+  allowHorizontalScroll?: boolean
 }
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
->(({ className, children, preventOutsideClose = false, hideCloseButton = false, ...props }, ref) => (
+>(({ className, children, preventOutsideClose = false, hideCloseButton = false, confirmOnEnter = false, onKeyDownCapture, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
+        "fixed left-[50%] top-[50%] z-50 grid w-[min(calc(100vw-2rem),var(--dialog-width,32rem))] max-h-[calc(100vh-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-hidden border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
         className
       )}
       onPointerDownOutside={preventOutsideClose ? (e) => e.preventDefault() : undefined}
       onInteractOutside={preventOutsideClose ? (e) => e.preventDefault() : undefined}
+      onKeyDownCapture={(event) => {
+        onKeyDownCapture?.(event)
+        if (
+          !confirmOnEnter ||
+          event.defaultPrevented ||
+          !matchesShortcut(event, ['enter']) ||
+          event.nativeEvent.isComposing ||
+          isEditableTarget(event.target)
+        ) {
+          return
+        }
+
+        const confirmButton = event.currentTarget.querySelector<HTMLElement>('[data-dialog-action="confirm"]:not([disabled])')
+        if (!confirmButton) {
+          return
+        }
+
+        event.preventDefault()
+        confirmButton.click()
+      }}
       {...props}
     >
       {children}
@@ -61,6 +92,22 @@ const DialogContent = React.forwardRef<
   </DialogPortal>
 ))
 DialogContent.displayName = DialogPrimitive.Content.displayName
+
+const DialogBody = React.forwardRef<HTMLDivElement, DialogBodyProps>(
+  ({ className, children, allowHorizontalScroll = false, contentClassName, scrollbars, viewportClassName, ...props }, ref) => (
+    <ScrollArea
+      ref={ref as never}
+      className={cn("min-h-0 flex-1", className)}
+      contentClassName={cn(allowHorizontalScroll && "min-w-full w-max", contentClassName)}
+      scrollbars={scrollbars ?? (allowHorizontalScroll ? "both" : "vertical")}
+      viewportClassName={cn("pr-4", viewportClassName)}
+      {...props}
+    >
+      {children}
+    </ScrollArea>
+  )
+)
+DialogBody.displayName = "DialogBody"
 
 const DialogHeader = ({
   className,
@@ -125,6 +172,7 @@ export {
   DialogClose,
   DialogContent,
   DialogHeader,
+  DialogBody,
   DialogFooter,
   DialogTitle,
   DialogDescription,

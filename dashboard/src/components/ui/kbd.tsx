@@ -1,6 +1,7 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
+import { getPlatformModifierAriaLabel, getShortcutKeyLabel, type ShortcutKey } from "@/lib/keyboard"
 import { cn } from "@/lib/utils"
 
 const kbdVariants = cva(
@@ -25,6 +26,10 @@ export interface KbdProps
   abbrTitle?: string
 }
 
+interface ShortcutKbdProps extends Omit<KbdProps, "children"> {
+  keys: ShortcutKey[]
+}
+
 const Kbd = React.forwardRef<HTMLElement, KbdProps>(
   ({ className, size, abbrTitle, children, ...props }, ref) => {
     return (
@@ -40,4 +45,20 @@ const Kbd = React.forwardRef<HTMLElement, KbdProps>(
 )
 Kbd.displayName = "Kbd"
 
-export { Kbd }
+function ShortcutKbd({ keys, className, size, ...props }: ShortcutKbdProps) {
+  return (
+    <span className={cn("inline-flex items-center gap-1", className)}>
+      {keys.map((key) => {
+        const label = getShortcutKeyLabel(key)
+        const abbrTitle = key === 'mod' ? getPlatformModifierAriaLabel() : undefined
+        return (
+          <Kbd key={`${key}-${label}`} size={size} abbrTitle={abbrTitle} {...props}>
+            {label}
+          </Kbd>
+        )
+      })}
+    </span>
+  )
+}
+
+export { Kbd, ShortcutKbd }

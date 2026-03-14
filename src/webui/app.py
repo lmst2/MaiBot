@@ -52,7 +52,6 @@ def _setup_cors(app: FastAPI, port: int):
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         allow_headers=[
             "Content-Type",
-            "Authorization",
             "Accept",
             "Origin",
             "X-Requested-With",

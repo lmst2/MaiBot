@@ -1,23 +1,24 @@
 """人物信息管理 API 路由"""
 
-from fastapi import APIRouter, HTTPException, Header, Query, Cookie
-from pydantic import BaseModel
-from typing import Optional, List, Dict
 from datetime import datetime
+import json
+from typing import Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from sqlalchemy import case
 from sqlmodel import col, select, delete
 
-from src.common.logger import get_logger
 from src.common.database.database import get_db_session
 from src.common.database.database_model import PersonInfo
-from src.webui.core import verify_auth_token_from_cookie_or_header
-import json
+from src.common.logger import get_logger
+from src.webui.dependencies import require_auth
 
 logger = get_logger("webui.person")
 
 # 创建路由器
-router = APIRouter(prefix="/person", tags=["Person"])
+router = APIRouter(prefix="/person", tags=["Person"], dependencies=[Depends(require_auth)])
 
 
 class PersonInfoResponse(BaseModel):
@@ -96,14 +97,6 @@ class BatchDeleteResponse(BaseModel):
     failed_ids: List[str] = []
 
 
-def verify_auth_token(
-    maibot_session: Optional[str] = None,
-    authorization: Optional[str] = None,
-) -> bool:
-    """验证认证 Token，支持 Cookie 和 Header"""
-    return verify_auth_token_from_cookie_or_header(maibot_session, authorization)
-
-
 def parse_group_nick_name(group_nick_name_str: Optional[str]) -> Optional[List[Dict[str, str]]]:
     """解析群昵称 JSON 字符串"""
     if not group_nick_name_str:
@@ -127,7 +120,7 @@ def person_to_response(person: PersonInfo) -> PersonInfoResponse:
         platform=person.platform,
         user_id=person.user_id,
         nickname=person.user_nickname,
-        group_nick_name=parse_group_nick_name(person.group_nickname),
+        group_nick_name=parse_group_nick_name(person.group_cardname),
         memory_points=person.memory_points,
         know_times=person.know_counts,
         know_since=know_since,
@@ -142,8 +135,6 @@ async def get_person_list(
     search: Optional[str] = Query(None, description="搜索关键词"),
     is_known: Optional[bool] = Query(None, description="是否已认识筛选"),
     platform: Optional[str] = Query(None, description="平台筛选"),
-    maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
 ):
     """
     获取人物信息列表
@@ -154,14 +145,11 @@ async def get_person_list(
         search: 搜索关键词 (匹配 person_name, nickname, user_id)
         is_known: 是否已认识筛选
         platform: 平台筛选
-        authorization: Authorization header
 
     Returns:
         人物信息列表
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         # 构建查询
         statement = select(PersonInfo)
 
@@ -219,22 +207,17 @@ async def get_person_list(
 
 
 @router.get("/{person_id}", response_model=PersonDetailResponse)
-async def get_person_detail(
-    person_id: str, maibot_session: Optional[str] = Cookie(None), authorization: Optional[str] = Header(None)
-):
+async def get_person_detail(person_id: str):
     """
     获取人物详细信息
 
     Args:
         person_id: 人物唯一 ID
-        authorization: Authorization header
 
     Returns:
         人物详细信息
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         with get_db_session() as session:
             statement = select(PersonInfo).where(col(PersonInfo.person_id) == person_id).limit(1)
             person = session.exec(statement).first()
@@ -255,8 +238,6 @@ async def get_person_detail(
 async def update_person(
     person_id: str,
     request: PersonUpdateRequest,
-    maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
 ):
     """
     增量更新人物信息（只更新提供的字段）
@@ -264,14 +245,11 @@ async def update_person(
     Args:
         person_id: 人物唯一 ID
         request: 更新请求（只包含需要更新的字段）
-        authorization: Authorization header
 
     Returns:
         更新结果
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         with get_db_session() as session:
             statement = select(PersonInfo).where(col(PersonInfo.person_id) == person_id).limit(1)
             person = session.exec(statement).first()
@@ -313,22 +291,17 @@ async def update_person(
 
 
 @router.delete("/{person_id}", response_model=PersonDeleteResponse)
-async def delete_person(
-    person_id: str, maibot_session: Optional[str] = Cookie(None), authorization: Optional[str] = Header(None)
-):
+async def delete_person(person_id: str):
     """
     删除人物信息
 
     Args:
         person_id: 人物唯一 ID
-        authorization: Authorization header
 
     Returns:
         删除结果
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         with get_db_session() as session:
             statement = select(PersonInfo).where(col(PersonInfo.person_id) == person_id).limit(1)
             person = session.exec(statement).first()
@@ -355,19 +328,14 @@ async def delete_person(
 
 
 @router.get("/stats/summary")
-async def get_person_stats(maibot_session: Optional[str] = Cookie(None), authorization: Optional[str] = Header(None)):
+async def get_person_stats():
     """
     获取人物信息统计数据
-
-    Args:
-        authorization: Authorization header
 
     Returns:
         统计数据
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         with get_db_session() as session:
             total = len(session.exec(select(PersonInfo.id)).all())
             known = len(session.exec(select(PersonInfo.id).where(col(PersonInfo.is_known))).all())
@@ -392,22 +360,17 @@ async def get_person_stats(maibot_session: Optional[str] = Cookie(None), authori
 @router.post("/batch/delete", response_model=BatchDeleteResponse)
 async def batch_delete_persons(
     request: BatchDeleteRequest,
-    maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
 ):
     """
     批量删除人物信息
 
     Args:
         request: 包含person_ids列表的请求
-        authorization: Authorization header
 
     Returns:
         批量删除结果
     """
     try:
-        verify_auth_token(maibot_session, authorization)
-
         if not request.person_ids:
             raise HTTPException(status_code=400, detail="未提供要删除的人物ID")
 

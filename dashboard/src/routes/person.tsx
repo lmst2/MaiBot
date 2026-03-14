@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -573,7 +574,7 @@ export function PersonManagementPage() {
                     variant="outline"
                     size="sm"
                     onClick={() => handleViewDetail(person)}
-                    className="text-xs px-2 py-1 h-auto flex-shrink-0"
+                    className="text-xs px-2 py-1 h-auto shrink-0"
                   >
                     <Eye className="h-3 w-3 mr-1" />
                     查看
@@ -582,7 +583,7 @@ export function PersonManagementPage() {
                     variant="outline"
                     size="sm"
                     onClick={() => handleEdit(person)}
-                    className="text-xs px-2 py-1 h-auto flex-shrink-0"
+                    className="text-xs px-2 py-1 h-auto shrink-0"
                   >
                     <Edit className="h-3 w-3 mr-1" />
                     编辑
@@ -591,7 +592,7 @@ export function PersonManagementPage() {
                     variant="outline"
                     size="sm"
                     onClick={() => setDeleteConfirmPerson(person)}
-                    className="text-xs px-2 py-1 h-auto flex-shrink-0 text-destructive hover:text-destructive"
+                    className="text-xs px-2 py-1 h-auto shrink-0 text-destructive hover:text-destructive"
                   >
                     <Trash2 className="h-3 w-3 mr-1" />
                     删除
@@ -771,7 +772,7 @@ function PersonDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>人物详情</DialogTitle>
           <DialogDescription>
@@ -779,6 +780,7 @@ function PersonDetailDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <DialogBody>
         <div className="space-y-4">
           {/* 基本信息 */}
           <div className="grid grid-cols-2 gap-4">
@@ -829,6 +831,7 @@ function PersonDetailDialog({
             <InfoItem icon={Clock} label="最后更新" value={formatTime(person.last_know)} />
           </div>
         </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button onClick={() => onOpenChange(false)}>关闭</Button>
@@ -919,7 +922,7 @@ function PersonEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl" confirmOnEnter>
         <DialogHeader>
           <DialogTitle>编辑人物信息</DialogTitle>
           <DialogDescription>
@@ -927,6 +930,7 @@ function PersonEditDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <DialogBody>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -974,6 +978,7 @@ function PersonEditDialog({
             />
           </div>
         </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

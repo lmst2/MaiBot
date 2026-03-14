@@ -8,13 +8,17 @@
 3. 详情按需加载
 """
 
-import json
 from pathlib import Path
-from typing import List, Dict, Optional
-from fastapi import APIRouter, HTTPException, Query
+from typing import Dict, List, Optional
+
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/replier", tags=["replier"])
+from src.webui.dependencies import require_auth
+
+router = APIRouter(prefix="/api/replier", tags=["replier"], dependencies=[Depends(require_auth)])
 
 # 回复器日志目录
 REPLY_LOG_DIR = Path("logs/reply")

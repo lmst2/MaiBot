@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -971,9 +972,10 @@ function ModelConfigPageContent() {
       {/* 编辑模型对话框 */}
       <Dialog open={editDialogOpen} onOpenChange={handleEditDialogClose}>
         <DialogContent 
-          className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto" 
+          className="max-w-[95vw] sm:max-w-2xl" 
           data-tour="model-dialog"
           preventOutsideClose={tourIsRunning}
+          confirmOnEnter
         >
           <DialogHeader>
             <DialogTitle>
@@ -982,6 +984,7 @@ function ModelConfigPageContent() {
             <DialogDescription>配置模型的基本信息和参数</DialogDescription>
           </DialogHeader>
 
+          <DialogBody>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2" data-tour="model-name-input">
               <Label htmlFor="model_name" className={formErrors.name ? 'text-destructive' : ''}>模型名称 *</Label>
@@ -1492,12 +1495,13 @@ function ModelConfigPageContent() {
               )}
             </div>
           </div>
+          </DialogBody>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialogOpen(false)} data-tour="model-cancel-button">
               取消
             </Button>
-            <Button onClick={handleSaveEdit} data-tour="model-save-button">保存</Button>
+            <Button data-dialog-action="confirm" onClick={handleSaveEdit} data-tour="model-save-button">保存</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

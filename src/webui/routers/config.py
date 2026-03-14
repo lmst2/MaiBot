@@ -4,12 +4,13 @@
 
 import copy
 import os
-import tomlkit
-from fastapi import APIRouter, HTTPException, Body, Depends, Cookie, Header
 from typing import Any, Annotated, Optional
 
+import tomlkit
+from fastapi import APIRouter, Body, Depends, HTTPException
+
 from src.common.logger import get_logger
-from src.webui.core import verify_auth_token_from_cookie_or_header
+from src.webui.dependencies import require_auth
 from src.webui.utils.toml_utils import save_toml_with_format, _update_toml_doc
 from src.config.config import Config, ModelConfig, CONFIG_DIR, PROJECT_ROOT
 from src.config.config_base import AttributeData
@@ -49,7 +50,7 @@ SectionBody = Annotated[Any, Body()]
 RawContentBody = Annotated[str, Body(embed=True)]
 PathBody = Annotated[dict[str, str], Body()]
 
-router = APIRouter(prefix="/config", tags=["config"])
+router = APIRouter(prefix="/config", tags=["config"], dependencies=[Depends(require_auth)])
 
 
 def _toml_to_plain_dict(obj: Any) -> Any:
@@ -59,21 +60,11 @@ def _toml_to_plain_dict(obj: Any) -> Any:
     if isinstance(obj, list):
         return [_toml_to_plain_dict(v) for v in obj]
     return obj
-
-
-def require_auth(
-    maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
-) -> bool:
-    """认证依赖：验证用户是否已登录"""
-    return verify_auth_token_from_cookie_or_header(maibot_session, authorization)
-
-
 # ===== 架构获取接口 =====
 
 
 @router.get("/schema/bot")
-async def get_bot_config_schema(_auth: bool = Depends(require_auth)):
+async def get_bot_config_schema():
     """获取麦麦主程序配置架构"""
     try:
         # Config 类包含所有子配置
@@ -85,7 +76,7 @@ async def get_bot_config_schema(_auth: bool = Depends(require_auth)):
 
 
 @router.get("/schema/model")
-async def get_model_config_schema(_auth: bool = Depends(require_auth)):
+async def get_model_config_schema():
     """获取模型配置架构（包含提供商和模型任务配置）"""
     try:
         schema = ConfigSchemaGenerator.generate_config_schema(ModelConfig)
@@ -99,7 +90,7 @@ async def get_model_config_schema(_auth: bool = Depends(require_auth)):
 
 
 @router.get("/schema/section/{section_name}")
-async def get_config_section_schema(section_name: str, _auth: bool = Depends(require_auth)):
+async def get_config_section_schema(section_name: str):
     """
     获取指定配置节的架构
 
@@ -169,7 +160,7 @@ async def get_config_section_schema(section_name: str, _auth: bool = Depends(req
 
 
 @router.get("/bot")
-async def get_bot_config(_auth: bool = Depends(require_auth)):
+async def get_bot_config():
     """获取麦麦主程序配置"""
     try:
         config_path = os.path.join(CONFIG_DIR, "bot_config.toml")
@@ -188,7 +179,7 @@ async def get_bot_config(_auth: bool = Depends(require_auth)):
 
 
 @router.get("/model")
-async def get_model_config(_auth: bool = Depends(require_auth)):
+async def get_model_config():
     """获取模型配置（包含提供商和模型任务配置）"""
     try:
         config_path = os.path.join(CONFIG_DIR, "model_config.toml")
@@ -210,7 +201,7 @@ async def get_model_config(_auth: bool = Depends(require_auth)):
 
 
 @router.post("/bot")
-async def update_bot_config(config_data: ConfigBody, _auth: bool = Depends(require_auth)):
+async def update_bot_config(config_data: ConfigBody):
     """更新麦麦主程序配置"""
     try:
         # 验证配置数据
@@ -233,7 +224,7 @@ async def update_bot_config(config_data: ConfigBody, _auth: bool = Depends(requi
 
 
 @router.post("/model")
-async def update_model_config(config_data: ConfigBody, _auth: bool = Depends(require_auth)):
+async def update_model_config(config_data: ConfigBody):
     """更新模型配置"""
     try:
         # 验证配置数据
@@ -259,7 +250,7 @@ async def update_model_config(config_data: ConfigBody, _auth: bool = Depends(req
 
 
 @router.post("/bot/section/{section_name}")
-async def update_bot_config_section(section_name: str, section_data: SectionBody, _auth: bool = Depends(require_auth)):
+async def update_bot_config_section(section_name: str, section_data: SectionBody):
     """更新麦麦主程序配置的指定节（保留注释和格式）"""
     try:
         # 读取现有配置
@@ -308,7 +299,7 @@ async def update_bot_config_section(section_name: str, section_data: SectionBody
 
 
 @router.get("/bot/raw")
-async def get_bot_config_raw(_auth: bool = Depends(require_auth)):
+async def get_bot_config_raw():
     """获取麦麦主程序配置的原始 TOML 内容"""
     try:
         config_path = os.path.join(CONFIG_DIR, "bot_config.toml")
@@ -327,7 +318,7 @@ async def get_bot_config_raw(_auth: bool = Depends(require_auth)):
 
 
 @router.post("/bot/raw")
-async def update_bot_config_raw(raw_content: RawContentBody, _auth: bool = Depends(require_auth)):
+async def update_bot_config_raw(raw_content: RawContentBody):
     """更新麦麦主程序配置（直接保存原始 TOML 内容，会先验证格式）"""
     try:
         # 验证 TOML 格式
@@ -357,9 +348,7 @@ async def update_bot_config_raw(raw_content: RawContentBody, _auth: bool = Depen
 
 
 @router.post("/model/section/{section_name}")
-async def update_model_config_section(
-    section_name: str, section_data: SectionBody, _auth: bool = Depends(require_auth)
-):
+async def update_model_config_section(section_name: str, section_data: SectionBody):
     """更新模型配置的指定节（保留注释和格式）"""
     try:
         # 读取现有配置
@@ -451,7 +440,7 @@ def _to_relative_path(path: str) -> str:
 
 
 @router.get("/adapter-config/path")
-async def get_adapter_config_path(_auth: bool = Depends(require_auth)):
+async def get_adapter_config_path():
     """获取保存的适配器配置文件路径"""
     try:
         # 从 data/webui.json 读取路径偏好
@@ -490,7 +479,7 @@ async def get_adapter_config_path(_auth: bool = Depends(require_auth)):
 
 
 @router.post("/adapter-config/path")
-async def save_adapter_config_path(data: PathBody, _auth: bool = Depends(require_auth)):
+async def save_adapter_config_path(data: PathBody):
     """保存适配器配置文件路径偏好"""
     try:
         path = data.get("path")
@@ -533,7 +522,7 @@ async def save_adapter_config_path(data: PathBody, _auth: bool = Depends(require
 
 
 @router.get("/adapter-config")
-async def get_adapter_config(path: str, _auth: bool = Depends(require_auth)):
+async def get_adapter_config(path: str):
     """从指定路径读取适配器配置文件"""
     try:
         if not path:
@@ -565,7 +554,7 @@ async def get_adapter_config(path: str, _auth: bool = Depends(require_auth)):
 
 
 @router.post("/adapter-config")
-async def save_adapter_config(data: PathBody, _auth: bool = Depends(require_auth)):
+async def save_adapter_config(data: PathBody):
     """保存适配器配置到指定路径"""
     try:
         path = data.get("path")

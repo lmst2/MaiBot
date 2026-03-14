@@ -40,6 +40,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -575,7 +576,7 @@ function ApplyDialog({
   
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl" confirmOnEnter>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Package className="w-5 h-5" />
@@ -589,6 +590,7 @@ function ApplyDialog({
           </DialogDescription>
         </DialogHeader>
         
+        <DialogBody>
         {detectingConflicts ? (
           <div className="py-8 text-center">
             <Loader2 className="w-8 h-8 mx-auto animate-spin text-primary" />
@@ -831,6 +833,7 @@ function ApplyDialog({
             )}
           </>
         )}
+        </DialogBody>
         
         <DialogFooter className="flex justify-between">
           <div>
@@ -845,11 +848,11 @@ function ApplyDialog({
               取消
             </Button>
             {step < totalSteps ? (
-              <Button onClick={() => setStep(step + 1)} disabled={detectingConflicts}>
+              <Button data-dialog-action="confirm" onClick={() => setStep(step + 1)} disabled={detectingConflicts}>
                 下一步
               </Button>
             ) : (
-              <Button onClick={onApply} disabled={applying}>
+              <Button data-dialog-action="confirm" onClick={onApply} disabled={applying}>
                 {applying && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 应用模板
               </Button>

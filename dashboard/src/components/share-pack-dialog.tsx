@@ -24,6 +24,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -34,7 +35,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Separator } from '@/components/ui/separator'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { toast } from '@/hooks/use-toast'
 import {
   createPack,
@@ -340,7 +340,7 @@ export function SharePackDialog({ trigger }: SharePackDialogProps) {
         )}
       </DialogTrigger>
       
-      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+      <DialogContent className="max-w-2xl flex flex-col" confirmOnEnter>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Package className="w-5 h-5" />
@@ -353,7 +353,7 @@ export function SharePackDialog({ trigger }: SharePackDialogProps) {
           </DialogDescription>
         </DialogHeader>
         
-        <ScrollArea className="h-[calc(85vh-220px)] pr-4">
+        <DialogBody>
           {loading ? (
             <div className="py-8 text-center">
               <Loader2 className="w-8 h-8 mx-auto animate-spin text-primary" />
@@ -639,7 +639,7 @@ export function SharePackDialog({ trigger }: SharePackDialogProps) {
               )}
             </>
           )}
-        </ScrollArea>
+        </DialogBody>
         
         <DialogFooter className="flex justify-between pt-4 border-t">
           <div>
@@ -662,6 +662,7 @@ export function SharePackDialog({ trigger }: SharePackDialogProps) {
             </Button>
             {step < totalSteps ? (
               <Button
+                data-dialog-action="confirm"
                 onClick={() => setStep(step + 1)}
                 disabled={
                   loading ||
@@ -671,7 +672,7 @@ export function SharePackDialog({ trigger }: SharePackDialogProps) {
                 下一步
               </Button>
             ) : (
-              <Button onClick={handleSubmit} disabled={submitting}>
+              <Button data-dialog-action="confirm" onClick={handleSubmit} disabled={submitting}>
                 {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 提交审核
               </Button>

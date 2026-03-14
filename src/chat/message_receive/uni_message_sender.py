@@ -29,7 +29,7 @@ def get_webui_chat_broadcaster():
     global _webui_chat_broadcaster
     if _webui_chat_broadcaster is None:
         try:
-            from src.webui.chat_routes import chat_manager, WEBUI_CHAT_PLATFORM
+            from src.webui.routers.chat import WEBUI_CHAT_PLATFORM, chat_manager
 
             _webui_chat_broadcaster = (chat_manager, WEBUI_CHAT_PLATFORM)
         except ImportError:

@@ -5,22 +5,25 @@ import { cn } from "@/lib/utils"
 
 interface ScrollAreaProps extends React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> {
   viewportRef?: React.RefObject<HTMLDivElement | null>
+  viewportClassName?: string
+  contentClassName?: string
+  scrollbars?: "vertical" | "horizontal" | "both"
 }
 
 const ScrollArea = React.forwardRef<
   React.ElementRef<typeof ScrollAreaPrimitive.Root>,
   ScrollAreaProps
->(({ className, children, viewportRef, ...props }, ref) => (
+>(({ className, children, viewportRef, viewportClassName, contentClassName, scrollbars = "both", ...props }, ref) => (
   <ScrollAreaPrimitive.Root
     ref={ref}
     className={cn("relative overflow-hidden", className)}
     {...props}
   >
-    <ScrollAreaPrimitive.Viewport ref={viewportRef} className="h-full w-full rounded-[inherit]">
-      {children}
+    <ScrollAreaPrimitive.Viewport ref={viewportRef} className={cn("h-full w-full rounded-[inherit]", viewportClassName)}>
+      <div className={contentClassName}>{children}</div>
     </ScrollAreaPrimitive.Viewport>
-    <ScrollBar />
-    <ScrollBar orientation="horizontal" />
+    {scrollbars !== "horizontal" && <ScrollBar />}
+    {scrollbars !== "vertical" && <ScrollBar orientation="horizontal" />}
     <ScrollAreaPrimitive.Corner />
   </ScrollAreaPrimitive.Root>
 ))
@@ -36,9 +39,9 @@ const ScrollBar = React.forwardRef<
     className={cn(
       "flex touch-none select-none transition-colors",
       orientation === "vertical" &&
-        "h-full w-2.5 border-l border-l-transparent p-[1px]",
+        "h-full w-2.5 border-l border-l-transparent p-px",
       orientation === "horizontal" &&
-        "h-2.5 flex-col border-t border-t-transparent p-[1px]",
+        "h-2.5 flex-col border-t border-t-transparent p-px",
       className
     )}
     {...props}

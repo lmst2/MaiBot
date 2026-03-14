@@ -1,6 +1,7 @@
 import traceback
 import time
 import asyncio
+import importlib
 import random
 import re
 
@@ -11,9 +12,9 @@ from src.common.data_models.info_data_model import ActionPlannerInfo
 from src.common.data_models.llm_data_model import LLMGenerationDataModel
 from src.config.config import global_config, model_config
 from src.llm_models.utils_model import LLMRequest
-from maim_message import BaseMessageInfo, MessageBase, Seg
+from maim_message import BaseMessageInfo, MessageBase, Seg, UserInfo as MaimUserInfo
 
-from src.common.data_models.mai_message_data_model import MaiMessage, UserInfo
+from src.common.data_models.mai_message_data_model import MaiMessage
 from src.chat.message_receive.message import SessionMessage
 from src.chat.message_receive.chat_manager import BotChatSession
 from src.chat.message_receive.uni_message_sender import UniversalMessageSender
@@ -786,7 +787,6 @@ class DefaultReplyer:
             available_actions = {}
         chat_stream = self.chat_stream
         chat_id = chat_stream.session_id
-        _is_group_chat = bool(chat_stream.group_info)
         platform = chat_stream.platform
 
         user_id = "用户ID"
@@ -795,11 +795,12 @@ class DefaultReplyer:
         target = "消息"
 
         if reply_message:
-            user_id = reply_message.user_info.user_id
+            reply_user_info = reply_message.message_info.user_info
+            user_id = reply_user_info.user_id
             person = Person(platform=platform, user_id=user_id)
             person_name = person.person_name or user_id
             sender = person_name
-            target = reply_message.processed_plain_text
+            target = reply_message.processed_plain_text or ""
 
         target = replace_user_references(target, chat_stream.platform, replace_bot_name=True)
 
@@ -825,16 +826,17 @@ class DefaultReplyer:
 
         person_list_short: List[Person] = []
         for msg in message_list_before_short:
+            msg_user_info = msg.message_info.user_info
             # 使用统一的 is_bot_self 函数判断是否是机器人自己（支持多平台，包括 WebUI）
-            if is_bot_self(msg.user_info.platform, msg.user_info.user_id):
+            if is_bot_self(msg.platform, msg_user_info.user_id):
                 continue
             if (
                 reply_message
-                and reply_message.user_info.user_id == msg.user_info.user_id
-                and reply_message.user_info.platform == msg.user_info.platform
+                and reply_message.message_info.user_info.user_id == msg_user_info.user_id
+                and reply_message.platform == msg.platform
             ):
                 continue
-            person = Person(platform=msg.user_info.platform, user_id=msg.user_info.user_id)
+            person = Person(platform=msg.platform, user_id=msg_user_info.user_id)
             if person.is_known:
                 person_list_short.append(person)
 
@@ -847,7 +849,6 @@ class DefaultReplyer:
             timestamp_mode="relative",
             read_mark=0.0,
             show_actions=True,
-            long_time_notice=True,
         )
 
         # 统一黑话解释构建：根据配置选择上下文或 Planner 模式
@@ -956,7 +957,6 @@ class DefaultReplyer:
                 replace_bot_name=True,
                 timestamp_mode="normal_no_YMD",
                 truncate=True,
-                long_time_notice=True,
             )
 
         # 获取匹配的额外prompt
@@ -1121,7 +1121,7 @@ class DefaultReplyer:
                 platform=self.chat_stream.platform,
                 message_id=message_id,
                 time=thinking_start_time,
-                user_info=UserInfo(
+                user_info=MaimUserInfo(
                     user_id=str(global_config.bot.qq_account),
                     user_nickname=global_config.bot.nickname,
                 ),
@@ -1160,7 +1160,16 @@ class DefaultReplyer:
     async def get_prompt_info(self, message: str, sender: str, target: str):
         related_info = ""
         start_time = time.time()
-        from src.plugins.built_in.knowledge.lpmm_get_knowledge import SearchKnowledgeFromLPMMTool
+        try:
+            knowledge_module = importlib.import_module("src.plugins.built_in.knowledge.lpmm_get_knowledge")
+        except ImportError:
+            logger.debug("LPMM知识库工具模块不存在，跳过获取知识库内容")
+            return ""
+
+        search_knowledge_tool = getattr(knowledge_module, "SearchKnowledgeFromLPMMTool", None)
+        if search_knowledge_tool is None:
+            logger.debug("LPMM知识库工具未提供 SearchKnowledgeFromLPMMTool，跳过获取知识库内容")
+            return ""
 
         logger.debug(f"获取知识库内容，元消息：{message[:30]}...，消息长度: {len(message)}")
         # 从LPMM知识库获取知识
@@ -1183,14 +1192,14 @@ class DefaultReplyer:
             _, _, _, _, tool_calls = await llm_api.generate_with_model_with_tools(
                 prompt,
                 model_config=model_config.model_task_config.tool_use,
-                tool_options=[SearchKnowledgeFromLPMMTool.get_tool_definition()],
+                tool_options=[search_knowledge_tool.get_tool_definition()],
             )
 
             # logger.info(f"工具调用提示词: {prompt}")
             # logger.info(f"工具调用: {tool_calls}")
 
             if tool_calls:
-                result = await self.tool_executor.execute_tool_call(tool_calls[0], SearchKnowledgeFromLPMMTool())
+                result = await self.tool_executor.execute_tool_call(tool_calls[0])
                 end_time = time.time()
                 if not result or not result.get("content"):
                     logger.debug("从LPMM知识库获取知识失败，返回空知识...")

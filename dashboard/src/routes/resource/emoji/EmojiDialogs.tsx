@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -59,7 +60,7 @@ export function EmojiDetailDialog({
         <DialogHeader>
           <DialogTitle>表情包详情</DialogTitle>
         </DialogHeader>
-        <ScrollArea className="max-h-[calc(90vh-8rem)] pr-4">
+        <DialogBody>
           <div className="space-y-4">
             {/* 表情包预览图 - 使用原图 */}
             <div className="flex justify-center">
@@ -177,7 +178,7 @@ export function EmojiDetailDialog({
               </div>
             </div>
           </div>
-        </ScrollArea>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )
@@ -252,11 +253,12 @@ export function EmojiEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl" confirmOnEnter>
         <DialogHeader>
           <DialogTitle>编辑表情包</DialogTitle>
           <DialogDescription>修改表情包的情绪和状态信息</DialogDescription>
         </DialogHeader>
+        <DialogBody>
         <div className="space-y-4">
           <div>
             <Label>情绪</Label>
@@ -310,11 +312,12 @@ export function EmojiEditDialog({
             </div>
           </div>
         </div>
+        </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button data-dialog-action="confirm" onClick={handleSave} disabled={saving}>
             {saving ? '保存中...' : '保存'}
           </Button>
         </DialogFooter>
@@ -658,7 +661,7 @@ export function EmojiUploadDialog({
 
         <div className="flex gap-6">
           {/* 预览图 */}
-          <div className="flex-shrink-0">
+          <div className="shrink-0">
             <div className="w-32 h-32 rounded-lg border overflow-hidden bg-muted flex items-center justify-center">
               <img
                 src={file.previewUrl}
@@ -764,7 +767,7 @@ export function EmojiUploadDialog({
 
         <div className="grid grid-cols-2 gap-4">
           {/* 左侧:文件卡片列表 */}
-          <ScrollArea className="h-[350px] pr-2">
+          <ScrollArea className="h-87.5 pr-2">
             <div className="space-y-2">
               {uploadedFiles.map((file) => {
                 const complete = isFileComplete(file)
@@ -782,7 +785,7 @@ export function EmojiUploadDialog({
                       ${complete ? 'border-green-500 bg-green-50 dark:bg-green-950/20' : 'border-border hover:border-muted-foreground/50'}
                     `}
                   >
-                    <div className="w-12 h-12 rounded border overflow-hidden bg-muted flex-shrink-0 flex items-center justify-center">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted">
                       <img
                         src={file.previewUrl}
                         alt={file.name}
@@ -796,9 +799,9 @@ export function EmojiUploadDialog({
                       </p>
                     </div>
                     {complete ? (
-                      <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
+                      <CheckCircle2 className="h-5 w-5 shrink-0 text-green-500" />
                     ) : (
-                      <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30 flex-shrink-0" />
+                      <div className="h-5 w-5 shrink-0 rounded-full border-2 border-muted-foreground/30" />
                     )}
                   </div>
                 )
@@ -908,7 +911,7 @@ export function EmojiUploadDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden" confirmOnEnter>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
@@ -925,11 +928,11 @@ export function EmojiUploadDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="overflow-y-auto pr-1">
+        <DialogBody viewportClassName="pr-1">
           {step === 'select' && renderSelectStep()}
           {step === 'edit-single' && renderEditSingleStep()}
           {step === 'edit-multiple' && renderEditMultipleStep()}
-        </div>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )

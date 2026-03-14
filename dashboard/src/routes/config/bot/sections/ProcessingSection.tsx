@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -249,7 +250,7 @@ function RegexEditor({
           正则编辑器
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-[95vw] sm:max-w-[900px] max-h-[90vh]">
+      <DialogContent className="max-w-[95vw] sm:max-w-225">
         <DialogHeader>
           <DialogTitle>正则表达式编辑器</DialogTitle>
           <DialogDescription className="text-sm">
@@ -257,7 +258,7 @@ function RegexEditor({
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[calc(90vh-120px)]">
+        <DialogBody>
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'build' | 'test')} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="build">🔧 构建器</TabsTrigger>
@@ -406,7 +407,7 @@ function RegexEditor({
                 value={testText}
                 onChange={(e) => setTestText(e.target.value)}
                 placeholder="在此输入要测试的文本...&#10;例如：打游戏是这样的"
-                className="min-h-[100px] text-sm"
+                className="min-h-25 text-sm"
               />
             </div>
 
@@ -444,7 +445,7 @@ function RegexEditor({
                 <div className="space-y-2">
                   <Label className="text-sm font-medium">匹配高亮</Label>
                   <ScrollArea className="h-40 rounded-md bg-muted p-3">
-                    <div className="text-sm break-words">
+                    <div className="text-sm wrap-break-word">
                       {renderHighlightedText()}
                     </div>
                   </ScrollArea>
@@ -458,7 +459,7 @@ function RegexEditor({
                       <div className="space-y-2">
                         {Object.entries(captureGroups).map(([name, value]) => (
                           <div key={name} className="flex items-start gap-2 text-sm">
-                            <span className="font-mono font-semibold text-primary min-w-[80px]">[{name}]</span>
+                            <span className="font-mono font-semibold text-primary min-w-20">[{name}]</span>
                             <span className="text-muted-foreground">=</span>
                             <span className="font-mono bg-muted px-2 py-0.5 rounded">{value}</span>
                           </div>
@@ -473,7 +474,7 @@ function RegexEditor({
                   <div className="space-y-2">
                     <Label className="text-sm font-medium">Reaction 替换预览</Label>
                     <ScrollArea className="h-48 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3">
-                      <div className="text-sm break-words">
+                      <div className="text-sm wrap-break-word">
                         {replacedReaction}
                       </div>
                     </ScrollArea>
@@ -497,7 +498,7 @@ function RegexEditor({
             </div>
           </TabsContent>
         </Tabs>
-        </ScrollArea>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )
@@ -628,7 +629,7 @@ export const ProcessingSection = React.memo(function ProcessingSection({
             预览
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[95vw] sm:w-[500px]">
+        <PopoverContent className="w-[95vw] sm:w-125">
           <div className="space-y-2">
             <h4 className="font-medium text-sm">配置预览</h4>
             <ScrollArea className="h-60 rounded-md bg-muted p-3">
@@ -656,7 +657,7 @@ export const ProcessingSection = React.memo(function ProcessingSection({
             预览
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[95vw] sm:w-[500px]">
+        <PopoverContent className="w-[95vw] sm:w-125">
           <div className="space-y-2">
             <h4 className="font-medium text-sm">配置预览</h4>
             <ScrollArea className="h-60 rounded-md bg-muted p-3">

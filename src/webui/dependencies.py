@@ -1,17 +1,16 @@
 from typing import Optional
-from fastapi import Depends, Cookie, Header, Request
-from .core import get_current_token, get_token_manager, check_auth_rate_limit
+
+from fastapi import Cookie, Depends, Request
+from .core import check_auth_rate_limit, get_current_token, is_token_valid
 
 
 async def require_auth(
-    request: Request,
     maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
 ) -> str:
     """
     FastAPI 依赖：要求有效认证
 
-    用于保护需要认证的路由，自动从 Cookie 或 Header 获取并验证 token
+    用于保护需要认证的路由，自动从 Cookie 获取并验证 token
 
     Returns:
         验证通过的 token
@@ -19,13 +18,12 @@ async def require_auth(
     Raises:
         HTTPException 401: 认证失败
     """
-    return get_current_token(request, maibot_session, authorization)
+    return get_current_token(maibot_session)
 
 
 async def require_auth_with_rate_limit(
     request: Request,
     maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
     _rate_limit: None = Depends(check_auth_rate_limit),
 ) -> str:
     """
@@ -40,12 +38,11 @@ async def require_auth_with_rate_limit(
         HTTPException 401: 认证失败
         HTTPException 429: 请求过于频繁
     """
-    return get_current_token(request, maibot_session, authorization)
+    return get_current_token(maibot_session)
 
 
 def get_optional_token(
     maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
 ) -> Optional[str]:
     """
     FastAPI 依赖：可选获取 token（不验证）
@@ -55,16 +52,11 @@ def get_optional_token(
     Returns:
         token 字符串或 None
     """
-    if maibot_session:
-        return maibot_session
-    if authorization and authorization.startswith("Bearer "):
-        return authorization.replace("Bearer ", "")
-    return None
+    return maibot_session or None
 
 
 async def verify_token_optional(
     maibot_session: Optional[str] = Cookie(None),
-    authorization: Optional[str] = Header(None),
 ) -> bool:
     """
     FastAPI 依赖：可选验证 token
@@ -74,14 +66,4 @@ async def verify_token_optional(
     Returns:
         True 如果 token 有效，否则 False
     """
-    token = None
-    if maibot_session:
-        token = maibot_session
-    elif authorization and authorization.startswith("Bearer "):
-        token = authorization.replace("Bearer ", "")
-
-    if not token:
-        return False
-
-    token_manager = get_token_manager()
-    return token_manager.verify_token(token)
+    return is_token_valid(maibot_session)

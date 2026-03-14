@@ -25,13 +25,15 @@ def is_port_conflict_error(error: OSError) -> bool:
     return "address already in use" in message or "已被占用" in message
 
 
-def check_port_available(host: str, port: int) -> bool:
+def check_port_available(host: str, port: int, *, allow_reuse_addr: bool = False) -> bool:
     family = _detect_socket_family(host)
     test_host = _normalize_test_host(host)
 
     try:
         with socket.socket(family, socket.SOCK_STREAM) as test_socket:
             test_socket.settimeout(1)
+            if allow_reuse_addr:
+                test_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             test_socket.bind((test_host, port))
             return True
     except OSError:
@@ -65,8 +67,9 @@ def assert_port_available(
     service_name: str,
     logger,
     config_hint: Optional[str] = None,
+    allow_reuse_addr: bool = False,
 ) -> None:
-    if check_port_available(host=host, port=port):
+    if check_port_available(host=host, port=port, allow_reuse_addr=allow_reuse_addr):
         return
 
     log_port_conflict(
