@@ -9,7 +9,7 @@
 
 import asyncio
 import contextlib
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Coroutine
 
 from src.common.logger import get_logger
 from src.core.types import EventType, MaiMessages
@@ -17,7 +17,7 @@ from src.core.types import EventType, MaiMessages
 logger = get_logger("event_bus")
 
 # Handler 签名：接收 MaiMessages，返回 (continue, modified_message)
-EventHandler = Callable[[Optional[MaiMessages]], Awaitable[Tuple[bool, Optional[MaiMessages]]]]
+EventHandler = Callable[[Optional[MaiMessages]], Coroutine[Any, Any, Tuple[bool, Optional[MaiMessages]]]]
 
 
 class EventBus:
