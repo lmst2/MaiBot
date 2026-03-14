@@ -155,7 +155,7 @@ class ExpressionLearner:
 
         for i, msg in enumerate(self._messages_cache):
             # 跳过机器人自己的消息
-            if is_bot_self(msg.message_info.user_info.user_id, msg.platform):
+            if is_bot_self(msg.platform, msg.message_info.user_info.user_id):
                 continue
 
             # 获取消息文本
@@ -238,7 +238,7 @@ class ExpressionLearner:
 
             # 检查是否是机器人自己的消息
             target_msg = self._messages_cache[line_index]
-            if is_bot_self(target_msg.message_info.user_info.user_id, target_msg.platform):
+            if is_bot_self(target_msg.platform, target_msg.message_info.user_info.user_id):
                 logger.info(f"跳过引用机器人自身消息的黑话：content={content}, source_id={source_id}")
                 continue
 
@@ -298,7 +298,7 @@ class ExpressionLearner:
             # 当前行的原始消息
             current_msg = self._messages_cache[line_index]
             # 过滤掉从 bot 自己发言中提取到的表达方式
-            if is_bot_self(current_msg.message_info.user_info.user_id, current_msg.platform):
+            if is_bot_self(current_msg.platform, current_msg.message_info.user_info.user_id):
                 continue
             # 过滤掉无上下文的表达方式
             context = (current_msg.processed_plain_text or "").strip()

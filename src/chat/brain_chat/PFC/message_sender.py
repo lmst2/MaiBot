@@ -1,14 +1,16 @@
 import time
 from typing import Optional
-from src.common.logger import get_logger
+
 from maim_message import Seg
+from rich.traceback import install
 
 from src.common.data_models.mai_message_data_model import MaiMessage, UserInfo
 from src.chat.message_receive.chat_manager import BotChatSession
 from src.chat.message_receive.message import MessageSending
 from src.chat.message_receive.uni_message_sender import UniversalMessageSender
+from src.chat.utils.utils import get_bot_account
+from src.common.logger import get_logger
 from src.config.config import global_config
-from rich.traceback import install
 
 install(extra_lines=3)
 
@@ -41,7 +43,7 @@ class DirectMessageSender:
 
             # 获取麦麦的信息
             bot_user_info = UserInfo(
-                user_id=global_config.bot.qq_account,
+                user_id=get_bot_account(chat_stream.platform),
                 user_nickname=global_config.bot.nickname,
             )
 

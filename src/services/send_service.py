@@ -4,15 +4,17 @@
 提供发送各种类型消息的核心功能。
 """
 
+from typing import Dict, List, Optional, TYPE_CHECKING
+
 import time
 import traceback
-from typing import Dict, List, Optional, TYPE_CHECKING
 
 from maim_message import BaseMessageInfo, GroupInfo as MaimGroupInfo, MessageBase, Seg, UserInfo as MaimUserInfo
 
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.chat.message_receive.message import SessionMessage
 from src.chat.message_receive.uni_message_sender import UniversalMessageSender
+from src.chat.utils.utils import get_bot_account
 from src.common.data_models.mai_message_data_model import MaiMessage
 from src.common.data_models.message_component_data_model import DictComponent, MessageSequence
 from src.common.logger import get_logger
@@ -88,7 +90,7 @@ async def _send_to_target(
                 message_id=message_id,
                 time=current_time,
                 user_info=MaimUserInfo(
-                    user_id=str(global_config.bot.qq_account),
+                    user_id=get_bot_account(target_stream.platform),
                     user_nickname=global_config.bot.nickname,
                     platform=target_stream.platform,
                 ),
