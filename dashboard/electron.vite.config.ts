@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 import path from 'path'
@@ -40,7 +41,7 @@ export default defineConfig({
         '@': path.resolve(__dirname, './src'),
       },
     },
-    plugins: [react()],
+    plugins: [tailwindcss(), react()],
     server: {
       port: 7999,
       proxy: {

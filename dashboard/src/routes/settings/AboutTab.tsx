@@ -13,9 +13,9 @@ export function AboutTab() {
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* GitHub 开源地址 */}
-      <div className="rounded-lg border-2 border-primary/30 bg-gradient-to-r from-primary/5 to-primary/10 p-4 sm:p-6">
+      <div className="rounded-lg border-2 border-primary/30 bg-linear-to-r from-primary/5 to-primary/10 p-4 sm:p-6">
         <div className="flex items-start gap-3 sm:gap-4">
-          <div className="flex-shrink-0 rounded-lg bg-primary/10 p-2 sm:p-3">
+          <div className="shrink-0 rounded-lg bg-primary/10 p-2 sm:p-3">
             <svg
               className="h-6 w-6 sm:h-8 sm:w-8 text-primary"
               fill="currentColor"
@@ -120,7 +120,7 @@ export function AboutTab() {
             <ul className="space-y-0.5 list-disc list-inside">
               <li>shadcn/ui</li>
               <li>Radix UI</li>
-              <li>Tailwind CSS 3.4.17</li>
+              <li>Tailwind CSS 4.2.1</li>
               <li>Lucide Icons</li>
             </ul>
           </div>
@@ -138,7 +138,6 @@ export function AboutTab() {
             <ul className="space-y-0.5 list-disc list-inside">
               <li>Bun / npm</li>
               <li>ESLint 9.17.0</li>
-              <li>PostCSS</li>
             </ul>
           </div>
         </div>
@@ -220,7 +219,6 @@ export function AboutTab() {
                 <LibraryItem name="TypeScript" description={t('settings.about.lib.typescript')} license="Apache-2.0" />
                 <LibraryItem name="Vite" description={t('settings.about.lib.vite')} license="MIT" />
                 <LibraryItem name="ESLint" description={t('settings.about.lib.eslint')} license="MIT" />
-                <LibraryItem name="PostCSS" description={t('settings.about.lib.postcss')} license="MIT" />
               </div>
             </div>
           </div>
@@ -233,7 +231,7 @@ export function AboutTab() {
         <div className="space-y-3">
           <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 sm:p-4">
             <div className="flex items-start gap-2 sm:gap-3">
-              <div className="flex-shrink-0 mt-0.5">
+              <div className="mt-0.5 shrink-0">
                 <div className="rounded-md bg-primary/10 px-2 py-1">
                   <span className="text-xs sm:text-sm font-bold text-primary">GPLv3</span>
                 </div>

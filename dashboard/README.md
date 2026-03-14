@@ -7,7 +7,7 @@
 [![React](https://img.shields.io/badge/React-19.2-61DAFB?logo=react&logoColor=white)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-7.2-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
-[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC?logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
+[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4.2-38B2AC?logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
 
 </div>
 
@@ -134,7 +134,7 @@ React 19.2.0          # UI 框架
 ├── TanStack Router   # 路由管理
 ├── TanStack Virtual  # 虚拟滚动
 ├── Jotai             # 状态管理
-├── Tailwind CSS 3.4  # 样式框架
+├── Tailwind CSS 4.2  # 样式框架
 ├── ReactFlow         # 知识图谱可视化
 ├── Recharts          # 数据图表
 └── shadcn/ui         # 组件库
@@ -213,7 +213,7 @@ MaiBot-Dashboard/
 │   └── index.css           # 全局样式
 ├── public/                 # 静态资源
 ├── vite.config.ts          # Vite 配置
-├── tailwind.config.js      # Tailwind 配置
+├── tailwind.config.js      # Tailwind v4 兼容占位配置
 ├── tsconfig.json           # TypeScript 配置
 └── package.json            # 依赖管理
 ```
@@ -328,7 +328,7 @@ proxy: {
 |------|------|------|
 | @radix-ui/react-* | ^1.x | 无障碍组件基础 |
 | lucide-react | ^0.553.0 | 图标库 |
-| tailwindcss | ^3.4 | CSS 框架 |
+| tailwindcss | ^4.2.1 | CSS 框架 |
 | class-variance-authority | ^0.7.1 | 类名管理 |
 | tailwind-merge | ^3.4.0 | Tailwind 类合并 |
 | date-fns | ^3.x | 日期处理 |
