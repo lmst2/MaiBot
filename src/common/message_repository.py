@@ -176,7 +176,10 @@ def find_messages(
                     )
                 )
 
-            # 兼容旧数据：历史机器人消息在所有平台上都使用 QQ 账号进行存储。
+            # 兼容旧数据：历史机器人消息在所有平台上都使用 QQ 账号作为 user_id 存储，
+            # 例如旧 Telegram bot 消息的 (platform="telegram", user_id=qq_account)。
+            # plan 建议的 ("", qq_account) pair 只能覆盖空 platform 行，无法覆盖这种情况。
+            # 因此这里使用全局 user_id 匹配作为临时方案，待 DB 迁移后应移除此兜底。
             if qq_fallback := get_bot_account("qq"):
                 exclusion_conditions.append(Messages.user_id == qq_fallback)
 
