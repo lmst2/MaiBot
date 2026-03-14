@@ -7,9 +7,9 @@ import traceback
 from sqlalchemy import and_, func, not_, or_
 from sqlmodel import col, select
 
+from src.chat.message_receive.message import SessionMessage
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Messages
-from src.chat.message_receive.message import SessionMessage
 from src.common.logger import get_logger
 
 logger = get_logger(__name__)
@@ -162,17 +162,26 @@ def find_messages(
             after_time=after_time,
         )
         if filter_bot:
-            from src.chat.utils.utils import get_all_bot_accounts
+            from src.chat.utils.utils import _get_configured_qq_account, get_all_bot_accounts
 
             bot_accounts = get_all_bot_accounts()
+            exclusion_conditions: list[Any] = []
             if bot_accounts:
-                bot_identity_predicate = or_(
-                    *[
-                        and_(Messages.platform == platform_name, Messages.user_id == account)
-                        for platform_name, account in bot_accounts.items()
-                    ]
+                exclusion_conditions.append(
+                    or_(
+                        *[
+                            and_(Messages.platform == platform_name, Messages.user_id == account)
+                            for platform_name, account in bot_accounts.items()
+                        ]
+                    )
                 )
-                conditions.append(not_(bot_identity_predicate))
+
+            # 兼容旧数据：历史机器人消息在所有平台上都使用 QQ 账号进行存储。
+            if qq_fallback := _get_configured_qq_account():
+                exclusion_conditions.append(Messages.user_id == qq_fallback)
+
+            if exclusion_conditions:
+                conditions.append(not_(or_(*exclusion_conditions)))
         if filter_command:
             conditions.append(Messages.is_command == False)  # noqa: E712
 

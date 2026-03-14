@@ -157,6 +157,14 @@ def test_unknown_platform_no_longer_falls_back_to_qq(monkeypatch):
     assert "unknown_platform" in logger.warning_messages[-1]
 
 
+def test_unknown_platform_warns_only_once(monkeypatch):
+    utils_module, logger = load_utils_module(monkeypatch, qq_account=123456, platforms=[])
+
+    assert utils_module.is_bot_self("unknown_platform", "first") is False
+    assert utils_module.is_bot_self(" unknown_platform ", "second") is False
+    assert len(logger.warning_messages) == 1
+
+
 def test_unconfigured_qq_account_disables_qq_and_webui_identity(monkeypatch):
     utils_module, _logger = load_utils_module(monkeypatch, qq_account=0, platforms=["telegram:tg_bot"])
 
@@ -172,6 +180,27 @@ def test_is_mentioned_bot_in_message_uses_platform_account(monkeypatch):
     message = SimpleNamespace(
         processed_plain_text="@tg_bot 你好",
         platform="telegram",
+        is_mentioned=False,
+        message_segment=None,
+        message_info=SimpleNamespace(
+            additional_config={},
+            user_info=SimpleNamespace(user_id="user_1"),
+        ),
+    )
+
+    is_mentioned, is_at, reply_probability = utils_module.is_mentioned_bot_in_message(message)
+
+    assert is_mentioned is True
+    assert is_at is True
+    assert reply_probability == 1.0
+
+
+def test_is_mentioned_bot_in_message_normalizes_qq_platform(monkeypatch):
+    utils_module, _logger = load_utils_module(monkeypatch, qq_account=123456, platforms=[])
+
+    message = SimpleNamespace(
+        processed_plain_text="@<MaiBot:123456> 你好",
+        platform=" QQ ",
         is_mentioned=False,
         message_segment=None,
         message_info=SimpleNamespace(

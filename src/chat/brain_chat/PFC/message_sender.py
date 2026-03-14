@@ -42,8 +42,12 @@ class DirectMessageSender:
             segments = Seg(type="seglist", data=[Seg(type="text", data=content)])
 
             # 获取麦麦的信息
+            bot_user_id = get_bot_account(chat_stream.platform)
+            if not bot_user_id:
+                logger.warning(f"[私聊][{self.private_name}]平台 {chat_stream.platform} 未配置机器人账号，发送消息时回退到 QQ 账号")
+                bot_user_id = str(getattr(global_config.bot, "qq_account", "")).strip()
             bot_user_info = UserInfo(
-                user_id=get_bot_account(chat_stream.platform),
+                user_id=bot_user_id,
                 user_nickname=global_config.bot.nickname,
             )
 

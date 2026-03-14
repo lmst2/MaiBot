@@ -83,6 +83,10 @@ async def _send_to_target(
         additional_config: dict[str, object] = {}
         if selected_expressions is not None:
             additional_config["selected_expressions"] = selected_expressions
+        bot_user_id = get_bot_account(target_stream.platform)
+        if not bot_user_id:
+            logger.warning(f"[SendService] 平台 {target_stream.platform} 未配置机器人账号，发送消息时回退到 QQ 账号")
+            bot_user_id = str(getattr(global_config.bot, "qq_account", "")).strip()
 
         maim_message = MessageBase(
             message_info=BaseMessageInfo(
@@ -90,7 +94,7 @@ async def _send_to_target(
                 message_id=message_id,
                 time=current_time,
                 user_info=MaimUserInfo(
-                    user_id=get_bot_account(target_stream.platform),
+                    user_id=bot_user_id,
                     user_nickname=global_config.bot.nickname,
                     platform=target_stream.platform,
                 ),

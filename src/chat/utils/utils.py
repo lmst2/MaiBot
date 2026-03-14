@@ -1,11 +1,12 @@
+from datetime import datetime
+from typing import TYPE_CHECKING, List, Optional, Tuple
+
 import ast
 import json
 import os
 import random
 import re
 import time
-from datetime import datetime
-from typing import Optional, Tuple, List, TYPE_CHECKING
 
 import jieba
 
@@ -15,12 +16,14 @@ from src.common.logger import get_logger
 from src.config.config import global_config, model_config
 from src.llm_models.utils_model import LLMRequest
 from src.person_info.person_info import Person
+
 from .typo_generator import ChineseTypoGenerator
 
 if TYPE_CHECKING:
     from src.common.data_models.info_data_model import TargetPersonInfo
 
 logger = get_logger("chat_utils")
+_warned_unconfigured_platforms: set[str] = set()
 
 
 def is_english_letter(char: str) -> bool:
@@ -122,14 +125,16 @@ def is_bot_self(platform: str, user_id: str) -> bool:
     if bot_account:
         return user_id_str == bot_account
 
-    logger.warning(f"平台 {normalized_platform} 未配置机器人账号，无法判断用户 {user_id_str} 是否为机器人自己")
+    if normalized_platform not in _warned_unconfigured_platforms:
+        _warned_unconfigured_platforms.add(normalized_platform)
+        logger.warning(f"平台 {normalized_platform} 未配置机器人账号，无法判断用户 {user_id_str} 是否为机器人自己")
     return False
 
 
 def is_mentioned_bot_in_message(message: SessionMessage) -> tuple[bool, bool, float]:
     """检查消息是否提到了机器人（统一多平台实现）"""
     text = message.processed_plain_text or ""
-    platform = message.platform or ""
+    platform = str(message.platform or "").strip().lower()
 
     # 获取当前平台对应的账号
     current_account = get_bot_account(platform)
