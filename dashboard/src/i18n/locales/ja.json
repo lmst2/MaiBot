@@ -338,8 +338,7 @@
         "pythonMultipart": "ファイルアップロードサポート",
         "typescript": "JavaScript のスーパーセット",
         "vite": "次世代フロントエンドビルドツール",
-        "eslint": "JavaScript コードリンター",
-        "postcss": "CSS 変換ツール"
+        "eslint": "JavaScript コードリンター"
       }
     }
   },

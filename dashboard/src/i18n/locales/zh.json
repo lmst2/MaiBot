@@ -338,8 +338,7 @@
         "pythonMultipart": "文件上传支持",
         "typescript": "JavaScript 的超集",
         "vite": "下一代前端构建工具",
-        "eslint": "JavaScript 代码检查工具",
-        "postcss": "CSS 转换工具"
+        "eslint": "JavaScript 代码检查工具"
       }
     }
   },

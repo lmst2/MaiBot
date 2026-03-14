@@ -338,8 +338,7 @@
         "pythonMultipart": "File upload support",
         "typescript": "Superset of JavaScript",
         "vite": "Next-generation frontend build tool",
-        "eslint": "JavaScript code linter",
-        "postcss": "CSS transformation tool"
+        "eslint": "JavaScript code linter"
       }
     }
   },

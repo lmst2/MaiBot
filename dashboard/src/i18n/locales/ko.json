@@ -338,8 +338,7 @@
         "pythonMultipart": "파일 업로드 지원",
         "typescript": "JavaScript의 슈퍼셋",
         "vite": "차세대 프론트엔드 빌드 도구",
-        "eslint": "JavaScript 코드 린터",
-        "postcss": "CSS 변환 도구"
+        "eslint": "JavaScript 코드 린터"
       }
     }
   },

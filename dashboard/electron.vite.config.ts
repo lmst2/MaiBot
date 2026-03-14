@@ -5,13 +5,15 @@ import path from 'path'
 
 export default defineConfig({
   main: {
-    entry: 'electron/main/index.ts',
     build: {
       target: 'node18',
-      lib: {
-        entry: 'electron/main/index.ts',
-      },
       rollupOptions: {
+        input: {
+          index: path.resolve(__dirname, 'electron/main/index.ts'),
+        },
+        output: {
+          format: 'cjs',
+        },
         external: ['electron', 'electron-store'],
       },
     },
@@ -22,11 +24,12 @@ export default defineConfig({
     },
   },
   preload: {
-    entry: 'electron/preload/index.ts',
     build: {
       target: 'node18',
       rollupOptions: {
-        input: path.resolve(__dirname, 'electron/preload/index.ts'),
+        input: {
+          index: path.resolve(__dirname, 'electron/preload/index.ts'),
+        },
         output: {
           entryFileNames: '[name].js',
           format: 'cjs',
