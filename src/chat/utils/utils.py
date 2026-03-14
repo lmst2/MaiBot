@@ -93,7 +93,7 @@ def get_all_bot_accounts() -> dict[str, str]:
         bot_accounts["tg"] = telegram_account
 
     for platform_name, account in platform_accounts.items():
-        if platform_name in {"tg", "telegram"}:
+        if platform_name in {"tg", "telegram", "qq", "webui"}:
             continue
         bot_accounts[platform_name] = account
 

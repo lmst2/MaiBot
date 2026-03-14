@@ -149,6 +149,17 @@ def test_get_all_bot_accounts_includes_runtime_aliases(monkeypatch):
     }
 
 
+def test_get_all_bot_accounts_keeps_canonical_qq_identity(monkeypatch):
+    utils_module, _logger = load_utils_module(
+        monkeypatch,
+        qq_account=123456,
+        platforms=["qq:999999", "webui:888888", "TG:tg_bot"],
+    )
+
+    assert utils_module.get_all_bot_accounts()["qq"] == "123456"
+    assert utils_module.get_all_bot_accounts()["webui"] == "123456"
+
+
 def test_unknown_platform_no_longer_falls_back_to_qq(monkeypatch):
     utils_module, logger = load_utils_module(monkeypatch, qq_account=123456, platforms=[])
 

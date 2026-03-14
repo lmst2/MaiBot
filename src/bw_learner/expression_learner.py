@@ -14,8 +14,8 @@ from src.common.logger import get_logger
 from src.common.database.database_model import Expression
 from src.common.database.database import get_db_session
 from src.common.data_models.expression_data_model import MaiExpression
+from src.chat.utils.utils import is_bot_self
 from src.common.utils.utils_message import MessageUtils
-from src.common.utils.system_utils import is_bot_self
 
 from .expression_utils import check_expression_suitability, parse_expression_response
 

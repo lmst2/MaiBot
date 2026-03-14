@@ -1117,8 +1117,10 @@ class DefaultReplyer:
         """构建单个发送消息"""
         bot_user_id = get_bot_account(self.chat_stream.platform)
         if not bot_user_id:
-            logger.warning(f"平台 {self.chat_stream.platform} 未配置机器人账号，发送消息时回退到 QQ 账号")
-            bot_user_id = str(getattr(global_config.bot, "qq_account", "")).strip()
+            bot_user_id = get_bot_account("qq")
+        if not bot_user_id:
+            logger.error(f"平台 {self.chat_stream.platform} 无可用机器人账号，无法构建发送消息")
+            raise RuntimeError("机器人账号未配置")
 
         maim_message = MessageBase(
             message_info=BaseMessageInfo(

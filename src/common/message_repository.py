@@ -162,7 +162,7 @@ def find_messages(
             after_time=after_time,
         )
         if filter_bot:
-            from src.chat.utils.utils import _get_configured_qq_account, get_all_bot_accounts
+            from src.chat.utils.utils import get_all_bot_accounts, get_bot_account
 
             bot_accounts = get_all_bot_accounts()
             exclusion_conditions: list[Any] = []
@@ -177,7 +177,7 @@ def find_messages(
                 )
 
             # 兼容旧数据：历史机器人消息在所有平台上都使用 QQ 账号进行存储。
-            if qq_fallback := _get_configured_qq_account():
+            if qq_fallback := get_bot_account("qq"):
                 exclusion_conditions.append(Messages.user_id == qq_fallback)
 
             if exclusion_conditions:
