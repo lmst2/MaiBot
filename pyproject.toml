@@ -42,6 +42,15 @@ dependencies = [
     "maibot-plugin-sdk>=1.2.3",
 ]
 
+[dependency-groups]
+test = [
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+]
+dev = [
+    { include-group = "test" },
+]
+
 
 [tool.uv]
 index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
