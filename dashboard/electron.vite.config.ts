@@ -66,7 +66,7 @@ export default defineConfig({
 
             router: ['@tanstack/react-router', '@tanstack/react-virtual'],
 
-            'radix-core': [
+            radix: [
               '@radix-ui/react-dialog',
               '@radix-ui/react-select',
               '@radix-ui/react-checkbox',
@@ -74,8 +74,6 @@ export default defineConfig({
               '@radix-ui/react-slot',
               '@radix-ui/react-toast',
               '@radix-ui/react-tooltip',
-            ],
-            'radix-extra': [
               '@radix-ui/react-alert-dialog',
               '@radix-ui/react-avatar',
               '@radix-ui/react-collapsible',

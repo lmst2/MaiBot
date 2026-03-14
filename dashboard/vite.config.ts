@@ -37,8 +37,8 @@ export default defineConfig({
           // TanStack Router
           'router': ['@tanstack/react-router', '@tanstack/react-virtual'],
           
-          // Radix UI 组件库（按使用频率分组）
-          'radix-core': [
+          // Radix UI 组件库
+          radix: [
             '@radix-ui/react-dialog',
             '@radix-ui/react-select',
             '@radix-ui/react-checkbox',
@@ -46,8 +46,6 @@ export default defineConfig({
             '@radix-ui/react-slot',
             '@radix-ui/react-toast',
             '@radix-ui/react-tooltip',
-          ],
-          'radix-extra': [
             '@radix-ui/react-alert-dialog',
             '@radix-ui/react-avatar',
             '@radix-ui/react-collapsible',
