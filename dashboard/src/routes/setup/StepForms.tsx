@@ -1,6 +1,6 @@
 // 设置向导各步骤表单组件
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -8,6 +8,13 @@ import { Switch } from '@/components/ui/switch'
 import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { X, ExternalLink, Eye, EyeOff } from 'lucide-react'
 import type {
   BotBasicConfig,
@@ -18,12 +25,141 @@ import type {
 } from './types'
 
 // ====== 步骤1：Bot基础配置 ======
+
+const KNOWN_PLATFORMS: Record<string, string> = {
+  qq: 'qq',
+  telegram: 'telegram',
+  tg: 'telegram',
+  discord: 'discord',
+  kook: 'kook',
+}
+
+const PLATFORM_OPTIONS = [
+  { value: 'qq', label: 'QQ' },
+  { value: 'telegram', label: 'Telegram' },
+  { value: 'discord', label: 'Discord' },
+  { value: 'kook', label: 'Kook' },
+  { value: 'custom', label: '其他平台' },
+]
+
+function normalizePlatform(raw: string): string {
+  const key = raw.trim().toLowerCase()
+  return KNOWN_PLATFORMS[key] || key
+}
+
+function deriveSelectedPlatform(config: BotBasicConfig): { selected: string; customName: string } {
+  const platform = config.platform
+  // Legacy: no platform set but has QQ account
+  if (!platform && config.qq_account > 0) {
+    return { selected: 'qq', customName: '' }
+  }
+  if (!platform) {
+    return { selected: '', customName: '' }
+  }
+  const known = PLATFORM_OPTIONS.find((opt) => opt.value === platform && opt.value !== 'custom')
+  if (known) {
+    return { selected: platform, customName: '' }
+  }
+  return { selected: 'custom', customName: platform }
+}
+
+function upsertPlatformAccount(platforms: string[], platformName: string, accountId: string): string[] {
+  const normalized = normalizePlatform(platformName)
+  const filtered = platforms.filter((p) => {
+    const prefix = p.split(':')[0]
+    return normalizePlatform(prefix) !== normalized
+  })
+  if (accountId.trim()) {
+    filtered.push(`${normalized}:${accountId.trim()}`)
+  }
+  return filtered
+}
+
+function getPrimaryAccount(platforms: string[], platformName: string): string {
+  const normalized = normalizePlatform(platformName)
+  const entry = platforms.find((p) => {
+    const prefix = p.split(':')[0]
+    return normalizePlatform(prefix) === normalized
+  })
+  return entry ? entry.split(':').slice(1).join(':') : ''
+}
+
 interface BotBasicFormProps {
   config: BotBasicConfig
   onChange: (config: BotBasicConfig) => void
 }
 
 export function BotBasicForm({ config, onChange }: BotBasicFormProps) {
+  const derived = deriveSelectedPlatform(config)
+  const [selectedPlatform, setSelectedPlatform] = useState(derived.selected)
+  const [customPlatformName, setCustomPlatformName] = useState(derived.customName)
+  const [primaryAccount, setPrimaryAccount] = useState(() => {
+    if (derived.selected === 'qq') {
+      return config.qq_account > 0 ? String(config.qq_account) : ''
+    }
+    if (config.platform) {
+      return getPrimaryAccount(config.platforms, config.platform)
+    }
+    return ''
+  })
+
+  // Re-derive when config loads from API (e.g. after initial fetch)
+  useEffect(() => {
+    const d = deriveSelectedPlatform(config)
+    setSelectedPlatform(d.selected)
+    setCustomPlatformName(d.customName)
+    if (d.selected === 'qq') {
+      setPrimaryAccount(config.qq_account > 0 ? String(config.qq_account) : '')
+    } else if (config.platform) {
+      setPrimaryAccount(getPrimaryAccount(config.platforms, config.platform))
+    }
+  }, [config.platform, config.qq_account, config.platforms])
+
+  const handlePlatformChange = (value: string) => {
+    setSelectedPlatform(value)
+    const realPlatform = value === 'custom' ? customPlatformName : value
+    setPrimaryAccount('')
+    onChange({
+      ...config,
+      platform: normalizePlatform(realPlatform),
+      qq_account: value === 'qq' ? config.qq_account : config.qq_account, // preserve
+    })
+  }
+
+  const handleCustomNameChange = (name: string) => {
+    setCustomPlatformName(name)
+    const normalized = normalizePlatform(name)
+    // Move account to new platform name if we had one
+    const newPlatforms = primaryAccount
+      ? upsertPlatformAccount(config.platforms, normalized, primaryAccount)
+      : config.platforms
+    onChange({
+      ...config,
+      platform: normalized,
+      platforms: newPlatforms,
+    })
+  }
+
+  const handleAccountChange = (accountId: string) => {
+    setPrimaryAccount(accountId)
+    const realPlatform = selectedPlatform === 'custom' ? customPlatformName : selectedPlatform
+    const normalized = normalizePlatform(realPlatform)
+
+    if (normalized === 'qq') {
+      onChange({
+        ...config,
+        qq_account: Number(accountId) || 0,
+        platform: 'qq',
+      })
+    } else {
+      onChange({
+        ...config,
+        platform: normalized,
+        platforms: upsertPlatformAccount(config.platforms, normalized, accountId),
+      })
+    }
+  }
+
   const handleAddAlias = (alias: string) => {
     if (alias.trim() && !config.alias_names.includes(alias.trim())) {
       onChange({
@@ -43,20 +179,66 @@ export function BotBasicForm({ config, onChange }: BotBasicFormProps) {
   return (
     <div className="space-y-6">
       <div className="space-y-3">
-        <Label htmlFor="qq_account">QQ账号 *</Label>
-        <Input
-          id="qq_account"
-          type="number"
-          placeholder="请输入机器人的QQ账号"
-          value={config.qq_account || ''}
-          onChange={(e) =>
-            onChange({ ...config, qq_account: Number(e.target.value) })
-          }
-        />
+        <Label htmlFor="platform">平台 *</Label>
+        <Select value={selectedPlatform} onValueChange={handlePlatformChange}>
+          <SelectTrigger id="platform">
+            <SelectValue placeholder="请选择平台" />
+          </SelectTrigger>
+          <SelectContent>
+            {PLATFORM_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <p className="text-xs text-muted-foreground">
-          机器人登录使用的QQ账号
+          选择机器人运行的平台
         </p>
       </div>
+
+      {selectedPlatform === 'custom' && (
+        <div className="space-y-3">
+          <Label htmlFor="custom_platform_name">平台名称 *</Label>
+          <Input
+            id="custom_platform_name"
+            placeholder="请输入平台名称，如 matrix"
+            value={customPlatformName}
+            onChange={(e) => handleCustomNameChange(e.target.value)}
+          />
+        </div>
+      )}
+
+      {selectedPlatform === 'qq' && (
+        <div className="space-y-3">
+          <Label htmlFor="qq_account">QQ账号 *</Label>
+          <Input
+            id="qq_account"
+            type="number"
+            placeholder="请输入机器人的QQ账号"
+            value={primaryAccount}
+            onChange={(e) => handleAccountChange(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            机器人登录使用的QQ账号
+          </p>
+        </div>
+      )}
+
+      {selectedPlatform && selectedPlatform !== 'qq' && (selectedPlatform !== 'custom' || customPlatformName) && (
+        <div className="space-y-3">
+          <Label htmlFor="primary_account">账号ID *</Label>
+          <Input
+            id="primary_account"
+            placeholder="请输入机器人的账号ID"
+            value={primaryAccount}
+            onChange={(e) => handleAccountChange(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            机器人在该平台上的账号标识
+          </p>
+        </div>
+      )}
 
       <div className="space-y-3">
         <Label htmlFor="nickname">昵称 *</Label>

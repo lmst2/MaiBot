@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
+import { useTranslation } from 'react-i18next'
 import {
   Sparkles,
   ArrowRight,
@@ -10,6 +11,7 @@ import {
   Smile,
   Settings,
   Key,
+  Globe,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -26,6 +28,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { APP_NAME } from '@/lib/version'
 import { useToast } from '@/hooks/use-toast'
@@ -36,14 +44,14 @@ import type {
   EmojiConfig,
   OtherBasicConfig,
   SiliconFlowConfig,
-} from './setup/types'
+} from './types'
 import {
   BotBasicForm,
   PersonalityForm,
   EmojiForm,
   OtherBasicForm,
   SiliconFlowForm,
-} from './setup/StepForms'
+} from './StepForms'
 import {
   loadBotBasicConfig,
   loadPersonalityConfig,
@@ -56,9 +64,17 @@ import {
   saveOtherBasicConfig,
   saveSiliconFlowConfig,
   completeSetup,
-} from './setup/api'
+} from './api'
 import { RestartProvider, useRestart } from '@/lib/restart-context'
 import { RestartOverlay } from '@/components/restart-overlay'
+
+const LANGUAGE_CODES = ['zh', 'en', 'ja', 'ko'] as const
+const LANGUAGE_NAMES: Record<typeof LANGUAGE_CODES[number], string> = {
+  zh: '中文',
+  en: 'English',
+  ja: '日本語',
+  ko: '한국어',
+}
 
 // 主导出组件：包装 RestartProvider
 export function SetupPage() {
@@ -74,6 +90,8 @@ function SetupPageContent() {
   const navigate = useNavigate()
   const { toast } = useToast()
   const { triggerRestart } = useRestart()
+  const { i18n: i18nInstance } = useTranslation()
+  const currentLang = i18nInstance.language || 'zh'
   const [currentStep, setCurrentStep] = useState(0)
   const [isCompleting, setIsCompleting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -81,7 +99,9 @@ function SetupPageContent() {
 
   // 步骤1：Bot基础信息
   const [botBasic, setBotBasic] = useState<BotBasicConfig>({
+    platform: '',
     qq_account: 0,
+    platforms: [],
     nickname: '',
     alias_names: [],
   })
@@ -232,7 +252,31 @@ function SetupPageContent() {
     }
   }
 
+  // Step 1 验证
+  function validateBotBasic(config: BotBasicConfig): string | null {
+    if (!config.platform) return '请选择平台'
+    if (!config.nickname.trim()) return '请输入昵称'
+    if (config.platform === 'qq') {
+      if (!config.qq_account || config.qq_account <= 0) return '请输入QQ账号'
+    } else {
+      const hasAccount = config.platforms.some(
+        (p) => p.startsWith(config.platform + ':') && p.split(':')[1]?.trim()
+      )
+      if (!hasAccount) return '请输入账号ID'
+    }
+    return null
+  }
+
   const handleNext = async () => {
+    // Step 1 验证
+    if (currentStep === 0) {
+      const error = validateBotBasic(botBasic)
+      if (error) {
+        toast({ title: '验证失败', description: error, variant: 'destructive' })
+        return
+      }
+    }
+
     // 保存当前步骤
     const saved = await saveCurrentStep()
     if (!saved) return
@@ -318,6 +362,37 @@ function SetupPageContent() {
     <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-4 md:p-6">
       {/* 重启遮罩层 */}
       <RestartOverlay />
+
+      {/* 语言切换 */}
+      <div className="absolute right-4 top-4 z-20">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="gap-2">
+              <Globe className="h-4 w-4" />
+              <span className="hidden sm:inline text-xs">
+                {LANGUAGE_NAMES[currentLang.split('-')[0] as typeof LANGUAGE_CODES[number]] ?? currentLang}
+              </span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {LANGUAGE_CODES.map((code) => (
+              <DropdownMenuItem
+                key={code}
+                onClick={() => i18nInstance.changeLanguage(code)}
+                className={cn(
+                  'cursor-pointer',
+                  currentLang.split('-')[0] === code && 'font-semibold text-primary'
+                )}
+              >
+                {currentLang.split('-')[0] === code && (
+                  <span className="mr-2">✓</span>
+                )}
+                {LANGUAGE_NAMES[code]}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
       {/* 背景装饰 */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
