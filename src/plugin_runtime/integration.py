@@ -222,7 +222,11 @@ class PluginRuntimeManager(
         return True
 
     async def handle_config_reload(self) -> None:
-        """处理主配置热重载后的插件配置通知。"""
+        """响应全局配置热重载，并向当前已注册插件重新推送各自配置。
+
+        该回调不负责重载插件运行时本身；它只在 config_manager 完成配置重载后，
+        遍历所有已注册插件并触发一次 plugin.config_updated 通知。
+        """
         if not self._started:
             return
 
