@@ -586,11 +586,18 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
         if path := sysconfig.get_path(key):
             stdlib_paths.add(os.path.normpath(path))
 
+    runtime_paths = set(stdlib_paths)
+    if os.name == "nt":
+        # Windows 的部分平台扩展模块和依赖会通过 <prefix>/DLLs 暴露在 sys.path 中。
+        for prefix in {sys.prefix, sys.exec_prefix, sys.base_prefix, sys.base_exec_prefix}:
+            if prefix:
+                runtime_paths.add(os.path.normpath(os.path.join(prefix, "DLLs")))
+
     allowed = set()
     for p in sys.path:
         norm = os.path.normpath(p)
         # 保留标准库和 site-packages
-        if any(norm.startswith(sp) for sp in stdlib_paths):
+        if any(norm.startswith(runtime_path) for runtime_path in runtime_paths):
             allowed.add(p)
         # 保留 site-packages（第三方库 + SDK）
         if "site-packages" in norm or "dist-packages" in norm:

@@ -1,7 +1,7 @@
 """传输层抽象基类
 
 定义 TransportServer 和 TransportClient 的统一接口。
-所有传输后端（UDS、Named Pipe、TCP 回退）必须实现此接口。
+所有传输后端（UDS、Named Pipe、显式 TCP）必须实现此接口。
 业务层仅依赖此抽象，禁止直接使用具体传输实现的细节。
 
 分帧协议：4-byte big-endian length prefix + payload

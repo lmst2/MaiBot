@@ -1,6 +1,6 @@
-"""TCP 传输实现（回退方案）
+"""TCP 传输实现。
 
-仅当 UDS / Named Pipe 不可用时启用。
+用于显式 TCP 地址场景或调试场景。
 绑定到 127.0.0.1 避免远程访问，但仍需会话令牌做身份校验。
 """
 
@@ -18,7 +18,7 @@ class TCPConnection(Connection):
 
 
 class TCPTransportServer(TransportServer):
-    """TCP 传输服务端（回退方案）"""
+    """TCP 传输服务端。"""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 0) -> None:
         self._host = host

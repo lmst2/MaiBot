@@ -182,6 +182,36 @@ class TestTransport:
         await server.stop()
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows only")
+    async def test_named_pipe_connection_framing(self):
+        """Windows Named Pipe 分帧协议测试"""
+        from src.plugin_runtime.transport.named_pipe import NamedPipeTransportClient, NamedPipeTransportServer
+
+        server = NamedPipeTransportServer()
+        received = asyncio.Event()
+        received_data = []
+
+        async def handler(conn):
+            data = await conn.recv_frame()
+            received_data.append(data)
+            await conn.send_frame(b"pipe_pong")
+            received.set()
+
+        await server.start(handler)
+        client = NamedPipeTransportClient(server.get_address())
+        conn = await client.connect()
+        await conn.send_frame(b"pipe_ping")
+
+        await asyncio.wait_for(received.wait(), timeout=5.0)
+        assert received_data[0] == b"pipe_ping"
+
+        resp = await conn.recv_frame()
+        assert resp == b"pipe_pong"
+
+        await conn.close()
+        await server.stop()
+
+    @pytest.mark.asyncio
     async def test_transport_factory(self):
         """传输工厂测试"""
         from src.plugin_runtime.transport.factory import create_transport_server, create_transport_client
@@ -191,6 +221,10 @@ class TestTransport:
 
         # UDS 路径
         client = create_transport_client("/tmp/test.sock")
+        assert client is not None
+
+        # Windows Named Pipe 地址
+        client = create_transport_client(r"\\.\pipe\maibot-test")
         assert client is not None
 
         # TCP 地址
@@ -585,13 +619,10 @@ class TestE2E:
         """Host-Runner 握手流程测试"""
         from src.plugin_runtime.protocol.codec import MsgPackCodec
         from src.plugin_runtime.protocol.envelope import Envelope, HelloPayload, HelloResponsePayload, MessageType
-        from src.plugin_runtime.transport.uds import UDSTransportServer, UDSTransportClient
+        from src.plugin_runtime.transport.factory import create_transport_client, create_transport_server
 
         import secrets
-        import tempfile
-        import os
 
-        socket_path = os.path.join(tempfile.gettempdir(), f"maibot-test-{os.getpid()}.sock")
         session_token = secrets.token_hex(16)
         codec = MsgPackCodec()
         handshake_done = asyncio.Event()
@@ -621,11 +652,11 @@ class TestE2E:
             # 保持连接一会儿
             await asyncio.sleep(1.0)
 
-        server = UDSTransportServer(socket_path=socket_path)
+        server = create_transport_server()
         await server.start(server_handler)
 
         # 客户端握手
-        client = UDSTransportClient(socket_path)
+        client = create_transport_client(server.get_address())
         conn = await client.connect()
 
         hello = HelloPayload(

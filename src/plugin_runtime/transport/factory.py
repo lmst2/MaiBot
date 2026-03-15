@@ -13,32 +13,36 @@ from .base import TransportClient, TransportServer
 def create_transport_server(socket_path: Optional[str] = None) -> TransportServer:
     """创建传输服务端
 
-    Linux/macOS 使用 UDS，Windows 使用 TCP 回退。
+    Linux/macOS 使用 UDS，Windows 使用 Named Pipe。
 
     Args:
-        socket_path: UDS socket 路径（仅 Linux/macOS 有效）
+        socket_path: UDS socket 路径或 Windows pipe 名称
     """
     if sys.platform != "win32":
         from .uds import UDSTransportServer
 
         return UDSTransportServer(socket_path=socket_path)
     else:
-        # Windows 回退到 TCP（后续可改为 Named Pipe）
-        from .tcp import TCPTransportServer
+        from .named_pipe import NamedPipeTransportServer
 
-        return TCPTransportServer()
+        return NamedPipeTransportServer(pipe_name=socket_path)
 
 
 def create_transport_client(address: str) -> TransportClient:
     """创建传输客户端
 
     根据地址格式自动判断传输类型：
+    - 以 '\\\\.\\pipe\\' 开头 -> Windows Named Pipe
     - 包含 '/' 或 '.sock' -> UDS
     - 包含 ':' -> TCP
 
     Args:
         address: Host 端监听地址
     """
+    if address.startswith("\\\\.\\pipe\\"):
+        from .named_pipe import NamedPipeTransportClient
+
+        return NamedPipeTransportClient(address)
     if "/" in address or address.endswith(".sock"):
         from .uds import UDSTransportClient
 
