@@ -9,7 +9,7 @@
 6. 转发插件的能力调用到 Host
 """
 
-from typing import Any, List, Optional, Protocol, cast
+from typing import Any, Callable, List, Optional, Protocol, cast
 
 from pathlib import Path
 
@@ -45,6 +45,29 @@ logger = get_logger("plugin_runtime.runner.main")
 
 class _ContextAwarePlugin(Protocol):
     def _set_context(self, context: Any) -> None: ...
+
+
+def _install_shutdown_signal_handlers(
+    mark_runner_shutting_down: Callable[[], None],
+    loop: Optional[asyncio.AbstractEventLoop] = None,
+) -> None:
+    """为 Runner 注册关停信号处理器。
+
+    Windows 默认事件循环不支持 add_signal_handler，且当前 Runner 在 Windows
+    下由 Host 直接 terminate/kill，不依赖进程内信号回调进行优雅收尾。
+    """
+    if sys.platform == "win32":
+        return
+
+    target_loop = loop or asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            target_loop.add_signal_handler(sig, mark_runner_shutting_down)
+        except Exception as exc:
+            if not isinstance(exc, (NotImplementedError, RuntimeError)):
+                raise
+            logger.debug(f"当前事件循环不支持注册 Runner 信号处理器: {exc}")
+            return
 
 
 def _disable_runner_console_logging() -> None:
@@ -666,14 +689,7 @@ async def _async_main() -> None:
     def _mark_runner_shutting_down() -> None:
         runner._shutting_down = True
 
-    loop = asyncio.get_event_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            loop.add_signal_handler(sig, _mark_runner_shutting_down)
-        except NotImplementedError:
-            logger.warning(f"当前平台/事件循环不支持 signal handler，跳过注册信号 {sig!s}")
-        except RuntimeError as exc:
-            logger.warning(f"注册信号处理器失败，跳过信号 {sig!s}: {exc}")
+    _install_shutdown_signal_handlers(_mark_runner_shutting_down)
 
     await runner.run()
 

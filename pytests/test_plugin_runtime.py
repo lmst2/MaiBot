@@ -534,6 +534,22 @@ class TestSDK:
 class TestPluginSdkUsage:
     """验证仓库内插件按新 SDK 归一化返回值工作。"""
 
+    def test_runner_skips_signal_handler_registration_on_windows(self, monkeypatch):
+        """Windows 下不应尝试注册 add_signal_handler。"""
+        from src.plugin_runtime.runner import runner_main
+
+        registered_signals = []
+
+        class DummyLoop:
+            def add_signal_handler(self, sig, callback):
+                registered_signals.append((sig, callback))
+
+        monkeypatch.setattr(runner_main.sys, "platform", "win32")
+
+        runner_main._install_shutdown_signal_handlers(lambda: None, DummyLoop())
+
+        assert not registered_signals
+
     @pytest.mark.asyncio
     async def test_builtin_emoji_plugin_handles_normalized_results(self):
         from maibot_sdk.context import PluginContext
