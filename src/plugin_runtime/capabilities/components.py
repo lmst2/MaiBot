@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Protocol
 
 from src.common.logger import get_logger
@@ -19,9 +20,9 @@ class _RuntimeComponentManagerProtocol(Protocol):
         self, name: str, component_type: str
     ) -> tuple[Optional["RegisteredComponent"], Optional[str]]: ...
 
-    def _find_duplicate_plugin_ids(self, plugin_dirs: List[str]) -> Dict[str, List[str]]: ...
+    def _find_duplicate_plugin_ids(self, plugin_dirs: List[Path]) -> Dict[str, List[Path]]: ...
 
-    def _iter_plugin_dirs(self) -> Iterable[str]: ...
+    def _iter_plugin_dirs(self) -> Iterable[Path]: ...
 
 
 class RuntimeComponentCapabilityMixin:
@@ -159,11 +160,9 @@ class RuntimeComponentCapabilityMixin:
         if not plugin_name:
             return {"success": False, "error": "缺少必要参数 plugin_name"}
 
-        import os
-
         if duplicate_plugin_ids := self._find_duplicate_plugin_ids(list(self._iter_plugin_dirs())):
             details = "; ".join(
-                f"{conflict_plugin_id}: {', '.join(paths)}"
+                f"{conflict_plugin_id}: {', '.join(str(path) for path in paths)}"
                 for conflict_plugin_id, paths in sorted(duplicate_plugin_ids.items())
             )
             return {"success": False, "error": f"检测到重复插件 ID，拒绝热重载: {details}"}
@@ -185,7 +184,7 @@ class RuntimeComponentCapabilityMixin:
 
         for sv in self.supervisors:
             for pdir in sv._plugin_dirs:
-                if os.path.isdir(os.path.join(pdir, plugin_name)):
+                if (pdir / plugin_name).is_dir():
                     try:
                         reloaded = await sv.reload_plugins(reason=f"load {plugin_name}")
                         if reloaded:
@@ -211,7 +210,7 @@ class RuntimeComponentCapabilityMixin:
 
         if duplicate_plugin_ids := self._find_duplicate_plugin_ids(list(self._iter_plugin_dirs())):
             details = "; ".join(
-                f"{conflict_plugin_id}: {', '.join(paths)}"
+                f"{conflict_plugin_id}: {', '.join(str(path) for path in paths)}"
                 for conflict_plugin_id, paths in sorted(duplicate_plugin_ids.items())
             )
             return {"success": False, "error": f"检测到重复插件 ID，拒绝热重载: {details}"}

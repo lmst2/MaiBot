@@ -14,6 +14,7 @@ import contextlib
 import logging as stdlib_logging
 import os
 import sys
+from pathlib import Path
 
 from src.common.logger import get_logger
 from src.config.config import MMC_VERSION, global_config
@@ -95,7 +96,7 @@ class PluginSupervisor:
 
     def __init__(
         self,
-        plugin_dirs: Optional[List[str]] = None,
+        plugin_dirs: Optional[List[Path]] = None,
         socket_path: Optional[str] = None,
         health_check_interval_sec: Optional[float] = None,
         max_restart_attempts: Optional[int] = None,
@@ -520,7 +521,7 @@ class PluginSupervisor:
         env = os.environ.copy()
         env[ENV_IPC_ADDRESS] = address
         env[ENV_SESSION_TOKEN] = token
-        env[ENV_PLUGIN_DIRS] = os.pathsep.join(self._plugin_dirs)
+        env[ENV_PLUGIN_DIRS] = os.pathsep.join(str(p) for p in self._plugin_dirs)
         env[ENV_HOST_VERSION] = MMC_VERSION
 
         self._runner_process = await asyncio.create_subprocess_exec(
