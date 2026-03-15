@@ -6,6 +6,7 @@
 from types import SimpleNamespace
 
 import asyncio
+import json
 import os
 import sys
 
@@ -870,6 +871,63 @@ class TestDependencyResolution:
 
         order, failed = loader._resolve_dependencies(candidates)
         assert len(failed) >= 1  # 至少一个循环插件被标记
+
+    def test_loader_supports_package_imports_inside_create_plugin(self, tmp_path):
+        from src.plugin_runtime.runner.plugin_loader import PluginLoader
+
+        plugin_root = tmp_path / "plugins"
+        plugin_root.mkdir()
+        plugin_dir = plugin_root / "grok_search_plugin"
+        plugin_dir.mkdir()
+
+        (plugin_dir / "_manifest.json").write_text(
+            json.dumps(
+                {
+                    "name": "grok_search_plugin",
+                    "version": "1.0.0",
+                    "description": "demo",
+                    "author": "tester",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (plugin_dir / "__init__.py").write_text("VALUE = 1\n", encoding="utf-8")
+        (plugin_dir / "services.py").write_text("def answer():\n    return 42\n", encoding="utf-8")
+        (plugin_dir / "plugin.py").write_text(
+            "class DemoPlugin:\n"
+            "    pass\n\n"
+            "def create_plugin():\n"
+            "    from grok_search_plugin.services import answer\n"
+            "    plugin = DemoPlugin()\n"
+            "    plugin.answer = answer\n"
+            "    return plugin\n",
+            encoding="utf-8",
+        )
+
+        loader = PluginLoader()
+        loaded = loader.discover_and_load([str(plugin_root)])
+
+        assert [meta.plugin_id for meta in loaded] == ["grok_search_plugin"]
+        assert loader.failed_plugins == {}
+        assert loaded[0].instance.answer() == 42
+
+    def test_isolate_sys_path_preserves_plugin_dirs(self):
+        from src.plugin_runtime.runner import runner_main
+
+        plugin_root = os.path.normpath("/tmp/maibot-plugin-root")
+        original_path = list(sys.path)
+        original_meta_path = list(sys.meta_path)
+
+        try:
+            if plugin_root in sys.path:
+                sys.path.remove(plugin_root)
+
+            runner_main._isolate_sys_path([plugin_root])
+
+            assert plugin_root in sys.path
+        finally:
+            sys.path[:] = original_path
+            sys.meta_path[:] = original_meta_path
 
 
 # ─── Host-side ComponentRegistry 测试 ──────────────────────

@@ -9,6 +9,7 @@
 from collections import deque
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+import contextlib
 import importlib
 import importlib.util
 import json
@@ -239,35 +240,59 @@ class PluginLoader:
 
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
-        spec.loader.exec_module(module)
 
-        # 优先使用新版 create_plugin 工厂函数
-        create_plugin = getattr(module, "create_plugin", None)
-        if create_plugin is not None:
-            instance = create_plugin()
-            logger.info(f"插件 {plugin_id} v{manifest.get('version', '?')} 加载成功")
-            return PluginMeta(
-                plugin_id=plugin_id,
-                plugin_dir=plugin_dir,
-                plugin_instance=instance,
-                manifest=manifest,
-            )
+        plugin_parent_dir = os.path.normpath(os.path.dirname(plugin_dir))
+        with self._temporary_sys_path_entry(plugin_parent_dir):
+            spec.loader.exec_module(module)
 
-        # 回退：检测旧版 @register_plugin 标记的 BasePlugin 子类
-        instance = self._try_load_legacy_plugin(module, plugin_id)
-        if instance is not None:
-            logger.info(
-                f"插件 {plugin_id} v{manifest.get('version', '?')} 通过旧版兼容层加载成功（请尽快迁移到 maibot_sdk）"
-            )
-            return PluginMeta(
-                plugin_id=plugin_id,
-                plugin_dir=plugin_dir,
-                plugin_instance=instance,
-                manifest=manifest,
-            )
+            # 优先使用新版 create_plugin 工厂函数
+            create_plugin = getattr(module, "create_plugin", None)
+            if create_plugin is not None:
+                instance = create_plugin()
+                logger.info(f"插件 {plugin_id} v{manifest.get('version', '?')} 加载成功")
+                return PluginMeta(
+                    plugin_id=plugin_id,
+                    plugin_dir=plugin_dir,
+                    plugin_instance=instance,
+                    manifest=manifest,
+                )
+
+            # 回退：检测旧版 @register_plugin 标记的 BasePlugin 子类
+            instance = self._try_load_legacy_plugin(module, plugin_id)
+            if instance is not None:
+                logger.info(
+                    f"插件 {plugin_id} v{manifest.get('version', '?')} 通过旧版兼容层加载成功（请尽快迁移到 maibot_sdk）"
+                )
+                return PluginMeta(
+                    plugin_id=plugin_id,
+                    plugin_dir=plugin_dir,
+                    plugin_instance=instance,
+                    manifest=manifest,
+                )
 
         logger.error(f"插件 {plugin_id} 缺少 create_plugin 工厂函数且未检测到旧版 BasePlugin")
         return None
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _temporary_sys_path_entry(path: str):
+        """临时将路径放入 sys.path 头部，并在离开作用域后恢复。"""
+        if not path:
+            yield
+            return
+
+        normalized_path = os.path.normpath(path)
+        existing_paths = {os.path.normpath(entry) for entry in sys.path}
+        inserted = normalized_path not in existing_paths
+        if inserted:
+            sys.path.insert(0, normalized_path)
+
+        try:
+            yield
+        finally:
+            if inserted:
+                with contextlib.suppress(ValueError):
+                    sys.path.remove(normalized_path)
 
     # ──── 旧版插件兼容 ────────────────────────────────────────
 
