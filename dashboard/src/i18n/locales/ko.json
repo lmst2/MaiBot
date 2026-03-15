@@ -1,5 +1,4 @@
 {
-  "language": { "zh": "中文", "en": "English", "ja": "日本語", "ko": "한국어" },
   "header": {
     "collapseSidebar": "사이드바 접기",
     "expandSidebar": "사이드바 펼치기",
