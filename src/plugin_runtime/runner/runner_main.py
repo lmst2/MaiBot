@@ -627,14 +627,19 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
             allowed.add(p)
 
     # 添加插件目录
-    for d in plugin_dirs:
-        allowed.add(os.path.normpath(d))
+    plugin_dir_paths = [os.path.normpath(d) for d in plugin_dirs]
+    for d in plugin_dir_paths:
+        allowed.add(d)
 
     # 添加项目根目录（使得 src.plugin_runtime / src.common 可导入）
     runtime_root = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
     allowed.add(runtime_root)
 
-    sys.path[:] = [p for p in sys.path if p in allowed]
+    preserved_paths = [p for p in sys.path if p in allowed]
+    for extra_path in [*plugin_dir_paths, runtime_root]:
+        if extra_path not in preserved_paths:
+            preserved_paths.append(extra_path)
+    sys.path[:] = preserved_paths
 
     # 安装 import 钩子，阻止插件导入主程序核心模块
     # 仅允许 src.plugin_runtime 和 src.common，拒绝其他 src.* 子包

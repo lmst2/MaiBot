@@ -9,6 +9,7 @@
 from collections import deque
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+import contextlib
 import importlib
 import importlib.util
 import json
@@ -239,7 +240,19 @@ class PluginLoader:
 
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
-        spec.loader.exec_module(module)
+
+        plugin_parent_dir = os.path.dirname(plugin_dir)
+        inserted_plugin_parent = False
+        if plugin_parent_dir and plugin_parent_dir not in sys.path:
+            sys.path.insert(0, plugin_parent_dir)
+            inserted_plugin_parent = True
+
+        try:
+            spec.loader.exec_module(module)
+        finally:
+            if inserted_plugin_parent:
+                with contextlib.suppress(ValueError):
+                    sys.path.remove(plugin_parent_dir)
 
         # 优先使用新版 create_plugin 工厂函数
         create_plugin = getattr(module, "create_plugin", None)
