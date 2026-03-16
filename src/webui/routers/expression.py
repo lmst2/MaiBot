@@ -5,14 +5,13 @@ from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-
 from sqlalchemy import case, func
-from sqlmodel import col, select, delete
+from sqlmodel import col, delete, select
 
-from src.common.logger import get_logger
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Expression
-from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
+from src.common.logger import get_logger
 from src.webui.dependencies import require_auth
 
 logger = get_logger("webui.expression")

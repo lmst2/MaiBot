@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -51,8 +51,8 @@ class MirrorConfigResponse(BaseModel):
 
 
 class AvailableMirrorsResponse(BaseModel):
-    mirrors: list[MirrorConfigResponse] = Field(..., description="镜像源列表")
-    default_priority: list[str] = Field(..., description="默认优先级顺序（ID 列表）")
+    mirrors: List[MirrorConfigResponse] = Field(..., description="镜像源列表")
+    default_priority: List[str] = Field(..., description="默认优先级顺序（ID 列表）")
 
 
 class AddMirrorRequest(BaseModel):
@@ -106,7 +106,7 @@ class UpdatePluginRequest(BaseModel):
 
 class UpdatePluginConfigRequest(BaseModel):
     enabled: Optional[bool] = None
-    config: Optional[dict[str, Any]] = None
+    config: Optional[Dict[str, Any]] = None
 
 
 class UpdatePluginRawConfigRequest(BaseModel):

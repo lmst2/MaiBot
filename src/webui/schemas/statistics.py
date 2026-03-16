@@ -1,5 +1,6 @@
+from typing import Any, Dict, List
+
 from pydantic import BaseModel, Field
-from typing import Dict, Any, List
 
 
 class StatisticsSummary(BaseModel):

@@ -1,18 +1,16 @@
-from typing import Iterable
-
 import ipaddress
 import socket
-
+from typing import Iterable, Set
 from urllib.parse import urlparse
 
 
-def _resolve_ip_addresses(hostname: str, port: int) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+def _resolve_ip_addresses(hostname: str, port: int) -> Set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
     try:
         address_infos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:
         raise ValueError(f"无法解析主机名: {hostname}") from exc
 
-    resolved_addresses: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
+    resolved_addresses: Set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
     for _, _, _, _, sockaddr in address_infos:
         host_address = sockaddr[0]
         if not isinstance(host_address, str):

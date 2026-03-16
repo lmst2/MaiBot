@@ -1,7 +1,7 @@
 """统计数据 API 路由"""
 
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -56,10 +56,10 @@ class DashboardData(BaseModel):
     """仪表盘数据"""
 
     summary: StatisticsSummary
-    model_stats: list[ModelStatistics]
-    hourly_data: list[TimeSeriesData]
-    daily_data: list[TimeSeriesData]
-    recent_activity: list[dict[str, Any]]
+    model_stats: List[ModelStatistics]
+    hourly_data: List[TimeSeriesData]
+    daily_data: List[TimeSeriesData]
+    recent_activity: List[Dict[str, Any]]
 
 
 @router.get("/dashboard", response_model=DashboardData)
@@ -168,7 +168,7 @@ async def _get_summary_statistics(start_time: datetime, end_time: datetime) -> S
     return summary
 
 
-async def _get_model_statistics(start_time: datetime) -> list[ModelStatistics]:
+async def _get_model_statistics(start_time: datetime) -> List[ModelStatistics]:
     """获取模型统计数据（优化：使用数据库聚合和分组）"""
     # 使用GROUP BY聚合，避免全量加载
     statement = (
@@ -181,7 +181,7 @@ async def _get_model_statistics(start_time: datetime) -> list[ModelStatistics]:
     with get_db_session() as session:
         rows = session.exec(statement).all()
 
-        aggregates: dict[str, dict[str, float | int]] = {}
+        aggregates: Dict[str, Dict[str, float | int]] = {}
         for record in rows:
             model_name = record.model_assign_name or record.model_name or "unknown"
             if model_name not in aggregates:
@@ -200,7 +200,7 @@ async def _get_model_statistics(start_time: datetime) -> list[ModelStatistics]:
                 bucket["total_time_cost"] = float(bucket["total_time_cost"]) + float(record.time_cost)
                 bucket["time_cost_count"] = int(bucket["time_cost_count"]) + 1
 
-    result: list[ModelStatistics] = []
+    result: List[ModelStatistics] = []
     for model_name, bucket in sorted(
         aggregates.items(),
         key=lambda item: float(item[1]["request_count"]),
@@ -221,7 +221,7 @@ async def _get_model_statistics(start_time: datetime) -> list[ModelStatistics]:
     return result
 
 
-async def _get_hourly_statistics(start_time: datetime, end_time: datetime) -> list[TimeSeriesData]:
+async def _get_hourly_statistics(start_time: datetime, end_time: datetime) -> List[TimeSeriesData]:
     """获取小时级统计数据（优化：使用数据库聚合）"""
     # SQLite的日期时间函数进行小时分组
     # 使用strftime将timestamp格式化为小时级别
@@ -265,7 +265,7 @@ async def _get_hourly_statistics(start_time: datetime, end_time: datetime) -> li
     return result
 
 
-async def _get_daily_statistics(start_time: datetime, end_time: datetime) -> list[TimeSeriesData]:
+async def _get_daily_statistics(start_time: datetime, end_time: datetime) -> List[TimeSeriesData]:
     """获取日级统计数据（优化：使用数据库聚合）"""
     # 使用strftime按日期分组
     day_expr = func.strftime("%Y-%m-%dT00:00:00", col(ModelUsage.timestamp))
@@ -308,7 +308,7 @@ async def _get_daily_statistics(start_time: datetime, end_time: datetime) -> lis
     return result
 
 
-async def _get_recent_activity(limit: int = 10) -> list[dict[str, Any]]:
+async def _get_recent_activity(limit: int = 10) -> List[Dict[str, Any]]:
     """获取最近活动"""
     with get_db_session() as session:
         statement = select(ModelUsage).order_by(desc(col(ModelUsage.timestamp))).limit(limit)

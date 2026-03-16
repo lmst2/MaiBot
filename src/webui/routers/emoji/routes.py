@@ -1,13 +1,12 @@
 """表情包管理 API 路由"""
 
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Optional
-
 import asyncio
 import hashlib
 import io
 import os
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Cookie, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
@@ -17,7 +16,8 @@ from sqlmodel import col, select
 
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Images, ImageType
-from src.webui.core import get_token_manager, verify_auth_token_from_cookie_or_header as verify_auth_token
+from src.webui.core import get_token_manager
+from src.webui.core import verify_auth_token_from_cookie_or_header as verify_auth_token
 
 from .schemas import (
     BatchDeleteRequest,
@@ -219,7 +219,7 @@ async def delete_emoji(emoji_id: int, maibot_session: Optional[str] = Cookie(Non
 
 
 @router.get("/stats/summary")
-async def get_emoji_stats(maibot_session: Optional[str] = Cookie(None)) -> dict[str, Any]:
+async def get_emoji_stats(maibot_session: Optional[str] = Cookie(None)) -> Dict[str, Any]:
     """获取表情包统计数据。"""
     try:
         verify_auth_token(maibot_session)
@@ -247,7 +247,7 @@ async def get_emoji_stats(maibot_session: Optional[str] = Cookie(None)) -> dict[
             registered = session.exec(registered_statement).one()
             banned = session.exec(banned_statement).one()
 
-            formats: dict[str, int] = {}
+            formats: Dict[str, int] = {}
             format_statement = select(Images.full_path).where(col(Images.image_type) == ImageType.EMOJI)
             for full_path in session.exec(format_statement).all():
                 suffix = Path(full_path).suffix.lower().lstrip(".")
@@ -443,7 +443,7 @@ async def batch_delete_emojis(
 
         deleted_count = 0
         failed_count = 0
-        failed_ids: list[int] = []
+        failed_ids: List[int] = []
 
         for emoji_id in request.emoji_ids:
             try:
@@ -582,12 +582,12 @@ async def batch_upload_emoji(
     emotion: EmotionForm = "",
     is_registered: IsRegisteredForm = True,
     maibot_session: Optional[str] = Cookie(None),
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """批量上传表情包。"""
     try:
         verify_auth_token(maibot_session)
 
-        results: dict[str, Any] = {
+        results: Dict[str, Any] = {
             "success": True,
             "total": len(files),
             "uploaded": 0,
@@ -614,9 +614,7 @@ async def batch_upload_emoji(
                 file_content = await file.read()
                 if not file_content:
                     results["failed"] += 1
-                    results["details"].append(
-                        {"filename": file.filename, "success": False, "error": "文件内容为空"}
-                    )
+                    results["details"].append({"filename": file.filename, "success": False, "error": "文件内容为空"})
                     continue
 
                 try:
@@ -677,14 +675,10 @@ async def batch_upload_emoji(
                     session.flush()
 
                     results["uploaded"] += 1
-                    results["details"].append(
-                        {"filename": file.filename, "success": True, "id": emoji.id}
-                    )
+                    results["details"].append({"filename": file.filename, "success": True, "id": emoji.id})
             except Exception as e:
                 results["failed"] += 1
-                results["details"].append(
-                    {"filename": file.filename, "success": False, "error": str(e)}
-                )
+                results["details"].append({"filename": file.filename, "success": False, "error": str(e)})
 
         results["message"] = f"成功上传 {results['uploaded']} 个，失败 {results['failed']} 个"
         return results
@@ -787,7 +781,9 @@ async def preheat_thumbnail_cache(
 
             try:
                 loop = asyncio.get_event_loop()
-                await loop.run_in_executor(get_thumbnail_executor(), generate_thumbnail, emoji.full_path, emoji.image_hash)
+                await loop.run_in_executor(
+                    get_thumbnail_executor(), generate_thumbnail, emoji.full_path, emoji.image_hash
+                )
                 generated += 1
             except Exception as e:
                 logger.warning(f"预热缩略图失败 {emoji.image_hash}: {e}")

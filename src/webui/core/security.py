@@ -6,7 +6,7 @@ WebUI Token 管理模块
 import json
 import secrets
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 from src.common.logger import get_logger
 
@@ -52,7 +52,7 @@ class TokenManager:
                 logger.error(f"读取 WebUI 配置文件失败: {e}，正在重新创建")
                 self._create_new_token()
 
-    def _load_config(self) -> dict:
+    def _load_config(self) -> Dict:
         """加载配置文件"""
         try:
             with open(self.config_path, "r", encoding="utf-8") as f:
@@ -61,7 +61,7 @@ class TokenManager:
             logger.error(f"加载 WebUI 配置失败: {e}")
             return {}
 
-    def _save_config(self, config: dict):
+    def _save_config(self, config: Dict):
         """保存配置文件"""
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
@@ -127,7 +127,7 @@ class TokenManager:
 
         return is_valid
 
-    def update_token(self, new_token: str) -> tuple[bool, str]:
+    def update_token(self, new_token: str) -> Tuple[bool, str]:
         """
         更新 token
 
@@ -208,7 +208,7 @@ class TokenManager:
         except ValueError:
             return False
 
-    def _validate_custom_token(self, token: str) -> tuple[bool, str]:
+    def _validate_custom_token(self, token: str) -> Tuple[bool, str]:
         """
         验证自定义 token 格式
 

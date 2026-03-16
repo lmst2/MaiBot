@@ -1,10 +1,11 @@
 """知识库图谱可视化 API 路由"""
 
-from typing import Any, List, Optional
+import logging
+from typing import Any, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-import logging
+
 from src.config.config import global_config
 from src.webui.dependencies import require_auth
 
@@ -59,7 +60,7 @@ def _get_paragraph_store():
         return None
 
 
-def _get_paragraph_content(node_id: str) -> tuple[Optional[str], bool]:
+def _get_paragraph_content(node_id: str) -> Tuple[Optional[str], bool]:
     """从 embedding store 获取段落完整内容
 
     Args:

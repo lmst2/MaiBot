@@ -1,9 +1,11 @@
 """WebSocket 日志推送模块"""
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
-from typing import Set, Optional
 import json
 from pathlib import Path
+from typing import Dict, List, Optional, Set
+
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+
 from src.common.logger import get_logger
 from src.webui.core import get_token_manager
 from src.webui.routers.websocket.auth import verify_ws_token
@@ -15,7 +17,7 @@ router = APIRouter()
 active_connections: Set[WebSocket] = set()
 
 
-def load_recent_logs(limit: int = 100) -> list[dict]:
+def load_recent_logs(limit: int = 100) -> List[Dict]:
     """从日志文件中加载最近的日志
 
     Args:
@@ -140,7 +142,7 @@ async def websocket_logs(websocket: WebSocket, token: Optional[str] = Query(None
         active_connections.discard(websocket)
 
 
-async def broadcast_log(log_data: dict):
+async def broadcast_log(log_data: Dict):
     """广播日志到所有连接的 WebSocket 客户端
 
     Args:

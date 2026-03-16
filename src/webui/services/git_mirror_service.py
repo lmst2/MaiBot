@@ -1,14 +1,16 @@
 """Git 镜像源服务 - 支持多镜像源、错误重试、Git 克隆和 Raw 文件获取"""
 
-from typing import Optional, List, Dict, Any
-from enum import Enum
-import httpx
-import json
 import asyncio
-import subprocess
+import json
 import shutil
-from pathlib import Path
+import subprocess
 from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import httpx
+
 from src.common.logger import get_logger
 from src.webui.utils.network_security import validate_public_url
 
@@ -188,10 +190,8 @@ class GitMirrorConfig:
 
     def get_mirror_by_id(self, mirror_id: str) -> Optional[Dict[str, Any]]:
         """根据 ID 获取镜像源"""
-        for mirror in self.mirrors:
-            if mirror.get("id") == mirror_id:
-                return mirror.copy()
-        return None
+        matched_mirror = next((mirror for mirror in self.mirrors if mirror.get("id") == mirror_id), None)
+        return matched_mirror.copy() if matched_mirror is not None else None
 
     def add_mirror(
         self,
@@ -332,8 +332,8 @@ class GitMirrorService:
                 - path: str - Git 可执行文件路径（如果已安装）
                 - error: str - 错误信息（如果未安装或检测失败）
         """
-        import subprocess
         import shutil
+        import subprocess
 
         try:
             # 查找 git 可执行文件路径
@@ -409,8 +409,7 @@ class GitMirrorService:
         # 确定要使用的镜像源列表
         if mirror_id:
             # 使用指定的镜像源
-            mirror = self.config.get_mirror_by_id(mirror_id)
-            if not mirror:
+            if (mirror := self.config.get_mirror_by_id(mirror_id)) is None:
                 return {"success": False, "error": f"未找到镜像源: {mirror_id}", "mirror_used": None, "attempts": 0}
             mirrors_to_try = [mirror]
         else:
@@ -477,7 +476,13 @@ class GitMirrorService:
         try:
             raw_prefix = _validate_mirror_prefix(mirror["raw_prefix"], "镜像 Raw 前缀")
         except ValueError as e:
-            return {"success": False, "error": str(e), "mirror_used": mirror.get("id"), "attempts": 0, "status_code": 400}
+            return {
+                "success": False,
+                "error": str(e),
+                "mirror_used": mirror.get("id"),
+                "attempts": 0,
+                "status_code": 400,
+            }
 
         url = f"{raw_prefix}/{owner}/{repo}/{branch}/{file_path}"
 
@@ -566,8 +571,7 @@ class GitMirrorService:
         # 确定要使用的镜像源列表
         if mirror_id:
             # 使用指定的镜像源
-            mirror = self.config.get_mirror_by_id(mirror_id)
-            if not mirror:
+            if (mirror := self.config.get_mirror_by_id(mirror_id)) is None:
                 return {"success": False, "error": f"未找到镜像源: {mirror_id}", "mirror_used": None, "attempts": 0}
             mirrors_to_try = [mirror]
         else:
@@ -597,7 +601,13 @@ class GitMirrorService:
         try:
             clone_prefix = _validate_mirror_prefix(mirror["clone_prefix"], "镜像克隆前缀")
         except ValueError as e:
-            return {"success": False, "error": str(e), "mirror_used": mirror.get("id"), "attempts": 0, "status_code": 400}
+            return {
+                "success": False,
+                "error": str(e),
+                "mirror_used": mirror.get("id"),
+                "attempts": 0,
+                "status_code": 400,
+            }
 
         url = f"{clone_prefix}/{owner}/{repo}.git"
 

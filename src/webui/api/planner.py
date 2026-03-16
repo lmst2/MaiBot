@@ -8,10 +8,9 @@
 3. 详情按需加载
 """
 
+import json
 from pathlib import Path
 from typing import Dict, List, Optional
-
-import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -272,8 +271,7 @@ async def get_all_logs(page: int = Query(1, ge=1), page_size: int = Query(20, ge
     all_files = []
     for chat_dir in PLAN_LOG_DIR.iterdir():
         if chat_dir.is_dir():
-            for log_file in chat_dir.glob("*.json"):
-                all_files.append((chat_dir.name, log_file))
+            all_files.extend((chat_dir.name, log_file) for log_file in chat_dir.glob("*.json"))
 
     # 按时间戳排序
     all_files.sort(key=lambda x: parse_timestamp_from_filename(x[1].name), reverse=True)

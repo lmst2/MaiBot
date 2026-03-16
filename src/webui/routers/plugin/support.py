@@ -1,12 +1,11 @@
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Optional, cast, get_origin
-
 import json
 import os
 import re
 import shutil
 import stat
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, cast, get_origin
 
 from fastapi import HTTPException
 
@@ -53,10 +52,7 @@ def _resolve_safe_plugin_directory(plugin_path: Path, plugins_dir: Path, strict:
         resolved_plugin_path = plugin_path.resolve()
         resolved_plugin_path.relative_to(resolved_plugins_dir)
 
-        if not resolved_plugin_path.is_dir():
-            return None
-
-        return resolved_plugin_path
+        return resolved_plugin_path if resolved_plugin_path.is_dir() else None
     except HTTPException:
         if strict:
             raise
@@ -64,7 +60,7 @@ def _resolve_safe_plugin_directory(plugin_path: Path, plugins_dir: Path, strict:
         return None
     except (OSError, RuntimeError, ValueError):
         if strict:
-            raise HTTPException(status_code=400, detail="插件目录超出允许范围")
+            raise HTTPException(status_code=400, detail="插件目录超出允许范围") from None
         logger.warning(f"已跳过越界的插件目录: {plugin_path}")
         return None
 
@@ -109,7 +105,7 @@ def validate_plugin_id(plugin_id: str) -> str:
     return plugin_id
 
 
-def parse_version(version_str: str) -> tuple[int, int, int]:
+def parse_version(version_str: str) -> Tuple[int, int, int]:
     base_version = re.split(r"[-.](?:snapshot|dev|alpha|beta|rc)", version_str, flags=re.IGNORECASE)[0]
     parts = base_version.split(".")
     if len(parts) < 3:
@@ -122,7 +118,7 @@ def parse_version(version_str: str) -> tuple[int, int, int]:
         return 0, 0, 0
 
 
-def deep_merge(dst: dict[str, Any], src: dict[str, Any]) -> None:
+def deep_merge(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
     for key, value in src.items():
         if key in dst and isinstance(dst[key], dict) and isinstance(value, dict):
             deep_merge(dst[key], value)
@@ -130,9 +126,9 @@ def deep_merge(dst: dict[str, Any], src: dict[str, Any]) -> None:
             dst[key] = value
 
 
-def normalize_dotted_keys(obj: dict[str, Any]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    dotted_items: list[tuple[str, Any]] = []
+def normalize_dotted_keys(obj: Dict[str, Any]) -> Dict[str, Any]:
+    result: Dict[str, Any] = {}
+    dotted_items: List[Tuple[str, Any]] = []
 
     for key, value in obj.items():
         if "." in key:
@@ -167,7 +163,7 @@ def normalize_dotted_keys(obj: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def coerce_types(schema_part: dict[str, Any], config_part: dict[str, Any]) -> None:
+def coerce_types(schema_part: Dict[str, Any], config_part: Dict[str, Any]) -> None:
     def is_list_type(tp: Any) -> bool:
         origin = get_origin(tp)
         return tp is list or origin is list
@@ -200,7 +196,7 @@ def get_plugins_dir() -> Path:
     return plugins_dir
 
 
-def get_plugin_candidate_paths(plugin_id: str) -> tuple[Path, Path]:
+def get_plugin_candidate_paths(plugin_id: str) -> Tuple[Path, Path]:
     plugins_dir = get_plugins_dir()
     folder_name = plugin_id.replace(".", "_")
     return validate_safe_path(folder_name, plugins_dir), validate_safe_path(plugin_id, plugins_dir)
@@ -217,7 +213,7 @@ def resolve_installed_plugin_path(plugin_id: str) -> Optional[Path]:
     return None
 
 
-def parse_repository_url(repository_url: str) -> tuple[str, str, str]:
+def parse_repository_url(repository_url: str) -> Tuple[str, str, str]:
     repo_url = repository_url.rstrip("/").removesuffix(".git")
     parts = repo_url.split("/")
     if len(parts) < 2:
@@ -225,7 +221,7 @@ def parse_repository_url(repository_url: str) -> tuple[str, str, str]:
     return repo_url, parts[-2], parts[-1]
 
 
-def load_manifest_json(manifest_path: Path) -> Optional[dict[str, Any]]:
+def load_manifest_json(manifest_path: Path) -> Optional[Dict[str, Any]]:
     if not manifest_path.exists():
         return None
 
@@ -246,9 +242,9 @@ def load_manifest_json(manifest_path: Path) -> Optional[dict[str, Any]]:
         return None
 
 
-def iter_plugin_directories() -> list[Path]:
+def iter_plugin_directories() -> List[Path]:
     plugins_dir = get_plugins_dir()
-    plugin_directories: list[Path] = []
+    plugin_directories: List[Path] = []
     for path in plugins_dir.iterdir():
         safe_path = _resolve_safe_plugin_directory(path, plugins_dir, strict=False)
         if safe_path is not None:

@@ -1,14 +1,13 @@
 """人物信息管理 API 路由"""
 
-from datetime import datetime
 import json
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-
 from sqlalchemy import case
-from sqlmodel import col, select, delete
+from sqlmodel import col, delete, select
 
 from src.common.database.database import get_db_session
 from src.common.database.database_model import PersonInfo

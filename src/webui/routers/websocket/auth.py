@@ -1,10 +1,11 @@
 """WebSocket 认证模块。"""
 
-from typing import Optional
-
-from fastapi import APIRouter, Cookie
 import secrets
 import time
+from typing import Dict, Optional, Tuple
+
+from fastapi import APIRouter, Cookie
+
 from src.common.logger import get_logger
 from src.webui.core import get_token_manager
 
@@ -13,7 +14,7 @@ router = APIRouter()
 
 # WebSocket 临时 token 存储 {token: (expire_time, session_token)}
 # 临时 token 有效期 60 秒，仅用于 WebSocket 握手
-_ws_temp_tokens: dict[str, tuple[float, str]] = {}
+_ws_temp_tokens: Dict[str, Tuple[float, str]] = {}
 _WS_TOKEN_EXPIRE_SECONDS = 60
 
 

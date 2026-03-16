@@ -1,8 +1,7 @@
 """黑话（俚语）管理路由"""
 
 import json
-
-from typing import Annotated, Any, List, Optional
+from typing import Annotated, Any, Dict, List, Optional, Set
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -90,7 +89,7 @@ class JargonListResponse(BaseModel):
     total: int
     page: int
     page_size: int
-    data: List[dict[str, Any]]
+    data: List[Dict[str, Any]]
 
 
 class JargonDetailResponse(BaseModel):
@@ -153,7 +152,7 @@ class JargonStatsResponse(BaseModel):
     """黑话统计响应"""
 
     success: bool = True
-    data: dict[str, Any]
+    data: Dict[str, Any]
 
 
 class ChatInfoResponse(BaseModel):
@@ -175,7 +174,7 @@ class ChatListResponse(BaseModel):
 # ==================== 工具函数 ====================
 
 
-def parse_session_id_dict(session_id_dict_str: Optional[str]) -> dict[str, int]:
+def parse_session_id_dict(session_id_dict_str: Optional[str]) -> Dict[str, int]:
     """解析会话计数字典。"""
     if not session_id_dict_str:
         return {}
@@ -188,7 +187,7 @@ def parse_session_id_dict(session_id_dict_str: Optional[str]) -> dict[str, int]:
     if not isinstance(parsed, dict):
         return {}
 
-    session_counts: dict[str, int] = {}
+    session_counts: Dict[str, int] = {}
     for session_id, count in parsed.items():
         if not isinstance(session_id, str):
             continue
@@ -202,7 +201,7 @@ def parse_session_id_dict(session_id_dict_str: Optional[str]) -> dict[str, int]:
     return session_counts
 
 
-def dump_session_id_dict(session_counts: dict[str, int]) -> str:
+def dump_session_id_dict(session_counts: Dict[str, int]) -> str:
     """序列化会话计数字典。"""
     return json.dumps(session_counts, ensure_ascii=False)
 
@@ -225,7 +224,7 @@ def build_session_id_dict_for_chat(chat_id: str, count: int = 1) -> str:
     return dump_session_id_dict({chat_id: count})
 
 
-def jargon_to_dict(jargon: Jargon, session: Session) -> dict[str, Any]:
+def jargon_to_dict(jargon: Jargon, session: Session) -> Dict[str, Any]:
     """将 Jargon ORM 对象转换为字典"""
     chat_id = get_primary_chat_id(jargon.session_id_dict)
     chat_name = get_display_name_for_chat_id(chat_id, session) if chat_id else None
@@ -311,14 +310,16 @@ async def get_chat_list():
         with get_db_session() as session:
             jargons = session.exec(select(Jargon)).all()
 
-        seen_stream_ids: set[str] = set()
+        seen_stream_ids: Set[str] = set()
         for jargon in jargons:
             seen_stream_ids.update(parse_session_id_dict(jargon.session_id_dict).keys())
 
         result = []
         with get_db_session() as session:
             for stream_id in seen_stream_ids:
-                if chat_session := session.exec(select(ChatSession).where(col(ChatSession.session_id) == stream_id)).first():
+                if chat_session := session.exec(
+                    select(ChatSession).where(col(ChatSession.session_id) == stream_id)
+                ).first():
                     chat_name = str(chat_session.group_id) if chat_session.group_id else stream_id[:20]
                     result.append(
                         ChatInfoResponse(
@@ -358,7 +359,7 @@ async def get_jargon_stats():
         pending = sum(jargon.is_jargon is None for jargon in jargons)
         complete_count = sum(jargon.is_complete for jargon in jargons)
 
-        top_chats_counter: dict[str, int] = {}
+        top_chats_counter: Dict[str, int] = {}
         for jargon in jargons:
             for session_id in parse_session_id_dict(jargon.session_id_dict):
                 top_chats_counter[session_id] = top_chats_counter.get(session_id, 0) + 1

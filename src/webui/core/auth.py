@@ -3,8 +3,10 @@
 from typing import Optional
 
 from fastapi import Cookie, HTTPException, Request, Response
+
 from src.common.logger import get_logger
 from src.config.config import global_config
+
 from .security import get_token_manager
 
 logger = get_logger("webui.auth")
@@ -54,6 +56,7 @@ def get_current_token(
     if not is_token_valid(maibot_session):
         raise HTTPException(status_code=401, detail="Token 无效或已过期")
 
+    assert maibot_session is not None
     return maibot_session
 
 

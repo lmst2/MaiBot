@@ -1,8 +1,7 @@
 """本地聊天室路由 - WebUI 与麦麦直接对话。"""
 
 import uuid
-
-from typing import Optional
+from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import case, func
@@ -36,7 +35,7 @@ async def get_chat_history(
     limit: int = Query(default=50, ge=1, le=200),
     user_id: Optional[str] = Query(default=None),
     group_id: Optional[str] = Query(default=None),
-) -> dict[str, object]:
+) -> Dict[str, object]:
     """获取聊天历史记录。"""
     del user_id
     target_group_id = group_id or WEBUI_CHAT_GROUP_ID
@@ -45,7 +44,7 @@ async def get_chat_history(
 
 
 @router.get("/platforms")
-async def get_available_platforms() -> dict[str, object]:
+async def get_available_platforms() -> Dict[str, object]:
     """获取可用平台列表。"""
     try:
         with get_db_session() as session:
@@ -68,7 +67,7 @@ async def get_persons_by_platform(
     platform: str = Query(..., description="平台名称"),
     search: Optional[str] = Query(default=None, description="搜索关键词"),
     limit: int = Query(default=50, ge=1, le=200),
-) -> dict[str, object]:
+) -> Dict[str, object]:
     """获取指定平台的用户列表。"""
     try:
         statement = select(PersonInfo).where(col(PersonInfo.platform) == platform)
@@ -108,7 +107,7 @@ async def get_persons_by_platform(
 @router.delete("/history")
 async def clear_chat_history(
     group_id: Optional[str] = Query(default=None),
-) -> dict[str, object]:
+) -> Dict[str, object]:
     """清空聊天历史记录。"""
     deleted = chat_history.clear_history(group_id)
     return {"success": True, "message": f"已清空 {deleted} 条聊天记录"}
@@ -164,7 +163,7 @@ async def websocket_chat(
 
 
 @router.get("/info")
-async def get_chat_info() -> dict[str, object]:
+async def get_chat_info() -> Dict[str, object]:
     """获取聊天室信息。"""
     return {
         "bot_name": global_config.bot.nickname,

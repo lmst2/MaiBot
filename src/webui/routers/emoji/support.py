@@ -1,8 +1,8 @@
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Dict, Set, Tuple
 
 from PIL import Image
 from sqlmodel import col, select
@@ -18,10 +18,10 @@ THUMBNAIL_SIZE = (200, 200)
 THUMBNAIL_QUALITY = 80
 EMOJI_REGISTERED_DIR = os.path.join("data", "emoji_registed")
 
-_thumbnail_locks: dict[str, threading.Lock] = {}
+_thumbnail_locks: Dict[str, threading.Lock] = {}
 _locks_lock = threading.Lock()
 _thumbnail_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="thumbnail")
-_generating_thumbnails: set[str] = set()
+_generating_thumbnails: Set[str] = set()
 _generating_lock = threading.Lock()
 
 
@@ -35,7 +35,7 @@ def get_generating_lock() -> threading.Lock:
     return _generating_lock
 
 
-def get_generating_thumbnails() -> set[str]:
+def get_generating_thumbnails() -> Set[str]:
     """获取正在生成的缩略图哈希集合。"""
     return _generating_thumbnails
 
@@ -112,7 +112,7 @@ def background_generate_thumbnail(source_path: str, file_hash: str) -> None:
     _background_generate_thumbnail(source_path, file_hash)
 
 
-def cleanup_orphaned_thumbnails() -> tuple[int, int]:
+def cleanup_orphaned_thumbnails() -> Tuple[int, int]:
     """清理孤立的缩略图缓存。"""
     if not THUMBNAIL_CACHE_DIR.exists():
         return 0, 0

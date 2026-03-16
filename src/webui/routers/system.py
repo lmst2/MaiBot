@@ -10,8 +10,9 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from src.config.config import MMC_VERSION
+
 from src.common.logger import get_logger
+from src.config.config import MMC_VERSION
 from src.webui.dependencies import require_auth
 
 router = APIRouter(prefix="/system", tags=["system"], dependencies=[Depends(require_auth)])

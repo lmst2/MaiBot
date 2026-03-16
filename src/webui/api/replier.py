@@ -8,10 +8,9 @@
 3. 详情按需加载
 """
 
+import json
 from pathlib import Path
 from typing import Dict, List, Optional
-
-import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel

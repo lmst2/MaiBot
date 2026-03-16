@@ -5,8 +5,10 @@ WebUI 请求频率限制模块
 
 import time
 from collections import defaultdict
-from typing import Dict, Tuple, Optional
-from fastapi import Request, HTTPException
+from typing import Dict, List, Optional, Tuple
+
+from fastapi import HTTPException, Request
+
 from src.common.logger import get_logger
 
 logger = get_logger("webui.rate_limiter")
@@ -21,7 +23,7 @@ class RateLimiter:
 
     def __init__(self):
         # 存储格式: {key: [(timestamp, count), ...]}
-        self._requests: Dict[str, list] = defaultdict(list)
+        self._requests: Dict[str, List] = defaultdict(list)
         # 被封禁的 IP: {ip: unblock_timestamp}
         self._blocked: Dict[str, float] = {}
 

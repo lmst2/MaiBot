@@ -5,9 +5,9 @@
 """
 
 import os
-import httpx
-from typing import Optional
+from typing import Dict, List, Optional
 
+import httpx
 import tomlkit
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -39,7 +39,7 @@ def _normalize_url(url: str) -> str:
     return url.rstrip("/") if url else ""
 
 
-def _parse_openai_response(data: dict) -> list[dict]:
+def _parse_openai_response(data: Dict) -> List[Dict]:
     """
     解析 OpenAI 格式的模型列表响应
 
@@ -59,7 +59,7 @@ def _parse_openai_response(data: dict) -> list[dict]:
     ]
 
 
-def _parse_gemini_response(data: dict) -> list[dict]:
+def _parse_gemini_response(data: Dict) -> List[Dict]:
     """
     解析 Gemini 格式的模型列表响应
 
@@ -89,7 +89,7 @@ async def _fetch_models_from_provider(
     endpoint: str,
     parser: str,
     client_type: str = "openai",
-) -> list[dict]:
+) -> List[Dict]:
     """
     从提供商 API 获取模型列表
 
@@ -154,7 +154,7 @@ async def _fetch_models_from_provider(
         raise HTTPException(status_code=400, detail=f"不支持的解析器类型: {parser}")
 
 
-def _get_provider_config(provider_name: str) -> Optional[dict]:
+def _get_provider_config(provider_name: str) -> Optional[Dict]:
     """
     从 model_config.toml 获取指定提供商的配置
 

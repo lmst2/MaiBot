@@ -1,6 +1,5 @@
-from typing import Any, Optional
-
 import json
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Cookie, HTTPException
 
@@ -28,7 +27,7 @@ logger = get_logger("webui.plugin_routes")
 router = APIRouter()
 
 
-def _mirror_to_response(mirror: dict[str, Any]) -> MirrorConfigResponse:
+def _mirror_to_response(mirror: Dict[str, Any]) -> MirrorConfigResponse:
     return MirrorConfigResponse(
         id=mirror["id"],
         name=mirror["name"],
@@ -116,7 +115,7 @@ async def update_mirror(
 
 
 @router.delete("/mirrors/{mirror_id}")
-async def delete_mirror(mirror_id: str, maibot_session: Optional[str] = Cookie(None)) -> dict[str, Any]:
+async def delete_mirror(mirror_id: str, maibot_session: Optional[str] = Cookie(None)) -> Dict[str, Any]:
     require_plugin_token(maibot_session)
 
     service = get_git_mirror_service()
@@ -172,12 +171,16 @@ async def fetch_raw_file(
                     loaded_plugins=total,
                 )
             except Exception:
-                await update_progress(stage="success", progress=100, message="加载完成", total_plugins=0, loaded_plugins=0)
+                await update_progress(
+                    stage="success", progress=100, message="加载完成", total_plugins=0, loaded_plugins=0
+                )
 
         return FetchRawFileResponse(**result)
     except Exception as e:
         logger.error(f"获取 Raw 文件失败: {e}")
-        await update_progress(stage="error", progress=0, message="加载失败", error=str(e), total_plugins=0, loaded_plugins=0)
+        await update_progress(
+            stage="error", progress=0, message="加载失败", error=str(e), total_plugins=0, loaded_plugins=0
+        )
         raise HTTPException(status_code=500, detail=f"服务器错误: {str(e)}") from e
 
 

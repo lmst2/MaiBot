@@ -1,8 +1,7 @@
-from typing import Any, Optional, cast
-
 import json
-import tomlkit
+from typing import Any, Dict, Optional, cast
 
+import tomlkit
 from fastapi import APIRouter, Cookie, HTTPException
 
 from src.common.logger import get_logger
@@ -24,8 +23,8 @@ logger = get_logger("webui.plugin_routes")
 router = APIRouter()
 
 
-def _build_schema_from_current_config(plugin_id: str, current_config: Any) -> dict[str, Any]:
-    schema: dict[str, Any] = {
+def _build_schema_from_current_config(plugin_id: str, current_config: Any) -> Dict[str, Any]:
+    schema: Dict[str, Any] = {
         "plugin_id": plugin_id,
         "plugin_info": {
             "name": plugin_id,
@@ -41,7 +40,7 @@ def _build_schema_from_current_config(plugin_id: str, current_config: Any) -> di
     for section_name, section_data in current_config.items():
         if not isinstance(section_data, dict):
             continue
-        section_fields: dict[str, Any] = {}
+        section_fields: Dict[str, Any] = {}
         for field_name, field_value in section_data.items():
             field_type = type(field_value).__name__
             ui_type = "text"
@@ -121,7 +120,7 @@ def _build_schema_from_current_config(plugin_id: str, current_config: Any) -> di
 
 
 @router.get("/config/{plugin_id}/schema")
-async def get_plugin_config_schema(plugin_id: str, maibot_session: Optional[str] = Cookie(None)) -> dict[str, Any]:
+async def get_plugin_config_schema(plugin_id: str, maibot_session: Optional[str] = Cookie(None)) -> Dict[str, Any]:
     require_plugin_token(maibot_session)
     logger.info(f"获取插件配置 Schema: {plugin_id}")
 
@@ -157,7 +156,7 @@ async def get_plugin_config_schema(plugin_id: str, maibot_session: Optional[str]
 
 
 @router.get("/config/{plugin_id}/raw")
-async def get_plugin_config_raw(plugin_id: str, maibot_session: Optional[str] = Cookie(None)) -> dict[str, Any]:
+async def get_plugin_config_raw(plugin_id: str, maibot_session: Optional[str] = Cookie(None)) -> Dict[str, Any]:
     require_plugin_token(maibot_session)
     logger.info(f"获取插件原始配置: {plugin_id}")
 
@@ -184,7 +183,7 @@ async def update_plugin_config_raw(
     plugin_id: str,
     request: UpdatePluginRawConfigRequest,
     maibot_session: Optional[str] = Cookie(None),
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     require_plugin_token(maibot_session)
     logger.info(f"更新插件原始配置: {plugin_id}")
 
@@ -216,7 +215,7 @@ async def update_plugin_config_raw(
 
 
 @router.get("/config/{plugin_id}")
-async def get_plugin_config(plugin_id: str, maibot_session: Optional[str] = Cookie(None)) -> dict[str, Any]:
+async def get_plugin_config(plugin_id: str, maibot_session: Optional[str] = Cookie(None)) -> Dict[str, Any]:
     require_plugin_token(maibot_session)
     logger.info(f"获取插件配置: {plugin_id}")
 
@@ -244,7 +243,7 @@ async def update_plugin_config(
     plugin_id: str,
     request: UpdatePluginConfigRequest,
     maibot_session: Optional[str] = Cookie(None),
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     require_plugin_token(maibot_session)
     logger.info(f"更新插件配置: {plugin_id}")
 
@@ -276,7 +275,7 @@ async def update_plugin_config(
 
 
 @router.post("/config/{plugin_id}/reset")
-async def reset_plugin_config(plugin_id: str, maibot_session: Optional[str] = Cookie(None)) -> dict[str, Any]:
+async def reset_plugin_config(plugin_id: str, maibot_session: Optional[str] = Cookie(None)) -> Dict[str, Any]:
     require_plugin_token(maibot_session)
     logger.info(f"重置插件配置: {plugin_id}")
 
@@ -300,7 +299,7 @@ async def reset_plugin_config(plugin_id: str, maibot_session: Optional[str] = Co
 
 
 @router.post("/config/{plugin_id}/toggle")
-async def toggle_plugin(plugin_id: str, maibot_session: Optional[str] = Cookie(None)) -> dict[str, Any]:
+async def toggle_plugin(plugin_id: str, maibot_session: Optional[str] = Cookie(None)) -> Dict[str, Any]:
     require_plugin_token(maibot_session)
     logger.info(f"切换插件状态: {plugin_id}")
 
@@ -326,7 +325,12 @@ async def toggle_plugin(plugin_id: str, maibot_session: Optional[str] = Cookie(N
 
         status = "启用" if new_enabled else "禁用"
         logger.info(f"已{status}插件: {plugin_id}")
-        return {"success": True, "enabled": new_enabled, "message": f"插件已{status}", "note": "状态更改将在下次加载插件时生效"}
+        return {
+            "success": True,
+            "enabled": new_enabled,
+            "message": f"插件已{status}",
+            "note": "状态更改将在下次加载插件时生效",
+        }
     except HTTPException:
         raise
     except Exception as e:

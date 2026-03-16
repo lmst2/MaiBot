@@ -1,5 +1,5 @@
 import inspect
-from typing import Any, get_args, get_origin
+from typing import Any, Dict, List, get_args, get_origin
 
 from pydantic_core import PydanticUndefined
 
@@ -8,13 +8,13 @@ from src.config.config_base import ConfigBase
 
 class ConfigSchemaGenerator:
     @classmethod
-    def generate_schema(cls, config_class: type[ConfigBase], include_nested: bool = True) -> dict[str, Any]:
+    def generate_schema(cls, config_class: type[ConfigBase], include_nested: bool = True) -> Dict[str, Any]:
         return cls.generate_config_schema(config_class, include_nested=include_nested)
 
     @classmethod
-    def generate_config_schema(cls, config_class: type[ConfigBase], include_nested: bool = True) -> dict[str, Any]:
-        fields: list[dict[str, Any]] = []
-        nested: dict[str, dict[str, Any]] = {}
+    def generate_config_schema(cls, config_class: type[ConfigBase], include_nested: bool = True) -> Dict[str, Any]:
+        fields: List[Dict[str, Any]] = []
+        nested: Dict[str, Dict[str, Any]] = {}
 
         for field_name, field_info in config_class.model_fields.items():
             if field_name in {"field_docs", "_validate_any", "suppress_any_warning"}:
@@ -28,7 +28,7 @@ class ConfigSchemaGenerator:
                 if nested_schema is not None:
                     nested[field_name] = nested_schema
 
-        schema: dict[str, Any] = {
+        schema: Dict[str, Any] = {
             "className": config_class.__name__,
             "classDoc": (config_class.__doc__ or "").strip(),
             "fields": fields,
@@ -49,7 +49,7 @@ class ConfigSchemaGenerator:
         return schema
 
     @classmethod
-    def _build_nested_schema(cls, annotation: Any) -> dict[str, Any] | None:
+    def _build_nested_schema(cls, annotation: Any) -> Dict[str, Any] | None:
         origin = get_origin(annotation)
         args = get_args(annotation)
 
@@ -66,10 +66,10 @@ class ConfigSchemaGenerator:
     @classmethod
     def _build_field_schema(
         cls, config_class: type[ConfigBase], field_name: str, annotation: Any, field_info: Any
-    ) -> dict[str, Any]:
+    ) -> Dict[str, Any]:
         field_docs = config_class.get_class_field_docs()
         field_type = cls._map_field_type(annotation)
-        schema: dict[str, Any] = {
+        schema: Dict[str, Any] = {
             "name": field_name,
             "type": field_type,
             "label": field_name,
@@ -86,8 +86,7 @@ class ConfigSchemaGenerator:
         if origin is list and args:
             schema["items"] = {"type": cls._map_field_type(args[0])}
 
-        options = cls._extract_options(annotation)
-        if options:
+        if options := cls._extract_options(annotation):
             schema["options"] = options
 
         # Task 1c: Merge json_schema_extra (x-widget, x-icon, step, etc.)
@@ -105,7 +104,7 @@ class ConfigSchemaGenerator:
         return schema
 
     @staticmethod
-    def _extract_options(annotation: Any) -> list[str] | None:
+    def _extract_options(annotation: Any) -> List[str] | None:
         origin = get_origin(annotation)
         if origin is None:
             return None

@@ -3,11 +3,12 @@ WebUI 防爬虫模块
 提供爬虫检测和阻止功能，保护 WebUI 不被搜索引擎和恶意爬虫访问
 """
 
-import time
 import ipaddress
 import re
+import time
 from collections import deque
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
@@ -131,7 +132,7 @@ SCANNER_SPECIFIC_HEADERS = {
 # - CIDR格式：192.168.1.0/24, 172.17.0.0/16 (适用于Docker网络)
 # - 通配符：192.168.*.*, 10.*.*.*, *.*.*.* (匹配所有)
 # - IPv6：::1, 2001:db8::/32
-def _parse_allowed_ips(ip_string: str) -> list:
+def _parse_allowed_ips(ip_string: str) -> List:
     """
     解析IP白名单字符串，支持精确IP、CIDR格式和通配符
 
@@ -255,7 +256,7 @@ TRUSTED_PROXIES = _config["trusted_proxies"]
 TRUST_XFF = _config["trust_xff"]
 
 
-def _get_mode_config(mode: str) -> dict:
+def _get_mode_config(mode: str) -> Dict:
     """
     根据模式获取配置参数
 
@@ -338,7 +339,7 @@ class AntiCrawlerMiddleware(BaseHTTPMiddleware):
         self.block_on_detect = config["block_on_detect"]  # 是否阻止检测到的恶意访问
 
         # 用于存储每个IP的请求时间戳（使用deque提高性能）
-        self.request_times: dict[str, deque] = {}
+        self.request_times: Dict[str, deque] = {}
         # 上次清理时间
         self.last_cleanup = time.time()
         # 将关键词列表转换为集合以提高查找性能
@@ -407,7 +408,7 @@ class AntiCrawlerMiddleware(BaseHTTPMiddleware):
 
         return False
 
-    def _detect_asset_scanner(self, request: Request) -> tuple[bool, Optional[str]]:
+    def _detect_asset_scanner(self, request: Request) -> Tuple[bool, Optional[str]]:
         """
         检测资产测绘工具
 

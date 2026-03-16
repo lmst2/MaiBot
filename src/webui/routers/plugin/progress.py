@@ -1,7 +1,6 @@
 import asyncio
 import json
-
-from typing import Any, Optional, Set
+from typing import Any, Dict, Optional, Set
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
@@ -14,7 +13,7 @@ logger = get_logger("webui.plugin_progress")
 router = APIRouter()
 
 active_connections: Set[WebSocket] = set()
-current_progress: dict[str, Any] = {
+current_progress: Dict[str, Any] = {
     "operation": "idle",
     "stage": "idle",
     "progress": 0,
@@ -26,7 +25,7 @@ current_progress: dict[str, Any] = {
 }
 
 
-async def broadcast_progress(progress_data: dict[str, Any]) -> None:
+async def broadcast_progress(progress_data: Dict[str, Any]) -> None:
     global current_progress
     current_progress = progress_data.copy()
 
@@ -34,7 +33,7 @@ async def broadcast_progress(progress_data: dict[str, Any]) -> None:
         return
 
     message = json.dumps(progress_data, ensure_ascii=False)
-    disconnected: set[WebSocket] = set()
+    disconnected: Set[WebSocket] = set()
 
     for websocket in active_connections:
         try:

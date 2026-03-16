@@ -2,24 +2,26 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
+
 from src.common.logger import get_logger
 from src.webui.core import (
-    clear_auth_cookie,
     check_auth_rate_limit,
+    clear_auth_cookie,
     get_rate_limiter,
     get_token_manager,
     set_auth_cookie,
 )
 from src.webui.dependencies import require_auth, verify_token_optional
 from src.webui.routers.config import router as config_router
-from src.webui.routers.statistics import router as statistics_router
-from src.webui.routers.person import router as person_router
+from src.webui.routers.emoji import router as emoji_router
 from src.webui.routers.expression import router as expression_router
 from src.webui.routers.jargon import router as jargon_router
-from src.webui.routers.emoji import router as emoji_router
-from src.webui.routers.plugin import get_progress_router, router as plugin_router
-from src.webui.routers.system import router as system_router
 from src.webui.routers.model import router as model_router
+from src.webui.routers.person import router as person_router
+from src.webui.routers.plugin import get_progress_router
+from src.webui.routers.plugin import router as plugin_router
+from src.webui.routers.statistics import router as statistics_router
+from src.webui.routers.system import router as system_router
 from src.webui.routers.websocket.auth import router as ws_auth_router
 
 logger = get_logger("webui.api")

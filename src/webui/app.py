@@ -1,11 +1,12 @@
 """FastAPI 应用工厂 - 创建和配置 WebUI 应用实例"""
 
+import mimetypes
+import shutil
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
 from subprocess import CompletedProcess, TimeoutExpired, run
-import mimetypes
-import shutil
+from typing import Any, Dict, List, Tuple
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -61,12 +62,12 @@ def _get_dashboard_root() -> Path:
     return _get_project_root() / "dashboard"
 
 
-def _format_dashboard_shell_commands(*commands: list[str]) -> str:
+def _format_dashboard_shell_commands(*commands: List[str]) -> str:
     formatted_commands = " && ".join(" ".join(command) for command in commands)
     return f"cd dashboard && {formatted_commands}"
 
 
-def _validate_static_path(static_path: Path | None) -> tuple[str, dict[str, object]] | None:
+def _validate_static_path(static_path: Path | None) -> Tuple[str, Dict[str, Any]] | None:
     if static_path is None:
         return "startup.webui_static_dir_missing", {}
 
@@ -81,7 +82,7 @@ def _validate_static_path(static_path: Path | None) -> tuple[str, dict[str, obje
 
 
 def _summarize_command_output(command_result: CompletedProcess[str] | TimeoutExpired) -> str:
-    output_chunks: list[str] = []
+    output_chunks: List[str] = []
     stdout = command_result.stdout
     stderr = command_result.stderr
 
@@ -111,14 +112,18 @@ def _get_preferred_dashboard_package_manager(dashboard_root: Path) -> str:
     return "npm"
 
 
-def _get_dashboard_build_command(dashboard_root: Path) -> list[str] | None:
+def _get_dashboard_build_command(dashboard_root: Path) -> List[str] | None:
     if not (dashboard_root / "package.json").exists():
         return None
 
     preferred_package_manager = _get_preferred_dashboard_package_manager(dashboard_root)
     package_managers = [
         preferred_package_manager,
-        *[package_manager for package_manager in _DASHBOARD_BUILD_COMMANDS if package_manager != preferred_package_manager],
+        *[
+            package_manager
+            for package_manager in _DASHBOARD_BUILD_COMMANDS
+            if package_manager != preferred_package_manager
+        ],
     ]
 
     for package_manager in package_managers:
@@ -128,8 +133,10 @@ def _get_dashboard_build_command(dashboard_root: Path) -> list[str] | None:
     return None
 
 
-def _get_dashboard_manual_recovery_command(dashboard_root: Path, build_command: list[str] | None = None) -> str:
-    package_manager = build_command[0] if build_command is not None else _get_preferred_dashboard_package_manager(dashboard_root)
+def _get_dashboard_manual_recovery_command(dashboard_root: Path, build_command: List[str] | None = None) -> str:
+    package_manager = (
+        build_command[0] if build_command is not None else _get_preferred_dashboard_package_manager(dashboard_root)
+    )
     install_command = _DASHBOARD_INSTALL_COMMANDS.get(package_manager)
     selected_build_command = _DASHBOARD_BUILD_COMMANDS.get(package_manager)
 
@@ -308,8 +315,8 @@ def _setup_cors(app: FastAPI, port: int):
 
 def _setup_anti_crawler(app: FastAPI):
     try:
-        from src.webui.middleware import AntiCrawlerMiddleware
         from src.config.config import global_config
+        from src.webui.middleware import AntiCrawlerMiddleware
 
         anti_crawler_mode = global_config.webui.anti_crawler_mode
         app.add_middleware(AntiCrawlerMiddleware, mode=anti_crawler_mode)

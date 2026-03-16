@@ -1,9 +1,8 @@
 """WebUI 聊天路由支持逻辑。"""
 
-from typing import Any, Optional, cast
-
 import time
 import uuid
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from fastapi import WebSocket
 from pydantic import BaseModel
@@ -59,7 +58,7 @@ class ChatHistoryManager:
     def __init__(self, max_messages: int = 200) -> None:
         self.max_messages = max_messages
 
-    def _message_to_dict(self, msg: SessionMessage, group_id: Optional[str] = None) -> dict[str, Any]:
+    def _message_to_dict(self, msg: SessionMessage, group_id: Optional[str] = None) -> Dict[str, Any]:
         user_info = msg.message_info.user_info
         user_id = user_info.user_id or ""
         is_bot = is_bot_self(msg.platform, user_id)
@@ -78,7 +77,7 @@ class ChatHistoryManager:
         target_group_id = group_id or WEBUI_CHAT_GROUP_ID
         return SessionUtils.calculate_session_id(WEBUI_CHAT_PLATFORM, group_id=target_group_id)
 
-    def get_history(self, limit: int = 50, group_id: Optional[str] = None) -> list[dict[str, Any]]:
+    def get_history(self, limit: int = 50, group_id: Optional[str] = None) -> List[Dict[str, Any]]:
         target_group_id = group_id or WEBUI_CHAT_GROUP_ID
         session_id = self._resolve_session_id(target_group_id)
         try:
@@ -114,8 +113,8 @@ class ChatConnectionManager:
     """聊天连接管理器。"""
 
     def __init__(self) -> None:
-        self.active_connections: dict[str, WebSocket] = {}
-        self.user_sessions: dict[str, str] = {}
+        self.active_connections: Dict[str, WebSocket] = {}
+        self.user_sessions: Dict[str, str] = {}
 
     async def connect(self, websocket: WebSocket, session_id: str, user_id: str) -> None:
         await websocket.accept()
@@ -130,14 +129,14 @@ class ChatConnectionManager:
             del self.user_sessions[user_id]
         logger.info(f"WebUI 聊天会话已断开: session={session_id}")
 
-    async def send_message(self, session_id: str, message: dict[str, Any]) -> None:
+    async def send_message(self, session_id: str, message: Dict[str, Any]) -> None:
         if session_id in self.active_connections:
             try:
                 await self.active_connections[session_id].send_json(message)
             except Exception as e:
                 logger.error(f"发送消息失败: {e}")
 
-    async def broadcast(self, message: dict[str, Any]) -> None:
+    async def broadcast(self, message: Dict[str, Any]) -> None:
         for session_id in list(self.active_connections.keys()):
             await self.send_message(session_id, message)
 
@@ -224,8 +223,8 @@ def build_session_info_message(
     user_id: str,
     user_name: str,
     virtual_config: Optional[VirtualIdentityConfig],
-) -> dict[str, Any]:
-    session_info_data: dict[str, Any] = {
+) -> Dict[str, Any]:
+    session_info_data: Dict[str, Any] = {
         "type": "session_info",
         "session_id": session_id,
         "user_id": user_id,
@@ -314,7 +313,7 @@ def resolve_sender_identity(
     current_user_name: str,
     normalized_user_id: str,
     virtual_config: Optional[VirtualIdentityConfig],
-) -> tuple[str, str]:
+) -> Tuple[str, str]:
     if is_virtual_mode_enabled(virtual_config):
         assert virtual_config is not None
         return virtual_config.user_nickname or current_user_name, virtual_config.user_id or normalized_user_id
@@ -328,7 +327,7 @@ def create_message_data(
     message_id: Optional[str] = None,
     is_at_bot: bool = True,
     virtual_config: Optional[VirtualIdentityConfig] = None,
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     if message_id is None:
         message_id = str(uuid.uuid4())
 
@@ -385,7 +384,7 @@ def create_message_data(
 
 async def handle_chat_message(
     session_id: str,
-    data: dict[str, Any],
+    data: Dict[str, Any],
     current_user_name: str,
     normalized_user_id: str,
     current_virtual_config: Optional[VirtualIdentityConfig],
@@ -443,7 +442,7 @@ async def handle_chat_ping(session_id: str) -> None:
     await chat_manager.send_message(session_id, {"type": "pong", "timestamp": time.time()})
 
 
-async def handle_nickname_update(session_id: str, data: dict[str, Any], current_user_name: str) -> str:
+async def handle_nickname_update(session_id: str, data: Dict[str, Any], current_user_name: str) -> str:
     new_name = str(data.get("user_name", "")).strip()
     if not new_name:
         return current_user_name
@@ -462,7 +461,7 @@ async def handle_nickname_update(session_id: str, data: dict[str, Any], current_
 async def enable_virtual_identity(
     session_id: str,
     session_prefix: str,
-    virtual_data: dict[str, Any],
+    virtual_data: Dict[str, Any],
 ) -> Optional[VirtualIdentityConfig]:
     if not virtual_data.get("platform") or not virtual_data.get("person_id"):
         await send_chat_error(session_id, "虚拟身份配置缺少必要字段: platform 和 person_id")
@@ -558,7 +557,7 @@ async def disable_virtual_identity(session_id: str) -> None:
 async def handle_virtual_identity_update(
     session_id: str,
     session_id_prefix: str,
-    data: dict[str, Any],
+    data: Dict[str, Any],
     current_virtual_config: Optional[VirtualIdentityConfig],
 ) -> Optional[VirtualIdentityConfig]:
     virtual_data = cast(dict[str, Any], data.get("config", {}))
@@ -573,11 +572,11 @@ async def handle_virtual_identity_update(
 async def dispatch_chat_event(
     session_id: str,
     session_id_prefix: str,
-    data: dict[str, Any],
+    data: Dict[str, Any],
     current_user_name: str,
     normalized_user_id: str,
     current_virtual_config: Optional[VirtualIdentityConfig],
-) -> tuple[str, Optional[VirtualIdentityConfig]]:
+) -> Tuple[str, Optional[VirtualIdentityConfig]]:
     event_type = data.get("type")
     if event_type == "message":
         next_user_name = await handle_chat_message(

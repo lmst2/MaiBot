@@ -4,8 +4,9 @@ TOML 工具函数
 提供 TOML 文件的格式化保存功能，确保数组等元素以美观的多行格式输出。
 """
 
-from typing import Any
 import re
+from typing import Any
+
 import tomlkit
 from tomlkit.items import AoT, Array, Table
 
