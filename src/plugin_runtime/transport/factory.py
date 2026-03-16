@@ -3,6 +3,7 @@
 根据运行平台自动选择最优传输实现。
 """
 
+from pathlib import Path
 from typing import Optional
 
 import sys
@@ -21,7 +22,7 @@ def create_transport_server(socket_path: Optional[str] = None) -> TransportServe
     if sys.platform != "win32":
         from .uds import UDSTransportServer
 
-        return UDSTransportServer(socket_path=socket_path)
+        return UDSTransportServer(socket_path=Path(socket_path) if socket_path is not None else None)
     else:
         from .named_pipe import NamedPipeTransportServer
 
@@ -46,7 +47,7 @@ def create_transport_client(address: str) -> TransportClient:
     if "/" in address or address.endswith(".sock"):
         from .uds import UDSTransportClient
 
-        return UDSTransportClient(socket_path=address)
+        return UDSTransportClient(socket_path=Path(address))
     elif ":" in address:
         from .tcp import TCPTransportClient
 
