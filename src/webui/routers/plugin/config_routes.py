@@ -206,7 +206,7 @@ async def update_plugin_config_raw(
             file_obj.write(request.config)
 
         logger.info(f"已更新插件原始配置: {plugin_id}")
-        return {"success": True, "message": "配置已保存", "note": "配置更改将在插件重新加载后生效"}
+        return {"success": True, "message": "配置已保存", "note": "配置更改将自动热更新到对应插件"}
     except HTTPException:
         raise
     except Exception as e:
@@ -266,7 +266,7 @@ async def update_plugin_config(
 
         save_toml_with_format(config_data, str(config_path))
         logger.info(f"已更新插件配置: {plugin_id}")
-        return {"success": True, "message": "配置已保存", "note": "配置更改将在插件重新加载后生效"}
+        return {"success": True, "message": "配置已保存", "note": "配置更改将自动热更新到对应插件"}
     except HTTPException:
         raise
     except Exception as e:
@@ -290,7 +290,7 @@ async def reset_plugin_config(plugin_id: str, maibot_session: Optional[str] = Co
 
         backup_path = backup_file(config_path, "reset", move_file=True)
         logger.info(f"已重置插件配置: {plugin_id}，备份: {backup_path}")
-        return {"success": True, "message": "配置已重置，下次加载插件时将使用默认配置", "backup": str(backup_path)}
+        return {"success": True, "message": "配置已重置，运行时将自动刷新为默认配置", "backup": str(backup_path)}
     except HTTPException:
         raise
     except Exception as e:
