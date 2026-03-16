@@ -14,12 +14,14 @@ export const DialogContentWithBackground = forwardRef<
   ElementRef<typeof DialogContent>,
   DialogContentWithBackgroundProps
 >(({ className, children, ...props }, ref) => {
-  const bg = useBackground('dialog')
+  const { config: bg } = useBackground('dialog')
 
   return (
-    <DialogContent ref={ref} className={cn('relative', className)} {...props}>
+    <DialogContent ref={ref} className={cn('relative isolate', className)} {...props}>
       <BackgroundLayer config={bg} layerId="dialog" />
-      {children}
+      <div className="relative z-10">
+        {children}
+      </div>
     </DialogContent>
   )
 })

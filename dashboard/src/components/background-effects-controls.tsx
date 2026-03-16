@@ -18,18 +18,9 @@ import {
   defaultBackgroundEffects,
 } from '@/lib/theme/tokens'
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/**
- * 将 HSL 字符串转换为 HEX 格式
- * (从 settings.tsx 移植)
- */
 function hslToHex(hsl: string): string {
   if (!hsl) return '#000000'
 
-  // 解析 "221.2 83.2% 53.3%" 格式
   const parts = hsl.split(' ').filter(Boolean)
   if (parts.length < 3) return '#000000'
 
@@ -39,72 +30,65 @@ function hslToHex(hsl: string): string {
 
   const sDecimal = s / 100
   const lDecimal = l / 100
-
   const c = (1 - Math.abs(2 * lDecimal - 1)) * sDecimal
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1))
   const m = lDecimal - c / 2
 
-  let r = 0,
-    g = 0,
-    b = 0
+  let r = 0
+  let g = 0
+  let b = 0
 
   if (h >= 0 && h < 60) {
     r = c
     g = x
-    b = 0
   } else if (h >= 60 && h < 120) {
     r = x
     g = c
-    b = 0
   } else if (h >= 120 && h < 180) {
-    r = 0
     g = c
     b = x
   } else if (h >= 180 && h < 240) {
-    r = 0
     g = x
     b = c
   } else if (h >= 240 && h < 300) {
     r = x
-    g = 0
     b = c
   } else if (h >= 300 && h < 360) {
     r = c
-    g = 0
     b = x
   }
 
-  const toHex = (n: number) => {
-    const hex = Math.round((n + m) * 255).toString(16)
-    return hex.length === 1 ? '0' + hex : hex
+  const toHex = (value: number) => {
+    const hex = Math.round((value + m) * 255).toString(16)
+    return hex.length === 1 ? `0${hex}` : hex
   }
 
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
 
-// ============================================================================
-// Component
-// ============================================================================
-
 type BackgroundEffectsControlsProps = {
   effects: BackgroundEffects
   onChange: (effects: BackgroundEffects) => void
+  disabled?: boolean
 }
 
 export function BackgroundEffectsControls({
   effects,
   onChange,
+  disabled = false,
 }: BackgroundEffectsControlsProps) {
-  // 处理数值变更
   const handleValueChange = (key: keyof BackgroundEffects, value: number) => {
+    if (disabled) return
+
     onChange({
       ...effects,
       [key]: value,
     })
   }
 
-  // 处理颜色变更
   const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (disabled) return
+
     const hex = e.target.value
     const hsl = hexToHSL(hex)
     onChange({
@@ -113,35 +97,38 @@ export function BackgroundEffectsControls({
     })
   }
 
-  // 处理位置变更
   const handlePositionChange = (value: string) => {
+    if (disabled) return
+
     onChange({
       ...effects,
       position: value as BackgroundEffects['position'],
     })
   }
 
-  // 处理渐变变更
   const handleGradientChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (disabled) return
+
     onChange({
       ...effects,
       gradientOverlay: e.target.value,
     })
   }
 
-  // 重置为默认值
   const handleReset = () => {
+    if (disabled) return
     onChange(defaultBackgroundEffects)
   }
 
   return (
-    <div className="space-y-6">
+    <div className={disabled ? 'space-y-6 opacity-50' : 'space-y-6'}>
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium">背景效果调节</h3>
         <Button
           variant="outline"
           size="sm"
           onClick={handleReset}
+          disabled={disabled}
           className="h-8 px-2 text-xs"
         >
           <RotateCcw className="mr-2 h-3.5 w-3.5" />
@@ -150,24 +137,21 @@ export function BackgroundEffectsControls({
       </div>
 
       <div className="grid gap-6">
-        {/* 1. Blur (模糊) */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <Label>模糊程度 (Blur)</Label>
-            <span className="text-xs text-muted-foreground">
-              {effects.blur}px
-            </span>
+            <span className="text-xs text-muted-foreground">{effects.blur}px</span>
           </div>
           <Slider
             value={[effects.blur]}
             min={0}
             max={50}
             step={1}
+            disabled={disabled}
             onValueChange={(vals) => handleValueChange('blur', vals[0])}
           />
         </div>
 
-        {/* 2. Overlay Color (遮罩颜色) */}
         <div className="space-y-3">
           <Label>遮罩颜色 (Overlay Color)</Label>
           <div className="flex items-center gap-3">
@@ -176,18 +160,19 @@ export function BackgroundEffectsControls({
                 type="color"
                 value={hslToHex(effects.overlayColor)}
                 onChange={handleColorChange}
+                disabled={disabled}
                 className="h-[150%] w-[150%] -translate-x-1/4 -translate-y-1/4 cursor-pointer border-0 p-0"
               />
             </div>
             <Input
               value={hslToHex(effects.overlayColor)}
               readOnly
+              disabled={disabled}
               className="flex-1 font-mono uppercase"
             />
           </div>
         </div>
 
-        {/* 3. Overlay Opacity (遮罩不透明度) */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <Label>遮罩不透明度 (Opacity)</Label>
@@ -200,17 +185,15 @@ export function BackgroundEffectsControls({
             min={0}
             max={100}
             step={1}
-            onValueChange={(vals) =>
-              handleValueChange('overlayOpacity', vals[0] / 100)
-            }
+            disabled={disabled}
+            onValueChange={(vals) => handleValueChange('overlayOpacity', vals[0] / 100)}
           />
         </div>
 
-        {/* 4. Position (位置) */}
         <div className="space-y-3">
           <Label>背景位置 (Position)</Label>
-          <Select value={effects.position} onValueChange={handlePositionChange}>
-            <SelectTrigger>
+          <Select value={effects.position} onValueChange={handlePositionChange} disabled={disabled}>
+            <SelectTrigger disabled={disabled}>
               <SelectValue placeholder="选择位置" />
             </SelectTrigger>
             <SelectContent>
@@ -222,69 +205,61 @@ export function BackgroundEffectsControls({
           </Select>
         </div>
 
-        {/* 5. Brightness (亮度) */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <Label>亮度 (Brightness)</Label>
-            <span className="text-xs text-muted-foreground">
-              {effects.brightness}%
-            </span>
+            <span className="text-xs text-muted-foreground">{effects.brightness}%</span>
           </div>
           <Slider
             value={[effects.brightness]}
             min={0}
             max={200}
             step={1}
+            disabled={disabled}
             onValueChange={(vals) => handleValueChange('brightness', vals[0])}
           />
         </div>
 
-        {/* 6. Contrast (对比度) */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <Label>对比度 (Contrast)</Label>
-            <span className="text-xs text-muted-foreground">
-              {effects.contrast}%
-            </span>
+            <span className="text-xs text-muted-foreground">{effects.contrast}%</span>
           </div>
           <Slider
             value={[effects.contrast]}
             min={0}
             max={200}
             step={1}
+            disabled={disabled}
             onValueChange={(vals) => handleValueChange('contrast', vals[0])}
           />
         </div>
 
-        {/* 7. Saturate (饱和度) */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <Label>饱和度 (Saturate)</Label>
-            <span className="text-xs text-muted-foreground">
-              {effects.saturate}%
-            </span>
+            <span className="text-xs text-muted-foreground">{effects.saturate}%</span>
           </div>
           <Slider
             value={[effects.saturate]}
             min={0}
             max={200}
             step={1}
+            disabled={disabled}
             onValueChange={(vals) => handleValueChange('saturate', vals[0])}
           />
         </div>
 
-        {/* 8. Gradient Overlay (渐变叠加) */}
         <div className="space-y-3">
           <Label>CSS 渐变叠加 (Gradient Overlay)</Label>
           <Input
             value={effects.gradientOverlay || ''}
             onChange={handleGradientChange}
+            disabled={disabled}
             placeholder="e.g. linear-gradient(to bottom, transparent, black)"
             className="font-mono text-xs"
           />
-          <p className="text-[10px] text-muted-foreground">
-            可选：输入有效的 CSS gradient 字符串
-          </p>
+          <p className="text-[10px] text-muted-foreground">可选：输入有效的 CSS gradient 字符串</p>
         </div>
       </div>
     </div>

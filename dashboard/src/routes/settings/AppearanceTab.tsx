@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from 'react'
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, Download, RotateCcw, Trash2, Upload } from 'lucide-react'
 
@@ -11,8 +11,8 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
-import { getComputedTokens } from '@/lib/theme/pipeline'
-import { hexToHSL } from '@/lib/theme/palette'
+import { applyThemePipeline, getComputedTokens } from '@/lib/theme/pipeline'
+import { DEFAULT_ACCENT_COLOR_HEX, DEFAULT_ACCENT_COLOR_HSL, hexToHSL } from '@/lib/theme/palette'
 import { defaultBackgroundConfig, defaultBackgroundEffects, defaultLightTokens } from '@/lib/theme/tokens'
 import { exportThemeJSON, importThemeJSON } from '@/lib/theme/storage'
 import type { BackgroundConfigMap, BackgroundEffects, ThemeTokens } from '@/lib/theme/tokens'
@@ -81,10 +81,36 @@ export function AppearanceTab() {
   const { t } = useTranslation()
   
   const [localCSS, setLocalCSS] = useState(themeConfig.customCSS || '')
+  const [accentInputValue, setAccentInputValue] = useState(() => {
+    if (themeConfig.accentColor) {
+      return hslToHex(themeConfig.accentColor)
+    }
+
+    return DEFAULT_ACCENT_COLOR_HEX
+  })
+  const [accentPreviewHex, setAccentPreviewHex] = useState(() => {
+    if (themeConfig.accentColor) {
+      return hslToHex(themeConfig.accentColor)
+    }
+
+    return DEFAULT_ACCENT_COLOR_HEX
+  })
+  const [bgDraftConfig, setBgDraftConfig] = useState<BackgroundConfigMap>(themeConfig.backgroundConfig ?? {})
   const [cssWarnings, setCssWarnings] = useState<string[]>([])
+  const accentDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cssDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const bgDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const isValidHexColor = useCallback((value: string) => /^#[0-9A-F]{6}$/i.test(value), [])
+
+  const persistAccentColor = useCallback((hex: string) => {
+    if (accentDebounceRef.current) clearTimeout(accentDebounceRef.current)
+
+    accentDebounceRef.current = setTimeout(() => {
+      updateThemeConfig({ accentColor: hexToHSL(hex) })
+    }, 160)
+  }, [updateThemeConfig])
 
   const updateTokenSection = useCallback(
     <K extends keyof ThemeTokens>(section: K, partial: Partial<ThemeTokens[K]>) => {
@@ -122,21 +148,71 @@ export function AppearanceTab() {
     }, 500)
   }, [updateThemeConfig])
 
-  const currentAccentHex = useMemo(() => {
-    if (themeConfig.accentColor) {
-      return hslToHex(themeConfig.accentColor)
+  const previewAccentHSL = useMemo(() => {
+    if (isValidHexColor(accentPreviewHex)) {
+      return hexToHSL(accentPreviewHex)
     }
-    return '#3b82f6' // 默认蓝色
+
+    return themeConfig.accentColor || DEFAULT_ACCENT_COLOR_HSL
+  }, [accentPreviewHex, isValidHexColor, themeConfig.accentColor])
+
+  const previewThemeConfig = useMemo(() => {
+    return {
+      ...themeConfig,
+      accentColor: previewAccentHSL,
+    }
+  }, [previewAccentHSL, themeConfig])
+
+  useEffect(() => {
+    const persistedHex = themeConfig.accentColor
+      ? hslToHex(themeConfig.accentColor)
+      : DEFAULT_ACCENT_COLOR_HEX
+
+    setAccentInputValue(persistedHex)
+    setAccentPreviewHex(persistedHex)
   }, [themeConfig.accentColor])
+
+  useEffect(() => {
+    setBgDraftConfig(themeConfig.backgroundConfig ?? {})
+  }, [themeConfig.backgroundConfig])
+
+  useEffect(() => {
+    applyThemePipeline(previewThemeConfig, resolvedTheme === 'dark')
+  }, [previewThemeConfig, resolvedTheme])
+
+  useEffect(() => {
+    return () => {
+      if (accentDebounceRef.current) clearTimeout(accentDebounceRef.current)
+      if (cssDebounceRef.current) clearTimeout(cssDebounceRef.current)
+      if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current)
+    }
+  }, [])
 
   const handleAccentColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const hex = e.target.value
-    const hsl = hexToHSL(hex)
-    updateThemeConfig({ accentColor: hsl })
+    setAccentInputValue(hex)
+    setAccentPreviewHex(hex)
+    persistAccentColor(hex)
+  }
+
+  const handleAccentTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.toUpperCase()
+    setAccentInputValue(value)
+
+    if (!isValidHexColor(value)) {
+      return
+    }
+
+    setAccentPreviewHex(value)
+    persistAccentColor(value)
   }
 
   const handleResetAccent = () => {
-    updateThemeConfig({ accentColor: '' })
+    if (accentDebounceRef.current) clearTimeout(accentDebounceRef.current)
+
+    setAccentInputValue(DEFAULT_ACCENT_COLOR_HEX)
+    setAccentPreviewHex(DEFAULT_ACCENT_COLOR_HEX)
+    updateThemeConfig({ accentColor: DEFAULT_ACCENT_COLOR_HSL })
   }
 
   const handleExport = () => {
@@ -178,10 +254,17 @@ export function AppearanceTab() {
   }
 
   const previewTokens = useMemo(() => {
-    return getComputedTokens(themeConfig, resolvedTheme === 'dark').color
-  }, [themeConfig, resolvedTheme])
+    return getComputedTokens(previewThemeConfig, resolvedTheme === 'dark').color
+  }, [previewThemeConfig, resolvedTheme])
 
-  const bgConfig: BackgroundConfigMap = themeConfig.backgroundConfig ?? {}
+  const bgConfig: BackgroundConfigMap = bgDraftConfig
+
+  const scheduleBackgroundConfigPersist = useCallback((nextConfig: BackgroundConfigMap) => {
+    if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current)
+    bgDebounceRef.current = setTimeout(() => {
+      updateThemeConfig({ backgroundConfig: nextConfig })
+    }, 180)
+  }, [updateThemeConfig])
 
   const handleBgAssetChange = (layerId: keyof BackgroundConfigMap, assetId: string | undefined) => {
     const current = bgConfig[layerId] ?? defaultBackgroundConfig
@@ -189,29 +272,29 @@ export function AppearanceTab() {
       ...bgConfig,
       [layerId]: { ...current, assetId, type: assetId ? 'image' : 'none' },
     }
-    if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current)
-    bgDebounceRef.current = setTimeout(() => updateThemeConfig({ backgroundConfig: newMap }), 500)
+    setBgDraftConfig(newMap)
+    scheduleBackgroundConfigPersist(newMap)
   }
 
   const handleBgEffectsChange = (layerId: keyof BackgroundConfigMap, effects: BackgroundEffects) => {
     const current = bgConfig[layerId] ?? defaultBackgroundConfig
     const newMap: BackgroundConfigMap = { ...bgConfig, [layerId]: { ...current, effects } }
-    if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current)
-    bgDebounceRef.current = setTimeout(() => updateThemeConfig({ backgroundConfig: newMap }), 500)
+    setBgDraftConfig(newMap)
+    scheduleBackgroundConfigPersist(newMap)
   }
 
   const handleBgCSSChange = (layerId: keyof BackgroundConfigMap, css: string) => {
     const current = bgConfig[layerId] ?? defaultBackgroundConfig
     const newMap: BackgroundConfigMap = { ...bgConfig, [layerId]: { ...current, customCSS: css } }
-    if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current)
-    bgDebounceRef.current = setTimeout(() => updateThemeConfig({ backgroundConfig: newMap }), 500)
+    setBgDraftConfig(newMap)
+    scheduleBackgroundConfigPersist(newMap)
   }
 
   const handleBgInheritChange = (layerId: keyof BackgroundConfigMap, inherit: boolean) => {
     const current = bgConfig[layerId] ?? defaultBackgroundConfig
     const newMap: BackgroundConfigMap = { ...bgConfig, [layerId]: { ...current, inherit } }
-    if (bgDebounceRef.current) clearTimeout(bgDebounceRef.current)
-    bgDebounceRef.current = setTimeout(() => updateThemeConfig({ backgroundConfig: newMap }), 500)
+    setBgDraftConfig(newMap)
+    scheduleBackgroundConfigPersist(newMap)
   }
 
   return (
@@ -252,7 +335,7 @@ export function AppearanceTab() {
             variant="outline" 
             size="sm" 
             onClick={handleResetAccent}
-            disabled={!themeConfig.accentColor}
+            disabled={themeConfig.accentColor === DEFAULT_ACCENT_COLOR_HSL}
             className="h-8"
           >
             <RotateCcw className="mr-2 h-3.5 w-3.5" />
@@ -267,7 +350,7 @@ export function AppearanceTab() {
               <div className="h-10 w-10 rounded-full border-2 border-border overflow-hidden relative shadow-sm">
                 <input
                   type="color"
-                  value={currentAccentHex}
+                  value={accentPreviewHex}
                   onChange={handleAccentColorChange}
                   className="absolute inset-0 w-[150%] h-[150%] -top-1/4 -left-1/4 cursor-pointer p-0 border-0"
                 />
@@ -282,8 +365,8 @@ export function AppearanceTab() {
               <Input
                 id="accent-color-input"
                 type="text"
-                value={currentAccentHex}
-                onChange={handleAccentColorChange}
+                value={accentInputValue}
+                onChange={handleAccentTextChange}
                 className="font-mono uppercase w-32"
                 maxLength={7}
               />
@@ -661,6 +744,11 @@ export function AppearanceTab() {
 
                   {(['page', 'sidebar', 'header', 'card', 'dialog'] as const).map((layerId) => (
                     <TabsContent key={layerId} value={layerId} className="space-y-4 mt-4">
+                      {(() => {
+                        const isInheritedLayer = (layerId === 'sidebar' || layerId === 'header') && (bgConfig[layerId]?.inherit ?? false)
+
+                        return (
+                          <>
                       {layerId !== 'page' && (
                         <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-3">
                           <div className="space-y-0.5">
@@ -673,19 +761,30 @@ export function AppearanceTab() {
                           />
                         </div>
                       )}
+                      {isInheritedLayer && (
+                        <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+                          该层当前直接继承界面背景，下面的资源、效果和 CSS 调节已禁用。
+                        </div>
+                      )}
                       <BackgroundUploader
                         assetId={bgConfig[layerId]?.assetId}
                         onAssetSelect={(id) => handleBgAssetChange(layerId, id)}
+                        disabled={isInheritedLayer}
                       />
                       <BackgroundEffectsControls
                         effects={bgConfig[layerId]?.effects ?? defaultBackgroundEffects}
                         onChange={(effects) => handleBgEffectsChange(layerId, effects)}
+                        disabled={isInheritedLayer}
                       />
                       <ComponentCSSEditor
                         componentId={layerId}
                         value={bgConfig[layerId]?.customCSS ?? ''}
                         onChange={(css) => handleBgCSSChange(layerId, css)}
+                        disabled={isInheritedLayer}
                       />
+                          </>
+                        )
+                      })()}
                     </TabsContent>
                   ))}
                 </Tabs>

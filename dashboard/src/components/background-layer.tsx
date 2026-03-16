@@ -8,6 +8,31 @@ type BackgroundLayerProps = {
   layerId: string
 }
 
+function getAutoOverlayOpacity(layerId: string): number {
+  switch (layerId) {
+    case 'page':
+      return 0.62
+    case 'header':
+      return 0.72
+    case 'sidebar':
+      return 0.78
+    case 'card':
+      return 0.82
+    case 'dialog':
+      return 0.88
+    default:
+      return 0.68
+  }
+}
+
+function getAutoGradientOverlay(layerId: string): string | undefined {
+  if (layerId !== 'page') {
+    return undefined
+  }
+
+  return 'linear-gradient(to bottom, hsl(var(--background) / 0.82), hsl(var(--background) / 0.52) 28%, hsl(var(--background) / 0.7) 100%)'
+}
+
 function buildFilterString(effects: BackgroundConfig['effects']): string {
   const parts: string[] = []
   if (effects.blur > 0) parts.push(`blur(${effects.blur}px)`)
@@ -84,10 +109,17 @@ export function BackgroundLayer({ config, layerId }: BackgroundLayerProps) {
 
   const filterString = buildFilterString(config.effects)
   const { overlayColor, overlayOpacity, gradientOverlay } = config.effects
+  const hasExplicitOverlay = overlayOpacity > 0
+  const effectiveOverlayOpacity = hasExplicitOverlay ? overlayOpacity : getAutoOverlayOpacity(layerId)
+  const effectiveOverlayColor = hasExplicitOverlay
+    ? `hsl(${overlayColor} / ${effectiveOverlayOpacity})`
+    : `hsl(var(--background) / ${effectiveOverlayOpacity})`
+  const effectiveGradientOverlay = gradientOverlay || getAutoGradientOverlay(layerId)
 
   return (
     <div
       key={layerId}
+      data-background-layer={layerId}
       style={{
         position: 'absolute',
         inset: 0,
@@ -136,25 +168,25 @@ export function BackgroundLayer({ config, layerId }: BackgroundLayerProps) {
         />
       )}
 
-      {overlayOpacity > 0 && (
+      {effectiveOverlayOpacity > 0 && (
         <div
           style={{
             position: 'absolute',
             inset: 0,
             zIndex: 1,
-            backgroundColor: `hsl(${overlayColor} / ${overlayOpacity})`,
+            backgroundColor: effectiveOverlayColor,
             pointerEvents: 'none',
           }}
         />
       )}
 
-      {gradientOverlay && (
+      {effectiveGradientOverlay && (
         <div
           style={{
             position: 'absolute',
             inset: 0,
             zIndex: 2,
-            background: gradientOverlay,
+            background: effectiveGradientOverlay,
             pointerEvents: 'none',
           }}
         />

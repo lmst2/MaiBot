@@ -12,9 +12,10 @@ type BackgroundUploaderProps = {
   assetId?: string
   onAssetSelect: (id: string | undefined) => void
   className?: string
+  disabled?: boolean
 }
 
-export function BackgroundUploader({ assetId, onAssetSelect, className }: BackgroundUploaderProps) {
+export function BackgroundUploader({ assetId, onAssetSelect, className, disabled = false }: BackgroundUploaderProps) {
   const { getAssetUrl } = useAssetStore()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -62,6 +63,7 @@ export function BackgroundUploader({ assetId, onAssetSelect, className }: Backgr
   }, [assetId, getAssetUrl, onAssetSelect])
 
   const handleFile = async (file: File) => {
+    if (disabled) return
     setError(null)
     setIsLoading(true)
 
@@ -87,7 +89,7 @@ export function BackgroundUploader({ assetId, onAssetSelect, className }: Backgr
   }
 
   const handleUrlUpload = async () => {
-    if (!urlInput) return
+    if (disabled || !urlInput) return
 
     setError(null)
     setIsLoading(true)
@@ -118,6 +120,7 @@ export function BackgroundUploader({ assetId, onAssetSelect, className }: Backgr
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    if (disabled) return
     if (e.type === 'dragenter' || e.type === 'dragover') {
       setDragActive(true)
     } else if (e.type === 'dragleave') {
@@ -130,12 +133,15 @@ export function BackgroundUploader({ assetId, onAssetSelect, className }: Backgr
     e.stopPropagation()
     setDragActive(false)
 
+    if (disabled) return
+
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFile(e.dataTransfer.files[0])
     }
   }
 
   const handleClear = () => {
+    if (disabled) return
     onAssetSelect(undefined)
     setPreviewUrl(undefined)
     setAssetType(undefined)
@@ -143,7 +149,7 @@ export function BackgroundUploader({ assetId, onAssetSelect, className }: Backgr
   }
 
   return (
-    <div className={cn("space-y-4", className)}>
+    <div className={cn("space-y-4", disabled && 'opacity-50', className)}>
       <div className="grid gap-2">
         <Label>背景资源</Label>
         
@@ -151,6 +157,7 @@ export function BackgroundUploader({ assetId, onAssetSelect, className }: Backgr
         <div
           className={cn(
             "relative flex min-h-[200px] flex-col items-center justify-center rounded-lg border-2 border-dashed p-4 transition-colors",
+            disabled && 'pointer-events-none',
             dragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25",
             error ? "border-destructive/50 bg-destructive/5" : "",
             assetId ? "border-solid" : ""
@@ -188,6 +195,7 @@ export function BackgroundUploader({ assetId, onAssetSelect, className }: Backgr
                   size="icon"
                   className="h-8 w-8 shadow-sm"
                   onClick={handleClear}
+                  disabled={disabled}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -212,6 +220,7 @@ export function BackgroundUploader({ assetId, onAssetSelect, className }: Backgr
                 variant="outline" 
                 size="sm"
                 onClick={() => fileInputRef.current?.click()}
+                disabled={disabled}
               >
                 选择文件
               </Button>
@@ -224,6 +233,7 @@ export function BackgroundUploader({ assetId, onAssetSelect, className }: Backgr
             className="hidden"
             accept="image/*,video/mp4,video/webm"
             onChange={(e) => {
+              if (disabled) return
               if (e.target.files?.[0]) {
                 handleFile(e.target.files[0])
               }
@@ -250,6 +260,7 @@ export function BackgroundUploader({ assetId, onAssetSelect, className }: Backgr
               placeholder="https://example.com/image.jpg"
               className="pl-9"
               value={urlInput}
+              disabled={disabled}
               onChange={(e) => setUrlInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -262,7 +273,7 @@ export function BackgroundUploader({ assetId, onAssetSelect, className }: Backgr
           <Button 
             variant="secondary" 
             onClick={handleUrlUpload}
-            disabled={!urlInput || isLoading}
+            disabled={disabled || !urlInput || isLoading}
           >
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : '获取'}
           </Button>

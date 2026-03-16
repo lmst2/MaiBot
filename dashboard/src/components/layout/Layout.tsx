@@ -101,7 +101,7 @@ export function Layout({ children }: LayoutProps) {
   }
 
   const actualTheme = getActualTheme()
-  const pageBg = useBackground('page')
+  const { config: pageBg } = useBackground('page')
 
   // 认证检查中，显示加载状态
   if (checking) {
@@ -116,7 +116,9 @@ export function Layout({ children }: LayoutProps) {
       <TooltipProvider delayDuration={300}>
         <SkipNav />
         {isElectron() && <TitleBar />}
-      <div className={cn('flex h-screen overflow-hidden', isElectron() && 'pt-8')}>
+      <div className={cn('relative isolate flex h-screen overflow-hidden', isElectron() && 'pt-8')}>
+      <BackgroundLayer config={pageBg} layerId="page" />
+      <div className="relative z-10 flex h-full w-full overflow-hidden">
       {/* Sidebar */}
       <Sidebar
         sidebarOpen={sidebarOpen}
@@ -155,14 +157,19 @@ export function Layout({ children }: LayoutProps) {
         <main
           id="main-content"
           tabIndex={-1}
-          className="relative flex-1 overflow-hidden bg-background outline-none"
+          className={cn(
+            'relative isolate flex-1 overflow-hidden outline-none',
+            pageBg.type === 'none' ? 'bg-background' : 'bg-transparent',
+          )}
         >
-          <BackgroundLayer config={pageBg} layerId="page" />
-          {children}
+          <div className="relative z-10 h-full">
+            {children}
+          </div>
         </main>
 
         {/* Back to Top Button */}
         <BackToTop />
+      </div>
       </div>
       </div>
     </TooltipProvider>

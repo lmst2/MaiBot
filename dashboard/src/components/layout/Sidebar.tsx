@@ -23,24 +23,29 @@ export function Sidebar({
   onMobileMenuClose 
 }: SidebarProps) {
   const { t } = useTranslation()
-  const sidebarBg = useBackground('sidebar')
+  const { config: sidebarBg, inheritedFrom } = useBackground('sidebar')
+  const inheritsPageBackground = inheritedFrom === 'page'
 
   return (
     <aside
       className={cn(
-        'fixed inset-y-0 left-0 z-50 flex flex-col border-r bg-card transition-all duration-300 lg:relative lg:z-0',
+        'fixed inset-y-0 left-0 z-50 isolate flex flex-col border-r transition-all duration-300 lg:relative lg:z-0',
+        inheritsPageBackground ? 'bg-transparent' : 'bg-card',
         // 移动端始终显示完整宽度，桌面端根据 sidebarOpen 切换
         'w-64 lg:w-auto',
         sidebarOpen ? 'lg:w-64' : 'lg:w-16',
         mobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
       )}
     >
-      <BackgroundLayer config={sidebarBg} layerId="sidebar" />
+      {!inheritsPageBackground && <BackgroundLayer config={sidebarBg} layerId="sidebar" />}
       
       {/* Logo 区域 */}
-      <LogoArea sidebarOpen={sidebarOpen} />
+      <div className="relative z-10">
+        <LogoArea sidebarOpen={sidebarOpen} />
+      </div>
 
       <ScrollArea className={cn(
+        'relative z-10',
         "flex-1 overflow-x-hidden",
         !sidebarOpen && "lg:w-16"
       )}>
