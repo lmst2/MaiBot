@@ -31,7 +31,7 @@ EMOJI_REGISTERED_DIR = DATA_DIR / "emoji_registered"  # 已注册的表情包注
 MAX_EMOJI_FOR_PROMPT = 20  # 最大允许的表情包描述数量于图片替换的 prompt 中
 
 
-def _ensure_directories():
+def _ensure_directories() -> None:
     """确保表情包相关目录存在"""
     EMOJI_DIR.mkdir(parents=True, exist_ok=True)
     EMOJI_REGISTERED_DIR.mkdir(parents=True, exist_ok=True)
@@ -47,13 +47,13 @@ class EmojiManager:
     表情包管理器
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         _ensure_directories()
 
         self._emoji_num: int = 0
         self.emojis: list[MaiEmoji] = []
-        self._maintenance_wakeup_event = asyncio.Event()
-        self._reload_callback_registered = False
+        self._maintenance_wakeup_event: asyncio.Event = asyncio.Event()
+        self._reload_callback_registered: bool = False
 
         config_manager.register_reload_callback(self.reload_runtime_config)
         self._reload_callback_registered = True

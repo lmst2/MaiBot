@@ -1,5 +1,6 @@
 from maim_message import MessageServer
 from rich.traceback import install
+from typing import TYPE_CHECKING
 
 import asyncio
 import time
@@ -31,17 +32,21 @@ install(extra_lines=3)
 logger = get_logger("main")
 
 
+if TYPE_CHECKING:
+    from src.webui.webui_server import WebUIServer
+
+
 class MainSystem:
-    def __init__(self):
+    def __init__(self) -> None:
         # 使用消息API替代直接的FastAPI实例
         self.app: MessageServer = get_global_api()
         self.server: Server = get_global_server()
-        self.webui_server = None  # 独立的 WebUI 服务器
+        self.webui_server: WebUIServer | None = None  # 独立的 WebUI 服务器
 
         # 设置独立的 WebUI 服务器
         self._setup_webui_server()
 
-    def _setup_webui_server(self):
+    def _setup_webui_server(self) -> None:
         """设置独立的 WebUI 服务器"""
         from src.config.config import global_config
 
@@ -57,7 +62,7 @@ class MainSystem:
         except Exception as e:
             logger.error(t("startup.webui_server_init_failed", error=e))
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """初始化系统组件"""
         logger.info(t("startup.waking_up", nickname=global_config.bot.nickname))
 
@@ -66,7 +71,7 @@ class MainSystem:
 
         logger.info(t("startup.initialization_completed_banner", nickname=global_config.bot.nickname))
 
-    async def _init_components(self):
+    async def _init_components(self) -> None:
         """初始化其他组件"""
         init_start_time = time.time()
 
@@ -128,7 +133,7 @@ class MainSystem:
             logger.error(t("startup.brain_external_world_failed", error=e))
             raise
 
-    async def schedule_tasks(self):
+    async def schedule_tasks(self) -> None:
         """调度定时任务"""
         try:
             tasks = [
@@ -155,7 +160,7 @@ class MainSystem:
     #         logger.info("[记忆遗忘] 记忆遗忘完成")
 
 
-async def main():
+async def main() -> None:
     """主函数"""
     system = MainSystem()
     try:
