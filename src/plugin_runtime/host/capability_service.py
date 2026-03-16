@@ -4,10 +4,9 @@ Host 端实现的能力服务，处理来自插件的 cap.* 请求。
 每个能力方法被注册到 RPC Server，接收 Runner 转发的请求并执行实际操作。
 """
 
-from typing import Any, Awaitable, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Coroutine, TYPE_CHECKING
 
 from src.common.logger import get_logger
-from src.plugin_runtime.host.policy_engine import PolicyEngine
 from src.plugin_runtime.protocol.envelope import (
     CapabilityRequestPayload,
     CapabilityResponsePayload,
@@ -15,10 +14,13 @@ from src.plugin_runtime.protocol.envelope import (
 )
 from src.plugin_runtime.protocol.errors import ErrorCode, RPCError
 
+if TYPE_CHECKING:
+    from src.plugin_runtime.host.authorization import AuthorizationManager
+
 logger = get_logger("plugin_runtime.host.capability_service")
 
 # 能力实现函数类型: (plugin_id, capability, args) -> result
-CapabilityImpl = Callable[[str, str, Dict[str, Any]], Awaitable[Any]]
+CapabilityImpl = Callable[[str, str, Dict[str, Any]], Coroutine[Any, Any, Any]]
 
 
 class CapabilityService:
@@ -31,8 +33,8 @@ class CapabilityService:
     4. 执行实际操作并返回结果
     """
 
-    def __init__(self, policy_engine: PolicyEngine) -> None:
-        self._policy = policy_engine
+    def __init__(self, authorization: "AuthorizationManager") -> None:
+        self._authorization = authorization
         # capability_name -> implementation
         self._implementations: Dict[str, CapabilityImpl] = {}
 
@@ -65,7 +67,7 @@ class CapabilityService:
         capability = req.capability
 
         # 1. 权限校验
-        allowed, reason = self._policy.check_capability(plugin_id, capability, envelope.generation)
+        allowed, reason = self._authorization.check_capability(plugin_id, capability)
         if not allowed:
             error_code = (
                 ErrorCode.E_GENERATION_MISMATCH if "generation 不匹配" in reason else ErrorCode.E_CAPABILITY_DENIED

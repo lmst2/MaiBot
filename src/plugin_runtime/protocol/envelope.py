@@ -65,8 +65,6 @@ class Envelope(BaseModel):
     """发送时间戳 (ms)"""
     timeout_ms: int = Field(default=30000, description="相对超时 (ms)")
     """相对超时 (ms)"""
-    generation: int = Field(default=0, description="Runner generation 编号")
-    """Runner generation 编号"""
     payload: Dict[str, Any] = Field(default_factory=dict, description="业务数据")
     """业务数据"""
     error: Optional[Dict[str, Any]] = Field(default=None, description="错误信息 (仅 response)")
@@ -91,7 +89,6 @@ class Envelope(BaseModel):
             message_type=MessageType.RESPONSE,
             method=self.method,
             plugin_id=self.plugin_id,
-            generation=self.generation,
             payload=payload or {},
             error=error,
         )
@@ -126,8 +123,6 @@ class HelloResponsePayload(BaseModel):
     """是否接受连接"""
     host_version: str = Field(default="", description="Host 版本号")
     """Host 版本号"""
-    assigned_generation: int = Field(default=0, description="分配的 generation 编号")
-    """分配的 generation 编号"""
     reason: str = Field(default="", description="拒绝原因 (若 accepted=False)")
     """拒绝原因 (若 `accepted`=`False`)"""
 
