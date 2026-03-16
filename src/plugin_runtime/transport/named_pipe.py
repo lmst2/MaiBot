@@ -3,7 +3,7 @@
 适用于 Windows 平台，使用 asyncio ProactorEventLoop 的 named pipe 支持。
 """
 
-from typing import Any, Optional, Protocol, cast
+from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, cast
 
 import asyncio
 import os
@@ -17,12 +17,24 @@ _PIPE_PREFIX = "\\\\.\\pipe\\"
 _DEFAULT_PIPE_PREFIX = "maibot-plugin"
 
 
+class _NamedPipeServerHandle(Protocol):
+    def close(self) -> None: ...
+
+
 class _NamedPipeEventLoop(Protocol):
-    async def start_serving_pipe(self, protocol_factory: Any, address: str) -> list[Any]: ...
+    async def start_serving_pipe(
+        self,
+        protocol_factory: Callable[[], asyncio.BaseProtocol],
+        address: str,
+    ) -> List[_NamedPipeServerHandle]: ...
 
-    async def create_pipe_connection(self, protocol_factory: Any, address: str) -> tuple[Any, Any]: ...
+    async def create_pipe_connection(
+        self,
+        protocol_factory: Callable[[], asyncio.BaseProtocol],
+        address: str,
+    ) -> Tuple[asyncio.BaseTransport, asyncio.BaseProtocol]: ...
 
-    def call_exception_handler(self, context: dict[str, Any]) -> None: ...
+    def call_exception_handler(self, context: Dict[str, Any]) -> None: ...
 
     def create_task(self, coro: Any) -> asyncio.Task[None]: ...
 
@@ -50,10 +62,10 @@ class NamedPipeConnection(Connection):
 
 class _NamedPipeServerProtocol(asyncio.StreamReaderProtocol):
     def __init__(self, handler: ConnectionHandler, loop: asyncio.AbstractEventLoop) -> None:
-        self._reader = asyncio.StreamReader()
+        self._reader: asyncio.StreamReader = asyncio.StreamReader()
         super().__init__(self._reader)
-        self._handler = handler
-        self._loop = loop
+        self._handler: ConnectionHandler = handler
+        self._loop: asyncio.AbstractEventLoop = loop
         self._handler_task: Optional[asyncio.Task[None]] = None
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
@@ -86,8 +98,8 @@ class NamedPipeTransportServer(TransportServer):
     """Windows Named Pipe 传输服务端。"""
 
     def __init__(self, pipe_name: Optional[str] = None) -> None:
-        self._address = _normalize_pipe_address(pipe_name)
-        self._servers: list[Any] = []
+        self._address: str = _normalize_pipe_address(pipe_name)
+        self._servers: List[_NamedPipeServerHandle] = []
 
     async def start(self, handler: ConnectionHandler) -> None:
         if sys.platform != "win32":
@@ -117,7 +129,7 @@ class NamedPipeTransportClient(TransportClient):
     """Windows Named Pipe 传输客户端。"""
 
     def __init__(self, address: str) -> None:
-        self._address = _normalize_pipe_address(address)
+        self._address: str = _normalize_pipe_address(address)
 
     async def connect(self) -> Connection:
         if sys.platform != "win32":
