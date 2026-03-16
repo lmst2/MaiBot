@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from types import ModuleType
 from pathlib import Path
 
+import asyncio
 import pytest
 
 
@@ -196,8 +197,20 @@ def _install_stub_modules(monkeypatch):
         emoji = _EmojiConfig()
         bot = _BotConfig()
 
+    class _ConfigManager:
+        def __init__(self):
+            self.reload_callbacks = []
+
+        def register_reload_callback(self, callback):
+            self.reload_callbacks.append(callback)
+
+        def unregister_reload_callback(self, callback):
+            if callback in self.reload_callbacks:
+                self.reload_callbacks.remove(callback)
+
     config_mod.global_config = _GlobalConfig()
     config_mod.model_config = _ModelConfig()
+    config_mod.config_manager = _ConfigManager()
 
     # src.llm_models.utils_model
     llm_mod = _stub_module("src.llm_models.utils_model")
@@ -477,6 +490,62 @@ def test_load_emojis_from_db_empty(monkeypatch):
     assert manager.emojis == []
     assert manager._emoji_num == 0
     assert any("成功加载" in m for m in _messages(logger.info_calls))
+
+
+def test_emoji_manager_registers_reload_callback(monkeypatch):
+    emoji_manager_new = import_emoji_manager_new(monkeypatch)
+
+    assert emoji_manager_new.emoji_manager.reload_runtime_config in emoji_manager_new.config_manager.reload_callbacks
+
+
+def test_emoji_manager_shutdown_unregisters_reload_callback(monkeypatch):
+    emoji_manager_new = import_emoji_manager_new(monkeypatch)
+    manager = emoji_manager_new.EmojiManager()
+
+    assert manager.reload_runtime_config in emoji_manager_new.config_manager.reload_callbacks
+
+    manager.shutdown()
+
+    assert manager.reload_runtime_config not in emoji_manager_new.config_manager.reload_callbacks
+
+    # 重复调用应保持幂等，不应抛错也不应重复注册
+    manager.shutdown()
+
+    assert manager.reload_runtime_config not in emoji_manager_new.config_manager.reload_callbacks
+
+
+@pytest.mark.asyncio
+async def test_reload_runtime_config_wakes_maintenance_loop(monkeypatch):
+    emoji_manager_new = import_emoji_manager_new(monkeypatch)
+    manager = emoji_manager_new.EmojiManager()
+
+    emoji_manager_new.global_config.emoji.steal_emoji = False
+    emoji_manager_new.global_config.emoji.check_interval = 60
+
+    maintenance_runs = 0
+    second_run_event = asyncio.Event()
+
+    def _check_emoji_file_integrity():
+        nonlocal maintenance_runs
+        maintenance_runs += 1
+        if maintenance_runs >= 2:
+            second_run_event.set()
+
+    monkeypatch.setattr(manager, "check_emoji_file_integrity", _check_emoji_file_integrity)
+    monkeypatch.setattr(manager, "remove_untracked_emoji_files", lambda: None)
+
+    task = asyncio.create_task(manager.periodic_emoji_maintenance())
+    try:
+        await asyncio.sleep(0.05)
+        assert maintenance_runs >= 1
+
+        manager.reload_runtime_config()
+
+        await asyncio.wait_for(second_run_event.wait(), timeout=0.2)
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
 
 
 def test_load_emojis_from_db_partial_bad_records(monkeypatch):

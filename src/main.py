@@ -164,6 +164,7 @@ async def main():
             system.schedule_tasks(),
         )
     finally:
+        emoji_manager.shutdown()
         await config_manager.stop_file_watcher()
 
 
