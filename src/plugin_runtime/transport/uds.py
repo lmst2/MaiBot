@@ -1,6 +1,9 @@
 """Unix Domain Socket 传输实现
 
 适用于 Linux / macOS 平台。
+
+注意：UDS (Unix Domain Socket) 是 Unix-like 系统特有的 IPC 机制，
+在 Windows 平台上不可用。Windows 平台请使用 Named Pipe 传输。
 """
 
 from pathlib import Path
@@ -8,20 +11,30 @@ from typing import Optional
 
 import asyncio
 import os
+import sys
 import tempfile
 
 from .base import Connection, ConnectionHandler, TransportClient, TransportServer
 
 
 class UDSConnection(Connection):
-    """基于 UDS 的连接"""
+    """基于 UDS 的连接
+    
+    封装了底层 StreamReader/StreamWriter，提供分帧读写能力。
+    """
 
-    pass  # 直接复用 Connection 基类的分帧读写
+    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        super().__init__(reader, writer)
 
 
 # Unix domain socket 路径的系统限制（sun_path 字段长度）
-# Linux: 108 字节, macOS: 104 字节
-_UDS_PATH_MAX = 104
+# Linux: 108 字节，macOS: 104 字节，其他 Unix: 通常 104 字节
+if sys.platform == "linux":
+    _UDS_PATH_MAX = 108
+elif sys.platform == "darwin":  # macOS
+    _UDS_PATH_MAX = 104
+else:
+    _UDS_PATH_MAX = 104  # 保守默认值
 
 
 class UDSTransportServer(TransportServer):
@@ -44,6 +57,18 @@ class UDSTransportServer(TransportServer):
         self._server: Optional[asyncio.AbstractServer] = None
 
     async def start(self, handler: ConnectionHandler) -> None:
+        """启动 UDS 服务端
+        
+        Args:
+            handler: 新连接到来时的回调函数
+            
+        Raises:
+            RuntimeError: 当在非 Unix 平台（如 Windows）上调用时
+        """
+        # 平台检查：UDS 仅在 Unix-like 系统上可用
+        if sys.platform == "win32":
+            raise RuntimeError("UDS 不支持 Windows 平台，请使用 Named Pipe")
+        
         # 清理残留 socket 文件
         if self._socket_path.exists():
             self._socket_path.unlink()
@@ -58,10 +83,16 @@ class UDSTransportServer(TransportServer):
             finally:
                 await conn.close()
 
-        self._server = await asyncio.start_unix_server(_on_connect, path=str(self._socket_path))
+        try:
+            self._server = await asyncio.start_unix_server(_on_connect, path=str(self._socket_path))
 
-        # 设置文件权限为仅当前用户可访问
-        self._socket_path.chmod(0o600)
+            # 设置文件权限为仅当前用户可访问
+            self._socket_path.chmod(0o600)
+        except Exception:
+            # 启动失败时清理可能创建的目录和 socket 文件
+            if self._socket_path.exists():
+                self._socket_path.unlink()
+            raise
 
     async def stop(self) -> None:
         if self._server:
@@ -77,11 +108,26 @@ class UDSTransportServer(TransportServer):
 
 
 class UDSTransportClient(TransportClient):
-    """UDS 传输客户端"""
+    """UDS 传输客户端
+    
+    用于主动连接到 UDS 服务端。
+    """
 
     def __init__(self, socket_path: Path) -> None:
         self._socket_path: Path = socket_path
 
     async def connect(self) -> Connection:
+        """建立到 UDS 服务端的连接
+        
+        Returns:
+            UDSConnection: 连接对象
+            
+        Raises:
+            RuntimeError: 当在非 Unix 平台（如 Windows）上调用时
+        """
+        # 平台检查：UDS 仅在 Unix-like 系统上可用
+        if sys.platform == "win32":
+            raise RuntimeError("UDS 不支持 Windows 平台，请使用 Named Pipe")
+        
         reader, writer = await asyncio.open_unix_connection(str(self._socket_path))
         return UDSConnection(reader, writer)
