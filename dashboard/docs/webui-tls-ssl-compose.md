@@ -29,9 +29,9 @@
 3. dashboard/docs/Caddyfile.docker.example 提供了 Docker Compose 专用配置模板
 4. dashboard/docs/Caddyfile.host.example 提供了非 Docker 宿主机专用配置模板
 
-## 3. 你需要手动注释或启用哪一段
+## 3. 需要手动注释或启用的段落
 
-你要求默认保持注释状态，因此这里只明确告诉你需要操作的段落。
+本文档按默认保持注释状态进行说明，下面明确列出需要操作的段落。
 
 ### 3.1 需要注释掉的现有段落
 
@@ -50,18 +50,18 @@ ports:
 
 ### 3.2 需要取消注释并启用的段落
 
-启用时你需要在根目录 docker-compose.yml 中取消注释这两部分：
+启用时，需要在根目录 docker-compose.yml 中取消注释这两部分：
 
 1. caddy 服务块
 2. volumes 里的 caddy_data 和 caddy_config
 
 ## 4. 启用前需要准备什么
 
-1. 域名已经解析到你的服务器公网 IP
+1. 域名已经解析到服务器公网 IP
 2. 宿主机的 80 和 443 未被占用
 3. 防火墙和云安全组已放行 80 和 443
 4. WebUI 当前可以通过 compose 正常启动
-5. 你已经准备修改 dashboard/docs/Caddyfile.docker.example 里的域名
+5. 已准备修改 dashboard/docs/Caddyfile.docker.example 里的域名
 
 ## 5. Caddy 配置文件如何写
 
@@ -77,10 +77,10 @@ maibot.example.com {
 }
 ```
 
-建议你至少做这两处修改：
+建议至少做这两处修改：
 
-1. 把 maibot.example.com 改成你的真实域名
-2. 如果你有额外安全要求，再按需增加 header 配置
+1. 把 maibot.example.com 改成实际使用的域名
+2. 如果有额外安全要求，再按需增加 header 配置
 
 ## 6. compose 启用步骤
 
@@ -95,13 +95,13 @@ secure_cookie = true
 trust_xff = true
 ```
 
-trusted_proxies 的建议值取决于你的实际网络。
+trusted_proxies 的建议值取决于实际网络环境。
 
 如果 Caddy 和 core 在同一个 Docker 网络里，建议先按实际来源地址或网段填写。不要为了省事直接把范围开得过大。
 
 ### 6.2 修改 Caddyfile
 
-编辑 dashboard/docs/Caddyfile.docker.example，把域名替换为真实值。
+编辑 dashboard/docs/Caddyfile.docker.example，将域名替换为真实值。
 
 ### 6.3 修改 compose
 
@@ -134,9 +134,9 @@ Caddy 容器启动后，满足以下条件时会自动申请证书：
 
 ### 7.2 自动续期说明
 
-Caddy 会自动续期。你通常不需要编写 crontab，也不需要手工执行 certbot。
+Caddy 会自动续期，通常不需要编写 crontab，也不需要手工执行 certbot。
 
-你只需要确保：
+只需要确保：
 
 1. caddy_data 卷被持久化
 2. 容器会长期运行
@@ -188,7 +188,7 @@ docker compose ps
 
 ## 9. 迁移建议
 
-如果你目前已经在用：
+如果当前已经在使用：
 
 ```yaml
 ports:
