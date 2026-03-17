@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 
-class ErrorCode(Enum):
+class ErrorCode(str, Enum):
     """RPC 错误码枚举"""
 
     # 通用
