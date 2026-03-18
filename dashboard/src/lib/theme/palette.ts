@@ -6,6 +6,9 @@ type HSL = {
   l: number
 }
 
+export const DEFAULT_ACCENT_COLOR_HSL = '188.5 100% 45.5%'
+export const DEFAULT_ACCENT_COLOR_HEX = '#00c7e8'
+
 const clamp = (value: number, min: number, max: number): number => {
   if (value < min) return min
   if (value > max) return max
@@ -43,6 +46,11 @@ export const formatHSL = (h: number, s: number, l: number): string => {
   const safeS = roundToTenth(clamp(s, 0, 100))
   const safeL = roundToTenth(clamp(l, 0, 100))
   return `${safeH} ${safeS}% ${safeL}%`
+}
+
+export const isValidHSLString = (value: string): boolean => {
+  const cleaned = value.trim()
+  return /^-?\d+(?:\.\d+)?\s+-?\d+(?:\.\d+)?%\s+-?\d+(?:\.\d+)?%$/i.test(cleaned)
 }
 
 export const hexToHSL = (hex: string): string => {
@@ -89,6 +97,25 @@ export const hexToHSL = (hex: string): string => {
   }
 
   return formatHSL(h, s * 100, l * 100)
+}
+
+export const normalizeAccentColor = (accentColor?: string | null): string => {
+  const trimmed = accentColor?.trim()
+
+  if (!trimmed) {
+    return DEFAULT_ACCENT_COLOR_HSL
+  }
+
+  if (trimmed.startsWith('#')) {
+    return hexToHSL(trimmed)
+  }
+
+  if (isValidHSLString(trimmed)) {
+    const { h, s, l } = parseHSL(trimmed)
+    return formatHSL(h, s, l)
+  }
+
+  return DEFAULT_ACCENT_COLOR_HSL
 }
 
 export const adjustLightness = (hsl: string, amount: number): string => {
@@ -170,8 +197,13 @@ export const generatePalette = (accentHSL: string, isDark: boolean): ColorTokens
   const chartSteps = [0, 72, 144, 216, 288]
   const charts = chartSteps.map((step) => rotateHue(chartBase, step))
 
-  const card = adjustLightness(background, isDark ? 2 : -1)
-  const popover = adjustLightness(background, isDark ? 3 : -0.5)
+  const surfaceSaturation = clamp(accent.s * (isDark ? 0.18 : 0.14), isDark ? 10 : 6, isDark ? 24 : 16)
+  const card = formatHSL(accent.h, surfaceSaturation, isDark ? 8.8 : 98.6)
+  const popover = formatHSL(
+    accent.h,
+    clamp(surfaceSaturation + (isDark ? 3 : 2), 0, 100),
+    isDark ? 10.5 : 99.3,
+  )
 
   return {
     primary,

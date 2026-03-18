@@ -3,6 +3,8 @@
  * 统一管理所有前端 localStorage 设置
  */
 
+import { DEFAULT_ACCENT_COLOR_HSL } from './theme/palette'
+
 // 所有设置的 key 定义
 export const STORAGE_KEYS = {
   // 外观设置
@@ -32,7 +34,7 @@ export const STORAGE_KEYS = {
 export const DEFAULT_SETTINGS = {
   // 外观
   theme: 'system' as 'light' | 'dark' | 'system',
-  accentColor: 'blue',
+  accentColor: DEFAULT_ACCENT_COLOR_HSL,
   enableAnimations: true,
   enableWavesBackground: true,
   

@@ -16,6 +16,7 @@ export type ComponentCSSEditorProps = {
   label?: string
   /** 编辑器高度，默认 200px */
   height?: string
+  disabled?: boolean
 }
 
 /**
@@ -28,12 +29,13 @@ export function ComponentCSSEditor({
   onChange,
   label,
   height = '200px',
+  disabled = false,
 }: ComponentCSSEditorProps) {
   // 实时计算 CSS 警告
   const { warnings } = sanitizeCSS(value)
 
   return (
-    <div className="space-y-2">
+    <div className={disabled ? 'space-y-2 opacity-50' : 'space-y-2'}>
       <div className="flex items-center justify-between">
         <Label className="text-sm font-medium">
           {label || '自定义 CSS'}
@@ -43,7 +45,7 @@ export function ComponentCSSEditor({
           variant="ghost"
           size="sm"
           onClick={() => onChange('')}
-          disabled={!value}
+          disabled={disabled || !value}
           className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
           title="清除所有 CSS"
         >
@@ -55,8 +57,9 @@ export function ComponentCSSEditor({
       <div className="rounded-md border bg-card overflow-hidden">
         <CodeEditor
           value={value}
-          onChange={onChange}
+          onChange={disabled ? undefined : onChange}
           language="css"
+          readOnly={disabled}
           height={height}
           placeholder={`/* 为 ${componentId} 组件编写自定义 CSS */\n\n/* 示例: */\n/* .custom-class { background: red; } */`}
         />

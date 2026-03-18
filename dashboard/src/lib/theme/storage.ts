@@ -3,6 +3,7 @@
  * 统一处理主题相关的存储操作，包括加载、保存、导出、导入和迁移旧 key
  */
 
+import { DEFAULT_ACCENT_COLOR_HSL, normalizeAccentColor } from './palette'
 import type { BackgroundConfigMap, UserThemeConfig } from './tokens'
 
 /**
@@ -23,7 +24,7 @@ export const THEME_STORAGE_KEYS = {
  */
 const DEFAULT_THEME_CONFIG: UserThemeConfig = {
   selectedPreset: 'light',
-  accentColor: 'blue',
+  accentColor: DEFAULT_ACCENT_COLOR_HSL,
   tokenOverrides: {},
   customCSS: '',
   backgroundConfig: {} as BackgroundConfigMap,
@@ -65,7 +66,7 @@ export function loadThemeConfig(): UserThemeConfig {
 
   return {
     selectedPreset: preset || DEFAULT_THEME_CONFIG.selectedPreset,
-    accentColor: accent || DEFAULT_THEME_CONFIG.accentColor,
+    accentColor: normalizeAccentColor(accent),
     tokenOverrides,
     customCSS: customCSS || DEFAULT_THEME_CONFIG.customCSS,
     backgroundConfig,
@@ -79,7 +80,7 @@ export function loadThemeConfig(): UserThemeConfig {
  */
 export function saveThemeConfig(config: UserThemeConfig): void {
   localStorage.setItem(THEME_STORAGE_KEYS.PRESET, config.selectedPreset)
-  localStorage.setItem(THEME_STORAGE_KEYS.ACCENT, config.accentColor)
+  localStorage.setItem(THEME_STORAGE_KEYS.ACCENT, normalizeAccentColor(config.accentColor))
   localStorage.setItem(THEME_STORAGE_KEYS.OVERRIDES, JSON.stringify(config.tokenOverrides))
   localStorage.setItem(THEME_STORAGE_KEYS.CUSTOM_CSS, config.customCSS)
   if (config.backgroundConfig) {
@@ -215,7 +216,7 @@ export function migrateOldKeys(): void {
   const newAccent = localStorage.getItem(THEME_STORAGE_KEYS.ACCENT)
 
   if (accentColor && !newAccent) {
-    localStorage.setItem(THEME_STORAGE_KEYS.ACCENT, accentColor)
+    localStorage.setItem(THEME_STORAGE_KEYS.ACCENT, normalizeAccentColor(accentColor))
   }
 
   // 删除旧 key

@@ -45,7 +45,8 @@ export function Header({
 }: HeaderProps) {
   const { t, i18n: i18nInstance } = useTranslation()
   const currentLang = i18nInstance.language || 'zh'
-  const headerBg = useBackground('header')
+  const { config: headerBg, inheritedFrom } = useBackground('header')
+  const inheritsPageBackground = inheritedFrom === 'page'
   const [backendManagerOpen, setBackendManagerOpen] = useState(false)
   const [activeBackendName, setActiveBackendName] = useState<string>('')
 
@@ -61,9 +62,12 @@ export function Header({
   }
 
   return (
-    <header className="flex h-16 items-center justify-between border-b bg-card/80 backdrop-blur-md px-4 sticky top-0 z-10">
-      <BackgroundLayer config={headerBg} layerId="header" />
-      <div className="flex items-center gap-4">
+    <header className={cn(
+      'sticky top-0 z-10 flex h-16 items-center justify-between border-b px-4 backdrop-blur-md isolate',
+      inheritsPageBackground ? 'bg-transparent' : 'bg-card/80',
+    )}>
+      {!inheritsPageBackground && <BackgroundLayer config={headerBg} layerId="header" />}
+      <div className="relative z-10 flex items-center gap-4">
         {/* 移动端菜单按钮 */}
         <button
           onClick={onMobileMenuToggle}
@@ -87,7 +91,7 @@ export function Header({
         </button>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="relative z-10 flex items-center gap-2">
         {/* 后端切换按钮（仅 Electron） */}
         {isElectron() && (
           <>

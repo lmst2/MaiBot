@@ -17,8 +17,7 @@ from src.common.database.database_model import Images, ImageType
 from src.common.database.database import get_db_session, get_db_session_manual
 from src.common.utils.utils_image import ImageUtils
 from src.prompt.prompt_manager import prompt_manager
-from src.config.config import global_config
-from src.config.config import model_config
+from src.config.config import config_manager, global_config, model_config
 from src.llm_models.utils_model import LLMRequest
 
 logger = get_logger("emoji")
@@ -32,7 +31,7 @@ EMOJI_REGISTERED_DIR = DATA_DIR / "emoji_registered"  # 已注册的表情包注
 MAX_EMOJI_FOR_PROMPT = 20  # 最大允许的表情包描述数量于图片替换的 prompt 中
 
 
-def _ensure_directories():
+def _ensure_directories() -> None:
     """确保表情包相关目录存在"""
     EMOJI_DIR.mkdir(parents=True, exist_ok=True)
     EMOJI_REGISTERED_DIR.mkdir(parents=True, exist_ok=True)
@@ -48,13 +47,32 @@ class EmojiManager:
     表情包管理器
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         _ensure_directories()
 
         self._emoji_num: int = 0
         self.emojis: list[MaiEmoji] = []
+        self._maintenance_wakeup_event: asyncio.Event = asyncio.Event()
+        self._reload_callback_registered: bool = False
+
+        config_manager.register_reload_callback(self.reload_runtime_config)
+        self._reload_callback_registered = True
 
         logger.info("启动表情包管理器")
+
+    def reload_runtime_config(self) -> None:
+        """响应配置热重载，唤醒维护循环以尽快应用最新配置。"""
+        self._maintenance_wakeup_event.set()
+        logger.info("[配置热重载] Emoji 模块配置已更新，将立即应用到维护循环")
+
+    def shutdown(self) -> None:
+        """清理 EmojiManager 生命周期资源。"""
+        if not self._reload_callback_registered:
+            return
+        config_manager.unregister_reload_callback(self.reload_runtime_config)
+        self._reload_callback_registered = False
+        self._maintenance_wakeup_event.set()
+        logger.info("[关闭] Emoji 模块已注销配置热重载回调")
 
     async def get_emoji_description(
         self, *, emoji_bytes: Optional[bytes] = None, emoji_hash: Optional[str] = None
@@ -640,7 +658,13 @@ class EmojiManager:
                         logger.info(f"[定期维护] 删除无法注册的表情包文件: {emoji_file.name}")
                     except Exception as e:
                         logger.error(f"[定期维护] 删除文件 {emoji_file.name} 时出错: {e}")
-            await asyncio.sleep(global_config.emoji.check_interval * 60)
+            wait_seconds = max(global_config.emoji.check_interval * 60, 0)
+            try:
+                await asyncio.wait_for(self._maintenance_wakeup_event.wait(), timeout=wait_seconds)
+            except asyncio.TimeoutError:
+                pass
+            finally:
+                self._maintenance_wakeup_event.clear()
 
     async def register_emoji_by_filename(self, filename: Path | str) -> bool:
         """

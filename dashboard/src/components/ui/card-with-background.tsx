@@ -14,12 +14,14 @@ export const CardWithBackground = forwardRef<
   ElementRef<typeof Card>,
   CardWithBackgroundProps
 >(({ className, children, ...props }, ref) => {
-  const bg = useBackground('card')
+  const { config: bg } = useBackground('card')
 
   return (
-    <Card ref={ref} className={cn('relative', className)} {...props}>
+    <Card ref={ref} className={cn('relative isolate', className)} {...props}>
       <BackgroundLayer config={bg} layerId="card" />
-      {children}
+      <div className="relative z-10">
+        {children}
+      </div>
     </Card>
   )
 })
