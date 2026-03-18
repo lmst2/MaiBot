@@ -55,6 +55,51 @@
         "type": "tool",
         "name": "memory_stats",
         "description": "查询记忆统计"
+      },
+      {
+        "type": "tool",
+        "name": "memory_graph_admin",
+        "description": "图谱管理接口"
+      },
+      {
+        "type": "tool",
+        "name": "memory_source_admin",
+        "description": "来源管理接口"
+      },
+      {
+        "type": "tool",
+        "name": "memory_episode_admin",
+        "description": "Episode 管理接口"
+      },
+      {
+        "type": "tool",
+        "name": "memory_profile_admin",
+        "description": "画像管理接口"
+      },
+      {
+        "type": "tool",
+        "name": "memory_runtime_admin",
+        "description": "运行时管理接口"
+      },
+      {
+        "type": "tool",
+        "name": "memory_import_admin",
+        "description": "导入管理接口"
+      },
+      {
+        "type": "tool",
+        "name": "memory_tuning_admin",
+        "description": "调优管理接口"
+      },
+      {
+        "type": "tool",
+        "name": "memory_v5_admin",
+        "description": "V5 记忆管理接口"
+      },
+      {
+        "type": "tool",
+        "name": "memory_delete_admin",
+        "description": "删除管理接口"
       }
     ]
   },

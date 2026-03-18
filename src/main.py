@@ -167,6 +167,7 @@ async def main() -> None:
             system.schedule_tasks(),
         )
     finally:
+        emoji_manager.shutdown()
         await memory_automation_service.shutdown()
         await get_plugin_runtime_manager().bridge_event("on_stop")
         await get_plugin_runtime_manager().stop()
