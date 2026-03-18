@@ -6,7 +6,6 @@ import time
 
 from src.bw_learner.expression_auto_check_task import ExpressionAutoCheckTask
 from src.chat.emoji_system.emoji_manager import emoji_manager
-from src.chat.knowledge import lpmm_start_up
 from src.chat.message_receive.bot import chat_bot
 from src.chat.message_receive.chat_manager import chat_manager
 from src.chat.utils.statistic import OnlineTimeRecordTask, StatisticOutputTask
@@ -19,6 +18,7 @@ from src.config.config import config_manager, global_config
 from src.manager.async_task_manager import async_task_manager
 from src.plugin_runtime.integration import get_plugin_runtime_manager
 from src.prompt.prompt_manager import prompt_manager
+from src.services.memory_flow_service import memory_automation_service
 
 # from src.api.main import start_api_server
 
@@ -88,9 +88,6 @@ class MainSystem:
         # start_api_server()
         # logger.info("API服务器启动成功")
 
-        # 启动LPMM
-        lpmm_start_up()
-
         # 启动插件运行时（内置插件 + 第三方插件双子进程）
         await get_plugin_runtime_manager().start()
 
@@ -103,6 +100,7 @@ class MainSystem:
         asyncio.create_task(chat_manager.regularly_save_sessions())
 
         logger.info(t("startup.chat_manager_initialized"))
+        await memory_automation_service.start()
 
         # await asyncio.sleep(0.5) #防止logger输出飞了
 
@@ -164,6 +162,10 @@ async def main():
             system.schedule_tasks(),
         )
     finally:
+        await memory_automation_service.shutdown()
+        await get_plugin_runtime_manager().bridge_event("on_stop")
+        await get_plugin_runtime_manager().stop()
+        await async_task_manager.stop_and_wait_all_tasks()
         await config_manager.stop_file_watcher()
 
 
