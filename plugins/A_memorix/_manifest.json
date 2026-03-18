@@ -1,0 +1,62 @@
+{
+  "manifest_version": 1,
+  "name": "A_Memorix",
+  "version": "2.0.0",
+  "description": "MaiBot SDK 长期记忆插件，负责统一检索、写入、画像与记忆维护。",
+  "author": {
+    "name": "A_Dawn"
+  },
+  "license": "AGPL-3.0",
+  "repository_url": "https://github.com/A-Dawn/A_memorix/",
+  "host_application": {
+    "min_version": "1.0.0"
+  },
+  "keywords": [
+    "memory",
+    "knowledge",
+    "retrieval",
+    "profile",
+    "episode"
+  ],
+  "categories": [
+    "Memory",
+    "Data"
+  ],
+  "plugin_info": {
+    "is_built_in": false,
+    "plugin_type": "memory_provider",
+    "components": [
+      {
+        "type": "tool",
+        "name": "search_memory",
+        "description": "搜索长期记忆"
+      },
+      {
+        "type": "tool",
+        "name": "ingest_summary",
+        "description": "写入聊天摘要"
+      },
+      {
+        "type": "tool",
+        "name": "ingest_text",
+        "description": "写入普通长期记忆文本"
+      },
+      {
+        "type": "tool",
+        "name": "get_person_profile",
+        "description": "查询人物画像"
+      },
+      {
+        "type": "tool",
+        "name": "maintain_memory",
+        "description": "维护记忆关系"
+      },
+      {
+        "type": "tool",
+        "name": "memory_stats",
+        "description": "查询记忆统计"
+      }
+    ]
+  },
+  "capabilities": []
+}
