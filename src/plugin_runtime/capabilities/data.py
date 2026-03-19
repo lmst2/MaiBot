@@ -675,6 +675,8 @@ class RuntimeDataCapabilityMixin:
             from src.services.memory_service import memory_service
 
             result = await memory_service.search(query, limit=limit_value)
+            if not result.success:
+                return {"success": False, "error": result.error or "长期记忆检索失败"}
             knowledge_info = result.to_text(limit=limit_value)
             content = f"你知道这些知识: {knowledge_info}" if knowledge_info else f"你不太了解有关{query}的知识"
             return {"success": True, "content": content}

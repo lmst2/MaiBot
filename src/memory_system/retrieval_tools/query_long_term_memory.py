@@ -169,6 +169,9 @@ def _format_tool_result(
     query: str,
     time_range_text: str = "",
 ) -> str:
+    if not result.success:
+        return f"长期记忆查询失败：{result.error or '未知错误'}"
+
     if not result.hits:
         if mode == "time":
             return f"在指定时间范围内未找到相关的长期记忆{time_range_text}"
@@ -225,7 +228,7 @@ async def query_long_term_memory(
             return str(exc)
         time_range_text = f"（时间范围：{time_start_text} 至 {time_end_text}）"
 
-    backend_mode = "hybrid" if normalized_mode == "search" else normalized_mode
+    backend_mode = normalized_mode
 
     try:
         result = await memory_service.search(

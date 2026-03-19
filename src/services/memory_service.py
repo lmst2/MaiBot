@@ -41,6 +41,8 @@ class MemorySearchResult:
     summary: str = ""
     hits: List[MemoryHit] = field(default_factory=list)
     filtered: bool = False
+    success: bool = True
+    error: str = ""
 
     def to_text(self, limit: int = 5) -> str:
         if not self.hits:
@@ -55,6 +57,8 @@ class MemorySearchResult:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "success": self.success,
+            "error": self.error,
             "summary": self.summary,
             "hits": [item.to_dict() for item in self.hits],
             "filtered": self.filtered,
@@ -92,13 +96,33 @@ class MemoryService:
         runtime = get_plugin_runtime_manager()
         if not runtime.is_running:
             raise RuntimeError("plugin_runtime 未启动")
-        return await runtime.invoke_plugin(
+        response = await runtime.invoke_plugin(
             method="plugin.invoke_tool",
             plugin_id=PLUGIN_ID,
             component_name=component_name,
             args=args or {},
             timeout_ms=max(1000, int(timeout_ms or 30000)),
         )
+        # 兼容新旧运行时返回:
+        # - 旧版: 直接返回工具结果(dict)
+        # - 新版: 返回 Envelope，工具结果在 payload.result 中
+        if isinstance(response, dict):
+            return response
+        payload = getattr(response, "payload", None)
+        if isinstance(payload, dict):
+            if isinstance(payload.get("result"), dict):
+                return payload["result"]
+            return payload
+        model_dump = getattr(response, "model_dump", None)
+        if callable(model_dump):
+            dumped = model_dump()
+            if isinstance(dumped, dict):
+                inner_payload = dumped.get("payload")
+                if isinstance(inner_payload, dict):
+                    if isinstance(inner_payload.get("result"), dict):
+                        return inner_payload["result"]
+                    return inner_payload
+        return response
 
     async def _invoke_admin(
         self,
@@ -134,7 +158,7 @@ class MemoryService:
     @staticmethod
     def _coerce_search_result(payload: Any) -> MemorySearchResult:
         if not isinstance(payload, dict):
-            return MemorySearchResult()
+            return MemorySearchResult(success=False, error="invalid_payload")
         hits: List[MemoryHit] = []
         for item in payload.get("hits", []) or []:
             if not isinstance(item, dict):
@@ -158,10 +182,15 @@ class MemoryService:
                     title=str(item.get("title", "") or ""),
                 )
             )
+        success_raw = payload.get("success")
+        error = str(payload.get("error", "") or "")
+        success = (not bool(error)) if success_raw is None else bool(success_raw)
         return MemorySearchResult(
             summary=str(payload.get("summary", "") or ""),
             hits=hits,
             filtered=bool(payload.get("filtered", False)),
+            success=success,
+            error=error,
         )
 
     @staticmethod
@@ -179,7 +208,7 @@ class MemoryService:
         query: str,
         *,
         limit: int = 5,
-        mode: str = "hybrid",
+        mode: str = "search",
         chat_id: str = "",
         person_id: str = "",
         time_start: str | float | None = None,
@@ -212,7 +241,7 @@ class MemoryService:
             return self._coerce_search_result(payload)
         except Exception as exc:
             logger.warning("长期记忆搜索失败: %s", exc)
-            return MemorySearchResult()
+            return MemorySearchResult(success=False, error=str(exc))
 
     async def ingest_summary(
         self,

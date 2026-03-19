@@ -71,11 +71,21 @@ class KnowledgeFetcher:
                 "respect_filter": True,
             }
             result = await memory_service.search(query, **search_kwargs)
+            if not result.success:
+                logger.warning(
+                    f"[私聊][{self.private_name}]长期记忆查询失败: {result.error or '未知错误'}"
+                )
+                return f"长期记忆检索失败：{result.error or '未知错误'}"
             if not result.filtered and not result.hits and search_kwargs["person_id"]:
                 fallback_kwargs = dict(search_kwargs)
                 fallback_kwargs["person_id"] = ""
                 logger.debug(f"[私聊][{self.private_name}]人物过滤未命中，退回仅按会话检索长期记忆")
                 result = await memory_service.search(query, **fallback_kwargs)
+                if not result.success:
+                    logger.warning(
+                        f"[私聊][{self.private_name}]长期记忆回退查询失败: {result.error or '未知错误'}"
+                    )
+                    return f"长期记忆检索失败：{result.error or '未知错误'}"
             knowledge_info = result.to_text(limit=5)
             if result.filtered:
                 logger.debug(f"[私聊][{self.private_name}]长期记忆查询被聊天过滤策略跳过")
