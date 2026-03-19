@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 from src.webui import app as webui_app
 
 
@@ -120,3 +122,52 @@ def test_resolve_static_path_uses_dashboard_dist(monkeypatch, tmp_path) -> None:
         resolved_path = webui_app._resolve_static_path()
 
     assert resolved_path == dashboard_dist
+
+
+def test_resolve_safe_static_file_path_allows_regular_static_file(tmp_path) -> None:
+    static_path = tmp_path / "dist"
+    asset_path = static_path / "assets" / "app.js"
+    asset_path.parent.mkdir(parents=True)
+    asset_path.write_text("console.log('ok')", encoding="utf-8")
+
+    resolved_path = webui_app._resolve_safe_static_file_path(static_path, "assets/app.js")
+
+    assert resolved_path == asset_path.resolve()
+
+
+def test_resolve_safe_static_file_path_rejects_relative_path_traversal(tmp_path) -> None:
+    static_path = tmp_path / "dist"
+    static_path.mkdir()
+
+    resolved_path = webui_app._resolve_safe_static_file_path(static_path, "../secret.txt")
+
+    assert resolved_path is None
+
+
+def test_resolve_safe_static_file_path_rejects_absolute_path_traversal(tmp_path) -> None:
+    static_path = tmp_path / "dist"
+    static_path.mkdir()
+
+    resolved_path = webui_app._resolve_safe_static_file_path(static_path, "/etc/passwd")
+
+    assert resolved_path is None
+
+
+def test_resolve_safe_static_file_path_rejects_symlink_escape(tmp_path) -> None:
+    static_path = tmp_path / "dist"
+    static_path.mkdir()
+
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_file = outside_dir / "secret.txt"
+    outside_file.write_text("secret", encoding="utf-8")
+
+    link_path = static_path / "escape"
+    try:
+        link_path.symlink_to(outside_dir, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink is not supported in this environment: {exc}")
+
+    resolved_path = webui_app._resolve_safe_static_file_path(static_path, "escape/secret.txt")
+
+    assert resolved_path is None
