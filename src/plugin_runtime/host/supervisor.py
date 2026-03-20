@@ -202,17 +202,24 @@ class PluginRunnerSupervisor:
         self._restart_count = 0
         self._clear_runner_state()
 
-        await self._rpc_server.start()
-        await self._spawn_runner()
-
         try:
-            await self._wait_for_runner_connection(timeout_sec=self._runner_spawn_timeout)
-            await self._wait_for_runner_ready(timeout_sec=self._runner_spawn_timeout)
-        except TimeoutError:
-            if not self._rpc_server.is_connected:
-                logger.warning("Runner 未在限定时间内完成连接，后续操作可能失败")
-            else:
-                logger.warning("Runner 未在限定时间内完成初始化，后续操作可能失败")
+            await self._rpc_server.start()
+            await self._spawn_runner()
+
+            try:
+                await self._wait_for_runner_connection(timeout_sec=self._runner_spawn_timeout)
+                await self._wait_for_runner_ready(timeout_sec=self._runner_spawn_timeout)
+            except TimeoutError:
+                if not self._rpc_server.is_connected:
+                    logger.warning("Runner 未在限定时间内完成连接，后续操作可能失败")
+                else:
+                    logger.warning("Runner 未在限定时间内完成初始化，后续操作可能失败")
+        except Exception:
+            await self._shutdown_runner(reason="startup_failed")
+            await self._rpc_server.stop()
+            self._clear_runner_state()
+            self._running = False
+            raise
 
         self._health_task = asyncio.create_task(self._health_check_loop(), name="PluginRunnerSupervisor.health")
         logger.info("PluginRunnerSupervisor 已启动")
@@ -387,7 +394,16 @@ class PluginRunnerSupervisor:
 
         async def wait_for_connection() -> None:
             """轮询等待 RPC 连接建立。"""
-            while self._running and not self._rpc_server.is_connected:
+            while True:
+                if self._rpc_server.is_connected:
+                    return
+
+                if not self._running:
+                    raise RuntimeError("Supervisor 已停止，等待 Runner 连接已取消")
+
+                if failure_reason := self._get_runner_startup_failure_reason():
+                    raise RuntimeError(f"等待 Runner 连接失败: {failure_reason}")
+
                 await asyncio.sleep(0.1)
 
         try:
@@ -408,10 +424,27 @@ class PluginRunnerSupervisor:
         Raises:
             TimeoutError: 在超时时间内 Runner 未完成初始化。
         """
+        async def wait_for_ready() -> RunnerReadyPayload:
+            """轮询等待 Runner 上报就绪。"""
+            while True:
+                if self._runner_ready_events.is_set():
+                    return self._runner_ready_payloads
+
+                if not self._running:
+                    raise RuntimeError("Supervisor 已停止，等待 Runner 就绪已取消")
+
+                if failure_reason := self._get_runner_startup_failure_reason():
+                    raise RuntimeError(f"等待 Runner 就绪失败: {failure_reason}")
+
+                if not self._rpc_server.is_connected:
+                    raise RuntimeError("等待 Runner 就绪失败: Runner RPC 连接已断开")
+
+                await asyncio.sleep(0.1)
+
         try:
-            await asyncio.wait_for(self._runner_ready_events.wait(), timeout=timeout_sec)
+            payload = await asyncio.wait_for(wait_for_ready(), timeout=timeout_sec)
             logger.info("Runner 已完成初始化并上报就绪")
-            return self._runner_ready_payloads
+            return payload
         except asyncio.TimeoutError as exc:
             raise TimeoutError(f"等待 Runner 就绪超时（{timeout_sec}s）") from exc
 
@@ -923,6 +956,7 @@ class PluginRunnerSupervisor:
             await self._wait_for_runner_connection(timeout_sec=self._runner_spawn_timeout)
             await self._wait_for_runner_ready(timeout_sec=self._runner_spawn_timeout)
         except Exception as exc:
+            await self._shutdown_runner(reason="restart_failed")
             logger.error(f"Runner 重启失败: {exc}", exc_info=True)
             return False
 
@@ -938,6 +972,25 @@ class PluginRunnerSupervisor:
         self._registered_adapters.clear()
         self._runner_ready_events = asyncio.Event()
         self._runner_ready_payloads = RunnerReadyPayload()
+        self._rpc_server.clear_handshake_state()
+
+    def _get_runner_startup_failure_reason(self) -> Optional[str]:
+        """获取 Runner 在启动阶段已经暴露出的失败原因。
+
+        Returns:
+            Optional[str]: 若已检测到失败则返回失败原因，否则返回 ``None``。
+        """
+        if handshake_reason := self._rpc_server.last_handshake_rejection_reason:
+            return f"握手被拒绝: {handshake_reason}"
+
+        process = self._runner_process
+        if process is None:
+            return "Runner 进程不存在"
+
+        if process.returncode is not None:
+            return f"Runner 进程已退出，退出码 {process.returncode}"
+
+        return None
 
 
 PluginSupervisor = PluginRunnerSupervisor

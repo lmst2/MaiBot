@@ -68,6 +68,7 @@ class PluginRuntimeManager(
         self._plugin_file_watcher: Optional[FileWatcher] = None
         self._plugin_source_watcher_subscription_id: Optional[str] = None
         self._plugin_config_watcher_subscriptions: Dict[str, Tuple[Path, str]] = {}
+        self._plugin_path_cache: Dict[str, Path] = {}
 
     async def _dispatch_platform_inbound(self, envelope: InboundMessageEnvelope) -> None:
         """接收 Platform IO 审核后的入站消息并送入主消息链。
@@ -215,6 +216,7 @@ class PluginRuntimeManager(
             self._started = False
             self._builtin_supervisor = None
             self._third_party_supervisor = None
+            self._plugin_path_cache.clear()
 
     @property
     def is_running(self) -> bool:
@@ -254,7 +256,7 @@ class PluginRuntimeManager(
         config_payload = (
             config_data
             if config_data is not None
-            else self._load_plugin_config_for_supervisor(plugin_id, plugin_dirs=sv._plugin_dirs)
+            else self._load_plugin_config_for_supervisor(sv, plugin_id)
         )
         await sv.notify_plugin_config_updated(
             plugin_id=plugin_id,
@@ -452,6 +454,7 @@ class PluginRuntimeManager(
     async def _stop_plugin_file_watcher(self) -> None:
         """停止插件文件监视器，并清理所有已注册订阅。"""
         if self._plugin_file_watcher is None:
+            self._plugin_path_cache.clear()
             return
         for _plugin_id, (_config_path, subscription_id) in list(self._plugin_config_watcher_subscriptions.items()):
             self._plugin_file_watcher.unsubscribe(subscription_id)
@@ -461,11 +464,94 @@ class PluginRuntimeManager(
             self._plugin_source_watcher_subscription_id = None
         await self._plugin_file_watcher.stop()
         self._plugin_file_watcher = None
+        self._plugin_path_cache.clear()
 
     def _iter_plugin_dirs(self) -> Iterable[Path]:
         """迭代所有 Supervisor 当前管理的插件根目录。"""
         for supervisor in self.supervisors:
             yield from getattr(supervisor, "_plugin_dirs", [])
+
+    @staticmethod
+    def _iter_candidate_plugin_paths(plugin_dirs: Iterable[Path]) -> Iterable[Path]:
+        """迭代所有可能的插件目录路径。
+
+        Args:
+            plugin_dirs: 一个或多个插件根目录。
+
+        Yields:
+            Path: 单个插件目录路径。
+        """
+        for plugin_dir in plugin_dirs:
+            plugin_root = Path(plugin_dir).resolve()
+            if not plugin_root.is_dir():
+                continue
+            for entry in plugin_root.iterdir():
+                if entry.is_dir():
+                    yield entry.resolve()
+
+    @staticmethod
+    def _read_plugin_id_from_plugin_path(plugin_path: Path) -> Optional[str]:
+        """从单个插件目录中读取 manifest 声明的插件 ID。
+
+        Args:
+            plugin_path: 单个插件目录路径。
+
+        Returns:
+            Optional[str]: 解析成功时返回插件 ID，否则返回 ``None``。
+        """
+        manifest_path = plugin_path / "_manifest.json"
+        entrypoint_path = plugin_path / "plugin.py"
+        if not manifest_path.is_file() or not entrypoint_path.is_file():
+            return None
+
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+                manifest = json.load(manifest_file)
+        except Exception:
+            return None
+
+        if not isinstance(manifest, dict):
+            return None
+
+        plugin_id = str(manifest.get("name", plugin_path.name)).strip() or plugin_path.name
+        return plugin_id or None
+
+    def _iter_discovered_plugin_paths(self, plugin_dirs: Iterable[Path]) -> Iterable[Tuple[str, Path]]:
+        """迭代目录中可解析到的插件 ID 与实际目录路径。
+
+        Args:
+            plugin_dirs: 一个或多个插件根目录。
+
+        Yields:
+            Tuple[str, Path]: ``(plugin_id, plugin_path)`` 二元组。
+        """
+        for plugin_path in self._iter_candidate_plugin_paths(plugin_dirs):
+            if plugin_id := self._read_plugin_id_from_plugin_path(plugin_path):
+                yield plugin_id, plugin_path
+
+    def _get_plugin_path_for_supervisor(self, supervisor: Any, plugin_id: str) -> Optional[Path]:
+        """为指定 Supervisor 定位某个插件的实际目录。
+
+        Args:
+            supervisor: 目标 Supervisor。
+            plugin_id: 插件 ID。
+
+        Returns:
+            Optional[Path]: 插件目录路径；未找到时返回 ``None``。
+        """
+        cached_path = self._plugin_path_cache.get(plugin_id)
+        if cached_path is not None:
+            for plugin_dir in getattr(supervisor, "_plugin_dirs", []):
+                if self._plugin_dir_matches(cached_path, Path(plugin_dir)):
+                    return cached_path
+
+        for candidate_plugin_id, plugin_path in self._iter_discovered_plugin_paths(getattr(supervisor, "_plugin_dirs", [])):
+            if candidate_plugin_id != plugin_id:
+                continue
+            self._plugin_path_cache[plugin_id] = plugin_path
+            return plugin_path
+
+        return None
 
     def _refresh_plugin_config_watch_subscriptions(self) -> None:
         """按当前已注册插件集合刷新 config.toml 的单插件订阅。
@@ -476,7 +562,11 @@ class PluginRuntimeManager(
         if self._plugin_file_watcher is None:
             return
 
-        desired_config_paths = dict(self._iter_registered_plugin_config_paths())
+        desired_plugin_paths = dict(self._iter_registered_plugin_paths())
+        self._plugin_path_cache = desired_plugin_paths.copy()
+        desired_config_paths = {
+            plugin_id: plugin_path / "config.toml" for plugin_id, plugin_path in desired_plugin_paths.items()
+        }
 
         for plugin_id, (_old_path, subscription_id) in list(self._plugin_config_watcher_subscriptions.items()):
             if desired_config_paths.get(plugin_id) == self._plugin_config_watcher_subscriptions[plugin_id][0]:
@@ -509,21 +599,17 @@ class PluginRuntimeManager(
 
         return _callback
 
-    def _iter_registered_plugin_config_paths(self) -> Iterable[Tuple[str, Path]]:
-        """迭代当前所有已注册插件的 config.toml 路径。"""
+    def _iter_registered_plugin_paths(self) -> Iterable[Tuple[str, Path]]:
+        """迭代当前所有已注册插件的实际目录路径。"""
         for supervisor in self.supervisors:
             for plugin_id in getattr(supervisor, "_registered_plugins", {}).keys():
-                if config_path := self._get_plugin_config_path_for_supervisor(supervisor, plugin_id):
-                    yield plugin_id, config_path
+                if plugin_path := self._get_plugin_path_for_supervisor(supervisor, plugin_id):
+                    yield plugin_id, plugin_path
 
     def _get_plugin_config_path_for_supervisor(self, supervisor: Any, plugin_id: str) -> Optional[Path]:
         """从指定 Supervisor 的插件目录中定位某个插件的 config.toml。"""
-        for plugin_dir in getattr(supervisor, "_plugin_dirs", []):
-            plugin_dir = Path(plugin_dir)
-            plugin_path = plugin_dir.resolve() / plugin_id
-            if plugin_path.is_dir():
-                return plugin_path / "config.toml"
-        return None
+        plugin_path = self._get_plugin_path_for_supervisor(supervisor, plugin_id)
+        return None if plugin_path is None else plugin_path / "config.toml"
 
     async def _handle_plugin_config_changes(self, plugin_id: str, changes: Sequence[FileChange]) -> None:
         """处理单个插件配置文件变化，并仅向目标插件推送配置更新。"""
@@ -542,7 +628,7 @@ class PluginRuntimeManager(
         try:
             await supervisor.notify_plugin_config_updated(
                 plugin_id=plugin_id,
-                config_data=self._load_plugin_config_for_supervisor(plugin_id, getattr(supervisor, "_plugin_dirs", [])),
+                config_data=self._load_plugin_config_for_supervisor(supervisor, plugin_id),
             )
         except Exception as exc:
             logger.warning(f"插件 {plugin_id} 配置热更新通知失败: {exc}")
@@ -591,32 +677,38 @@ class PluginRuntimeManager(
 
     def _match_plugin_id_for_supervisor(self, supervisor: Any, path: Path) -> Optional[str]:
         """根据变更路径为指定 Supervisor 推断受影响的插件 ID。"""
-        for plugin_id, _reg in getattr(supervisor, "_registered_plugins", {}).items():
-            for plugin_dir in getattr(supervisor, "_plugin_dirs", []):
-                plugin_dir = Path(plugin_dir)
-                candidate_dir = plugin_dir.resolve() / plugin_id
-                if path == candidate_dir or path.is_relative_to(candidate_dir):
-                    return plugin_id
+        resolved_path = path.resolve()
 
-        for plugin_dir in getattr(supervisor, "_plugin_dirs", []):
-            plugin_dir = Path(plugin_dir)
-            plugin_root = plugin_dir.resolve()
-            if self._plugin_dir_matches(path, plugin_dir) and (relative_parts := path.relative_to(plugin_root).parts):
-                return relative_parts[0]
+        for plugin_id in getattr(supervisor, "_registered_plugins", {}).keys():
+            plugin_path = self._get_plugin_path_for_supervisor(supervisor, plugin_id)
+            if plugin_path is not None and (resolved_path == plugin_path or resolved_path.is_relative_to(plugin_path)):
+                return plugin_id
+
+        for plugin_id, plugin_path in self._plugin_path_cache.items():
+            if not any(self._plugin_dir_matches(plugin_path, Path(plugin_dir)) for plugin_dir in getattr(supervisor, "_plugin_dirs", [])):
+                continue
+            if resolved_path == plugin_path or resolved_path.is_relative_to(plugin_path):
+                return plugin_id
+
+        for plugin_id, plugin_path in self._iter_discovered_plugin_paths(getattr(supervisor, "_plugin_dirs", [])):
+            if resolved_path == plugin_path or resolved_path.is_relative_to(plugin_path):
+                self._plugin_path_cache[plugin_id] = plugin_path
+                return plugin_id
+
         return None
 
-    @staticmethod
-    def _load_plugin_config_for_supervisor(plugin_id: str, plugin_dirs: Iterable[Path]) -> Dict[str, Any]:
+    def _load_plugin_config_for_supervisor(self, supervisor: Any, plugin_id: str) -> Dict[str, Any]:
         """从给定插件目录集合中读取目标插件的配置内容。"""
-        for plugin_dir in plugin_dirs:
-            plugin_path = plugin_dir.resolve() / plugin_id
-            if plugin_path.is_dir():
-                config_path = plugin_path / "config.toml"
-                if not config_path.exists():
-                    return {}
-                with open(config_path, "r", encoding="utf-8") as handle:
-                    return tomlkit.load(handle).unwrap()
-        return {}
+        plugin_path = self._get_plugin_path_for_supervisor(supervisor, plugin_id)
+        if plugin_path is None:
+            return {}
+
+        config_path = plugin_path / "config.toml"
+        if not config_path.exists():
+            return {}
+
+        with open(config_path, "r", encoding="utf-8") as handle:
+            return tomlkit.load(handle).unwrap()
 
     # ─── 能力实现注册 ──────────────────────────────────────────
 

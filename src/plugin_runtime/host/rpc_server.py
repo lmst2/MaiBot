@@ -69,6 +69,7 @@ class RPCServer:
         # 运行状态
         self._running: bool = False
         self._tasks: List[asyncio.Task[None]] = []
+        self._last_handshake_rejection_reason: str = ""
 
     @property
     def session_token(self) -> str:
@@ -78,6 +79,15 @@ class RPCServer:
     def is_connected(self) -> bool:
         return self._connection is not None and not self._connection.is_closed
 
+    @property
+    def last_handshake_rejection_reason(self) -> str:
+        """返回最近一次握手被拒绝的原因。"""
+        return self._last_handshake_rejection_reason
+
+    def clear_handshake_state(self) -> None:
+        """清空最近一次握手拒绝状态。"""
+        self._last_handshake_rejection_reason = ""
+
     def register_method(self, method: str, handler: MethodHandler) -> None:
         """注册 RPC 方法处理器"""
         self._method_handlers[method] = handler
@@ -85,6 +95,7 @@ class RPCServer:
     async def start(self) -> None:
         """启动 RPC 服务器"""
         self._running = True
+        self.clear_handshake_state()
         self._send_queue = asyncio.Queue(maxsize=self._send_queue_size)
         self._send_worker_task = asyncio.create_task(self._send_loop())
         await self._transport.start(self._handle_connection)
@@ -93,6 +104,7 @@ class RPCServer:
     async def stop(self) -> None:
         """停止 RPC 服务器"""
         self._running = False
+        self.clear_handshake_state()
         self._fail_pending_requests(ErrorCode.E_SHUTTING_DOWN, "服务器正在关闭")
         self._fail_queued_sends(ErrorCode.E_SHUTTING_DOWN, "服务器正在关闭")
 
@@ -204,6 +216,7 @@ class RPCServer:
     async def _handle_connection(self, conn: Connection) -> None:
         """处理新的 Runner 连接"""
         logger.info("收到 Runner 连接")
+        self.clear_handshake_state()
         # 第一条消息必须是 runner.hello 握手
         try:
             success = await self._handle_handshake(conn)
@@ -232,6 +245,7 @@ class RPCServer:
         envelope = self._codec.decode_envelope(data)
         if envelope.method != "runner.hello":
             logger.error(f"期望 runner.hello，收到 {envelope.method}")
+            self._last_handshake_rejection_reason = "首条消息必须为 runner.hello"
             error_resp = envelope.make_error_response(
                 ErrorCode.E_PROTOCOL_MISMATCH.value,
                 "首条消息必须为 runner.hello",
@@ -244,7 +258,8 @@ class RPCServer:
         # 校验会话令牌
         if hello.session_token != self._session_token:
             logger.error("会话令牌不匹配")
-            resp_payload = HelloResponsePayload(accepted=False, reason="会话令牌无效")
+            self._last_handshake_rejection_reason = "会话令牌无效"
+            resp_payload = HelloResponsePayload(accepted=False, reason=self._last_handshake_rejection_reason)
             resp = envelope.make_response(payload=resp_payload.model_dump())
             await conn.send_frame(self._codec.encode_envelope(resp))
             return False
@@ -252,15 +267,19 @@ class RPCServer:
         # 校验 SDK 版本
         if not self._check_sdk_version(hello.sdk_version):
             logger.error(f"SDK 版本不兼容: {hello.sdk_version}")
+            self._last_handshake_rejection_reason = (
+                f"SDK 版本 {hello.sdk_version} 不在支持范围 [{MIN_SDK_VERSION}, {MAX_SDK_VERSION}]"
+            )
             resp_payload = HelloResponsePayload(
                 accepted=False,
-                reason=f"SDK 版本 {hello.sdk_version} 不在支持范围 [{MIN_SDK_VERSION}, {MAX_SDK_VERSION}]",
+                reason=self._last_handshake_rejection_reason,
             )
             resp = envelope.make_response(payload=resp_payload.model_dump())
             await conn.send_frame(self._codec.encode_envelope(resp))
             return False
 
         # 发送响应
+        self.clear_handshake_state()
         resp_payload = HelloResponsePayload(accepted=True, host_version=PROTOCOL_VERSION)
         resp = envelope.make_response(payload=resp_payload.model_dump())
         await conn.send_frame(self._codec.encode_envelope(resp))

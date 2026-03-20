@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Set, Tuple, TYPE_CHECKING, cast
 from uuid import uuid4
 
 import asyncio
@@ -42,6 +42,13 @@ if not TYPE_CHECKING:
     AiohttpClientWebSocketResponse = Any
 
 
+SUPPORTED_CONFIG_VERSION = "0.1.0"
+DEFAULT_RECONNECT_DELAY_SEC = 5.0
+DEFAULT_HEARTBEAT_SEC = 30.0
+DEFAULT_ACTION_TIMEOUT_SEC = 15.0
+DEFAULT_CHAT_LIST_TYPE = "whitelist"
+
+
 @Adapter(platform="qq", protocol="napcat", send_method="send_to_platform")
 class NapCatAdapterPlugin(MaiBotPlugin):
     """NapCat 适配器 MVP 实现。"""
@@ -52,7 +59,7 @@ class NapCatAdapterPlugin(MaiBotPlugin):
         self._plugin_config: Dict[str, Any] = {}
         self._connection_task: Optional[asyncio.Task[None]] = None
         self._pending_actions: Dict[str, asyncio.Future[Dict[str, Any]]] = {}
-        self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._background_tasks: Set[asyncio.Task[Any]] = set()
         self._send_lock = asyncio.Lock()
         self._ws: Optional[AiohttpClientWebSocketResponse] = None
 
@@ -80,8 +87,9 @@ class NapCatAdapterPlugin(MaiBotPlugin):
             new_config: 最新的插件配置。
             version: 配置版本号。
         """
-        del version
         self.set_plugin_config(new_config)
+        if version:
+            self.ctx.logger.debug(f"NapCat 适配器收到配置更新通知: {version}")
         await self._restart_connection_if_needed()
 
     async def send_to_platform(
@@ -139,6 +147,8 @@ class NapCatAdapterPlugin(MaiBotPlugin):
         if not self._should_connect():
             self.ctx.logger.info("NapCat 适配器保持空闲状态，因为插件或配置未启用")
             return
+        if not self._validate_current_config():
+            return
         if not AIOHTTP_AVAILABLE:
             self.ctx.logger.error("NapCat 适配器依赖 aiohttp，但当前环境未安装该依赖")
             return
@@ -185,7 +195,7 @@ class NapCatAdapterPlugin(MaiBotPlugin):
 
             headers = self._build_headers()
             timeout = ClientTimeout(total=None, connect=10)
-            heartbeat = self._get_positive_float(self._connection_config(), "heartbeat_sec", 30.0)
+            heartbeat = self._get_positive_float(self._connection_config(), "heartbeat_sec", DEFAULT_HEARTBEAT_SEC)
 
             try:
                 async with ClientSession(headers=headers, timeout=timeout) as session:
@@ -204,7 +214,13 @@ class NapCatAdapterPlugin(MaiBotPlugin):
             if not self._should_connect():
                 break
 
-            await asyncio.sleep(self._get_positive_float(self._connection_config(), "reconnect_delay_sec", 5.0))
+            await asyncio.sleep(
+                self._get_positive_float(
+                    self._connection_config(),
+                    "reconnect_delay_sec",
+                    DEFAULT_RECONNECT_DELAY_SEC,
+                )
+            )
 
     async def _receive_loop(self, ws: AiohttpClientWebSocketResponse) -> None:
         """持续消费 WebSocket 消息并分发处理。
@@ -250,7 +266,10 @@ class NapCatAdapterPlugin(MaiBotPlugin):
         if not sender_user_id:
             return
 
+        group_id = str(payload.get("group_id") or "").strip()
         if self_id and sender_user_id == self_id and self._get_bool(self._filters_config(), "ignore_self_message", True):
+            return
+        if not self._is_inbound_chat_allowed(sender_user_id, group_id):
             return
 
         message_dict = self._build_inbound_message_dict(payload, self_id, sender_user_id, sender)
@@ -339,7 +358,7 @@ class NapCatAdapterPlugin(MaiBotPlugin):
             "display_message": plain_text,
         }
 
-    def _convert_inbound_segments(self, message_payload: Any, self_id: str) -> tuple[List[Dict[str, Any]], bool]:
+    def _convert_inbound_segments(self, message_payload: Any, self_id: str) -> Tuple[List[Dict[str, Any]], bool]:
         """将 OneBot 消息段转换为 Host 消息段结构。
 
         Args:
@@ -347,7 +366,7 @@ class NapCatAdapterPlugin(MaiBotPlugin):
             self_id: 当前机器人账号 ID。
 
         Returns:
-            tuple[List[Dict[str, Any]], bool]: 转换后的消息段列表，以及是否 @ 到当前机器人。
+            Tuple[List[Dict[str, Any]], bool]: 转换后的消息段列表，以及是否 @ 到当前机器人。
         """
         if isinstance(message_payload, str):
             normalized_text = message_payload.strip()
@@ -412,7 +431,7 @@ class NapCatAdapterPlugin(MaiBotPlugin):
         self,
         message: Dict[str, Any],
         route: Dict[str, Any],
-    ) -> tuple[str, Dict[str, Any]]:
+    ) -> Tuple[str, Dict[str, Any]]:
         """为 Host 出站消息构造 OneBot 动作。
 
         Args:
@@ -420,7 +439,7 @@ class NapCatAdapterPlugin(MaiBotPlugin):
             route: Platform IO 路由信息。
 
         Returns:
-            tuple[str, Dict[str, Any]]: 动作名称与参数字典。
+            Tuple[str, Dict[str, Any]]: 动作名称与参数字典。
         """
         message_info = message.get("message_info", {})
         if not isinstance(message_info, dict):
@@ -519,7 +538,11 @@ class NapCatAdapterPlugin(MaiBotPlugin):
         try:
             async with self._send_lock:
                 await ws.send_str(json.dumps(request_payload, ensure_ascii=False))
-            timeout_seconds = self._get_positive_float(self._connection_config(), "action_timeout_sec", 15.0)
+            timeout_seconds = self._get_positive_float(
+                self._connection_config(),
+                "action_timeout_sec",
+                DEFAULT_ACTION_TIMEOUT_SEC,
+            )
             return await asyncio.wait_for(response_future, timeout=timeout_seconds)
         finally:
             self._pending_actions.pop(echo_id, None)
@@ -626,6 +649,173 @@ class NapCatAdapterPlugin(MaiBotPlugin):
         filters_config = self._plugin_config.get("filters", {})
         return filters_config if isinstance(filters_config, dict) else {}
 
+    def _chat_config(self) -> Dict[str, Any]:
+        """读取插件配置中的 ``chat`` 段。
+
+        Returns:
+            Dict[str, Any]: ``chat`` 配置字典。
+        """
+        chat_config = self._plugin_config.get("chat", {})
+        return chat_config if isinstance(chat_config, dict) else {}
+
+    def _is_inbound_chat_allowed(self, sender_user_id: str, group_id: str) -> bool:
+        """检查入站消息是否通过聊天名单过滤。
+
+        Args:
+            sender_user_id: 发送者用户 ID。
+            group_id: 群聊 ID；私聊时为空字符串。
+
+        Returns:
+            bool: 若消息允许继续进入 Host，则返回 ``True``。
+        """
+        chat_config = self._chat_config()
+        banned_user_ids = self._get_string_list(chat_config, "ban_user_id")
+        if sender_user_id in banned_user_ids:
+            self.ctx.logger.warning(f"NapCat 用户 {sender_user_id} 在全局禁止名单中，消息被丢弃")
+            return False
+
+        if group_id:
+            group_list_type = self._get_list_mode(chat_config, "group_list_type", DEFAULT_CHAT_LIST_TYPE)
+            group_id_list = self._get_string_list(chat_config, "group_list")
+            if not self._is_id_allowed_by_list_policy(group_id, group_list_type, group_id_list):
+                self.ctx.logger.warning(f"NapCat 群聊 {group_id} 未通过聊天名单过滤，消息被丢弃")
+                return False
+            return True
+
+        private_list_type = self._get_list_mode(chat_config, "private_list_type", DEFAULT_CHAT_LIST_TYPE)
+        private_id_list = self._get_string_list(chat_config, "private_list")
+        if not self._is_id_allowed_by_list_policy(sender_user_id, private_list_type, private_id_list):
+            self.ctx.logger.warning(f"NapCat 私聊用户 {sender_user_id} 未通过聊天名单过滤，消息被丢弃")
+            return False
+        return True
+
+    def _is_id_allowed_by_list_policy(
+        self,
+        target_id: str,
+        list_type: str,
+        configured_ids: Set[str],
+    ) -> bool:
+        """根据白名单或黑名单规则判断目标 ID 是否允许通过。
+
+        Args:
+            target_id: 待检查的目标 ID。
+            list_type: 名单模式，仅支持 ``whitelist`` 或 ``blacklist``。
+            configured_ids: 配置中的 ID 集合。
+
+        Returns:
+            bool: 若目标 ID 允许通过，则返回 ``True``。
+        """
+        if list_type == "whitelist":
+            return target_id in configured_ids
+        return target_id not in configured_ids
+
+    def _validate_current_config(self) -> bool:
+        """校验当前配置是否满足启动连接的前提条件。
+
+        Returns:
+            bool: 配置可用于启动连接时返回 ``True``。
+        """
+        if not self._validate_plugin_config_version():
+            return False
+
+        connection_config = self._connection_config()
+        ws_url = self._get_string(connection_config, "ws_url")
+        if not ws_url:
+            self.ctx.logger.warning("NapCat 适配器已启用，但 connection.ws_url 为空")
+            return False
+
+        self._validate_positive_float_setting(
+            connection_config,
+            "connection",
+            "reconnect_delay_sec",
+            DEFAULT_RECONNECT_DELAY_SEC,
+        )
+        self._validate_positive_float_setting(
+            connection_config,
+            "connection",
+            "heartbeat_sec",
+            DEFAULT_HEARTBEAT_SEC,
+        )
+        self._validate_positive_float_setting(
+            connection_config,
+            "connection",
+            "action_timeout_sec",
+            DEFAULT_ACTION_TIMEOUT_SEC,
+        )
+        self._validate_list_mode_setting(self._chat_config(), "chat", "group_list_type", DEFAULT_CHAT_LIST_TYPE)
+        self._validate_list_mode_setting(self._chat_config(), "chat", "private_list_type", DEFAULT_CHAT_LIST_TYPE)
+        return True
+
+    def _validate_plugin_config_version(self) -> bool:
+        """校验插件配置版本是否与当前实现兼容。
+
+        Returns:
+            bool: 版本兼容时返回 ``True``。
+        """
+        config_version = self._get_string(self._plugin_section(), "config_version")
+        if not config_version:
+            self.ctx.logger.error(
+                f"NapCat 适配器配置缺少 plugin.config_version，当前插件要求版本 {SUPPORTED_CONFIG_VERSION}"
+            )
+            return False
+
+        if config_version != SUPPORTED_CONFIG_VERSION:
+            self.ctx.logger.error(
+                "NapCat 适配器配置版本不兼容: "
+                f"当前为 {config_version}，当前插件要求 {SUPPORTED_CONFIG_VERSION}"
+            )
+            return False
+
+        return True
+
+    def _validate_positive_float_setting(
+        self,
+        mapping: Dict[str, Any],
+        section_name: str,
+        key: str,
+        default: float,
+    ) -> None:
+        """校验正浮点数配置项，并在非法时输出告警日志。
+
+        Args:
+            mapping: 待读取的配置字典。
+            section_name: 当前配置段名称。
+            key: 目标配置键名。
+            default: 配置非法时实际使用的默认值。
+        """
+        value = mapping.get(key, default)
+        if isinstance(value, (int, float)) and float(value) > 0:
+            return
+
+        self.ctx.logger.warning(
+            "NapCat 适配器配置项取值无效，已回退到默认值: "
+            f"{section_name}.{key}={value!r}，默认值为 {default}"
+        )
+
+    def _validate_list_mode_setting(
+        self,
+        mapping: Dict[str, Any],
+        section_name: str,
+        key: str,
+        default: str,
+    ) -> None:
+        """校验名单模式配置项，并在非法时输出告警日志。
+
+        Args:
+            mapping: 待读取的配置字典。
+            section_name: 当前配置段名称。
+            key: 目标配置键名。
+            default: 配置非法时实际使用的默认值。
+        """
+        value = mapping.get(key, default)
+        if isinstance(value, str) and value.strip() in {"whitelist", "blacklist"}:
+            return
+
+        self.ctx.logger.warning(
+            "NapCat 适配器配置项取值无效，已回退到默认值: "
+            f"{section_name}.{key}={value!r}，默认值为 {default}"
+        )
+
     def _should_connect(self) -> bool:
         """判断当前配置下是否应当启动连接。
 
@@ -679,6 +869,47 @@ class NapCatAdapterPlugin(MaiBotPlugin):
         """
         value = mapping.get(key)
         return "" if value is None else str(value).strip()
+
+    @staticmethod
+    def _get_list_mode(mapping: Dict[str, Any], key: str, default: str) -> str:
+        """安全读取名单模式配置值。
+
+        Args:
+            mapping: 待读取的配置字典。
+            key: 目标键名。
+            default: 读取失败时的默认值。
+
+        Returns:
+            str: 合法的名单模式字符串。
+        """
+        value = mapping.get(key, default)
+        if isinstance(value, str):
+            normalized_value = value.strip()
+            if normalized_value in {"whitelist", "blacklist"}:
+                return normalized_value
+        return default
+
+    @staticmethod
+    def _get_string_list(mapping: Dict[str, Any], key: str) -> Set[str]:
+        """安全读取 ID 列表配置值。
+
+        Args:
+            mapping: 待读取的配置字典。
+            key: 目标键名。
+
+        Returns:
+            Set[str]: 去重后的字符串 ID 集合。
+        """
+        value = mapping.get(key, [])
+        if not isinstance(value, list):
+            return set()
+
+        normalized_values: Set[str] = set()
+        for item in value:
+            item_text = "" if item is None else str(item).strip()
+            if item_text:
+                normalized_values.add(item_text)
+        return normalized_values
 
 
 def create_plugin() -> NapCatAdapterPlugin:

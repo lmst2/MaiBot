@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 PROTOCOL_VERSION = "1.0.0"
 # 支持的 SDK 版本范围（Host 在握手时校验）
 MIN_SDK_VERSION = "1.0.0"
-MAX_SDK_VERSION = "1.99.99"
+MAX_SDK_VERSION = "2.99.99"
 
 
 # ====== 消息类型 ======
