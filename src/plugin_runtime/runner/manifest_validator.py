@@ -18,6 +18,15 @@ class VersionComparator:
 
     @staticmethod
     def normalize_version(version: str) -> str:
+        """将版本号规范化为三段式语义版本字符串。
+
+        Args:
+            version: 原始版本号字符串。
+
+        Returns:
+            str: 规范化后的 ``major.minor.patch`` 形式版本号。
+            当输入为空或格式非法时返回 ``0.0.0``。
+        """
         if not version:
             return "0.0.0"
         normalized = re.sub(r"-snapshot\.\d+", "", version.strip())
@@ -30,6 +39,15 @@ class VersionComparator:
 
     @staticmethod
     def parse_version(version: str) -> Tuple[int, int, int]:
+        """将版本字符串解析为可比较的整数元组。
+
+        Args:
+            version: 原始版本号字符串。
+
+        Returns:
+            Tuple[int, int, int]: 三段式版本号对应的整数元组。
+            当解析失败时返回 ``(0, 0, 0)``。
+        """
         normalized = VersionComparator.normalize_version(version)
         try:
             parts = normalized.split(".")
@@ -39,6 +57,16 @@ class VersionComparator:
 
     @staticmethod
     def compare(v1: str, v2: str) -> int:
+        """比较两个版本号的大小关系。
+
+        Args:
+            v1: 第一个版本号。
+            v2: 第二个版本号。
+
+        Returns:
+            int: ``-1`` 表示 ``v1 < v2``，``1`` 表示 ``v1 > v2``，
+            ``0`` 表示两者相等。
+        """
         t1 = VersionComparator.parse_version(v1)
         t2 = VersionComparator.parse_version(v2)
         if t1 < t2:
@@ -49,6 +77,17 @@ class VersionComparator:
 
     @staticmethod
     def is_in_range(version: str, min_version: str = "", max_version: str = "") -> Tuple[bool, str]:
+        """判断版本号是否落在给定闭区间内。
+
+        Args:
+            version: 待检查的版本号。
+            min_version: 允许的最小版本号，留空表示不限制下界。
+            max_version: 允许的最大版本号，留空表示不限制上界。
+
+        Returns:
+            Tuple[bool, str]: 第一项表示是否满足要求，第二项为失败原因；
+            当校验通过时第二项为空字符串。
+        """
         if not min_version and not max_version:
             return True, ""
         vn = VersionComparator.normalize_version(version)
@@ -71,6 +110,11 @@ class ManifestValidator:
     SUPPORTED_MANIFEST_VERSIONS = [1, 2]
 
     def __init__(self, host_version: str = "") -> None:
+        """初始化 Manifest 校验器。
+
+        Args:
+            host_version: 当前 Host 版本号，用于校验插件声明的兼容区间。
+        """
         self._host_version = host_version
         self.errors: List[str] = []
         self.warnings: List[str] = []
@@ -96,6 +140,11 @@ class ManifestValidator:
         return len(self.errors) == 0
 
     def _check_required_fields(self, manifest: Dict[str, Any]) -> None:
+        """检查 Manifest 中的必填字段是否存在且非空。
+
+        Args:
+            manifest: 待校验的 Manifest 数据。
+        """
         for field in self.REQUIRED_FIELDS:
             if field not in manifest:
                 self.errors.append(f"缺少必需字段: {field}")
@@ -103,11 +152,21 @@ class ManifestValidator:
                 self.errors.append(f"必需字段不能为空: {field}")
 
     def _check_manifest_version(self, manifest: Dict[str, Any]) -> None:
+        """检查 Manifest 版本号是否在当前 Runner 支持范围内。
+
+        Args:
+            manifest: 待校验的 Manifest 数据。
+        """
         mv = manifest.get("manifest_version")
         if mv is not None and mv not in self.SUPPORTED_MANIFEST_VERSIONS:
             self.errors.append(f"不支持的 manifest_version: {mv}，支持: {self.SUPPORTED_MANIFEST_VERSIONS}")
 
     def _check_author(self, manifest: Dict[str, Any]) -> None:
+        """校验 ``author`` 字段的结构与内容。
+
+        Args:
+            manifest: 待校验的 Manifest 数据。
+        """
         author = manifest.get("author")
         if author is None:
             return
@@ -121,6 +180,11 @@ class ManifestValidator:
             self.errors.append("author 应为字符串或 {name, url} 对象")
 
     def _check_host_compatibility(self, manifest: Dict[str, Any]) -> None:
+        """检查插件声明的 Host 兼容范围是否包含当前 Host 版本。
+
+        Args:
+            manifest: 待校验的 Manifest 数据。
+        """
         host_app = manifest.get("host_application")
         if not isinstance(host_app, dict) or not self._host_version:
             return
@@ -131,6 +195,11 @@ class ManifestValidator:
             self.errors.append(f"Host 版本不兼容: {msg} (当前 Host: {self._host_version})")
 
     def _check_recommended(self, manifest: Dict[str, Any]) -> None:
+        """检查推荐字段是否齐备，并记录为警告而非错误。
+
+        Args:
+            manifest: 待校验的 Manifest 数据。
+        """
         for field in self.RECOMMENDED_FIELDS:
             if field not in manifest or not manifest[field]:
                 self.warnings.append(f"建议填写字段: {field}")

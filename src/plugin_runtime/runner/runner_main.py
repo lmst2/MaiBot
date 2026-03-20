@@ -47,8 +47,19 @@ logger = get_logger("plugin_runtime.runner.main")
 
 
 class _ContextAwarePlugin(Protocol):
+    """支持注入运行时上下文的插件协议。
+
+    该协议用于描述 Runner 在激活插件时依赖的最小接口。
+    只要插件实例实现了 ``_set_context`` 方法，就可以被 Runner
+    注入 ``PluginContext`` 或兼容层上下文对象。
+    """
+
     def _set_context(self, context: Any) -> None:
-        """为插件注入上下文对象。"""
+        """为插件实例注入运行时上下文。
+
+        Args:
+            context: 由 Runner 构造的上下文对象。
+        """
 
 
 def _install_shutdown_signal_handlers(
