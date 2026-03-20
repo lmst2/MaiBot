@@ -237,9 +237,12 @@ class PluginRunner:
                     f"插件 {bound_plugin_id} 尝试以 {plugin_id} 身份发起 RPC，已强制绑定回自身身份"
                 )
             resp = await rpc_client.send_request(
-                method=method,
+                method="cap.call",
                 plugin_id=bound_plugin_id,
-                payload=payload or {},
+                payload={
+                    "capability": method,
+                    "args": payload or {},
+                },
             )
             # 从响应信封中提取业务结果
             if resp.error:

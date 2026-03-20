@@ -56,19 +56,14 @@ class CapabilityService:
         校验权限后调用对应实现。
         """
         plugin_id = envelope.plugin_id
-        payload = envelope.payload if isinstance(envelope.payload, dict) else {}
 
         try:
-            req = CapabilityRequestPayload.model_validate(payload)
-            capability = req.capability
-            args = req.args
-        except Exception:
-            capability = envelope.method
-            raw_args = payload.get("args", payload)
-            args = raw_args if isinstance(raw_args, dict) else {}
+            req = CapabilityRequestPayload.model_validate(envelope.payload)
+        except Exception as exc:
+            return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, f"能力调用 payload 非法: {exc}")
 
-        if not capability:
-            return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, "能力调用缺少 capability")
+        capability = req.capability
+        args = req.args
 
         # 1. 权限校验
         allowed, reason = self._authorization.check_capability(plugin_id, capability)

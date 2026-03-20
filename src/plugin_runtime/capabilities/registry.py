@@ -1,6 +1,7 @@
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from src.common.logger import get_logger
+from src.plugin_runtime.host.capability_service import CapabilityImpl
 from src.plugin_runtime.host.supervisor import PluginSupervisor
 
 if TYPE_CHECKING:
@@ -12,17 +13,15 @@ logger = get_logger("plugin_runtime.integration")
 def register_capability_impls(manager: "PluginRuntimeManager", supervisor: PluginSupervisor) -> None:
     """向指定 Supervisor 注册主程序提供的能力实现。"""
     cap_service = supervisor.capability_service
-    rpc_server = supervisor.rpc_server
 
-    def _register(name: str, impl: Any) -> None:
-        """注册单个能力实现及其 RPC 入口。
+    def _register(name: str, impl: CapabilityImpl) -> None:
+        """注册单个能力实现。
 
         Args:
             name: 能力名称。
             impl: 能力实现函数。
         """
         cap_service.register_capability(name, impl)
-        rpc_server.register_method(name, cap_service.handle_capability_request)
 
     _register("send.text", manager._cap_send_text)
     _register("send.emoji", manager._cap_send_emoji)
