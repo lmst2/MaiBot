@@ -612,7 +612,17 @@ class PluginRuntimeManager(
         return None if plugin_path is None else plugin_path / "config.toml"
 
     async def _handle_plugin_config_changes(self, plugin_id: str, changes: Sequence[FileChange]) -> None:
-        """处理单个插件配置文件变化，并仅向目标插件推送配置更新。"""
+        """处理单个插件配置文件变化，并精确重载目标插件。
+
+        Args:
+            plugin_id: 发生配置变更的插件 ID。
+            changes: 当前批次收集到的配置文件变更列表。
+
+        Notes:
+            这里选择“精确重载该插件”，而不是仅推送软性的配置更新通知。
+            这样可以保证没有实现 ``on_config_update()`` 的插件也能重新执行
+            ``on_load()``，让磁盘上的 ``config.toml`` 修改对插件运行态真正生效。
+        """
         if not self._started or not changes:
             return
 
@@ -626,18 +636,24 @@ class PluginRuntimeManager(
             return
 
         try:
-            await supervisor.notify_plugin_config_updated(
+            self._load_plugin_config_for_supervisor(supervisor, plugin_id)
+            reload_success = await supervisor.reload_plugin(
                 plugin_id=plugin_id,
-                config_data=self._load_plugin_config_for_supervisor(supervisor, plugin_id),
+                reason="config_file_changed",
             )
+            if reload_success:
+                self._refresh_plugin_config_watch_subscriptions()
+            else:
+                logger.warning(f"插件 {plugin_id} 配置文件变更后重载失败")
         except Exception as exc:
-            logger.warning(f"插件 {plugin_id} 配置热更新通知失败: {exc}")
+            logger.warning(f"插件 {plugin_id} 配置文件变更处理失败: {exc}")
 
     async def _handle_plugin_source_changes(self, changes: Sequence[FileChange]) -> None:
         """处理插件源码相关变化。
 
         这里仅负责源码、清单等会影响插件装载状态的文件；配置文件的变化会由
-        单独的 per-plugin watcher 处理，避免把单插件配置更新放大成全量 reload。
+        单独的 per-plugin watcher 处理，并精确重载对应插件，避免放大成
+        不必要的跨插件 reload。
         """
         if not self._started or not changes:
             return

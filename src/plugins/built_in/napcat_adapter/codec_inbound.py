@@ -5,9 +5,13 @@ from uuid import uuid4
 
 import hashlib
 import json
+import re
 import time
 
 from napcat_adapter.qq_queries import NapCatQueryService
+
+
+_CQ_SEGMENT_PATTERN = re.compile(r"\[CQ:(?P<type>[a-zA-Z0-9_]+)(?P<params>(?:,[^\]]*)?)\]")
 
 
 class NapCatInboundCodec:
@@ -104,8 +108,12 @@ class NapCatInboundCodec:
         """
         message_payload = payload.get("message")
         if isinstance(message_payload, str):
-            normalized_text = message_payload.strip()
-            return ([{"type": "text", "data": normalized_text}] if normalized_text else []), False
+            parsed_message_payload = self._parse_cq_message_text(message_payload)
+            if parsed_message_payload:
+                message_payload = parsed_message_payload
+            else:
+                normalized_text = self._decode_cq_entities(message_payload).strip()
+                return ([{"type": "text", "data": normalized_text}] if normalized_text else []), False
 
         if not isinstance(message_payload, list):
             return [], False
@@ -223,8 +231,8 @@ class NapCatInboundCodec:
         Returns:
             Dict[str, Any]: 转换后的图片或表情消息段。
         """
-        subtype = segment_data.get("sub_type")
-        actual_is_emoji = is_emoji or (isinstance(subtype, int) and subtype not in {0, 4, 9})
+        subtype = self._normalize_numeric_segment_value(segment_data.get("sub_type"))
+        actual_is_emoji = is_emoji or (subtype is not None and subtype not in {0, 4, 9})
 
         image_url = str(segment_data.get("url") or "").strip()
         binary_data = await self._query_service.download_binary(image_url)
@@ -412,3 +420,91 @@ class NapCatInboundCodec:
 
         plain_text = "".join(part for part in plain_text_parts if part).strip()
         return plain_text or fallback_text or "[unsupported]"
+
+    def _parse_cq_message_text(self, message_text: str) -> List[Dict[str, Any]]:
+        """将 CQ 码字符串解析为 OneBot 风格消息段列表。
+
+        Args:
+            message_text: NapCat 在字符串模式下返回的消息内容。
+
+        Returns:
+            List[Dict[str, Any]]: 解析后的 OneBot 风格消息段列表。
+        """
+        parsed_segments: List[Dict[str, Any]] = []
+        current_index = 0
+
+        for match in _CQ_SEGMENT_PATTERN.finditer(message_text):
+            prefix_text = self._decode_cq_entities(message_text[current_index : match.start()])
+            if prefix_text:
+                parsed_segments.append({"type": "text", "data": {"text": prefix_text}})
+
+            segment_type = str(match.group("type") or "").strip()
+            segment_data = self._parse_cq_segment_data(match.group("params") or "")
+            if segment_type:
+                parsed_segments.append({"type": segment_type, "data": segment_data})
+            current_index = match.end()
+
+        suffix_text = self._decode_cq_entities(message_text[current_index:])
+        if suffix_text:
+            parsed_segments.append({"type": "text", "data": {"text": suffix_text}})
+
+        return parsed_segments
+
+    def _parse_cq_segment_data(self, raw_params: str) -> Dict[str, Any]:
+        """解析单个 CQ 段中的参数串。
+
+        Args:
+            raw_params: 形如 ``,key=value,key2=value2`` 的原始参数字符串。
+
+        Returns:
+            Dict[str, Any]: 解析后的参数字典。
+        """
+        parsed_data: Dict[str, Any] = {}
+        if not raw_params:
+            return parsed_data
+
+        for item in raw_params.lstrip(",").split(","):
+            if not item or "=" not in item:
+                continue
+            key, value = item.split("=", 1)
+            normalized_key = key.strip()
+            if not normalized_key:
+                continue
+            decoded_value = self._decode_cq_entities(value)
+            parsed_data[normalized_key] = self._normalize_numeric_segment_value(decoded_value)
+
+        return parsed_data
+
+    @staticmethod
+    def _decode_cq_entities(text: str) -> str:
+        """解码 CQ 码中的 HTML 风格转义实体。
+
+        Args:
+            text: 待解码的 CQ 文本。
+
+        Returns:
+            str: 解码后的普通文本。
+        """
+        return (
+            text.replace("&amp;", "&")
+            .replace("&#91;", "[")
+            .replace("&#93;", "]")
+            .replace("&#44;", ",")
+        )
+
+    @staticmethod
+    def _normalize_numeric_segment_value(value: Any) -> Any:
+        """将可安全识别的数字字符串转为整数。
+
+        Args:
+            value: 原始字段值。
+
+        Returns:
+            Any: 规范化后的字段值。
+        """
+        if isinstance(value, str):
+            stripped_value = value.strip()
+            if stripped_value.isdigit():
+                return int(stripped_value)
+            return stripped_value
+        return value

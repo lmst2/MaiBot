@@ -2238,6 +2238,7 @@ class TestIntegration:
     async def test_handle_plugin_source_changes_only_reload_matching_supervisor(self, monkeypatch, tmp_path):
         from src.config.file_watcher import FileChange
         from src.plugin_runtime import integration as integration_module
+        import json
 
         builtin_root = tmp_path / "src" / "plugins" / "built_in"
         thirdparty_root = tmp_path / "plugins"
@@ -2247,6 +2248,10 @@ class TestIntegration:
         beta_dir.mkdir(parents=True)
         (alpha_dir / "config.toml").write_text("enabled = true\n", encoding="utf-8")
         (beta_dir / "config.toml").write_text("enabled = false\n", encoding="utf-8")
+        (alpha_dir / "plugin.py").write_text("def create_plugin():\n    return object()\n", encoding="utf-8")
+        (beta_dir / "plugin.py").write_text("def create_plugin():\n    return object()\n", encoding="utf-8")
+        (alpha_dir / "_manifest.json").write_text(json.dumps({"name": "alpha"}), encoding="utf-8")
+        (beta_dir / "_manifest.json").write_text(json.dumps({"name": "beta"}), encoding="utf-8")
 
         monkeypatch.chdir(tmp_path)
 
@@ -2257,8 +2262,8 @@ class TestIntegration:
                 self.reload_reasons = []
                 self.config_updates = []
 
-            async def reload_plugins(self, reason="manual"):
-                self.reload_reasons.append(reason)
+            async def reload_plugins(self, plugin_ids=None, reason="manual"):
+                self.reload_reasons.append((plugin_ids, reason))
 
             async def notify_plugin_config_updated(self, plugin_id, config_data, config_version=""):
                 self.config_updates.append((plugin_id, config_data, config_version))
@@ -2283,13 +2288,13 @@ class TestIntegration:
         await manager._handle_plugin_source_changes(changes)
 
         assert manager._builtin_supervisor.reload_reasons == []
-        assert manager._third_party_supervisor.reload_reasons == ["file_watcher"]
+        assert manager._third_party_supervisor.reload_reasons == [(["beta"], "file_watcher")]
         assert manager._builtin_supervisor.config_updates == []
         assert manager._third_party_supervisor.config_updates == []
         assert refresh_calls == [True]
 
     @pytest.mark.asyncio
-    async def test_handle_plugin_config_changes_only_notify_target_plugin(self, monkeypatch, tmp_path):
+    async def test_handle_plugin_config_changes_only_reload_target_plugin(self, monkeypatch, tmp_path):
         from src.plugin_runtime import integration as integration_module
         from src.config.file_watcher import FileChange
 
@@ -2308,27 +2313,35 @@ class TestIntegration:
             def __init__(self, plugin_dirs, plugins):
                 self._plugin_dirs = plugin_dirs
                 self._registered_plugins = {plugin_id: object() for plugin_id in plugins}
-                self.config_updates = []
+                self.reload_calls = []
 
-            async def notify_plugin_config_updated(self, plugin_id, config_data, config_version=""):
-                self.config_updates.append((plugin_id, config_data, config_version))
+            async def reload_plugin(self, plugin_id, reason="manual"):
+                self.reload_calls.append((plugin_id, reason))
                 return True
 
         manager = integration_module.PluginRuntimeManager()
         manager._started = True
         manager._builtin_supervisor = FakeSupervisor([builtin_root], ["alpha"])
         manager._third_party_supervisor = FakeSupervisor([thirdparty_root], ["beta"])
+        refresh_calls = []
+
+        def fake_refresh() -> None:
+            refresh_calls.append(True)
+
+        manager._refresh_plugin_config_watch_subscriptions = fake_refresh
 
         await manager._handle_plugin_config_changes(
             "alpha",
             [FileChange(change_type=1, path=alpha_dir / "config.toml")],
         )
 
-        assert manager._builtin_supervisor.config_updates == [("alpha", {"enabled": True}, "")]
-        assert manager._third_party_supervisor.config_updates == []
+        assert manager._builtin_supervisor.reload_calls == [("alpha", "config_file_changed")]
+        assert manager._third_party_supervisor.reload_calls == []
+        assert refresh_calls == [True]
 
     def test_refresh_plugin_config_watch_subscriptions_registers_per_plugin(self, tmp_path):
         from src.plugin_runtime import integration as integration_module
+        import json
 
         builtin_root = tmp_path / "src" / "plugins" / "built_in"
         thirdparty_root = tmp_path / "plugins"
@@ -2336,6 +2349,10 @@ class TestIntegration:
         beta_dir = thirdparty_root / "beta"
         alpha_dir.mkdir(parents=True)
         beta_dir.mkdir(parents=True)
+        (alpha_dir / "plugin.py").write_text("def create_plugin():\n    return object()\n", encoding="utf-8")
+        (beta_dir / "plugin.py").write_text("def create_plugin():\n    return object()\n", encoding="utf-8")
+        (alpha_dir / "_manifest.json").write_text(json.dumps({"name": "alpha"}), encoding="utf-8")
+        (beta_dir / "_manifest.json").write_text(json.dumps({"name": "beta"}), encoding="utf-8")
 
         class FakeWatcher:
             def __init__(self):

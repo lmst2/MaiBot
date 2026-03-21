@@ -71,6 +71,7 @@ class NapCatAdapterPlugin(MaiBotPlugin):
             version: 配置版本号。
         """
         self.set_plugin_config(new_config)
+        self._settings = None
         if version:
             self.ctx.logger.debug(f"NapCat 适配器收到配置更新通知: {version}")
         await self._restart_connection_if_needed()

@@ -3,12 +3,16 @@ from typing import Any, Dict
 
 import importlib
 import sys
+from types import SimpleNamespace
+
+import pytest
 
 
 BUILT_IN_PLUGIN_ROOT = Path(__file__).resolve().parents[1] / "src" / "plugins" / "built_in"
 if str(BUILT_IN_PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(BUILT_IN_PLUGIN_ROOT))
 
+NapCatInboundCodec = importlib.import_module("napcat_adapter.codec_inbound").NapCatInboundCodec
 NapCatOutboundCodec = importlib.import_module("napcat_adapter.codec_outbound").NapCatOutboundCodec
 
 
@@ -68,3 +72,80 @@ def test_napcat_outbound_codec_builds_private_action_from_route_metadata() -> No
 
     assert action_name == "send_private_msg"
     assert params == {"message": [{"type": "text", "data": {"text": "hello"}}], "user_id": "30001"}
+
+
+class DummyQueryService:
+    """用于测试的轻量查询服务。"""
+
+    async def download_binary(self, url: str) -> bytes:
+        """返回固定图片二进制。
+
+        Args:
+            url: 图片地址。
+
+        Returns:
+            bytes: 固定测试图片二进制。
+        """
+        if url:
+            return b"image-bytes"
+        return b""
+
+    async def get_message_detail(self, message_id: str) -> Dict[str, Any] | None:
+        """返回空消息详情。
+
+        Args:
+            message_id: 目标消息 ID。
+
+        Returns:
+            Dict[str, Any] | None: 固定空结果。
+        """
+        del message_id
+        return None
+
+    async def get_record_detail(self, file_name: str, file_id: str | None = None) -> Dict[str, Any] | None:
+        """返回空语音详情。
+
+        Args:
+            file_name: 语音文件名。
+            file_id: 可选文件 ID。
+
+        Returns:
+            Dict[str, Any] | None: 固定空结果。
+        """
+        del file_name
+        del file_id
+        return None
+
+    async def get_forward_message(self, message_id: str) -> Dict[str, Any] | None:
+        """返回空转发详情。
+
+        Args:
+            message_id: 转发消息 ID。
+
+        Returns:
+            Dict[str, Any] | None: 固定空结果。
+        """
+        del message_id
+        return None
+
+
+@pytest.mark.asyncio
+async def test_napcat_inbound_codec_parses_cq_string_image_segments() -> None:
+    codec = NapCatInboundCodec(SimpleNamespace(debug=lambda message: None), DummyQueryService())
+    payload = {
+        "message": "[CQ:image,file=test.png,sub_type=0,url=https://example.com/test.png][CQ:at,qq=10001] 看到是国人直接给你封了",
+    }
+
+    raw_message, is_at = await codec.convert_segments(payload, "10001")
+
+    assert raw_message[0]["type"] == "image"
+    assert raw_message[1] == {
+        "type": "at",
+        "data": {
+            "target_user_id": "10001",
+            "target_user_nickname": None,
+            "target_user_cardname": None,
+        },
+    }
+    assert raw_message[2] == {"type": "text", "data": " 看到是国人直接给你封了"}
+    assert is_at is True

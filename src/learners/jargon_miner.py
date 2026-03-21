@@ -199,7 +199,7 @@ class JargonMiner:
 
     async def process_extracted_entries(
         self, entries: List[JargonEntry], person_name_filter: Optional[Callable[[str], bool]] = None
-    ):
+    ) -> None:
         """
         处理已提取的黑话条目（从 expression_learner 路由过来的）
 
@@ -230,7 +230,7 @@ class JargonMiner:
             content = entry["content"]
             raw_content_set = entry["raw_content"]
             try:
-                with get_db_session() as session:
+                with get_db_session(auto_commit=False) as session:
                     jargon_items = session.exec(select(Jargon).filter_by(content=content)).all()
             except Exception as e:
                 logger.error(f"查询黑话 '{content}' 失败: {e}")
@@ -306,7 +306,13 @@ class JargonMiner:
                 removed_content, _ = self.cache.popitem(last=False)
                 logger.debug(f"缓存已满，移除最旧的黑话: {removed_content}")
 
-    def _update_jargon(self, db_jargon: Jargon, raw_content_set: Set[str]):
+    def _update_jargon(self, db_jargon: Jargon, raw_content_set: Set[str]) -> None:
+        """更新已有黑话记录并写回数据库。
+
+        Args:
+            db_jargon: 已命中的黑话 ORM 对象。
+            raw_content_set: 本次新增的原始上下文集合。
+        """
         db_jargon.count += 1
         existing_raw_content: List[str] = []
         if db_jargon.raw_content:
@@ -328,7 +334,17 @@ class JargonMiner:
 
         try:
             with get_db_session() as session:
-                session.add(db_jargon)
+                if db_jargon.id is None:
+                    raise ValueError("黑话记录缺少 id，无法更新数据库")
+                statement = select(Jargon).filter_by(id=db_jargon.id).limit(1)
+                if persisted_jargon := session.exec(statement).first():
+                    persisted_jargon.count = db_jargon.count
+                    persisted_jargon.raw_content = db_jargon.raw_content
+                    persisted_jargon.session_id_dict = db_jargon.session_id_dict
+                    persisted_jargon.is_global = db_jargon.is_global
+                    session.add(persisted_jargon)
+                else:
+                    logger.warning(f"黑话 ID {db_jargon.id} 在数据库中未找到，无法更新")
         except Exception as e:
             logger.error(f"更新黑话 '{db_jargon.content}' 失败: {e}")
 
