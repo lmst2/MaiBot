@@ -31,3 +31,7 @@
 1. 应该尽量减少使用getattr和setattr方法，除非是在对一个动态类进行处理或者使用Monkeypatch完成Pytest
 2. 在重构代码时，如果遇到getattr和setattr，应该尝试检查这个类实例是否有这个属性，如果有，则直接替换为类属性访问写法。
     - 举例：`v = getattr(instance, "value", "")` 在检查到`instance`有`value`属性后应该改为`v = instance.value`
+
+# 运行/调试/构建/测试/依赖
+优先使用uv
+依赖项以 pyproject.toml 为准
