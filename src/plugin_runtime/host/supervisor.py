@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -8,13 +9,15 @@ import sys
 
 from src.common.logger import get_logger
 from src.config.config import global_config
-from src.platform_io import DriverKind, InboundMessageEnvelope, RouteBinding, RouteKey, get_platform_io_manager
+from src.platform_io import DriverKind, InboundMessageEnvelope, RouteBinding, RouteKey, RouteMode, get_platform_io_manager
 from src.platform_io.drivers import PluginPlatformDriver
 from src.platform_io.route_key_factory import RouteKeyFactory
 from src.platform_io.routing import RouteBindingConflictError
 from src.plugin_runtime import ENV_HOST_VERSION, ENV_IPC_ADDRESS, ENV_PLUGIN_DIRS, ENV_SESSION_TOKEN
 from src.plugin_runtime.protocol.envelope import (
     AdapterDeclarationPayload,
+    AdapterStateUpdatePayload,
+    AdapterStateUpdateResultPayload,
     BootstrapPluginPayload,
     ConfigUpdatedPayload,
     Envelope,
@@ -45,6 +48,19 @@ if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
 
 logger = get_logger("plugin_runtime.host.runner_manager")
+
+_ADAPTER_BINDING_ROLE_RUNTIME_EXACT = "runtime_exact"
+_ADAPTER_BINDING_ROLE_PLATFORM_DEFAULT = "platform_default"
+
+
+@dataclass(slots=True)
+class _AdapterRuntimeState:
+    """保存适配器插件当前的运行时连接状态。"""
+
+    connected: bool = False
+    account_id: Optional[str] = None
+    scope: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 class PluginRunnerSupervisor:
@@ -94,6 +110,7 @@ class PluginRunnerSupervisor:
         self._runner_process: Optional[asyncio.subprocess.Process] = None
         self._registered_plugins: Dict[str, RegisterPluginPayload] = {}
         self._registered_adapters: Dict[str, AdapterDeclarationPayload] = {}
+        self._adapter_runtime_states: Dict[str, _AdapterRuntimeState] = {}
         self._runner_ready_events: asyncio.Event = asyncio.Event()
         self._runner_ready_payloads: RunnerReadyPayload = RunnerReadyPayload()
         self._health_task: Optional[asyncio.Task[None]] = None
@@ -452,6 +469,7 @@ class PluginRunnerSupervisor:
         """注册 Host 侧内部 RPC 方法。"""
         self._rpc_server.register_method("cap.call", self._capability_service.handle_capability_request)
         self._rpc_server.register_method("host.receive_external_message", self._handle_receive_external_message)
+        self._rpc_server.register_method("host.update_adapter_state", self._handle_update_adapter_state)
         self._rpc_server.register_method("plugin.bootstrap", self._handle_bootstrap_plugin)
         self._rpc_server.register_method("plugin.register_components", self._handle_register_plugin)
         self._rpc_server.register_method("plugin.register_plugin", self._handle_register_plugin)
@@ -563,14 +581,14 @@ class PluginRunnerSupervisor:
         return f"adapter:{plugin_id}"
 
     async def _register_adapter_driver(self, plugin_id: str, adapter: AdapterDeclarationPayload) -> None:
-        """将适配器插件注册到 Platform IO。
+        """将适配器插件驱动注册到 Platform IO。
 
         Args:
             plugin_id: 适配器插件 ID。
             adapter: 经过校验的适配器声明。
 
         Raises:
-            ValueError: 适配器路由冲突或驱动注册失败时抛出。
+            ValueError: 当驱动注册失败时抛出。
         """
         await self._unregister_adapter_driver(plugin_id)
 
@@ -588,22 +606,12 @@ class PluginRunnerSupervisor:
                 **adapter.metadata,
             },
         )
-        binding = RouteBinding(
-            route_key=driver.descriptor.route_key,
-            driver_id=driver.driver_id,
-            driver_kind=DriverKind.PLUGIN,
-            metadata={
-                "plugin_id": plugin_id,
-                "protocol": adapter.protocol,
-            },
-        )
 
         try:
             if platform_io_manager.is_started:
                 await platform_io_manager.add_driver(driver)
             else:
                 platform_io_manager.register_driver(driver)
-            platform_io_manager.bind_route(binding)
         except Exception:
             with contextlib.suppress(Exception):
                 if platform_io_manager.is_started:
@@ -613,6 +621,7 @@ class PluginRunnerSupervisor:
             raise
 
         self._registered_adapters[plugin_id] = adapter
+        self._adapter_runtime_states[plugin_id] = _AdapterRuntimeState()
 
     async def _unregister_adapter_driver(self, plugin_id: str) -> None:
         """从 Platform IO 注销一个适配器驱动。
@@ -622,6 +631,9 @@ class PluginRunnerSupervisor:
         """
         platform_io_manager = get_platform_io_manager()
         driver_id = self._build_adapter_driver_id(plugin_id)
+        adapter = self._registered_adapters.get(plugin_id)
+
+        self._remove_adapter_route_bindings(plugin_id)
 
         with contextlib.suppress(Exception):
             if platform_io_manager.is_started:
@@ -629,13 +641,209 @@ class PluginRunnerSupervisor:
             else:
                 platform_io_manager.unregister_driver(driver_id)
 
+        if adapter is not None:
+            self._refresh_platform_default_route(adapter.platform)
+
         self._registered_adapters.pop(plugin_id, None)
+        self._adapter_runtime_states.pop(plugin_id, None)
 
     async def _unregister_all_adapter_drivers(self) -> None:
         """注销当前 Supervisor 管理的全部适配器驱动。"""
         plugin_ids = list(self._registered_adapters.keys())
         for plugin_id in plugin_ids:
             await self._unregister_adapter_driver(plugin_id)
+
+    def _remove_adapter_route_bindings(self, plugin_id: str) -> None:
+        """移除某个适配器驱动当前持有的全部路由绑定。
+
+        Args:
+            plugin_id: 适配器插件 ID。
+        """
+        platform_io_manager = get_platform_io_manager()
+        platform_io_manager.route_table.remove_bindings_by_driver(self._build_adapter_driver_id(plugin_id))
+
+    @staticmethod
+    def _normalize_runtime_route_value(value: str) -> Optional[str]:
+        """规范化适配器运行时路由字段。
+
+        Args:
+            value: 待规范化的原始字符串。
+
+        Returns:
+            Optional[str]: 规范化后非空则返回字符串，否则返回 ``None``。
+        """
+        normalized_value = str(value).strip()
+        return normalized_value or None
+
+    def _build_runtime_route_key(
+        self,
+        adapter: AdapterDeclarationPayload,
+        payload: AdapterStateUpdatePayload,
+    ) -> RouteKey:
+        """根据运行时状态更新构造适配器生效路由键。
+
+        Args:
+            adapter: 当前适配器声明。
+            payload: 适配器上报的运行时状态。
+
+        Returns:
+            RouteKey: 当前连接应接管的精确路由键。
+
+        Raises:
+            ValueError: 当静态声明与运行时上报的身份信息冲突时抛出。
+        """
+        runtime_account_id = self._normalize_runtime_route_value(payload.account_id)
+        runtime_scope = self._normalize_runtime_route_value(payload.scope)
+
+        if adapter.account_id and runtime_account_id and adapter.account_id != runtime_account_id:
+            raise ValueError(
+                f"适配器声明的 account_id={adapter.account_id} 与运行时上报的 {runtime_account_id} 不一致"
+            )
+        if adapter.scope and runtime_scope and adapter.scope != runtime_scope:
+            raise ValueError(f"适配器声明的 scope={adapter.scope} 与运行时上报的 {runtime_scope} 不一致")
+
+        return RouteKey(
+            platform=adapter.platform,
+            account_id=runtime_account_id or adapter.account_id or None,
+            scope=runtime_scope or adapter.scope or None,
+        )
+
+    def _bind_runtime_exact_route(
+        self,
+        plugin_id: str,
+        adapter: AdapterDeclarationPayload,
+        route_key: RouteKey,
+    ) -> None:
+        """为适配器连接绑定精确生效路由。
+
+        Args:
+            plugin_id: 适配器插件 ID。
+            adapter: 当前适配器声明。
+            route_key: 当前连接对应的精确路由键。
+
+        Raises:
+            RouteBindingConflictError: 当目标路由已被其他 active owner 占用时抛出。
+        """
+        platform_io_manager = get_platform_io_manager()
+        platform_io_manager.bind_route(
+            RouteBinding(
+                route_key=route_key,
+                driver_id=self._build_adapter_driver_id(plugin_id),
+                driver_kind=DriverKind.PLUGIN,
+                metadata={
+                    "plugin_id": plugin_id,
+                    "protocol": adapter.protocol,
+                    "binding_role": _ADAPTER_BINDING_ROLE_RUNTIME_EXACT,
+                },
+            )
+        )
+
+    def _list_runtime_exact_bindings(self, platform: str) -> List[RouteBinding]:
+        """列出某个平台上由 Host 动态维护的精确适配器绑定。
+
+        Args:
+            platform: 目标平台名称。
+
+        Returns:
+            List[RouteBinding]: 当前平台上全部动态精确绑定。
+        """
+        platform_io_manager = get_platform_io_manager()
+        return [
+            binding
+            for binding in platform_io_manager.route_table.list_bindings()
+            if binding.mode == RouteMode.ACTIVE
+            and binding.route_key.platform == platform
+            and binding.metadata.get("binding_role") == _ADAPTER_BINDING_ROLE_RUNTIME_EXACT
+        ]
+
+    def _refresh_platform_default_route(self, platform: str) -> None:
+        """根据当前精确绑定数量刷新平台级默认路由。
+
+        当某个平台恰好只存在一个动态精确绑定时，会为该绑定额外创建一条
+        ``RouteKey(platform=<platform>)`` 形式的默认路由，方便缺少账号维度的
+        出站消息继续找到唯一 owner。若精确绑定数量变为 0 或大于 1，则撤销
+        由 Host 自动维护的默认路由，避免出现隐式歧义。
+
+        Args:
+            platform: 目标平台名称。
+        """
+        platform_io_manager = get_platform_io_manager()
+        default_route_key = RouteKey(platform=platform)
+        existing_default_binding = platform_io_manager.route_table.get_active_binding(default_route_key, exact_only=True)
+
+        if existing_default_binding is not None:
+            binding_role = existing_default_binding.metadata.get("binding_role")
+            if binding_role != _ADAPTER_BINDING_ROLE_PLATFORM_DEFAULT:
+                return
+            platform_io_manager.unbind_route(default_route_key, existing_default_binding.driver_id)
+
+        exact_bindings = self._list_runtime_exact_bindings(platform)
+        if len(exact_bindings) != 1:
+            return
+
+        exact_binding = exact_bindings[0]
+        if exact_binding.route_key == default_route_key:
+            return
+
+        platform_io_manager.bind_route(
+            RouteBinding(
+                route_key=default_route_key,
+                driver_id=exact_binding.driver_id,
+                driver_kind=exact_binding.driver_kind,
+                metadata={
+                    "plugin_id": exact_binding.metadata.get("plugin_id", ""),
+                    "protocol": exact_binding.metadata.get("protocol", ""),
+                    "binding_role": _ADAPTER_BINDING_ROLE_PLATFORM_DEFAULT,
+                },
+            ),
+            replace=True,
+        )
+
+    def _apply_adapter_runtime_state(
+        self,
+        plugin_id: str,
+        adapter: AdapterDeclarationPayload,
+        payload: AdapterStateUpdatePayload,
+    ) -> Tuple[_AdapterRuntimeState, Dict[str, Any]]:
+        """应用适配器运行时状态，并同步 Platform IO 路由。
+
+        Args:
+            plugin_id: 适配器插件 ID。
+            adapter: 当前适配器声明。
+            payload: 适配器上报的运行时状态。
+
+        Returns:
+            Tuple[_AdapterRuntimeState, Dict[str, Any]]: 更新后的运行时状态，以及
+            供 RPC 响应返回的路由键字典。
+
+        Raises:
+            RouteBindingConflictError: 当新的精确路由与其他 active owner 冲突时抛出。
+            ValueError: 当运行时路由信息不合法时抛出。
+        """
+        if not payload.connected:
+            self._remove_adapter_route_bindings(plugin_id)
+            self._refresh_platform_default_route(adapter.platform)
+            runtime_state = _AdapterRuntimeState(connected=False, metadata=dict(payload.metadata))
+            self._adapter_runtime_states[plugin_id] = runtime_state
+            return runtime_state, {}
+
+        route_key = self._build_runtime_route_key(adapter, payload)
+        self._remove_adapter_route_bindings(plugin_id)
+        self._bind_runtime_exact_route(plugin_id, adapter, route_key)
+        self._refresh_platform_default_route(adapter.platform)
+
+        runtime_state = _AdapterRuntimeState(
+            connected=True,
+            account_id=route_key.account_id,
+            scope=route_key.scope,
+            metadata=dict(payload.metadata),
+        )
+        self._adapter_runtime_states[plugin_id] = runtime_state
+        return runtime_state, {
+            "platform": route_key.platform,
+            "account_id": route_key.account_id,
+            "scope": route_key.scope,
+        }
 
     @staticmethod
     def _attach_inbound_route_metadata(
@@ -705,6 +913,45 @@ class PluginRunnerSupervisor:
             account_id=account_id,
             scope=scope,
         )
+
+    async def _handle_update_adapter_state(self, envelope: Envelope) -> Envelope:
+        """处理适配器插件上报的运行时状态更新。
+
+        Args:
+            envelope: RPC 请求信封。
+
+        Returns:
+            Envelope: 状态更新处理结果。
+        """
+        try:
+            payload = AdapterStateUpdatePayload.model_validate(envelope.payload)
+        except Exception as exc:
+            return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(exc))
+
+        adapter = self._registered_adapters.get(envelope.plugin_id)
+        if adapter is None:
+            return envelope.make_error_response(
+                ErrorCode.E_METHOD_NOT_ALLOWED.value,
+                f"插件 {envelope.plugin_id} 未声明为适配器，不能更新运行时状态",
+            )
+
+        try:
+            runtime_state, route_key_dict = self._apply_adapter_runtime_state(
+                plugin_id=envelope.plugin_id,
+                adapter=adapter,
+                payload=payload,
+            )
+        except RouteBindingConflictError as exc:
+            return envelope.make_error_response(ErrorCode.E_METHOD_NOT_ALLOWED.value, str(exc))
+        except Exception as exc:
+            return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(exc))
+
+        response = AdapterStateUpdateResultPayload(
+            accepted=True,
+            connected=runtime_state.connected,
+            route_key=route_key_dict,
+        )
+        return envelope.make_response(payload=response.model_dump())
 
     async def _handle_receive_external_message(self, envelope: Envelope) -> Envelope:
         """处理适配器插件上报的外部入站消息。
@@ -970,6 +1217,7 @@ class PluginRunnerSupervisor:
         self._component_registry.clear()
         self._registered_plugins.clear()
         self._registered_adapters.clear()
+        self._adapter_runtime_states.clear()
         self._runner_ready_events = asyncio.Event()
         self._runner_ready_payloads = RunnerReadyPayload()
         self._rpc_server.clear_handshake_state()

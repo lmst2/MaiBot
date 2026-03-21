@@ -481,13 +481,14 @@ class PluginRunner:
             self._loader.purge_plugin_modules(meta.plugin_id, meta.plugin_dir)
             return False
 
-        if not await self._invoke_plugin_on_load(meta):
+        if not await self._register_plugin(meta):
+            await self._invoke_plugin_on_unload(meta)
             await self._deactivate_plugin(meta)
             self._loader.purge_plugin_modules(meta.plugin_id, meta.plugin_dir)
             return False
 
-        if not await self._register_plugin(meta):
-            await self._invoke_plugin_on_unload(meta)
+        if not await self._invoke_plugin_on_load(meta):
+            await self._unregister_plugin(meta.plugin_id, reason="on_load_failed")
             await self._deactivate_plugin(meta)
             self._loader.purge_plugin_modules(meta.plugin_id, meta.plugin_dir)
             return False

@@ -304,6 +304,30 @@ class AdapterDeclarationPayload(BaseModel):
     """适配器附加元数据"""
 
 
+class AdapterStateUpdatePayload(BaseModel):
+    """适配器运行时状态更新载荷。"""
+
+    connected: bool = Field(description="适配器当前是否已连接并准备接管路由")
+    """适配器当前是否已连接并准备接管路由"""
+    account_id: str = Field(default="", description="当前连接对应的账号 ID 或 self_id")
+    """当前连接对应的账号 ID 或 self_id"""
+    scope: str = Field(default="", description="当前连接对应的可选路由作用域")
+    """当前连接对应的可选路由作用域"""
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="可选的运行时状态元数据")
+    """可选的运行时状态元数据"""
+
+
+class AdapterStateUpdateResultPayload(BaseModel):
+    """适配器运行时状态更新结果载荷。"""
+
+    accepted: bool = Field(description="Host 是否接受了本次状态更新")
+    """Host 是否接受了本次状态更新"""
+    connected: bool = Field(description="Host 记录的当前连接状态")
+    """Host 记录的当前连接状态"""
+    route_key: Dict[str, Any] = Field(default_factory=dict, description="当前生效的路由键")
+    """当前生效的路由键"""
+
+
 class ReceiveExternalMessagePayload(BaseModel):
     """适配器插件向 Host 注入外部消息的请求载荷。"""
 

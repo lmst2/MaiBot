@@ -60,6 +60,9 @@ class NapCatAdapterPlugin(MaiBotPlugin):
         self._connection_task: Optional[asyncio.Task[None]] = None
         self._pending_actions: Dict[str, asyncio.Future[Dict[str, Any]]] = {}
         self._background_tasks: Set[asyncio.Task[Any]] = set()
+        self._reported_account_id: Optional[str] = None
+        self._reported_scope: Optional[str] = None
+        self._runtime_state_connected: bool = False
         self._send_lock = asyncio.Lock()
         self._ws: Optional[AiohttpClientWebSocketResponse] = None
 
@@ -170,6 +173,7 @@ class NapCatAdapterPlugin(MaiBotPlugin):
             with contextlib.suppress(asyncio.CancelledError):
                 await connection_task
 
+        await self._report_adapter_disconnected()
         self._fail_pending_actions("NapCat connection closed")
 
     async def _cancel_background_tasks(self) -> None:
@@ -209,6 +213,7 @@ class NapCatAdapterPlugin(MaiBotPlugin):
                 self.ctx.logger.warning(f"NapCat 适配器连接失败: {exc}")
             finally:
                 self._ws = None
+                await self._report_adapter_disconnected()
                 self._fail_pending_actions("NapCat connection interrupted")
 
             if not self._should_connect():
@@ -230,26 +235,39 @@ class NapCatAdapterPlugin(MaiBotPlugin):
         """
         assert WSMsgType is not None
 
-        async for ws_message in ws:
-            if ws_message.type != WSMsgType.TEXT:
-                if ws_message.type in {WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.ERROR}:
-                    break
-                continue
+        bootstrap_task = asyncio.create_task(
+            self._bootstrap_adapter_runtime_state(),
+            name="napcat_adapter.bootstrap",
+        )
+        self._background_tasks.add(bootstrap_task)
+        bootstrap_task.add_done_callback(self._background_tasks.discard)
 
-            payload = self._parse_json_message(ws_message.data)
-            if payload is None:
-                continue
+        try:
+            async for ws_message in ws:
+                if ws_message.type != WSMsgType.TEXT:
+                    if ws_message.type in {WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.ERROR}:
+                        break
+                    continue
 
-            if echo_id := str(payload.get("echo") or "").strip():
-                self._resolve_pending_action(echo_id, payload)
-                continue
+                payload = self._parse_json_message(ws_message.data)
+                if payload is None:
+                    continue
 
-            if str(payload.get("post_type") or "").strip() != "message":
-                continue
+                if echo_id := str(payload.get("echo") or "").strip():
+                    self._resolve_pending_action(echo_id, payload)
+                    continue
 
-            task = asyncio.create_task(self._handle_inbound_message(payload), name="napcat_adapter.inbound")
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+                if str(payload.get("post_type") or "").strip() != "message":
+                    continue
+
+                task = asyncio.create_task(self._handle_inbound_message(payload), name="napcat_adapter.inbound")
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
+        finally:
+            if not bootstrap_task.done():
+                bootstrap_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await bootstrap_task
 
     async def _handle_inbound_message(self, payload: Dict[str, Any]) -> None:
         """处理单条 NapCat 入站消息并注入 Host。
@@ -258,6 +276,9 @@ class NapCatAdapterPlugin(MaiBotPlugin):
             payload: NapCat / OneBot 推送的原始事件数据。
         """
         self_id = str(payload.get("self_id") or "").strip()
+        if self_id:
+            await self._report_adapter_connected(self_id)
+
         sender = payload.get("sender", {})
         if not isinstance(sender, dict):
             sender = {}
@@ -569,6 +590,121 @@ class NapCatAdapterPlugin(MaiBotPlugin):
             if not response_future.done():
                 response_future.set_exception(RuntimeError(error_message))
         self._pending_actions.clear()
+
+    async def _bootstrap_adapter_runtime_state(self) -> None:
+        """在连接建立后主动获取账号信息并激活适配器路由。
+
+        该步骤会在 WebSocket 接收循环启动后异步执行，确保 `_call_action()`
+        发出的 `get_login_info` 请求能够被同一连接上的接收循环消费到 echo
+        响应，从而在真正收到业务消息前就完成 Host 侧 route 激活。
+        """
+        max_attempts = 3
+        last_error: Optional[Exception] = None
+        for attempt in range(1, max_attempts + 1):
+            ws = self._ws
+            if ws is None or ws.closed:
+                return
+
+            try:
+                response = await self._call_action("get_login_info", {})
+                self_id = self._extract_self_id_from_login_response(response)
+                await self._report_adapter_connected(self_id)
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                last_error = exc
+                self.ctx.logger.warning(
+                    f"NapCat 适配器获取登录信息失败，第 {attempt}/{max_attempts} 次重试: {exc}"
+                )
+                if attempt < max_attempts:
+                    await asyncio.sleep(1.0)
+
+        if last_error is not None:
+            self.ctx.logger.error(f"NapCat 适配器未能完成路由激活，连接将保持只接收状态: {last_error}")
+
+    @staticmethod
+    def _extract_self_id_from_login_response(response: Dict[str, Any]) -> str:
+        """从 `get_login_info` 响应中提取当前账号 ID。
+
+        Args:
+            response: NapCat 返回的原始动作响应。
+
+        Returns:
+            str: 规范化后的 `self_id` 字符串。
+
+        Raises:
+            ValueError: 当响应中缺少有效账号 ID 时抛出。
+        """
+        if str(response.get("status") or "").lower() != "ok":
+            raise ValueError(str(response.get("wording") or response.get("message") or "get_login_info failed"))
+
+        response_data = response.get("data", {})
+        if not isinstance(response_data, dict):
+            raise ValueError("get_login_info 响应缺少 data 字段")
+
+        self_id = str(response_data.get("user_id") or "").strip()
+        if not self_id:
+            raise ValueError("get_login_info 响应缺少有效的 user_id")
+        return self_id
+
+    async def _report_adapter_connected(self, account_id: str) -> None:
+        """向 Host 上报当前连接已就绪。
+
+        Args:
+            account_id: 当前 NapCat 连接对应的机器人账号 ID。
+        """
+        normalized_account_id = str(account_id).strip()
+        if not normalized_account_id:
+            return
+
+        scope = self._get_string(self._connection_config(), "connection_id").strip()
+        if (
+            self._runtime_state_connected
+            and self._reported_account_id == normalized_account_id
+            and self._reported_scope == (scope or None)
+        ):
+            return
+
+        accepted = False
+        try:
+            accepted = await self.ctx.adapter.update_runtime_state(
+                connected=True,
+                account_id=normalized_account_id,
+                scope=scope,
+                metadata={"ws_url": self._get_string(self._connection_config(), "ws_url")},
+            )
+        except Exception as exc:
+            self.ctx.logger.warning(f"NapCat 适配器上报连接就绪状态失败: {exc}")
+            return
+
+        if not accepted:
+            self.ctx.logger.warning("NapCat 适配器连接已建立，但 Host 未接受运行时状态更新")
+            return
+
+        self._runtime_state_connected = True
+        self._reported_account_id = normalized_account_id
+        self._reported_scope = scope or None
+        self.ctx.logger.info(
+            f"NapCat 适配器已激活路由: platform=qq account_id={normalized_account_id} "
+            f"scope={self._reported_scope or '*'}"
+        )
+
+    async def _report_adapter_disconnected(self) -> None:
+        """向 Host 上报当前连接已断开，并撤销适配器路由。"""
+        if not self._runtime_state_connected:
+            self._reported_account_id = None
+            self._reported_scope = None
+            return
+
+        try:
+            await self.ctx.adapter.update_runtime_state(connected=False)
+        except Exception as exc:
+            self.ctx.logger.warning(f"NapCat 适配器上报断开状态失败: {exc}")
+        finally:
+            self._runtime_state_connected = False
+            self._reported_account_id = None
+            self._reported_scope = None
 
     def _build_headers(self) -> Dict[str, str]:
         """构造连接 NapCat 所需的请求头。

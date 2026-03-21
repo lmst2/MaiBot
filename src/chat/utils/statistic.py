@@ -436,14 +436,14 @@ class StatisticOutputTask(AsyncTask):
 
     @staticmethod
     def _fetch_online_time_since(query_start_time: datetime) -> list[tuple[datetime, datetime]]:
-        with get_db_session() as session:
+        with get_db_session(auto_commit=False) as session:
             statement = select(OnlineTime).where(col(OnlineTime.end_timestamp) >= query_start_time)
             records = session.exec(statement).all()
             return [(record.start_timestamp, record.end_timestamp) for record in records]
 
     @staticmethod
     def _fetch_model_usage_since(query_start_time: datetime) -> list[dict[str, object]]:
-        with get_db_session() as session:
+        with get_db_session(auto_commit=False) as session:
             statement = select(ModelUsage).where(col(ModelUsage.timestamp) >= query_start_time)
             records = session.exec(statement).all()
             return [
@@ -664,7 +664,7 @@ class StatisticOutputTask(AsyncTask):
         }
 
         query_start_timestamp = collect_period[-1][1]
-        with get_db_session() as session:
+        with get_db_session(auto_commit=False) as session:
             statement = select(Messages).where(col(Messages.timestamp) >= query_start_timestamp)
             messages = session.exec(statement).all()
         for message in messages:
@@ -713,7 +713,7 @@ class StatisticOutputTask(AsyncTask):
         # 使用 ActionRecords 中的 reply 动作次数作为回复数基准
         try:
             action_query_start_timestamp = collect_period[-1][1]
-            with get_db_session() as session:
+            with get_db_session(auto_commit=False) as session:
                 statement = select(ActionRecord).where(col(ActionRecord.timestamp) >= action_query_start_timestamp)
                 actions = session.exec(statement).all()
             for action in actions:
@@ -1750,7 +1750,7 @@ class StatisticOutputTask(AsyncTask):
 
         # 查询消息记录
         query_start_timestamp = start_time.timestamp()
-        with get_db_session() as session:
+        with get_db_session(auto_commit=False) as session:
             statement = select(Messages).where(col(Messages.timestamp) >= start_time)
             messages = session.exec(statement).all()
         for message in messages:
@@ -2131,7 +2131,7 @@ class StatisticOutputTask(AsyncTask):
 
         # 查询消息记录
         query_start_timestamp = start_time.timestamp()
-        with get_db_session() as session:
+        with get_db_session(auto_commit=False) as session:
             statement = select(Messages).where(col(Messages.timestamp) >= start_time)
             messages = session.exec(statement).all()
         for message in messages:

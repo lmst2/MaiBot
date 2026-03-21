@@ -486,10 +486,10 @@ class TestSDK:
                         "timeout_ms": timeout_ms,
                     }
                 )
-                if method == "cap.request":
+                if method == "cap.call":
                     bootstrap_methods = [call["method"] for call in self.calls[:-1]]
                     assert "plugin.bootstrap" in bootstrap_methods
-                    return SimpleNamespace(error=None, payload={"result": {"success": True}})
+                    return SimpleNamespace(error=None, payload={"success": True})
                 return SimpleNamespace(error=None, payload={"accepted": True})
 
             async def disconnect(self):
@@ -529,7 +529,7 @@ class TestSDK:
         await runner.run()
 
         methods = [call["method"] for call in runner._rpc_client.calls]
-        assert methods == ["plugin.bootstrap", "cap.request", "plugin.register_components", "runner.ready"]
+        assert methods == ["plugin.bootstrap", "plugin.register_components", "cap.call", "runner.ready"]
 
 
 class TestPluginSdkUsage:
