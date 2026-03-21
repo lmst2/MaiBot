@@ -1,17 +1,18 @@
 from collections import OrderedDict
-from json_repair import repair_json
-from sqlmodel import select
-from typing import List, Optional, Dict, Callable, TypedDict, Set
+from typing import Callable, Dict, List, Optional, Set, TypedDict
 
 import asyncio
 import json
 import random
 
-from src.common.logger import get_logger
+from json_repair import repair_json
+from sqlmodel import select
+
+from src.common.data_models.jargon_data_model import MaiJargon
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Jargon
-from src.common.data_models.jargon_data_model import MaiJargon
-from src.config.config import model_config, global_config
+from src.common.logger import get_logger
+from src.config.config import global_config, model_config
 from src.llm_models.utils_model import LLMRequest
 from src.prompt.prompt_manager import prompt_manager
 
@@ -273,11 +274,12 @@ class JargonMiner:
                 try:
                     with get_db_session() as session:
                         session.add(new_jargon)
+                        session.flush()
+                    saved += 1
+                    self._add_to_cache(content)
                 except Exception as e:
                     logger.error(f"保存新黑话 '{content}' 失败: {e}")
                     continue
-                finally:
-                    self._add_to_cache(content)
         # 固定输出提取的jargon结果，格式化为可读形式（只要有提取结果就输出）
         if uniq_entries:
             # 收集所有提取的jargon内容

@@ -329,7 +329,13 @@ class ExpressionLearner:
         return filtered_expressions
 
     # ====== DB 操作相关 ======
-    async def _upsert_expression_to_db(self, situation: str, style: str):
+    async def _upsert_expression_to_db(self, situation: str, style: str) -> None:
+        """将表达方式写入数据库，存在时更新，不存在时新增。
+
+        Args:
+            situation: 表达方式对应的使用情景。
+            style: 表达方式风格。
+        """
         expr, similarity = self._find_similar_expression(situation) or (None, 0)
         if expr:
             # 根据相似度决定是否使用 LLM 总结
@@ -340,7 +346,13 @@ class ExpressionLearner:
         # 没有找到匹配的记录，创建新记录
         self._create_expression(situation, style)
 
-    def _create_expression(self, situation: str, style: str):
+    def _create_expression(self, situation: str, style: str) -> None:
+        """创建新的表达方式记录。
+
+        Args:
+            situation: 表达方式对应的使用情景。
+            style: 表达方式风格。
+        """
         content_list = [situation]
         try:
             with get_db_session() as db:
@@ -353,6 +365,7 @@ class ExpressionLearner:
                     last_active_time=datetime.now(),
                 )
                 db.add(new_expr)
+                db.flush()
         except Exception as e:
             logger.error(f"创建表达方式失败: {e}")
 
