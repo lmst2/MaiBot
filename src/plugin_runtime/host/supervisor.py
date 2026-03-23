@@ -34,6 +34,7 @@ from src.plugin_runtime.protocol.errors import ErrorCode, RPCError
 from src.plugin_runtime.transport.factory import create_transport_server
 
 from .authorization import AuthorizationManager
+from .api_registry import APIRegistry
 from .capability_service import CapabilityService
 from .component_registry import ComponentRegistry
 from .event_dispatcher import EventDispatcher
@@ -93,6 +94,7 @@ class PluginRunnerSupervisor:
         self._transport = create_transport_server(socket_path=socket_path)
         self._authorization = AuthorizationManager()
         self._capability_service = CapabilityService(self._authorization)
+        self._api_registry = APIRegistry()
         self._component_registry = ComponentRegistry()
         self._event_dispatcher = EventDispatcher(self._component_registry)
         self._hook_dispatcher = HookDispatcher(self._component_registry)
@@ -123,6 +125,11 @@ class PluginRunnerSupervisor:
     def capability_service(self) -> CapabilityService:
         """返回能力服务。"""
         return self._capability_service
+
+    @property
+    def api_registry(self) -> APIRegistry:
+        """返回 API 专用注册表。"""
+        return self._api_registry
 
     @property
     def component_registry(self) -> ComponentRegistry:
@@ -304,6 +311,33 @@ class PluginRunnerSupervisor:
 
         return await self.invoke_plugin(
             method="plugin.invoke_message_gateway",
+            plugin_id=plugin_id,
+            component_name=component_name,
+            args=args,
+            timeout_ms=timeout_ms,
+        )
+
+    async def invoke_api(
+        self,
+        plugin_id: str,
+        component_name: str,
+        args: Optional[Dict[str, Any]] = None,
+        timeout_ms: int = 30000,
+    ) -> Envelope:
+        """调用插件声明的 API 方法。
+
+        Args:
+            plugin_id: 目标插件 ID。
+            component_name: API 组件名称。
+            args: 传递给 API 方法的关键字参数。
+            timeout_ms: RPC 超时时间，单位毫秒。
+
+        Returns:
+            Envelope: Runner 返回的响应信封。
+        """
+
+        return await self.invoke_plugin(
+            method="plugin.invoke_api",
             plugin_id=plugin_id,
             component_name=component_name,
             args=args,
@@ -507,13 +541,17 @@ class PluginRunnerSupervisor:
         except Exception as exc:
             return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(exc))
 
+        component_declarations = [component.model_dump() for component in payload.components]
+        runtime_components, api_components = self._split_component_declarations(component_declarations)
         self._component_registry.remove_components_by_plugin(payload.plugin_id)
+        self._api_registry.remove_apis_by_plugin(payload.plugin_id)
         await self._unregister_all_message_gateway_drivers_for_plugin(payload.plugin_id)
 
         registered_count = self._component_registry.register_plugin_components(
             payload.plugin_id,
-            [component.model_dump() for component in payload.components],
+            runtime_components,
         )
+        registered_api_count = self._api_registry.register_plugin_apis(payload.plugin_id, api_components)
         self._registered_plugins[payload.plugin_id] = payload
         self._message_gateway_states[payload.plugin_id] = {}
 
@@ -522,6 +560,7 @@ class PluginRunnerSupervisor:
                 "accepted": True,
                 "plugin_id": payload.plugin_id,
                 "registered_components": registered_count,
+                "registered_apis": registered_api_count,
                 "message_gateways": len(
                     self._component_registry.get_message_gateways(plugin_id=payload.plugin_id, enabled_only=False)
                 ),
@@ -543,6 +582,7 @@ class PluginRunnerSupervisor:
             return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(exc))
 
         removed_components = self._component_registry.remove_components_by_plugin(payload.plugin_id)
+        removed_apis = self._api_registry.remove_apis_by_plugin(payload.plugin_id)
         self._authorization.revoke_permission_token(payload.plugin_id)
         removed_registration = self._registered_plugins.pop(payload.plugin_id, None) is not None
         await self._unregister_all_message_gateway_drivers_for_plugin(payload.plugin_id)
@@ -554,9 +594,47 @@ class PluginRunnerSupervisor:
                 "plugin_id": payload.plugin_id,
                 "reason": payload.reason,
                 "removed_components": removed_components,
+                "removed_apis": removed_apis,
                 "removed_registration": removed_registration,
             }
         )
+
+    @staticmethod
+    def _is_api_component(component: Dict[str, Any]) -> bool:
+        """判断组件声明是否属于 API。
+
+        Args:
+            component: 原始组件声明字典。
+
+        Returns:
+            bool: 是否为 API 组件。
+        """
+
+        return str(component.get("component_type", "") or "").strip().upper() == "API"
+
+    def _split_component_declarations(
+        self,
+        components: List[Dict[str, Any]],
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """拆分通用组件声明和 API 声明。
+
+        Args:
+            components: Runner 上报的原始组件声明列表。
+
+        Returns:
+            Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+                第一个列表为需要进入通用组件表的声明，
+                第二个列表为需要进入 API 专用表的声明。
+        """
+
+        runtime_components: List[Dict[str, Any]] = []
+        api_components: List[Dict[str, Any]] = []
+        for component in components:
+            if self._is_api_component(component):
+                api_components.append(component)
+            else:
+                runtime_components.append(component)
+        return runtime_components, api_components
 
     @staticmethod
     def _build_message_gateway_driver_id(plugin_id: str, gateway_name: str) -> str:
@@ -1172,6 +1250,7 @@ class PluginRunnerSupervisor:
     def _clear_runner_state(self) -> None:
         """清理当前 Runner 对应的 Host 侧注册状态。"""
         self._authorization.clear()
+        self._api_registry.clear()
         self._component_registry.clear()
         self._registered_plugins.clear()
         self._message_gateway_states.clear()

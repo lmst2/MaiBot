@@ -2152,8 +2152,11 @@ class TestIntegration:
                 self.supervisors = [FakeSupervisor("plugin_a"), FakeSupervisor("plugin_b")]
 
         monkeypatch.setattr(integration_module, "get_plugin_runtime_manager", lambda: FakeManager())
+        manager = integration_module.PluginRuntimeManager()
+        manager._builtin_supervisor = FakeSupervisor("plugin_a")
+        manager._third_party_supervisor = FakeSupervisor("plugin_b")
 
-        result = await integration_module.PluginRuntimeManager._cap_component_enable(
+        result = await manager._cap_component_enable(
             "plugin_a",
             "component.enable",
             {"name": "shared", "component_type": "tool", "scope": "global", "stream_id": ""},
@@ -2182,8 +2185,10 @@ class TestIntegration:
                 self.supervisors = [FakeSupervisor()]
 
         monkeypatch.setattr(integration_module, "get_plugin_runtime_manager", lambda: FakeManager())
+        manager = integration_module.PluginRuntimeManager()
+        manager._builtin_supervisor = FakeSupervisor()
 
-        result = await integration_module.PluginRuntimeManager._cap_component_disable(
+        result = await manager._cap_component_disable(
             "plugin_a",
             "component.disable",
             {"name": "plugin_a.handler", "component_type": "tool", "scope": "stream", "stream_id": "s1"},
