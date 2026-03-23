@@ -35,6 +35,7 @@ message_queue_content.bat
 message_queue_window.bat
 message_queue_window.txt
 queue_update.txt
+start_saka.bat
 .env
 .env.*
 .cursor
