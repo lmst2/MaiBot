@@ -92,10 +92,23 @@ class OutboundTracker:
             raise ValueError("ttl_seconds 必须大于 0")
 
         self._ttl_seconds = ttl_seconds
-        self._pending: Dict[str, PendingOutboundRecord] = {}
-        self._pending_expire_heap: List[Tuple[float, str]] = []
+        self._pending: Dict[Tuple[str, str], PendingOutboundRecord] = {}
+        self._pending_expire_heap: List[Tuple[float, str, str]] = []
         self._receipts_by_external_id: Dict[str, StoredDeliveryReceipt] = {}
         self._receipt_expire_heap: List[Tuple[float, str]] = []
+
+    @staticmethod
+    def _build_pending_key(internal_message_id: str, driver_id: str) -> Tuple[str, str]:
+        """构造单条出站跟踪记录的唯一键。
+
+        Args:
+            internal_message_id: 内部消息 ID。
+            driver_id: 负责当前投递的驱动 ID。
+
+        Returns:
+            Tuple[str, str]: ``(internal_message_id, driver_id)`` 组合键。
+        """
+        return internal_message_id, driver_id
 
     def begin_tracking(
         self,
@@ -116,13 +129,15 @@ class OutboundTracker:
             PendingOutboundRecord: 新创建的待完成记录。
 
         Raises:
-            ValueError: 当同一个 ``internal_message_id`` 已经存在未完成记录时抛出。
+            ValueError: 当同一个 ``internal_message_id`` 与 ``driver_id`` 组合已经存在
+                未完成记录时抛出。
         """
         now = time.monotonic()
         self._cleanup_expired(now)
+        pending_key = self._build_pending_key(internal_message_id, driver_id)
 
-        if internal_message_id in self._pending:
-            raise ValueError(f"消息 {internal_message_id} 已存在未完成的出站跟踪记录")
+        if pending_key in self._pending:
+            raise ValueError(f"消息 {internal_message_id} 在驱动 {driver_id} 上已存在未完成的出站跟踪记录")
 
         expires_at = now + self._ttl_seconds
         record = PendingOutboundRecord(
@@ -133,8 +148,8 @@ class OutboundTracker:
             expires_at=expires_at,
             metadata=metadata or {},
         )
-        self._pending[internal_message_id] = record
-        heapq.heappush(self._pending_expire_heap, (expires_at, internal_message_id))
+        self._pending[pending_key] = record
+        heapq.heappush(self._pending_expire_heap, (expires_at, internal_message_id, driver_id))
         return record
 
     def finish_tracking(self, receipt: DeliveryReceipt) -> Optional[PendingOutboundRecord]:
@@ -149,7 +164,19 @@ class OutboundTracker:
         now = time.monotonic()
         self._cleanup_expired(now)
 
-        pending_record = self._pending.pop(receipt.internal_message_id, None)
+        pending_record: Optional[PendingOutboundRecord] = None
+        if receipt.driver_id:
+            pending_key = self._build_pending_key(receipt.internal_message_id, receipt.driver_id)
+            pending_record = self._pending.pop(pending_key, None)
+        else:
+            matched_records = [
+                key
+                for key, record in self._pending.items()
+                if record.internal_message_id == receipt.internal_message_id
+            ]
+            if len(matched_records) == 1:
+                pending_record = self._pending.pop(matched_records[0], None)
+
         if receipt.external_message_id:
             expires_at = now + self._ttl_seconds
             self._receipts_by_external_id[receipt.external_message_id] = StoredDeliveryReceipt(
@@ -160,17 +187,33 @@ class OutboundTracker:
             heapq.heappush(self._receipt_expire_heap, (expires_at, receipt.external_message_id))
         return pending_record
 
-    def get_pending(self, internal_message_id: str) -> Optional[PendingOutboundRecord]:
+    def get_pending(
+        self,
+        internal_message_id: str,
+        driver_id: Optional[str] = None,
+    ) -> Optional[PendingOutboundRecord]:
         """根据内部消息 ID 查询待完成记录。
 
         Args:
             internal_message_id: 要查询的内部消息 ID。
+            driver_id: 可选的驱动 ID；提供后仅返回该驱动上的待完成记录。
 
         Returns:
             Optional[PendingOutboundRecord]: 若记录仍存在，则返回对应待完成记录。
         """
         self._cleanup_expired(time.monotonic())
-        return self._pending.get(internal_message_id)
+
+        if driver_id:
+            return self._pending.get(self._build_pending_key(internal_message_id, driver_id))
+
+        matched_records = [
+            record
+            for record in self._pending.values()
+            if record.internal_message_id == internal_message_id
+        ]
+        if len(matched_records) == 1:
+            return matched_records[0]
+        return None
 
     def get_receipt_by_external_id(self, external_message_id: str) -> Optional[DeliveryReceipt]:
         """根据外部平台消息 ID 查询已完成回执。
@@ -213,13 +256,14 @@ class OutboundTracker:
             ``expires_at`` 对比，跳过这类旧节点。
         """
         while self._pending_expire_heap and self._pending_expire_heap[0][0] <= now:
-            expires_at, internal_message_id = heapq.heappop(self._pending_expire_heap)
-            current_record = self._pending.get(internal_message_id)
+            expires_at, internal_message_id, driver_id = heapq.heappop(self._pending_expire_heap)
+            pending_key = self._build_pending_key(internal_message_id, driver_id)
+            current_record = self._pending.get(pending_key)
             if current_record is None:
                 continue
             if current_record.expires_at != expires_at:
                 continue
-            self._pending.pop(internal_message_id, None)
+            self._pending.pop(pending_key, None)
 
     def _cleanup_expired_receipts(self, now: float) -> None:
         """清理已经过期的回执索引。

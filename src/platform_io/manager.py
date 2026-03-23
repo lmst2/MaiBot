@@ -394,23 +394,22 @@ class PlatformIOManager:
         """
 
         drivers: List[PlatformIODriver] = []
+        seen_driver_ids: set[str] = set()
         for binding in self._send_route_table.resolve_bindings(route_key):
             driver = self._driver_registry.get(binding.driver_id)
-            if driver is not None:
+            if driver is not None and driver.driver_id not in seen_driver_ids:
                 drivers.append(driver)
-        if drivers:
-            return drivers
+                seen_driver_ids.add(driver.driver_id)
 
         fallback_driver = self._legacy_send_drivers.get(route_key.platform)
-        if fallback_driver is None:
-            return []
+        if fallback_driver is not None:
+            descriptor = fallback_driver.descriptor
+            account_matches = descriptor.account_id is None or route_key.account_id in (None, descriptor.account_id)
+            scope_matches = descriptor.scope is None or route_key.scope in (None, descriptor.scope)
+            if account_matches and scope_matches and fallback_driver.driver_id not in seen_driver_ids:
+                drivers.append(fallback_driver)
 
-        descriptor = fallback_driver.descriptor
-        if descriptor.account_id is not None and route_key.account_id not in (None, descriptor.account_id):
-            return []
-        if descriptor.scope is not None and route_key.scope not in (None, descriptor.scope):
-            return []
-        return [fallback_driver]
+        return drivers
 
     @staticmethod
     def build_route_key_from_message(message: "SessionMessage") -> RouteKey:

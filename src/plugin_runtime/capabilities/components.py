@@ -72,6 +72,8 @@ class RuntimeComponentCapabilityMixin:
             "version": entry.version,
             "public": entry.public,
             "enabled": entry.enabled,
+            "dynamic": entry.dynamic,
+            "offline_reason": entry.offline_reason,
             "metadata": dict(entry.metadata),
         }
 
@@ -109,6 +111,32 @@ class RuntimeComponentCapabilityMixin:
 
         return entry.plugin_id == caller_plugin_id or entry.public
 
+    @staticmethod
+    def _normalize_api_reference(api_name: str, version: str = "") -> tuple[str, str]:
+        """规范化 API 名称与版本参数。
+
+        支持在 ``api_name`` 中直接携带 ``@version`` 后缀。
+        """
+
+        normalized_api_name = str(api_name or "").strip()
+        normalized_version = str(version or "").strip()
+        if normalized_api_name and not normalized_version and "@" in normalized_api_name:
+            candidate_name, candidate_version = normalized_api_name.rsplit("@", 1)
+            candidate_name = candidate_name.strip()
+            candidate_version = candidate_version.strip()
+            if candidate_name and candidate_version:
+                normalized_api_name = candidate_name
+                normalized_version = candidate_version
+        return normalized_api_name, normalized_version
+
+    @staticmethod
+    def _build_api_unavailable_error(entry: "APIEntry") -> str:
+        """构造 API 当前不可用时的错误信息。"""
+
+        if entry.offline_reason:
+            return entry.offline_reason
+        return f"API {entry.registry_key} 当前不可用"
+
     def _resolve_api_target(
         self: _RuntimeComponentManagerProtocol,
         caller_plugin_id: str,
@@ -127,8 +155,7 @@ class RuntimeComponentCapabilityMixin:
                 解析成功时返回 ``(监督器, API 条目, None)``，失败时返回错误信息。
         """
 
-        normalized_api_name = str(api_name or "").strip()
-        normalized_version = str(version or "").strip()
+        normalized_api_name, normalized_version = self._normalize_api_reference(api_name, version)
         if not normalized_api_name:
             return None, None, "缺少必要参数 api_name"
 
@@ -142,34 +169,61 @@ class RuntimeComponentCapabilityMixin:
             if supervisor is None:
                 return None, None, f"未找到 API 提供方插件: {target_plugin_id}"
 
-            entry = supervisor.api_registry.get_api(
+            entries = supervisor.api_registry.get_apis(
                 plugin_id=target_plugin_id,
                 name=target_api_name,
-                enabled_only=True,
+                version=normalized_version,
+                enabled_only=False,
             )
-            if entry is None:
-                return None, None, f"未找到 API: {normalized_api_name}"
-            if normalized_version and entry.version != normalized_version:
-                return None, None, f"未找到版本为 {normalized_version} 的 API: {normalized_api_name}"
-            if not self._is_api_visible_to_plugin(entry, caller_plugin_id):
+            visible_enabled_entries = [
+                entry
+                for entry in entries
+                if self._is_api_visible_to_plugin(entry, caller_plugin_id) and entry.enabled
+            ]
+            visible_disabled_entries = [
+                entry
+                for entry in entries
+                if self._is_api_visible_to_plugin(entry, caller_plugin_id) and not entry.enabled
+            ]
+            if len(visible_enabled_entries) == 1:
+                return supervisor, visible_enabled_entries[0], None
+            if len(visible_enabled_entries) > 1:
+                return None, None, f"API {normalized_api_name} 存在多个版本，请显式指定 version"
+            if visible_disabled_entries:
+                if len(visible_disabled_entries) == 1:
+                    return None, None, self._build_api_unavailable_error(visible_disabled_entries[0])
+                return None, None, f"API {normalized_api_name} 存在多个已下线版本，请显式指定 version"
+            if any(not self._is_api_visible_to_plugin(entry, caller_plugin_id) for entry in entries):
                 return None, None, f"API {normalized_api_name} 未公开，禁止跨插件调用"
-            return supervisor, entry, None
+            if normalized_version:
+                return None, None, f"未找到版本为 {normalized_version} 的 API: {normalized_api_name}"
+            return None, None, f"未找到 API: {normalized_api_name}"
 
-        visible_matches: List[tuple["PluginSupervisor", "APIEntry"]] = []
+        visible_enabled_matches: List[tuple["PluginSupervisor", "APIEntry"]] = []
+        visible_disabled_matches: List[tuple["PluginSupervisor", "APIEntry"]] = []
         hidden_match_exists = False
         for supervisor in self.supervisors:
-            for entry in supervisor.api_registry.get_apis(name=normalized_api_name, enabled_only=True):
-                if normalized_version and entry.version != normalized_version:
-                    continue
+            for entry in supervisor.api_registry.get_apis(
+                name=normalized_api_name,
+                version=normalized_version,
+                enabled_only=False,
+            ):
                 if self._is_api_visible_to_plugin(entry, caller_plugin_id):
-                    visible_matches.append((supervisor, entry))
+                    if entry.enabled:
+                        visible_enabled_matches.append((supervisor, entry))
+                    else:
+                        visible_disabled_matches.append((supervisor, entry))
                 else:
                     hidden_match_exists = True
 
-        if len(visible_matches) == 1:
-            return visible_matches[0][0], visible_matches[0][1], None
-        if len(visible_matches) > 1:
-            return None, None, f"API 名称不唯一: {normalized_api_name}，请使用 plugin_id.api_name"
+        if len(visible_enabled_matches) == 1:
+            return visible_enabled_matches[0][0], visible_enabled_matches[0][1], None
+        if len(visible_enabled_matches) > 1:
+            return None, None, f"API 名称不唯一: {normalized_api_name}，请使用 plugin_id.api_name 或显式指定 version"
+        if visible_disabled_matches:
+            if len(visible_disabled_matches) == 1:
+                return None, None, self._build_api_unavailable_error(visible_disabled_matches[0][1])
+            return None, None, f"API {normalized_api_name} 存在多个已下线版本，请使用 plugin_id.api_name@version"
         if hidden_match_exists:
             return None, None, f"API {normalized_api_name} 未公开，禁止跨插件调用"
         if normalized_version:
@@ -179,18 +233,20 @@ class RuntimeComponentCapabilityMixin:
     def _resolve_api_toggle_target(
         self: _RuntimeComponentManagerProtocol,
         name: str,
+        version: str = "",
     ) -> tuple[Optional["PluginSupervisor"], Optional["APIEntry"], Optional[str]]:
         """解析需要启用或禁用的 API 组件。
 
         Args:
             name: API 名称，支持 ``plugin_id.api_name`` 或唯一短名。
+            version: 可选的 API 版本。
 
         Returns:
             tuple[Optional[PluginSupervisor], Optional[APIEntry], Optional[str]]:
                 解析成功时返回 ``(监督器, API 条目, None)``，失败时返回错误信息。
         """
 
-        normalized_name = str(name or "").strip()
+        normalized_name, normalized_version = self._normalize_api_reference(name, version)
         if not normalized_name:
             return None, None, "缺少必要参数 name"
 
@@ -204,24 +260,31 @@ class RuntimeComponentCapabilityMixin:
             if supervisor is None:
                 return None, None, f"未找到 API 提供方插件: {plugin_id}"
 
-            entry = supervisor.api_registry.get_api(
+            entries = supervisor.api_registry.get_apis(
                 plugin_id=plugin_id,
                 name=api_name,
+                version=normalized_version,
                 enabled_only=False,
             )
-            if entry is None:
+            if not entries:
                 return None, None, f"未找到 API: {normalized_name}"
-            return supervisor, entry, None
+            if len(entries) > 1:
+                return None, None, f"API {normalized_name} 存在多个版本，请显式指定 version"
+            return supervisor, entries[0], None
 
         matches: List[tuple["PluginSupervisor", "APIEntry"]] = []
         for supervisor in self.supervisors:
-            for entry in supervisor.api_registry.get_apis(name=normalized_name, enabled_only=False):
+            for entry in supervisor.api_registry.get_apis(
+                name=normalized_name,
+                version=normalized_version,
+                enabled_only=False,
+            ):
                 matches.append((supervisor, entry))
 
         if len(matches) == 1:
             return matches[0][0], matches[0][1], None
         if len(matches) > 1:
-            return None, None, f"API 名称不唯一: {normalized_name}，请使用 plugin_id.api_name"
+            return None, None, f"API 名称不唯一: {normalized_name}，请使用 plugin_id.api_name 或显式指定 version"
         return None, None, f"未找到 API: {normalized_name}"
 
     async def _cap_component_get_all_plugins(
@@ -326,6 +389,7 @@ class RuntimeComponentCapabilityMixin:
     ) -> Any:
         name: str = args.get("name", "")
         component_type: str = args.get("component_type", "")
+        version: str = args.get("version", "")
         scope: str = args.get("scope", "global")
         stream_id: str = args.get("stream_id", "")
         if not name or not component_type:
@@ -334,10 +398,10 @@ class RuntimeComponentCapabilityMixin:
             return {"success": False, "error": "当前仅支持全局组件启用，不支持 scope/stream_id 定位"}
 
         if self._is_api_component_type(component_type):
-            supervisor, api_entry, error = self._resolve_api_toggle_target(name)
+            supervisor, api_entry, error = self._resolve_api_toggle_target(name, version)
             if supervisor is None or api_entry is None:
                 return {"success": False, "error": error or f"未找到 API: {name}"}
-            supervisor.api_registry.toggle_api_status(api_entry.full_name, True)
+            supervisor.api_registry.toggle_api_status(api_entry.registry_key, True)
             return {"success": True}
 
         comp, error = self._resolve_component_toggle_target(name, component_type)
@@ -352,6 +416,7 @@ class RuntimeComponentCapabilityMixin:
     ) -> Any:
         name: str = args.get("name", "")
         component_type: str = args.get("component_type", "")
+        version: str = args.get("version", "")
         scope: str = args.get("scope", "global")
         stream_id: str = args.get("stream_id", "")
         if not name or not component_type:
@@ -360,10 +425,10 @@ class RuntimeComponentCapabilityMixin:
             return {"success": False, "error": "当前仅支持全局组件禁用，不支持 scope/stream_id 定位"}
 
         if self._is_api_component_type(component_type):
-            supervisor, api_entry, error = self._resolve_api_toggle_target(name)
+            supervisor, api_entry, error = self._resolve_api_toggle_target(name, version)
             if supervisor is None or api_entry is None:
                 return {"success": False, "error": error or f"未找到 API: {name}"}
-            supervisor.api_registry.toggle_api_status(api_entry.full_name, False)
+            supervisor.api_registry.toggle_api_status(api_entry.registry_key, False)
             return {"success": True}
 
         comp, error = self._resolve_component_toggle_target(name, component_type)
@@ -488,11 +553,17 @@ class RuntimeComponentCapabilityMixin:
         if supervisor is None or entry is None:
             return {"success": False, "error": error or "API 解析失败"}
 
+        invoke_args = dict(api_args)
+        if entry.dynamic:
+            invoke_args.setdefault("__maibot_api_name__", entry.name)
+            invoke_args.setdefault("__maibot_api_full_name__", entry.full_name)
+            invoke_args.setdefault("__maibot_api_version__", entry.version)
+
         try:
             response = await supervisor.invoke_api(
                 plugin_id=entry.plugin_id,
-                component_name=entry.name,
-                args=api_args,
+                component_name=entry.handler_name,
+                args=invoke_args,
                 timeout_ms=30000,
             )
         except Exception as exc:
@@ -555,10 +626,16 @@ class RuntimeComponentCapabilityMixin:
 
         del capability
         target_plugin_id = str(args.get("plugin_id", "") or "").strip()
+        api_name, version = self._normalize_api_reference(
+            str(args.get("api_name", args.get("name", "")) or ""),
+            str(args.get("version", "") or ""),
+        )
         apis: List[Dict[str, Any]] = []
         for supervisor in self.supervisors:
             for entry in supervisor.api_registry.get_apis(
                 plugin_id=target_plugin_id or None,
+                name=api_name,
+                version=version,
                 enabled_only=True,
             ):
                 if not self._is_api_visible_to_plugin(entry, plugin_id):
@@ -567,3 +644,75 @@ class RuntimeComponentCapabilityMixin:
 
         apis.sort(key=lambda item: (str(item["plugin_id"]), str(item["name"]), str(item["version"])))
         return {"success": True, "apis": apis}
+
+    async def _cap_api_replace_dynamic(
+        self: _RuntimeComponentManagerProtocol,
+        plugin_id: str,
+        capability: str,
+        args: Dict[str, Any],
+    ) -> Any:
+        """替换插件自行维护的动态 API 列表。"""
+
+        del capability
+        raw_apis = args.get("apis", [])
+        offline_reason = str(args.get("offline_reason", "") or "").strip() or "动态 API 已下线"
+        if not isinstance(raw_apis, list):
+            return {"success": False, "error": "参数 apis 必须为列表"}
+
+        try:
+            supervisor = self._get_supervisor_for_plugin(plugin_id)
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
+
+        if supervisor is None:
+            return {"success": False, "error": f"未找到插件: {plugin_id}"}
+
+        normalized_components: List[Dict[str, Any]] = []
+        seen_registry_keys: set[str] = set()
+        for index, raw_api in enumerate(raw_apis):
+            if not isinstance(raw_api, dict):
+                return {"success": False, "error": f"apis[{index}] 必须为字典"}
+
+            api_name = str(raw_api.get("name", "") or "").strip()
+            component_type = str(raw_api.get("component_type", raw_api.get("type", "API")) or "").strip()
+            if not api_name:
+                return {"success": False, "error": f"apis[{index}] 缺少 name"}
+            if not self._is_api_component_type(component_type):
+                return {"success": False, "error": f"apis[{index}] 不是 API 组件"}
+
+            metadata = raw_api.get("metadata", {}) if isinstance(raw_api.get("metadata"), dict) else {}
+            normalized_metadata = dict(metadata)
+            normalized_metadata["dynamic"] = True
+            version = str(normalized_metadata.get("version", "1") or "1").strip() or "1"
+            registry_key = supervisor.api_registry.build_registry_key(plugin_id, api_name, version)
+            if registry_key in seen_registry_keys:
+                return {"success": False, "error": f"动态 API 重复声明: {registry_key}"}
+            seen_registry_keys.add(registry_key)
+
+            existing_entry = supervisor.api_registry.get_api(
+                plugin_id,
+                api_name,
+                version=version,
+                enabled_only=False,
+            )
+            if existing_entry is not None and not existing_entry.dynamic:
+                return {"success": False, "error": f"动态 API 不能覆盖静态 API: {registry_key}"}
+
+            normalized_components.append(
+                {
+                    "name": api_name,
+                    "component_type": "API",
+                    "metadata": normalized_metadata,
+                }
+            )
+
+        registered_count, offlined_count = supervisor.api_registry.replace_plugin_dynamic_apis(
+            plugin_id,
+            normalized_components,
+            offline_reason=offline_reason,
+        )
+        return {
+            "success": True,
+            "count": registered_count,
+            "offlined": offlined_count,
+        }

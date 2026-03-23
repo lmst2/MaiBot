@@ -73,6 +73,19 @@ def _build_target_stream() -> BotChatSession:
     )
 
 
+def test_inherit_platform_io_route_metadata_falls_back_to_bot_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """没有上下文消息时，也应回填当前平台账号用于账号级路由命中。"""
+
+    monkeypatch.setattr(send_service, "get_bot_account", lambda platform: "bot-qq" if platform == "qq" else "")
+
+    metadata = send_service._inherit_platform_io_route_metadata(_build_target_stream())
+
+    assert metadata["platform_io_account_id"] == "bot-qq"
+    assert metadata["platform_io_target_user_id"] == "target-user"
+
+
 @pytest.mark.asyncio
 async def test_text_to_stream_delegates_to_platform_io(monkeypatch: pytest.MonkeyPatch) -> None:
     """send service 应将发送职责统一交给 Platform IO。"""

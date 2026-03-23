@@ -7,6 +7,8 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
+_ALWAYS_ALLOWED_CAPABILITIES = frozenset({"api.replace_dynamic"})
+
 
 @dataclass
 class CapabilityPermissionToken:
@@ -46,6 +48,9 @@ class AuthorizationManager:
         Returns:
             return (bool, str): (是否有此能力, 原因)
         """
+        if capability in _ALWAYS_ALLOWED_CAPABILITIES:
+            return True, ""
+
         token = self._permission_tokens.get(plugin_id)
         if not token:
             return False, f"插件 {plugin_id} 未注册能力令牌"

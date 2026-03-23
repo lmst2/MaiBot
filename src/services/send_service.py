@@ -57,20 +57,23 @@ def _inherit_platform_io_route_metadata(target_stream: BotChatSession) -> Dict[s
     inherited_metadata: Dict[str, object] = {}
 
     context_message = target_stream.context.message if target_stream.context else None
-    if context_message is None:
-        return inherited_metadata
+    if context_message is not None:
+        additional_config = context_message.message_info.additional_config
+        if isinstance(additional_config, dict):
+            for key in (*RouteKeyFactory.ACCOUNT_ID_KEYS, *RouteKeyFactory.SCOPE_KEYS):
+                value = additional_config.get(key)
+                if value is None:
+                    continue
+                normalized_value = str(value).strip()
+                if normalized_value:
+                    inherited_metadata[key] = value
 
-    additional_config = context_message.message_info.additional_config
-    if not isinstance(additional_config, dict):
-        return inherited_metadata
-
-    for key in (*RouteKeyFactory.ACCOUNT_ID_KEYS, *RouteKeyFactory.SCOPE_KEYS):
-        value = additional_config.get(key)
-        if value is None:
-            continue
-        normalized_value = str(value).strip()
-        if normalized_value:
-            inherited_metadata[key] = value
+    # 当目标会话没有可继承的上下文消息时，至少补齐当前平台账号，
+    # 让按 ``platform + account_id`` 绑定的路由仍有机会命中。
+    if not RouteKeyFactory.extract_components(inherited_metadata)[0]:
+        bot_account = get_bot_account(target_stream.platform)
+        if bot_account:
+            inherited_metadata["platform_io_account_id"] = bot_account
 
     if target_stream.group_id and (normalized_group_id := str(target_stream.group_id).strip()):
         inherited_metadata["platform_io_target_group_id"] = normalized_group_id

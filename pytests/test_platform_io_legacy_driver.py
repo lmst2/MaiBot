@@ -82,7 +82,61 @@ async def test_platform_io_uses_legacy_driver_when_no_explicit_send_route(
         )
 
         explicit_drivers = manager.resolve_drivers(RouteKey(platform="qq"))
-        assert [driver.driver_id for driver in explicit_drivers] == ["plugin.qq.sender"]
+        assert [driver.driver_id for driver in explicit_drivers] == ["plugin.qq.sender", "legacy.send.qq"]
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_platform_io_broadcasts_to_plugin_and_legacy_driver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """同一路由命中插件驱动与 legacy driver 时，应同时广播发送。"""
+
+    manager = PlatformIOManager()
+    legacy_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(chat_utils, "get_all_bot_accounts", lambda: {"qq": "bot-qq"})
+
+    async def _fake_send_prepared_message_to_platform(message: Any, show_log: bool = True) -> bool:
+        """记录 legacy driver 调用。"""
+
+        legacy_calls.append({"message": message, "show_log": show_log})
+        return True
+
+    monkeypatch.setattr(
+        uni_message_sender,
+        "send_prepared_message_to_platform",
+        _fake_send_prepared_message_to_platform,
+    )
+
+    try:
+        await manager.ensure_send_pipeline_ready()
+
+        plugin_driver = _PluginDriver(driver_id="plugin.qq.sender", platform="qq")
+        await manager.add_driver(plugin_driver)
+        manager.bind_send_route(
+            RouteBinding(
+                route_key=RouteKey(platform="qq"),
+                driver_id=plugin_driver.driver_id,
+                driver_kind=plugin_driver.descriptor.kind,
+            )
+        )
+
+        message = type("FakeMessage", (), {"message_id": "message-1"})()
+        batch = await manager.send_message(
+            message=message,
+            route_key=RouteKey(platform="qq"),
+            metadata={"show_log": False},
+        )
+
+        assert sorted(receipt.driver_id for receipt in batch.sent_receipts) == [
+            "legacy.send.qq",
+            "plugin.qq.sender",
+        ]
+        assert batch.failed_receipts == []
+        assert len(legacy_calls) == 1
+        assert legacy_calls[0]["message"] is message
+        assert legacy_calls[0]["show_log"] is False
     finally:
         await manager.stop()
 

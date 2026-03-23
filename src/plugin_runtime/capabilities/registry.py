@@ -77,6 +77,7 @@ def register_capability_impls(manager: "PluginRuntimeManager", supervisor: Plugi
     _register("api.call", manager._cap_api_call)
     _register("api.get", manager._cap_api_get)
     _register("api.list", manager._cap_api_list)
+    _register("api.replace_dynamic", manager._cap_api_replace_dynamic)
 
     _register("component.get_all_plugins", manager._cap_component_get_all_plugins)
     _register("component.get_plugin_info", manager._cap_component_get_plugin_info)

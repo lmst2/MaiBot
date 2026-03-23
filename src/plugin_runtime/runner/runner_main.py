@@ -45,6 +45,14 @@ from src.plugin_runtime.runner.rpc_client import RPCClient
 
 logger = get_logger("plugin_runtime.runner.main")
 
+_PLUGIN_ALLOWED_RAW_HOST_METHODS = frozenset(
+    {
+        "cap.call",
+        "host.route_message",
+        "host.update_message_gateway_state",
+    }
+)
+
 
 class _ContextAwarePlugin(Protocol):
     """支持注入运行时上下文的插件协议。
@@ -247,8 +255,14 @@ class PluginRunner:
                 logger.warning(
                     f"插件 {bound_plugin_id} 尝试以 {plugin_id} 身份发起 RPC，已强制绑定回自身身份"
                 )
+            normalized_method = str(method or "").strip()
+            if normalized_method not in _PLUGIN_ALLOWED_RAW_HOST_METHODS:
+                raise PermissionError(
+                    f"插件 {bound_plugin_id} 不允许直接调用 Host 原始 RPC 方法: "
+                    f"{normalized_method or '<empty>'}"
+                )
             resp = await rpc_client.send_request(
-                method=method,
+                method=normalized_method,
                 plugin_id=bound_plugin_id,
                 payload=payload or {},
             )
