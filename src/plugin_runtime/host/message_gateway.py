@@ -1,12 +1,9 @@
-"""
-Message Gateway 模块
-适配器专用，用于将其他平台的消息转换为系统内部的消息格式，并将系统消息转换为其他平台的格式。
-"""
+"""Host 侧消息网关包装器。"""
 
 from typing import TYPE_CHECKING, Any, Dict
 
 from src.common.logger import get_logger
-from src.platform_io import DeliveryStatus, get_platform_io_manager
+from src.platform_io import get_platform_io_manager
 
 from .message_utils import PluginMessageUtils
 
@@ -50,7 +47,7 @@ class MessageGateway:
             internal_message: 内部消息对象。
 
         Returns:
-            Dict[str, Any]: 供适配器插件消费的标准消息字典。
+            Dict[str, Any]: 供消息网关插件消费的标准消息字典。
         """
         return dict(PluginMessageUtils._session_message_to_dict(internal_message))
 
@@ -83,7 +80,7 @@ class MessageGateway:
         Args:
             internal_message: 系统内部的 ``SessionMessage`` 对象。
             supervisor: 当前持有该消息网关的 Supervisor。
-            enabled_only: 兼容旧签名的保留参数，当前由 Platform IO 统一裁决。
+            enabled_only: 兼容旧签名的保留参数，当前未使用。
             save_to_db: 发送成功后是否写入数据库。
 
         Returns:
@@ -98,12 +95,13 @@ class MessageGateway:
             return False
 
         route_key = platform_io_manager.build_route_key_from_message(internal_message)
-        receipt = await platform_io_manager.send_message(internal_message, route_key)
-        if receipt.status != DeliveryStatus.SENT:
-            logger.warning(f"通过适配器链路发送消息失败: {receipt.error or receipt.status}")
+        delivery_batch = await platform_io_manager.send_message(internal_message, route_key)
+        if not delivery_batch.has_success:
+            logger.warning("通过消息网关链路发送消息失败: 未命中任何成功回执")
             return False
 
-        internal_message.message_id = receipt.external_message_id or internal_message.message_id
+        first_successful_receipt = delivery_batch.sent_receipts[0]
+        internal_message.message_id = first_successful_receipt.external_message_id or internal_message.message_id
         if save_to_db:
             try:
                 from src.common.utils.utils_message import MessageUtils

@@ -10,7 +10,7 @@ from .outbound_tracker import OutboundTracker
 from .route_key_factory import RouteKeyFactory
 from .registry import DriverRegistry
 from .routing import RouteTable
-from .types import DeliveryReceipt, DeliveryStatus, InboundMessageEnvelope, RouteBinding, RouteKey
+from .types import DeliveryBatch, DeliveryReceipt, DeliveryStatus, InboundMessageEnvelope, RouteBinding, RouteKey
 
 if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
@@ -21,17 +21,21 @@ InboundDispatcher = Callable[[InboundMessageEnvelope], Awaitable[None]]
 
 
 class PlatformIOManager:
-    """统一协调双路径平台消息 IO 的路由、去重与状态跟踪。
+    """统一协调平台消息 IO 的路由、去重与状态跟踪。
 
-    这个管理器预期会成为 legacy 适配器链路与 plugin 适配器链路之间的
-    唯一裁决点。当前地基阶段，它只提供共享状态和 Broker 侧契约，还没有
-    真正把生产流量切到新中间层。
+    与旧实现不同，这个管理器不再负责“多条链路谁该接管平台”的裁决，
+    只维护发送表和接收表两张轻量路由表：
+
+    - 发送时：解析所有命中的发送绑定并全部投递。
+    - 接收时：只校验当前驱动是否已登记为可接收链路，然后全部放行给上层。
+    - 去重时：仅对单条链路做技术性重放抑制，不做跨链路语义去重。
     """
 
     def __init__(self) -> None:
         """初始化 Broker 管理器及其内存状态。"""
         self._driver_registry = DriverRegistry()
-        self._route_table = RouteTable()
+        self._send_route_table = RouteTable()
+        self._receive_route_table = RouteTable()
         self._deduplicator = MessageDeduplicator()
         self._outbound_tracker = OutboundTracker()
         self._inbound_dispatcher: Optional[InboundDispatcher] = None
@@ -152,13 +156,22 @@ class PlatformIOManager:
         return self._driver_registry
 
     @property
-    def route_table(self) -> RouteTable:
-        """返回管理器持有的路由绑定表。
+    def send_route_table(self) -> RouteTable:
+        """返回发送路由表。"""
 
-        Returns:
-            RouteTable: 用于归属解析的路由绑定表。
-        """
-        return self._route_table
+        return self._send_route_table
+
+    @property
+    def receive_route_table(self) -> RouteTable:
+        """返回接收路由表。"""
+
+        return self._receive_route_table
+
+    @property
+    def route_table(self) -> RouteTable:
+        """兼容旧接口，返回发送路由表。"""
+
+        return self._send_route_table
 
     @property
     def deduplicator(self) -> MessageDeduplicator:
@@ -257,15 +270,15 @@ class PlatformIOManager:
             return None
 
         removed_driver.clear_inbound_handler()
-        self._route_table.remove_bindings_by_driver(driver_id)
+        self._send_route_table.remove_bindings_by_driver(driver_id)
+        self._receive_route_table.remove_bindings_by_driver(driver_id)
         return removed_driver
 
-    def bind_route(self, binding: RouteBinding, *, replace: bool = False) -> None:
-        """为某个路由键绑定驱动。
+    def bind_send_route(self, binding: RouteBinding) -> None:
+        """为某个路由键绑定发送驱动。
 
         Args:
             binding: 要保存的路由绑定。
-            replace: 是否允许替换已有的精确 active owner。
 
         Raises:
             ValueError: 当绑定引用了不存在的驱动，或者绑定与驱动描述不一致时抛出。
@@ -275,30 +288,78 @@ class PlatformIOManager:
             raise ValueError(f"驱动 {binding.driver_id} 未注册，无法绑定路由")
 
         self._validate_binding_against_driver(binding, driver)
-        self._route_table.bind(binding, replace=replace)
+        self._send_route_table.bind(binding)
 
-    def unbind_route(self, route_key: RouteKey, driver_id: Optional[str] = None) -> None:
-        """移除一个或多个路由绑定。
+    def bind_receive_route(self, binding: RouteBinding) -> None:
+        """为某个路由键绑定接收驱动。
+
+        Args:
+            binding: 要保存的路由绑定。
+
+        Raises:
+            ValueError: 当绑定引用了不存在的驱动，或者绑定与驱动描述不一致时抛出。
+        """
+        driver = self._driver_registry.get(binding.driver_id)
+        if driver is None:
+            raise ValueError(f"驱动 {binding.driver_id} 未注册，无法绑定路由")
+
+        self._validate_binding_against_driver(binding, driver)
+        self._receive_route_table.bind(binding)
+
+    def bind_route(self, binding: RouteBinding) -> None:
+        """兼容旧接口，默认同时绑定发送表和接收表。"""
+
+        self.bind_send_route(binding)
+        self.bind_receive_route(binding)
+
+    def unbind_send_route(self, route_key: RouteKey, driver_id: Optional[str] = None) -> None:
+        """移除发送路由绑定。
 
         Args:
             route_key: 要移除绑定的路由键。
             driver_id: 可选的特定驱动 ID。
         """
-        self._route_table.unbind(route_key, driver_id)
 
-    def resolve_driver(self, route_key: RouteKey) -> Optional[PlatformIODriver]:
-        """解析某个路由键当前的 active 驱动。
+        self._send_route_table.unbind(route_key, driver_id)
+
+    def unbind_receive_route(self, route_key: RouteKey, driver_id: Optional[str] = None) -> None:
+        """移除接收路由绑定。
+
+        Args:
+            route_key: 要移除绑定的路由键。
+            driver_id: 可选的特定驱动 ID。
+        """
+
+        self._receive_route_table.unbind(route_key, driver_id)
+
+    def unbind_route(self, route_key: RouteKey, driver_id: Optional[str] = None) -> None:
+        """兼容旧接口，默认同时从发送表和接收表解绑。"""
+
+        self.unbind_send_route(route_key, driver_id)
+        self.unbind_receive_route(route_key, driver_id)
+
+    def resolve_drivers(self, route_key: RouteKey) -> List[PlatformIODriver]:
+        """解析某个路由键当前命中的全部发送驱动。
 
         Args:
             route_key: 要解析的路由键。
 
         Returns:
-            Optional[PlatformIODriver]: 若存在 active 驱动，则返回该驱动实例。
+            List[PlatformIODriver]: 当前命中的全部发送驱动。
         """
-        active_binding = self._route_table.get_active_binding(route_key)
-        if active_binding is None:
-            return None
-        return self._driver_registry.get(active_binding.driver_id)
+
+        drivers: List[PlatformIODriver] = []
+        for binding in self._send_route_table.resolve_bindings(route_key):
+            driver = self._driver_registry.get(binding.driver_id)
+            if driver is not None:
+                drivers.append(driver)
+        return drivers
+
+    def resolve_driver(self, route_key: RouteKey) -> Optional[PlatformIODriver]:
+        """兼容旧接口，返回首个命中的发送驱动。"""
+
+        drivers = self.resolve_drivers(route_key)
+        return drivers[0] if drivers else None
 
     @staticmethod
     def build_route_key_from_message(message: "SessionMessage") -> RouteKey:
@@ -335,9 +396,9 @@ class PlatformIOManager:
             否则返回 ``False``。
         """
 
-        if not self._route_table.accepts_inbound(envelope.route_key, envelope.driver_id):
+        if not self._receive_route_table.has_binding_for_driver(envelope.route_key, envelope.driver_id):
             logger.info(
-                "忽略非 active owner 的入站消息: route=%s driver=%s",
+                "忽略未登记到接收路由表的入站消息: route=%s driver=%s",
                 envelope.route_key,
                 envelope.driver_id,
             )
@@ -361,8 +422,8 @@ class PlatformIOManager:
         message: "SessionMessage",
         route_key: RouteKey,
         metadata: Optional[Dict[str, Any]] = None,
-    ) -> DeliveryReceipt:
-        """通过 Broker 选中的驱动发送一条消息。
+    ) -> DeliveryBatch:
+        """通过 Broker 选中的全部发送驱动广播一条消息。
 
         Args:
             message: 要投递的内部会话消息。
@@ -370,61 +431,54 @@ class PlatformIOManager:
             metadata: 可选的额外 Broker 侧元数据。
 
         Returns:
-            DeliveryReceipt: 规范化后的出站回执。若路由不存在、驱动缺失，
-            或同一消息已存在未完成的出站跟踪，也会返回失败回执而不是抛异常。
+            DeliveryBatch: 规范化后的批量出站回执。
         """
+        drivers = self.resolve_drivers(route_key)
+        if not drivers:
+            return DeliveryBatch(internal_message_id=message.message_id, route_key=route_key)
 
-        active_binding = self._route_table.get_active_binding(route_key)
-        if active_binding is None:
-            return DeliveryReceipt(
-                internal_message_id=message.message_id,
-                route_key=route_key,
-                status=DeliveryStatus.FAILED,
-                error="未找到 active 路由绑定",
-            )
+        receipts: List[DeliveryReceipt] = []
+        for driver in drivers:
+            try:
+                self._outbound_tracker.begin_tracking(
+                    internal_message_id=message.message_id,
+                    route_key=route_key,
+                    driver_id=driver.driver_id,
+                    metadata=metadata,
+                )
+            except ValueError as exc:
+                receipts.append(
+                    DeliveryReceipt(
+                        internal_message_id=message.message_id,
+                        route_key=route_key,
+                        status=DeliveryStatus.FAILED,
+                        driver_id=driver.driver_id,
+                        driver_kind=driver.descriptor.kind,
+                        error=str(exc),
+                    )
+                )
+                continue
 
-        driver = self._driver_registry.get(active_binding.driver_id)
-        if driver is None:
-            return DeliveryReceipt(
-                internal_message_id=message.message_id,
-                route_key=route_key,
-                status=DeliveryStatus.FAILED,
-                driver_id=active_binding.driver_id,
-                driver_kind=active_binding.driver_kind,
-                error="active 路由绑定对应的驱动不存在",
-            )
+            try:
+                receipt = await driver.send_message(message=message, route_key=route_key, metadata=metadata)
+            except Exception as exc:
+                receipt = DeliveryReceipt(
+                    internal_message_id=message.message_id,
+                    route_key=route_key,
+                    status=DeliveryStatus.FAILED,
+                    driver_id=driver.driver_id,
+                    driver_kind=driver.descriptor.kind,
+                    error=str(exc),
+                )
 
-        try:
-            self._outbound_tracker.begin_tracking(
-                internal_message_id=message.message_id,
-                route_key=route_key,
-                driver_id=driver.driver_id,
-                metadata=metadata,
-            )
-        except ValueError as exc:
-            return DeliveryReceipt(
-                internal_message_id=message.message_id,
-                route_key=route_key,
-                status=DeliveryStatus.FAILED,
-                driver_id=driver.driver_id,
-                driver_kind=driver.descriptor.kind,
-                error=str(exc),
-            )
+            self._outbound_tracker.finish_tracking(receipt)
+            receipts.append(receipt)
 
-        try:
-            receipt = await driver.send_message(message=message, route_key=route_key, metadata=metadata)
-        except Exception as exc:
-            receipt = DeliveryReceipt(
-                internal_message_id=message.message_id,
-                route_key=route_key,
-                status=DeliveryStatus.FAILED,
-                driver_id=driver.driver_id,
-                driver_kind=driver.descriptor.kind,
-                error=str(exc),
-            )
-
-        self._outbound_tracker.finish_tracking(receipt)
-        return receipt
+        return DeliveryBatch(
+            internal_message_id=message.message_id,
+            route_key=route_key,
+            receipts=receipts,
+        )
 
     @staticmethod
     def _build_inbound_dedupe_key(envelope: InboundMessageEnvelope) -> Optional[str]:
@@ -453,7 +507,7 @@ class PlatformIOManager:
         if not normalized_dedupe_key:
             return None
 
-        return f"{envelope.route_key.to_dedupe_scope()}:{normalized_dedupe_key}"
+        return f"{envelope.driver_id}:{normalized_dedupe_key}"
 
     @staticmethod
     def _validate_binding_against_driver(binding: RouteBinding, driver: PlatformIODriver) -> None:

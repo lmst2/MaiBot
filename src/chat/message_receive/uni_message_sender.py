@@ -125,23 +125,27 @@ async def _send_message(message: SessionMessage, show_log: bool = True) -> bool:
             return True
 
         try:
-            from src.platform_io import DeliveryStatus
             from src.plugin_runtime.integration import get_plugin_runtime_manager
 
-            receipt = await get_plugin_runtime_manager().try_send_message_via_platform_io(message)
-            if receipt is not None:
-                if receipt.status == DeliveryStatus.SENT:
+            delivery_batch = await get_plugin_runtime_manager().try_send_message_via_platform_io(message)
+            if delivery_batch is not None:
+                if delivery_batch.has_success:
+                    successful_driver_ids = [
+                        receipt.driver_id or "unknown"
+                        for receipt in delivery_batch.sent_receipts
+                    ]
                     if show_log:
                         logger.info(
                             f"已通过 Platform IO 将消息 '{message_preview}' 发往平台'{platform}' "
-                            f"(driver: {receipt.driver_id or 'unknown'})"
+                            f"(drivers: {', '.join(successful_driver_ids)})"
                         )
                     return True
 
-                logger.warning(
-                    f"Platform IO 发送失败: platform={platform} driver={receipt.driver_id} "
-                    f"status={receipt.status} error={receipt.error}"
-                )
+                failed_details = "; ".join(
+                    f"driver={receipt.driver_id} status={receipt.status} error={receipt.error}"
+                    for receipt in delivery_batch.failed_receipts
+                ) or "未命中任何发送路由"
+                logger.warning(f"Platform IO 发送失败: platform={platform} {failed_details}")
                 return False
         except Exception as exc:
             logger.warning(f"检查 Platform IO 出站链路时出现异常，将回退旧发送链: {exc}")

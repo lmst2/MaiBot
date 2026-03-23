@@ -159,6 +159,51 @@ class TestPlatformIODedupe:
         session_message_envelope = _build_envelope(session_message_id="session-1")
         payload_only_envelope = _build_envelope(payload={"message": "hello"})
 
-        assert PlatformIOManager._build_inbound_dedupe_key(explicit_envelope) == "qq:10001:main:dedupe-1"
-        assert PlatformIOManager._build_inbound_dedupe_key(session_message_envelope) == "qq:10001:main:session-1"
+        assert PlatformIOManager._build_inbound_dedupe_key(explicit_envelope) == "plugin.napcat:dedupe-1"
+        assert PlatformIOManager._build_inbound_dedupe_key(session_message_envelope) == "plugin.napcat:session-1"
         assert PlatformIOManager._build_inbound_dedupe_key(payload_only_envelope) is None
+
+    @pytest.mark.asyncio
+    async def test_send_message_fans_out_to_all_matching_routes(self) -> None:
+        """同一路由命中多条发送链路时应全部发送。"""
+
+        manager = PlatformIOManager()
+        first_driver = _StubPlatformIODriver(
+            DriverDescriptor(
+                driver_id="plugin.gateway_a",
+                kind=DriverKind.PLUGIN,
+                platform="qq",
+            )
+        )
+        second_driver = _StubPlatformIODriver(
+            DriverDescriptor(
+                driver_id="plugin.gateway_b",
+                kind=DriverKind.PLUGIN,
+                platform="qq",
+            )
+        )
+        manager.register_driver(first_driver)
+        manager.register_driver(second_driver)
+        manager.bind_send_route(
+            RouteBinding(
+                route_key=RouteKey(platform="qq"),
+                driver_id=first_driver.driver_id,
+                driver_kind=first_driver.descriptor.kind,
+            )
+        )
+        manager.bind_send_route(
+            RouteBinding(
+                route_key=RouteKey(platform="qq"),
+                driver_id=second_driver.driver_id,
+                driver_kind=second_driver.descriptor.kind,
+            )
+        )
+
+        message = SimpleNamespace(message_id="internal-msg-1")
+        result = await manager.send_message(message, RouteKey(platform="qq"))
+
+        assert result.has_success is True
+        assert [receipt.driver_id for receipt in result.sent_receipts] == [
+            "plugin.gateway_a",
+            "plugin.gateway_b",
+        ]

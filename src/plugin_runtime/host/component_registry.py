@@ -119,11 +119,51 @@ class MessageGatewayEntry(ComponentEntry):
     """MessageGateway 组件条目"""
 
     def __init__(self, name: str, component_type: str, plugin_id: str, metadata: Dict[str, Any]) -> None:
-        platform = metadata.get("platform")
-        if not platform or not isinstance(platform, str):
-            raise ValueError(f"MessageGateway 组件 {plugin_id}.{name} 缺少有效的 platform 字段")
-        self.platform: str = platform
+        self.route_type: str = self._normalize_route_type(metadata.get("route_type", ""))
+        self.platform: str = str(metadata.get("platform", "") or "").strip()
+        self.protocol: str = str(metadata.get("protocol", "") or "").strip()
+        self.account_id: str = str(metadata.get("account_id", "") or "").strip()
+        self.scope: str = str(metadata.get("scope", "") or "").strip()
         super().__init__(name, component_type, plugin_id, metadata)
+
+    @staticmethod
+    def _normalize_route_type(raw_value: Any) -> str:
+        """规范化消息网关路由类型。
+
+        Args:
+            raw_value: 原始路由类型值。
+
+        Returns:
+            str: 规范化后的路由类型。
+
+        Raises:
+            ValueError: 当路由类型不受支持时抛出。
+        """
+
+        normalized_value = str(raw_value or "").strip().lower()
+        route_type_aliases = {
+            "send": "send",
+            "receive": "receive",
+            "recv": "receive",
+            "recive": "receive",
+            "duplex": "duplex",
+        }
+        route_type = route_type_aliases.get(normalized_value)
+        if route_type is None:
+            raise ValueError(f"MessageGateway 路由类型不合法: {raw_value}")
+        return route_type
+
+    @property
+    def supports_send(self) -> bool:
+        """返回当前网关是否支持出站。"""
+
+        return self.route_type in {"send", "duplex"}
+
+    @property
+    def supports_receive(self) -> bool:
+        """返回当前网关是否支持入站。"""
+
+        return self.route_type in {"receive", "duplex"}
 
 
 class ComponentRegistry:
@@ -404,26 +444,71 @@ class ComponentRegistry:
         handlers.sort(key=lambda c: c.priority, reverse=True)
         return handlers
 
-    def get_message_gateways(
-        self, platform: str, *, enabled_only: bool = True, session_id: Optional[str] = None
+    def get_message_gateway(
+        self,
+        plugin_id: str,
+        name: str,
+        *,
+        enabled_only: bool = True,
+        session_id: Optional[str] = None,
     ) -> Optional[MessageGatewayEntry]:
-        """查询消息网关组件。
+        """按插件和组件名获取单个消息网关。
 
         Args:
-            platform (str): 平台名称
-            enabled_only (bool): 是否仅返回启用的组件
-            session_id (Optional[str]): 可选的会话ID，若提供则考虑会话禁用状态
+            plugin_id: 插件 ID。
+            name: 网关组件名称。
+            enabled_only: 是否仅返回启用的组件。
+            session_id: 可选的会话 ID。
+
         Returns:
-            gateway (Optional[MessageGatewayEntry]): 符合条件的 MessageGateway 组件，可能不存在
+            Optional[MessageGatewayEntry]: 若存在则返回消息网关条目。
         """
 
+        component = self._components.get(f"{plugin_id}.{name}")
+        if not isinstance(component, MessageGatewayEntry):
+            return None
+        if enabled_only and not self.check_component_enabled(component, session_id):
+            return None
+        return component
+
+    def get_message_gateways(
+        self,
+        *,
+        plugin_id: Optional[str] = None,
+        platform: str = "",
+        route_type: str = "",
+        enabled_only: bool = True,
+        session_id: Optional[str] = None,
+    ) -> List[MessageGatewayEntry]:
+        """查询消息网关组件列表。
+
+        Args:
+            plugin_id: 可选的插件 ID 过滤条件。
+            platform: 可选的平台过滤条件。
+            route_type: 可选的路由类型过滤条件。
+            enabled_only: 是否仅返回启用的组件。
+            session_id: 可选的会话 ID。
+
+        Returns:
+            List[MessageGatewayEntry]: 符合条件的消息网关组件列表。
+        """
+
+        normalized_platform = str(platform or "").strip()
+        normalized_route_type = str(route_type or "").strip().lower()
+        gateways: List[MessageGatewayEntry] = []
         for comp in self._by_type.get(ComponentTypes.MESSAGE_GATEWAY, {}).values():
             if not isinstance(comp, MessageGatewayEntry):
                 continue
+            if plugin_id and comp.plugin_id != plugin_id:
+                continue
             if enabled_only and not self.check_component_enabled(comp, session_id):
                 continue
-            if comp.platform == platform:
-                return comp # 返回第一个
+            if normalized_platform and comp.platform != normalized_platform:
+                continue
+            if normalized_route_type and comp.route_type != normalized_route_type:
+                continue
+            gateways.append(comp)
+        return gateways
 
     def get_tools(self, *, enabled_only: bool = True, session_id: Optional[str] = None) -> List[ToolEntry]:
         """查询所有工具组件。

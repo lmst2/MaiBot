@@ -18,7 +18,7 @@ import tomlkit
 from src.common.logger import get_logger
 from src.config.config import global_config
 from src.config.file_watcher import FileChange, FileWatcher
-from src.platform_io import DeliveryReceipt, InboundMessageEnvelope, get_platform_io_manager
+from src.platform_io import DeliveryBatch, InboundMessageEnvelope, get_platform_io_manager
 from src.plugin_runtime.capabilities import (
     RuntimeComponentCapabilityMixin,
     RuntimeCoreCapabilityMixin,
@@ -351,15 +351,15 @@ class PluginRuntimeManager(
     async def try_send_message_via_platform_io(
         self,
         message: "SessionMessage",
-    ) -> Optional[DeliveryReceipt]:
+    ) -> Optional[DeliveryBatch]:
         """尝试通过 Platform IO 中间层发送消息。
 
         Args:
             message: 待发送的内部会话消息。
 
         Returns:
-            Optional[DeliveryReceipt]: 若当前消息存在 active 路由，则返回实际发送
-            结果；若没有可用路由或 Platform IO 尚未启动，则返回 ``None``。
+            Optional[DeliveryBatch]: 若当前消息命中了至少一条发送路由，则返回
+            实际发送结果；若没有可用路由或 Platform IO 尚未启动，则返回 ``None``。
         """
         if not self._started:
             return None
@@ -374,7 +374,7 @@ class PluginRuntimeManager(
             logger.warning(f"根据消息构造 Platform IO 路由键失败: {exc}")
             return None
 
-        if platform_io_manager.resolve_driver(route_key) is None:
+        if not platform_io_manager.resolve_drivers(route_key):
             return None
 
         return await platform_io_manager.send_message(message, route_key)

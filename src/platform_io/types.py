@@ -19,14 +19,6 @@ class DriverKind(str, Enum):
     PLUGIN = "plugin"
 
 
-class RouteMode(str, Enum):
-    """路由归属模式枚举。"""
-
-    ACTIVE = "active"
-    SHADOW = "shadow"
-    DISABLED = "disabled"
-
-
 class DeliveryStatus(str, Enum):
     """统一出站回执状态枚举。"""
 
@@ -158,21 +150,19 @@ class DriverDescriptor:
 
 @dataclass(frozen=True, slots=True)
 class RouteBinding:
-    """表示一条从路由键到驱动的归属绑定关系。
+    """表示一条从路由键到驱动的绑定关系。
 
     Attributes:
         route_key: 该绑定覆盖的路由键。
-        driver_id: 拥有或旁路观察该路由的驱动 ID。
+        driver_id: 拥有该路由的驱动 ID。
         driver_kind: 绑定驱动的类型。
-        mode: 绑定模式，例如 active owner 或 shadow observer。
-        priority: 当同模式下存在多条绑定时使用的相对优先级。
+        priority: 当同一路由键存在多条绑定时使用的相对优先级。
         metadata: 预留给未来路由策略的额外绑定元数据。
     """
 
     route_key: RouteKey
     driver_id: str
     driver_kind: DriverKind
-    mode: RouteMode = RouteMode.ACTIVE
     priority: int = 0
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -239,3 +229,36 @@ class DeliveryReceipt:
     external_message_id: Optional[str] = None
     error: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class DeliveryBatch:
+    """表示一次广播式出站投递的批量结果。
+
+    Attributes:
+        internal_message_id: 内部消息 ID。
+        route_key: 本次投递使用的路由键。
+        receipts: 各条路由的独立投递回执列表。
+    """
+
+    internal_message_id: str
+    route_key: RouteKey
+    receipts: List[DeliveryReceipt] = field(default_factory=list)
+
+    @property
+    def sent_receipts(self) -> List[DeliveryReceipt]:
+        """返回全部发送成功的回执。"""
+
+        return [receipt for receipt in self.receipts if receipt.status == DeliveryStatus.SENT]
+
+    @property
+    def failed_receipts(self) -> List[DeliveryReceipt]:
+        """返回全部发送失败的回执。"""
+
+        return [receipt for receipt in self.receipts if receipt.status != DeliveryStatus.SENT]
+
+    @property
+    def has_success(self) -> bool:
+        """返回当前批量投递是否至少命中一条成功回执。"""
+
+        return bool(self.sent_receipts)

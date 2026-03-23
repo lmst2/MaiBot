@@ -6,8 +6,9 @@
 
 from .manager import PlatformIOManager, get_platform_io_manager
 from .route_key_factory import RouteKeyFactory
-from .routing import RouteBindingConflictError, RouteTable
+from .routing import RouteTable
 from .types import (
+    DeliveryBatch,
     DeliveryReceipt,
     DeliveryStatus,
     DriverDescriptor,
@@ -15,10 +16,10 @@ from .types import (
     InboundMessageEnvelope,
     RouteBinding,
     RouteKey,
-    RouteMode,
 )
 
 __all__ = [
+    "DeliveryBatch",
     "DeliveryReceipt",
     "DeliveryStatus",
     "DriverDescriptor",
@@ -27,9 +28,7 @@ __all__ = [
     "PlatformIOManager",
     "RouteKeyFactory",
     "RouteBinding",
-    "RouteBindingConflictError",
     "RouteKey",
-    "RouteMode",
     "RouteTable",
     "get_platform_io_manager",
 ]

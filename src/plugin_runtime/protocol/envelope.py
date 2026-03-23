@@ -156,8 +156,6 @@ class RegisterPluginPayload(BaseModel):
     """插件版本"""
     components: List[ComponentDeclaration] = Field(default_factory=list, description="组件列表")
     """组件列表"""
-    adapter: Optional["AdapterDeclarationPayload"] = Field(default=None, description="可选的适配器声明")
-    """可选的适配器声明"""
     capabilities_required: List[str] = Field(default_factory=list, description="所需能力列表")
     """所需能力列表"""
 
@@ -287,50 +285,39 @@ class ReloadPluginResultPayload(BaseModel):
     """重载失败的插件及原因"""
 
 
-class AdapterDeclarationPayload(BaseModel):
-    """适配器插件声明载荷。"""
+class MessageGatewayStateUpdatePayload(BaseModel):
+    """消息网关运行时状态更新载荷。"""
 
-    platform: str = Field(description="适配器负责的平台名称，例如 qq")
-    """适配器负责的平台名称，例如 qq"""
-    protocol: str = Field(default="", description="接入协议或实现名称，例如 napcat")
-    """接入协议或实现名称，例如 napcat"""
-    account_id: str = Field(default="", description="可选的账号 ID 或 self_id")
-    """可选的账号 ID 或 self_id"""
-    scope: str = Field(default="", description="可选的路由作用域")
-    """可选的路由作用域"""
-    send_method: str = Field(default="send_to_platform", description="Host 出站调用的插件方法名")
-    """Host 出站调用的插件方法名"""
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="适配器附加元数据")
-    """适配器附加元数据"""
-
-
-class AdapterStateUpdatePayload(BaseModel):
-    """适配器运行时状态更新载荷。"""
-
-    connected: bool = Field(description="适配器当前是否已连接并准备接管路由")
-    """适配器当前是否已连接并准备接管路由"""
-    account_id: str = Field(default="", description="当前连接对应的账号 ID 或 self_id")
-    """当前连接对应的账号 ID 或 self_id"""
-    scope: str = Field(default="", description="当前连接对应的可选路由作用域")
-    """当前连接对应的可选路由作用域"""
+    gateway_name: str = Field(description="消息网关组件名称")
+    """消息网关组件名称"""
+    ready: bool = Field(description="当前链路是否已经就绪")
+    """当前链路是否已经就绪"""
+    platform: str = Field(default="", description="当前链路负责的平台名称")
+    """当前链路负责的平台名称"""
+    account_id: str = Field(default="", description="当前链路对应的账号 ID 或 self_id")
+    """当前链路对应的账号 ID 或 self_id"""
+    scope: str = Field(default="", description="当前链路对应的可选路由作用域")
+    """当前链路对应的可选路由作用域"""
     metadata: Dict[str, Any] = Field(default_factory=dict, description="可选的运行时状态元数据")
     """可选的运行时状态元数据"""
 
 
-class AdapterStateUpdateResultPayload(BaseModel):
-    """适配器运行时状态更新结果载荷。"""
+class MessageGatewayStateUpdateResultPayload(BaseModel):
+    """消息网关运行时状态更新结果载荷。"""
 
     accepted: bool = Field(description="Host 是否接受了本次状态更新")
     """Host 是否接受了本次状态更新"""
-    connected: bool = Field(description="Host 记录的当前连接状态")
-    """Host 记录的当前连接状态"""
+    ready: bool = Field(description="Host 记录的当前就绪状态")
+    """Host 记录的当前就绪状态"""
     route_key: Dict[str, Any] = Field(default_factory=dict, description="当前生效的路由键")
     """当前生效的路由键"""
 
 
-class ReceiveExternalMessagePayload(BaseModel):
-    """适配器插件向 Host 注入外部消息的请求载荷。"""
+class RouteMessagePayload(BaseModel):
+    """消息网关向 Host 路由外部消息的请求载荷。"""
 
+    gateway_name: str = Field(description="接收消息的网关组件名称")
+    """接收消息的网关组件名称"""
     message: Dict[str, Any] = Field(description="符合 MessageDict 结构的标准消息字典")
     """符合 MessageDict 结构的标准消息字典"""
     route_metadata: Dict[str, Any] = Field(default_factory=dict, description="可选的路由辅助元数据")
