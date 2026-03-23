@@ -1582,33 +1582,23 @@ class MaiSakaConfig(ConfigBase):
     )
     """启用文件列表工具"""
 
-    enable_qq_tools: bool = Field(
+    show_analyze_cognition_prompt: bool = Field(
         default=False,
         json_schema_extra={
             "x-widget": "switch",
-            "x-icon": "users",
+            "x-icon": "terminal",
         },
     )
-    """启用 QQ 工具（获取聊天记录、发送消息等）"""
+    """是否在 CLI 中显示 analyze_cognition 的 Prompt"""
 
-    qq_api_base_url: str = Field(
-        default="",
+    show_analyze_timing_prompt: bool = Field(
+        default=False,
         json_schema_extra={
-            "x-widget": "input",
-            "x-icon": "server",
+            "x-widget": "switch",
+            "x-icon": "terminal",
         },
     )
-    """QQ API 基地址"""
-
-    qq_api_key: str = Field(
-        default="",
-        json_schema_extra={
-            "x-widget": "input",
-            "x-icon": "key",
-        },
-    )
-    """QQ API 密钥"""
-
+    """是否在 CLI 中显示 analyze_timing 的 Prompt"""
 
 class PluginRuntimeConfig(ConfigBase):
     """插件运行时配置类"""

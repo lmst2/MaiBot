@@ -4,7 +4,7 @@ MaiSaka - Reply 回复生成器
 """
 
 from typing import Optional
-from llm_service import MaiSakaLLMService
+from .llm_service import MaiSakaLLMService
 
 
 def format_chat_history(messages: list) -> str:

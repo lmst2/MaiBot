@@ -13,7 +13,7 @@ from rich.markdown import Markdown
 from rich.text import Text
 from rich import box
 
-from config import (
+from .config import (
     console,
     ENABLE_EMOTION_MODULE,
     ENABLE_COGNITION_MODULE,
@@ -21,26 +21,23 @@ from config import (
     ENABLE_KNOWLEDGE_MODULE,
     ENABLE_MCP,
 )
-from input_reader import InputReader
-from timing import build_timing_info
-from knowledge import store_knowledge_from_context, retrieve_relevant_knowledge
-from knowledge_store import get_knowledge_store
-from llm_service import MaiSakaLLMService, build_message, remove_last_perception
-from mcp_client import MCPManager
-from tool_handlers import (
+from .input_reader import InputReader
+from .knowledge import retrieve_relevant_knowledge, store_knowledge_from_context
+from .knowledge_store import get_knowledge_store
+from .llm_service import MaiSakaLLMService, build_message, remove_last_perception
+from .mcp_client import MCPManager
+from .timing import build_timing_info
+from .tool_handlers import (
     ToolHandlerContext,
-    handle_say,
+    handle_list_files,
+    handle_mcp_tool,
+    handle_read_file,
+    handle_send_message,
+    handle_store_context,
     handle_stop,
+    handle_unknown_tool,
     handle_wait,
     handle_write_file,
-    handle_read_file,
-    handle_list_files,
-    handle_store_context,
-    handle_mcp_tool,
-    handle_unknown_tool,
-    handle_get_qq_chat_info,
-    handle_send_info,
-    handle_list_qq_chats,
 )
 
 
@@ -487,8 +484,8 @@ class BufferCLI:
                 ctx = self._build_tool_context()
 
                 for tc in response.tool_calls:
-                    if tc.name == "say":
-                        await handle_say(tc, chat_history, ctx)
+                    if tc.name in {"send_message", "say"}:
+                        await handle_send_message(tc, chat_history, ctx)
 
                     elif tc.name == "stop":
                         await handle_stop(tc, chat_history)
@@ -513,15 +510,6 @@ class BufferCLI:
 
                     elif tc.name == "store_context":
                         await handle_store_context(tc, chat_history, ctx)
-
-                    elif tc.name == "get_qq_chat_info":
-                        await handle_get_qq_chat_info(tc, chat_history)
-
-                    elif tc.name == "send_info":
-                        await handle_send_info(tc, chat_history)
-
-                    elif tc.name == "list_qq_chats":
-                        await handle_list_qq_chats(tc, chat_history)
 
                     elif self._mcp_manager and self._mcp_manager.is_mcp_tool(tc.name):
                         await handle_mcp_tool(tc, chat_history, self._mcp_manager)

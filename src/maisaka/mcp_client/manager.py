@@ -5,7 +5,7 @@ MaiSaka - MCP 管理器
 
 from typing import Optional
 
-from config import console
+from ..config import console
 from .config import MCPServerConfig, load_mcp_config
 from .connection import MCPConnection, MCP_AVAILABLE
 
@@ -13,6 +13,7 @@ from .connection import MCPConnection, MCP_AVAILABLE
 BUILTIN_TOOL_NAMES = frozenset(
     {
         "say",
+        "send_message",
         "wait",
         "stop",
         "create_table",

@@ -4,7 +4,7 @@ MaiSaka - 内置工具定义
 使用主项目的工具格式（ToolOption + ToolParamType）
 """
 
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 from src.llm_models.payload_content.tool_option import ToolOption, ToolParamType
 
 
@@ -16,19 +16,19 @@ def create_builtin_tools() -> List[ToolOption]:
     tools = []
 
     # say 工具
-    say_builder = ToolOptionBuilder()
-    say_builder.set_name("say")
-    say_builder.set_description(
+    send_message_builder = ToolOptionBuilder()
+    send_message_builder.set_name("send_message")
+    send_message_builder.set_description(
         "对用户说话。你所有想让用户看到的正式发言都必须通过此工具输出。直接输出的文本会被视为你的内心思考，用户无法阅读。reason 参数描述你想要回复的方式、想法和内容，系统会根据你的想法和对话上下文生成具体的回复。"
     )
-    say_builder.add_param(
+    send_message_builder.add_param(
         name="reason",
         param_type=ToolParamType.STRING,
         description="描述你想要回复的方式、想法和内容。例如：'同意对方的看法，并分享自己的经历' 或 '礼貌地拒绝，表示现在不方便聊天'",
         required=True,
         enum_values=None,
     )
-    tools.append(say_builder.build())
+    tools.append(send_message_builder.build())
 
     # wait 工具
     wait_builder = ToolOptionBuilder()
@@ -83,7 +83,7 @@ def builtin_tools_as_dicts() -> List[Dict[str, Any]]:
     """将内置工具转换为 dict 格式（用于调试）"""
     return [
         {
-            "name": "say",
+            "name": "send_message",
             "description": "对用户说话。你所有想让用户看到的正式发言都必须通过此工具输出。",
             "parameters": {
                 "type": "object",

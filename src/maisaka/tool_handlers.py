@@ -1,30 +1,24 @@
 """
 MaiSaka - 工具调用处理器
-处理 LLM 循环中各工具（say/wait/stop/file/MCP/QQ）的执行逻辑。
+处理 LLM 循环中各工具（say/wait/stop/file/MCP）的执行逻辑。
 """
 
 import json as _json
 import os
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
 from pathlib import Path
-import importlib.util
-
-# 检查 aiohttp 是否可用
-AIOHTTP_AVAILABLE = importlib.util.find_spec("aiohttp") is not None
-if AIOHTTP_AVAILABLE:
-    import aiohttp
+from typing import TYPE_CHECKING, Optional
 
 from rich.panel import Panel
 from rich.markdown import Markdown
 
-from config import console
-from input_reader import InputReader
-from llm_service import MaiSakaLLMService
-from replyer import Replyer
+from .config import console
+from .input_reader import InputReader
+from .llm_service import MaiSakaLLMService
+from .replyer import Replyer
 
 if TYPE_CHECKING:
-    from mcp_client import MCPManager
+    from .mcp_client import MCPManager
 
 
 # mai_files 目录路径
@@ -59,7 +53,7 @@ class ToolHandlerContext:
         self.last_user_input_time: Optional[datetime] = None
 
 
-async def handle_say(tc, chat_history: list, ctx: ToolHandlerContext):
+async def handle_send_message(tc, chat_history: list, ctx: ToolHandlerContext):
     """处理 say 工具：根据想法和上下文生成回复后展示给用户。"""
     reason = tc.arguments.get("reason", "")
     console.print("[accent]🔧 调用工具: say(...)[/accent]")
@@ -554,281 +548,6 @@ async def handle_store_context(tc, chat_history: list, ctx: ToolHandlerContext):
             "content": result_msg,
         }
     )
-
-
-async def handle_get_qq_chat_info(tc, chat_history: list):
-    """处理 get_qq_chat_info 工具：通过 HTTP 获取 QQ 聊天内容。"""
-    chat = tc.arguments.get("chat", "")
-    limit = tc.arguments.get("limit", 20)
-    console.print(f'[accent]🔧 调用工具: get_qq_chat_info("{chat}", limit={limit})[/accent]')
-
-    if not AIOHTTP_AVAILABLE:
-        error_msg = "aiohttp 模块未安装，请运行: pip install aiohttp"
-        console.print(f"[error]{error_msg}[/error]")
-        chat_history.append(
-            {
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": error_msg,
-            }
-        )
-        return
-
-    from config import QQ_API_BASE_URL, QQ_API_KEY
-
-    if not QQ_API_BASE_URL:
-        error_msg = "QQ_API_BASE_URL 未配置，请在 .env 中设置"
-        console.print(f"[error]{error_msg}[/error]")
-        chat_history.append(
-            {
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": error_msg,
-            }
-        )
-        return
-
-    try:
-        # 构建 API 端点
-        url = f"{QQ_API_BASE_URL.rstrip('/')}/api/external/chat/history"
-
-        # 构建请求头（如果配置了 API Key）
-        headers = {}
-        if QQ_API_KEY:
-            headers["Authorization"] = f"Bearer {QQ_API_KEY}"
-
-        # 发送 HTTP 请求
-        async with aiohttp.ClientSession() as session:
-            params = {"chat": chat, "limit": limit}
-            async with session.get(url, params=params, headers=headers) as response:
-                if response.status == 200:
-                    # 获取纯文本响应
-                    text = await response.text()
-
-                    # 格式化显示
-                    console.print(
-                        Panel(
-                            f"聊天标识: {chat}\n获取数量: {limit}\n\n{text if text.strip() else '暂无聊天记录'}",
-                            title="💬 QQ 聊天记录",
-                            border_style="cyan",
-                            padding=(0, 1),
-                        )
-                    )
-
-                    chat_history.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": text if text.strip() else "暂无聊天记录",
-                        }
-                    )
-                else:
-                    error_text = await response.text()
-                    error_msg = f"HTTP 请求失败 (状态码 {response.status}): {error_text}"
-                    console.print(f"[error]{error_msg}[/error]")
-                    chat_history.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": error_msg,
-                        }
-                    )
-    except Exception as e:
-        error_msg = f"获取 QQ 聊天记录失败: {e}"
-        console.print(f"[error]{error_msg}[/error]")
-        chat_history.append(
-            {
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": error_msg,
-            }
-        )
-
-
-async def handle_send_info(tc, chat_history: list):
-    """处理 send_info 工具：通过 HTTP 发送消息到 QQ。"""
-    chat = tc.arguments.get("chat", "")
-    message = tc.arguments.get("message", "")
-    console.print(f'[accent]🔧 调用工具: send_info("{chat}")[/accent]')
-
-    if not AIOHTTP_AVAILABLE:
-        error_msg = "aiohttp 模块未安装，请运行: pip install aiohttp"
-        console.print(f"[error]{error_msg}[/error]")
-        chat_history.append(
-            {
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": error_msg,
-            }
-        )
-        return
-
-    from config import QQ_API_BASE_URL, QQ_API_KEY
-
-    if not QQ_API_BASE_URL:
-        error_msg = "QQ_API_BASE_URL 未配置，请在 .env 中设置"
-        console.print(f"[error]{error_msg}[/error]")
-        chat_history.append(
-            {
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": error_msg,
-            }
-        )
-        return
-
-    try:
-        # 构建 API 端点
-        url = f"{QQ_API_BASE_URL.rstrip('/')}/api/external/chat/send"
-
-        # 构建请求头（如果配置了 API Key）
-        headers = {}
-        if QQ_API_KEY:
-            headers["Authorization"] = f"Bearer {QQ_API_KEY}"
-
-        # 发送 HTTP 请求
-        async with aiohttp.ClientSession() as session:
-            payload = {"chat": chat, "message": message}
-            async with session.post(url, json=payload, headers=headers) as response:
-                data = await response.json()
-
-                if response.status == 200 and data.get("success"):
-                    # 格式化显示
-                    console.print(
-                        Panel(
-                            f"目标: {chat}\n消息: {message}\n\n结果: {data.get('message', '发送成功')}",
-                            title="📤 消息已发送",
-                            border_style="green",
-                            padding=(0, 1),
-                        )
-                    )
-
-                    chat_history.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": f"消息发送成功: {data.get('message', '发送成功')}",
-                        }
-                    )
-                else:
-                    error_msg = f"发送失败: {data.get('message', '未知错误')}"
-                    console.print(f"[error]{error_msg}[/error]")
-                    chat_history.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": error_msg,
-                        }
-                    )
-    except Exception as e:
-        error_msg = f"发送消息失败: {e}"
-        console.print(f"[error]{error_msg}[/error]")
-        chat_history.append(
-            {
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": error_msg,
-            }
-        )
-
-
-async def handle_list_qq_chats(tc, chat_history: list):
-    """处理 list_qq_chats 工具：获取所有可用的 QQ 聊天列表。"""
-    console.print("[accent]🔧 调用工具: list_qq_chats()[/accent]")
-
-    if not AIOHTTP_AVAILABLE:
-        error_msg = "aiohttp 模块未安装，请运行: pip install aiohttp"
-        console.print(f"[error]{error_msg}[/error]")
-        chat_history.append(
-            {
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": error_msg,
-            }
-        )
-        return
-
-    from config import QQ_API_BASE_URL, QQ_API_KEY
-
-    if not QQ_API_BASE_URL:
-        error_msg = "QQ_API_BASE_URL 未配置，请在 .env 中设置"
-        console.print(f"[error]{error_msg}[/error]")
-        chat_history.append(
-            {
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": error_msg,
-            }
-        )
-        return
-
-    try:
-        # 构建 API 端点
-        url = f"{QQ_API_BASE_URL.rstrip('/')}/api/external/chat/list"
-
-        # 构建请求头（如果配置了 API Key）
-        headers = {}
-        if QQ_API_KEY:
-            headers["Authorization"] = f"Bearer {QQ_API_KEY}"
-
-        # 发送 HTTP 请求
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                data = await response.json()
-
-                if response.status == 200 and data.get("success"):
-                    chats = data.get("chats", [])
-
-                    # 格式化聊天列表
-                    if chats:
-                        chat_list_text = "\n".join(
-                            [
-                                f"  • [{c.get('platform', 'qq')}] {c.get('name', '未知')} (chat: {c.get('chat', 'N/A')})"
-                                for c in chats
-                            ]
-                        )
-                        result_text = f"可用的聊天 (共 {len(chats)} 个):\n{chat_list_text}"
-                    else:
-                        result_text = "没有可用的聊天"
-
-                    console.print(
-                        Panel(
-                            result_text,
-                            title="💬 QQ 聊天列表",
-                            border_style="cyan",
-                            padding=(0, 1),
-                        )
-                    )
-
-                    chat_history.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": result_text,
-                        }
-                    )
-                else:
-                    error_msg = f"获取失败: {data.get('message', '未知错误')}"
-                    console.print(f"[error]{error_msg}[/error]")
-                    chat_history.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": error_msg,
-                        }
-                    )
-    except Exception as e:
-        error_msg = f"获取聊天列表失败: {e}"
-        console.print(f"[error]{error_msg}[/error]")
-        chat_history.append(
-            {
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": error_msg,
-            }
-        )
-
-
 # ──────────────────── 初始化 mai_files 目录 ────────────────────
 
 # 确保程序启动时 mai_files 目录存在
