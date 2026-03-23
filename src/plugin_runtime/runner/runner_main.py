@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Tuple, ca
 import asyncio
 import contextlib
 import inspect
+import json
 import logging as stdlib_logging
 import os
 import signal
@@ -23,7 +24,13 @@ import time
 import tomllib
 
 from src.common.logger import get_console_handler, get_logger, initialize_logging
-from src.plugin_runtime import ENV_HOST_VERSION, ENV_IPC_ADDRESS, ENV_PLUGIN_DIRS, ENV_SESSION_TOKEN
+from src.plugin_runtime import (
+    ENV_EXTERNAL_PLUGIN_IDS,
+    ENV_HOST_VERSION,
+    ENV_IPC_ADDRESS,
+    ENV_PLUGIN_DIRS,
+    ENV_SESSION_TOKEN,
+)
 from src.plugin_runtime.protocol.envelope import (
     BootstrapPluginPayload,
     ComponentDeclaration,
@@ -112,6 +119,7 @@ class PluginRunner:
         host_address: str,
         session_token: str,
         plugin_dirs: List[str],
+        external_available_plugin_ids: Optional[List[str]] = None,
     ) -> None:
         """初始化 Runner。
 
@@ -119,10 +127,16 @@ class PluginRunner:
             host_address: Host 的 IPC 地址。
             session_token: 握手用会话令牌。
             plugin_dirs: 当前 Runner 负责扫描的插件目录列表。
+            external_available_plugin_ids: 视为已满足的外部依赖插件 ID 列表。
         """
         self._host_address: str = host_address
         self._session_token: str = session_token
         self._plugin_dirs: List[str] = plugin_dirs
+        self._external_available_plugin_ids: Set[str] = {
+            str(plugin_id or "").strip()
+            for plugin_id in (external_available_plugin_ids or [])
+            if str(plugin_id or "").strip()
+        }
 
         self._rpc_client: RPCClient = RPCClient(host_address, session_token)
         self._loader: PluginLoader = PluginLoader(host_version=os.getenv(ENV_HOST_VERSION, ""))
@@ -150,7 +164,10 @@ class PluginRunner:
         self._register_handlers()
 
         # 3. 加载插件
-        plugins = self._loader.discover_and_load(self._plugin_dirs)
+        plugins = self._loader.discover_and_load(
+            self._plugin_dirs,
+            extra_available=self._external_available_plugin_ids,
+        )
         logger.info(f"已加载 {len(plugins)} 个插件")
 
         # 4. 注入 PluginContext + 调用 on_load 生命周期钩子
@@ -379,6 +396,7 @@ class PluginRunner:
             plugin_version=meta.version,
             components=components,
             capabilities_required=meta.capabilities_required,
+            dependencies=meta.dependencies,
             config_reload_subscriptions=config_reload_subscriptions,
         )
 
@@ -485,18 +503,20 @@ class PluginRunner:
         self._loader.set_loaded_plugin(meta)
         return True
 
-    async def _unload_plugin(self, meta: PluginMeta, reason: str) -> None:
+    async def _unload_plugin(self, meta: PluginMeta, reason: str, *, purge_modules: bool = True) -> None:
         """卸载单个插件并清理 Host/Runner 两侧状态。
 
         Args:
             meta: 待卸载的插件元数据。
             reason: 卸载原因。
+            purge_modules: 是否在卸载完成后清理插件模块缓存。
         """
         await self._invoke_plugin_on_unload(meta)
         await self._unregister_plugin(meta.plugin_id, reason)
         await self._deactivate_plugin(meta)
         self._loader.remove_loaded_plugin(meta.plugin_id)
-        self._loader.purge_plugin_modules(meta.plugin_id, meta.plugin_dir)
+        if purge_modules:
+            self._loader.purge_plugin_modules(meta.plugin_id, meta.plugin_dir)
 
     def _collect_reverse_dependents(self, plugin_id: str) -> Set[str]:
         """收集依赖指定插件的所有已加载插件。
@@ -564,18 +584,52 @@ class PluginRunner:
 
         return list(reversed(load_order))
 
-    async def _reload_plugin_by_id(self, plugin_id: str, reason: str) -> ReloadPluginResultPayload:
+    @staticmethod
+    def _finalize_failed_reload_messages(
+        failed_plugins: Dict[str, str],
+        rollback_failures: Dict[str, str],
+    ) -> Dict[str, str]:
+        """在重载失败后补充回滚结果说明。"""
+
+        finalized_failures: Dict[str, str] = {}
+        for failed_plugin_id, failure_reason in failed_plugins.items():
+            rollback_failure = rollback_failures.get(failed_plugin_id)
+            if rollback_failure:
+                finalized_failures[failed_plugin_id] = (
+                    f"{failure_reason}；且旧版本恢复失败: {rollback_failure}"
+                )
+            else:
+                finalized_failures[failed_plugin_id] = f"{failure_reason}（已恢复旧版本）"
+
+        for failed_plugin_id, rollback_failure in rollback_failures.items():
+            if failed_plugin_id not in finalized_failures:
+                finalized_failures[failed_plugin_id] = f"旧版本恢复失败: {rollback_failure}"
+
+        return finalized_failures
+
+    async def _reload_plugin_by_id(
+        self,
+        plugin_id: str,
+        reason: str,
+        external_available_plugins: Optional[Set[str]] = None,
+    ) -> ReloadPluginResultPayload:
         """按插件 ID 在 Runner 进程内执行精确重载。
 
         Args:
             plugin_id: 目标插件 ID。
             reason: 重载原因。
+            external_available_plugins: 视为已满足的外部依赖插件 ID 集合。
 
         Returns:
             ReloadPluginResultPayload: 结构化重载结果。
         """
         candidates, duplicate_candidates = self._loader.discover_candidates(self._plugin_dirs)
         failed_plugins: Dict[str, str] = {}
+        normalized_external_available = {
+            str(candidate_plugin_id or "").strip()
+            for candidate_plugin_id in (external_available_plugins or set())
+            if str(candidate_plugin_id or "").strip()
+        }
 
         if plugin_id in duplicate_candidates:
             conflict_paths = ", ".join(str(path) for path in duplicate_candidates[plugin_id])
@@ -603,29 +657,32 @@ class PluginRunner:
         unload_order = self._build_unload_order(target_plugin_ids & loaded_plugin_ids)
         unloaded_plugins: List[str] = []
         retained_plugin_ids = loaded_plugin_ids - set(unload_order)
+        rollback_metas: Dict[str, PluginMeta] = {}
 
         for unload_plugin_id in unload_order:
             meta = self._loader.get_plugin(unload_plugin_id)
             if meta is None:
                 continue
-            await self._unload_plugin(meta, reason=reason)
+            rollback_metas[unload_plugin_id] = meta
+            await self._unload_plugin(meta, reason=reason, purge_modules=False)
+            self._loader.purge_plugin_modules(unload_plugin_id, meta.plugin_dir)
             unloaded_plugins.append(unload_plugin_id)
 
         reload_candidates: Dict[str, Tuple[Path, Dict[str, Any], Path]] = {}
         for target_plugin_id in target_plugin_ids:
             candidate = candidates.get(target_plugin_id)
             if candidate is None:
-                failed_plugins[target_plugin_id] = "插件目录已不存在，已保持卸载状态"
+                failed_plugins[target_plugin_id] = "插件目录已不存在"
                 continue
             reload_candidates[target_plugin_id] = candidate
 
         load_order, dependency_failures = self._loader.resolve_dependencies(
             reload_candidates,
-            extra_available=retained_plugin_ids,
+            extra_available=retained_plugin_ids | normalized_external_available,
         )
         failed_plugins.update(dependency_failures)
 
-        available_plugins = set(retained_plugin_ids)
+        available_plugins = set(retained_plugin_ids) | normalized_external_available
         reloaded_plugins: List[str] = []
 
         for load_plugin_id in load_order:
@@ -656,7 +713,48 @@ class PluginRunner:
             available_plugins.add(load_plugin_id)
             reloaded_plugins.append(load_plugin_id)
 
-        requested_plugin_success = plugin_id in reloaded_plugins and not failed_plugins
+        if failed_plugins:
+            rollback_failures: Dict[str, str] = {}
+
+            for reloaded_plugin_id in reversed(reloaded_plugins):
+                reloaded_meta = self._loader.get_plugin(reloaded_plugin_id)
+                if reloaded_meta is None:
+                    continue
+
+                try:
+                    await self._unload_plugin(
+                        reloaded_meta,
+                        reason=f"{reason}_rollback_cleanup",
+                        purge_modules=False,
+                    )
+                except Exception as exc:
+                    rollback_failures[reloaded_plugin_id] = f"清理失败: {exc}"
+                finally:
+                    self._loader.purge_plugin_modules(reloaded_plugin_id, reloaded_meta.plugin_dir)
+
+            for rollback_plugin_id in reversed(unload_order):
+                rollback_meta = rollback_metas.get(rollback_plugin_id)
+                if rollback_meta is None:
+                    continue
+
+                try:
+                    restored = await self._activate_plugin(rollback_meta)
+                except Exception as exc:
+                    rollback_failures[rollback_plugin_id] = str(exc)
+                    continue
+
+                if not restored:
+                    rollback_failures[rollback_plugin_id] = "无法重新激活旧版本"
+
+            return ReloadPluginResultPayload(
+                success=False,
+                requested_plugin_id=plugin_id,
+                reloaded_plugins=[],
+                unloaded_plugins=unloaded_plugins,
+                failed_plugins=self._finalize_failed_reload_messages(failed_plugins, rollback_failures),
+            )
+
+        requested_plugin_success = plugin_id in reloaded_plugins
 
         return ReloadPluginResultPayload(
             success=requested_plugin_success,
@@ -978,7 +1076,11 @@ class PluginRunner:
             )
 
         async with self._reload_lock:
-            result = await self._reload_plugin_by_id(payload.plugin_id, payload.reason)
+            result = await self._reload_plugin_by_id(
+                payload.plugin_id,
+                payload.reason,
+                external_available_plugins=set(payload.external_available_plugins),
+            )
             return envelope.make_response(payload=result.model_dump())
 
     def request_capability(self) -> RPCClient:
@@ -1073,6 +1175,7 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
 async def _async_main() -> None:
     """异步主入口"""
     host_address = os.environ.get(ENV_IPC_ADDRESS, "")
+    external_plugin_ids_raw = os.environ.get(ENV_EXTERNAL_PLUGIN_IDS, "")
     session_token = os.environ.get(ENV_SESSION_TOKEN, "")
     plugin_dirs_str = os.environ.get(ENV_PLUGIN_DIRS, "")
 
@@ -1081,11 +1184,24 @@ async def _async_main() -> None:
         sys.exit(1)
 
     plugin_dirs = [d for d in plugin_dirs_str.split(os.pathsep) if d]
+    try:
+        external_plugin_ids = json.loads(external_plugin_ids_raw) if external_plugin_ids_raw else []
+    except json.JSONDecodeError:
+        logger.warning("解析外部依赖插件列表失败，已回退为空列表")
+        external_plugin_ids = []
+    if not isinstance(external_plugin_ids, list):
+        logger.warning("外部依赖插件列表格式非法，已回退为空列表")
+        external_plugin_ids = []
 
     # sys.path 隔离: 只保留标准库、SDK 包、插件目录
     _isolate_sys_path(plugin_dirs)
 
-    runner = PluginRunner(host_address, session_token, plugin_dirs)
+    runner = PluginRunner(
+        host_address,
+        session_token,
+        plugin_dirs,
+        external_available_plugin_ids=[str(plugin_id) for plugin_id in external_plugin_ids],
+    )
 
     # 注册信号处理
     def _mark_runner_shutting_down() -> None:

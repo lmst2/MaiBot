@@ -8,7 +8,7 @@
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Coroutine, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Coroutine, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import asyncio
 import json
@@ -102,6 +102,77 @@ class PluginRuntimeManager(
         candidate = Path("plugins").resolve()
         return [candidate] if candidate.is_dir() else []
 
+    @staticmethod
+    def _extract_manifest_dependencies(manifest: Dict[str, Any]) -> List[str]:
+        """从插件 manifest 中提取规范化后的依赖插件 ID 列表。"""
+
+        dependencies: List[str] = []
+        for dependency in manifest.get("dependencies", []):
+            if isinstance(dependency, str):
+                normalized_dependency = dependency.strip()
+            elif isinstance(dependency, dict):
+                normalized_dependency = str(dependency.get("name", "") or "").strip()
+            else:
+                normalized_dependency = ""
+
+            if normalized_dependency:
+                dependencies.append(normalized_dependency)
+        return dependencies
+
+    @classmethod
+    def _discover_plugin_dependency_map(cls, plugin_dirs: Iterable[Path]) -> Dict[str, List[str]]:
+        """扫描指定插件目录集合，返回 ``plugin_id -> dependencies`` 映射。"""
+
+        dependency_map: Dict[str, List[str]] = {}
+        for plugin_dir in cls._iter_candidate_plugin_paths(plugin_dirs):
+            manifest_path = plugin_dir / "_manifest.json"
+            entrypoint_path = plugin_dir / "plugin.py"
+            if not manifest_path.is_file() or not entrypoint_path.is_file():
+                continue
+
+            try:
+                with manifest_path.open("r", encoding="utf-8") as manifest_file:
+                    manifest = json.load(manifest_file)
+            except Exception:
+                continue
+
+            if not isinstance(manifest, dict):
+                continue
+
+            plugin_id = str(manifest.get("name", plugin_dir.name) or "").strip() or plugin_dir.name
+            dependency_map[plugin_id] = cls._extract_manifest_dependencies(manifest)
+        return dependency_map
+
+    @classmethod
+    def _build_group_start_order(
+        cls,
+        builtin_dirs: Sequence[Path],
+        third_party_dirs: Sequence[Path],
+    ) -> List[str]:
+        """根据跨 Supervisor 依赖关系决定 Runner 启动顺序。"""
+
+        builtin_dependencies = cls._discover_plugin_dependency_map(builtin_dirs)
+        third_party_dependencies = cls._discover_plugin_dependency_map(third_party_dirs)
+        builtin_plugin_ids = set(builtin_dependencies)
+        third_party_plugin_ids = set(third_party_dependencies)
+
+        builtin_needs_third_party = any(
+            dependency in third_party_plugin_ids
+            for dependencies in builtin_dependencies.values()
+            for dependency in dependencies
+        )
+        third_party_needs_builtin = any(
+            dependency in builtin_plugin_ids
+            for dependencies in third_party_dependencies.values()
+            for dependency in dependencies
+        )
+
+        if builtin_needs_third_party and third_party_needs_builtin:
+            raise RuntimeError("检测到跨 Supervisor 循环依赖，当前无法安全启动独立 Runner")
+        if builtin_needs_third_party:
+            return ["third_party", "builtin"]
+        return ["builtin", "third_party"]
+
     # ─── 生命周期 ─────────────────────────────────────────────
 
     async def start(self) -> None:
@@ -161,12 +232,26 @@ class PluginRuntimeManager(
             platform_io_manager.set_inbound_dispatcher(self._dispatch_platform_inbound)
             await platform_io_manager.ensure_send_pipeline_ready()
 
-            if self._builtin_supervisor:
-                await self._builtin_supervisor.start()
-                started_supervisors.append(self._builtin_supervisor)
-            if self._third_party_supervisor:
-                await self._third_party_supervisor.start()
-                started_supervisors.append(self._third_party_supervisor)
+            supervisor_groups: Dict[str, Optional[PluginSupervisor]] = {
+                "builtin": self._builtin_supervisor,
+                "third_party": self._third_party_supervisor,
+            }
+            start_order = self._build_group_start_order(builtin_dirs, third_party_dirs)
+
+            for group_name in start_order:
+                supervisor = supervisor_groups.get(group_name)
+                if supervisor is None:
+                    continue
+
+                external_plugin_ids = [
+                    plugin_id
+                    for started_supervisor in started_supervisors
+                    for plugin_id in started_supervisor.get_loaded_plugin_ids()
+                ]
+                supervisor.set_external_available_plugin_ids(external_plugin_ids)
+                await supervisor.start()
+                started_supervisors.append(supervisor)
+
             await self._start_plugin_file_watcher()
             config_manager.register_reload_callback(self._config_reload_callback)
             self._config_reload_callback_registered = True
@@ -237,6 +322,171 @@ class PluginRuntimeManager(
     def supervisors(self) -> List["PluginSupervisor"]:
         """获取所有活跃的 Supervisor"""
         return [s for s in (self._builtin_supervisor, self._third_party_supervisor) if s is not None]
+
+    def _build_registered_dependency_map(self) -> Dict[str, Set[str]]:
+        """根据当前已注册插件构建全局依赖图。"""
+
+        dependency_map: Dict[str, Set[str]] = {}
+        for supervisor in self.supervisors:
+            for plugin_id, registration in getattr(supervisor, "_registered_plugins", {}).items():
+                dependency_map[plugin_id] = {
+                    str(dependency or "").strip()
+                    for dependency in getattr(registration, "dependencies", [])
+                    if str(dependency or "").strip()
+                }
+        return dependency_map
+
+    @staticmethod
+    def _collect_reverse_dependents(
+        plugin_ids: Set[str],
+        dependency_map: Dict[str, Set[str]],
+    ) -> Set[str]:
+        """根据依赖图收集反向依赖闭包。"""
+
+        impacted_plugins: Set[str] = set(plugin_ids)
+        changed = True
+
+        while changed:
+            changed = False
+            for registered_plugin_id, dependencies in dependency_map.items():
+                if registered_plugin_id in impacted_plugins:
+                    continue
+                if dependencies & impacted_plugins:
+                    impacted_plugins.add(registered_plugin_id)
+                    changed = True
+
+        return impacted_plugins
+
+    def _build_registered_supervisor_map(self) -> Dict[str, "PluginSupervisor"]:
+        """构建当前已注册插件到所属 Supervisor 的映射。"""
+
+        return {
+            plugin_id: supervisor
+            for supervisor in self.supervisors
+            for plugin_id in supervisor.get_loaded_plugin_ids()
+        }
+
+    def _build_external_available_plugins_for_supervisor(self, target_supervisor: "PluginSupervisor") -> List[str]:
+        """收集某个 Supervisor 可用的外部插件 ID 列表。"""
+
+        external_plugin_ids: Set[str] = set()
+        for supervisor in self.supervisors:
+            if supervisor is target_supervisor:
+                continue
+            external_plugin_ids.update(supervisor.get_loaded_plugin_ids())
+        return sorted(external_plugin_ids)
+
+    def _find_supervisor_by_plugin_directory(self, plugin_id: str) -> Optional["PluginSupervisor"]:
+        """根据插件目录推断应负责该插件重载的 Supervisor。"""
+
+        for supervisor in self.supervisors:
+            for plugin_dir in supervisor._plugin_dirs:
+                if (Path(plugin_dir) / plugin_id).is_dir():
+                    return supervisor
+        return None
+
+    def _warn_skipped_cross_supervisor_reload(
+        self,
+        requested_loaded_plugin_ids: Set[str],
+        dependency_map: Dict[str, Set[str]],
+        supervisor_by_plugin: Dict[str, "PluginSupervisor"],
+    ) -> None:
+        """记录因跨 Supervisor 边界而未参与联动重载的插件。"""
+
+        if not requested_loaded_plugin_ids:
+            return
+
+        handled_plugin_ids: Set[str] = set()
+        for supervisor in self.supervisors:
+            local_requested_plugin_ids = {
+                plugin_id
+                for plugin_id in requested_loaded_plugin_ids
+                if supervisor_by_plugin.get(plugin_id) is supervisor
+            }
+            if not local_requested_plugin_ids:
+                continue
+
+            local_plugin_ids = set(supervisor.get_loaded_plugin_ids())
+            local_dependency_map = {
+                plugin_id: {
+                    dependency
+                    for dependency in dependency_map.get(plugin_id, set())
+                    if dependency in local_plugin_ids
+                }
+                for plugin_id in local_plugin_ids
+            }
+            handled_plugin_ids.update(
+                self._collect_reverse_dependents(local_requested_plugin_ids, local_dependency_map)
+            )
+
+        impacted_plugin_ids = self._collect_reverse_dependents(requested_loaded_plugin_ids, dependency_map)
+        skipped_plugin_ids = sorted(impacted_plugin_ids - handled_plugin_ids)
+        if not skipped_plugin_ids:
+            return
+
+        logger.warning(
+            f"插件 {', '.join(sorted(requested_loaded_plugin_ids))} 存在跨 Supervisor 依赖方未联动重载: "
+            f"{', '.join(skipped_plugin_ids)}。当前仅在单个 Supervisor 内执行联动重载；"
+            "跨 Supervisor API 调用仍然可用。如需联动重载，请将相关插件放在同一个 Supervisor 内。"
+        )
+
+    async def reload_plugins_globally(self, plugin_ids: Sequence[str], reason: str = "manual") -> bool:
+        """按 Supervisor 分组执行精确重载。
+
+        仅在单个 Supervisor 内执行依赖联动；跨 Supervisor 依赖方仅记录告警，
+        不再自动参与本次热重载。
+        """
+
+        normalized_plugin_ids = [
+            normalized_plugin_id
+            for plugin_id in plugin_ids
+            if (normalized_plugin_id := str(plugin_id or "").strip())
+        ]
+        if not normalized_plugin_ids:
+            return True
+
+        dependency_map = self._build_registered_dependency_map()
+        supervisor_by_plugin = self._build_registered_supervisor_map()
+        supervisor_roots: Dict["PluginSupervisor", List[str]] = {}
+        requested_loaded_plugin_ids: Set[str] = set()
+        missing_plugin_ids: List[str] = []
+
+        for plugin_id in normalized_plugin_ids:
+            supervisor = supervisor_by_plugin.get(plugin_id)
+            if supervisor is not None:
+                requested_loaded_plugin_ids.add(plugin_id)
+            else:
+                supervisor = self._find_supervisor_by_plugin_directory(plugin_id)
+
+            if supervisor is None:
+                missing_plugin_ids.append(plugin_id)
+                continue
+
+            if plugin_id not in supervisor_roots.setdefault(supervisor, []):
+                supervisor_roots[supervisor].append(plugin_id)
+
+        if missing_plugin_ids:
+            logger.warning(f"以下插件未找到可重载的 Supervisor，已跳过: {', '.join(sorted(missing_plugin_ids))}")
+
+        self._warn_skipped_cross_supervisor_reload(
+            requested_loaded_plugin_ids=requested_loaded_plugin_ids,
+            dependency_map=dependency_map,
+            supervisor_by_plugin=supervisor_by_plugin,
+        )
+
+        success = True
+        for supervisor, root_plugin_ids in supervisor_roots.items():
+            if not root_plugin_ids:
+                continue
+
+            reloaded = await supervisor.reload_plugins(
+                plugin_ids=root_plugin_ids,
+                reason=reason,
+                external_available_plugins=self._build_external_available_plugins_for_supervisor(supervisor),
+            )
+            success = success and reloaded
+
+        return success and not missing_plugin_ids
 
     async def notify_plugin_config_updated(
         self,
@@ -464,6 +714,31 @@ class PluginRuntimeManager(
         if len(matches) > 1:
             raise RuntimeError(f"插件 {plugin_id} 同时存在于多个 Supervisor 中，无法安全路由")
         return matches[0] if matches else None
+
+    async def load_plugin_globally(self, plugin_id: str, reason: str = "manual") -> bool:
+        """加载或重载单个插件，并为其补齐跨 Supervisor 外部依赖。"""
+
+        normalized_plugin_id = str(plugin_id or "").strip()
+        if not normalized_plugin_id:
+            return False
+
+        try:
+            registered_supervisor = self._get_supervisor_for_plugin(normalized_plugin_id)
+        except RuntimeError:
+            return False
+
+        if registered_supervisor is not None:
+            return await self.reload_plugins_globally([normalized_plugin_id], reason=reason)
+
+        supervisor = self._find_supervisor_by_plugin_directory(normalized_plugin_id)
+        if supervisor is None:
+            return False
+
+        return await supervisor.reload_plugins(
+            plugin_ids=[normalized_plugin_id],
+            reason=reason,
+            external_available_plugins=self._build_external_available_plugins_for_supervisor(supervisor),
+        )
 
     @staticmethod
     def _find_duplicate_plugin_ids(plugin_dirs: List[Path]) -> Dict[str, List[Path]]:
@@ -729,7 +1004,7 @@ class PluginRuntimeManager(
             logger.error(f"检测到重复插件 ID，跳过本次插件热重载: {details}")
             return
 
-        reload_supervisors: Dict[Any, List[str]] = {}
+        changed_plugin_ids: List[str] = []
         changed_paths = [change.path.resolve() for change in changes]
 
         for supervisor in self.supervisors:
@@ -738,14 +1013,11 @@ class PluginRuntimeManager(
                 if plugin_id is None:
                     continue
                 if path.name in {"plugin.py", "_manifest.json"} or path.suffix == ".py":
-                    reload_supervisors.setdefault(supervisor, [])
-                    if plugin_id not in reload_supervisors[supervisor]:
-                        reload_supervisors[supervisor].append(plugin_id)
+                    if plugin_id not in changed_plugin_ids:
+                        changed_plugin_ids.append(plugin_id)
 
-        for supervisor, plugin_ids in reload_supervisors.items():
-            await supervisor.reload_plugins(plugin_ids=plugin_ids, reason="file_watcher")
-
-        if reload_supervisors:
+        if changed_plugin_ids:
+            await self.reload_plugins_globally(changed_plugin_ids, reason="file_watcher")
             self._refresh_plugin_config_watch_subscriptions()
 
     @staticmethod

@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Protocol, Sequence
 
 from src.common.logger import get_logger
 
@@ -15,7 +15,34 @@ class _RuntimeComponentManagerProtocol(Protocol):
     @property
     def supervisors(self) -> List["PluginSupervisor"]: ...
 
+    def _normalize_component_type(self, component_type: str) -> str: ...
+
+    def _is_api_component_type(self, component_type: str) -> bool: ...
+
+    def _serialize_api_entry(self, entry: "APIEntry") -> Dict[str, Any]: ...
+
+    def _serialize_api_component_entry(self, entry: "APIEntry") -> Dict[str, Any]: ...
+
+    def _is_api_visible_to_plugin(self, entry: "APIEntry", caller_plugin_id: str) -> bool: ...
+
+    def _normalize_api_reference(self, api_name: str, version: str = "") -> tuple[str, str]: ...
+
+    def _build_api_unavailable_error(self, entry: "APIEntry") -> str: ...
+
     def _get_supervisor_for_plugin(self, plugin_id: str) -> Optional["PluginSupervisor"]: ...
+
+    def _resolve_api_target(
+        self,
+        caller_plugin_id: str,
+        api_name: str,
+        version: str = "",
+    ) -> tuple[Optional["PluginSupervisor"], Optional["APIEntry"], Optional[str]]: ...
+
+    def _resolve_api_toggle_target(
+        self,
+        name: str,
+        version: str = "",
+    ) -> tuple[Optional["PluginSupervisor"], Optional["APIEntry"], Optional[str]]: ...
 
     def _resolve_component_toggle_target(
         self, name: str, component_type: str
@@ -24,6 +51,10 @@ class _RuntimeComponentManagerProtocol(Protocol):
     def _find_duplicate_plugin_ids(self, plugin_dirs: List[Path]) -> Dict[str, List[Path]]: ...
 
     def _iter_plugin_dirs(self) -> Iterable[Path]: ...
+
+    async def load_plugin_globally(self, plugin_id: str, reason: str = "manual") -> bool: ...
+
+    async def reload_plugins_globally(self, plugin_ids: Sequence[str], reason: str = "manual") -> bool: ...
 
 
 class RuntimeComponentCapabilityMixin:
@@ -266,20 +297,22 @@ class RuntimeComponentCapabilityMixin:
                 version=normalized_version,
                 enabled_only=False,
             )
-            if not entries:
-                return None, None, f"未找到 API: {normalized_name}"
-            if len(entries) > 1:
+            if len(entries) == 1:
+                return supervisor, entries[0], None
+            if entries:
                 return None, None, f"API {normalized_name} 存在多个版本，请显式指定 version"
-            return supervisor, entries[0], None
+            return None, None, f"未找到 API: {normalized_name}"
 
         matches: List[tuple["PluginSupervisor", "APIEntry"]] = []
         for supervisor in self.supervisors:
-            for entry in supervisor.api_registry.get_apis(
-                name=normalized_name,
-                version=normalized_version,
-                enabled_only=False,
-            ):
-                matches.append((supervisor, entry))
+            matches.extend(
+                (supervisor, entry)
+                for entry in supervisor.api_registry.get_apis(
+                    name=normalized_name,
+                    version=normalized_version,
+                    enabled_only=False,
+                )
+            )
 
         if len(matches) == 1:
             return matches[0][0], matches[0][1], None
@@ -453,39 +486,14 @@ class RuntimeComponentCapabilityMixin:
             return {"success": False, "error": f"检测到重复插件 ID，拒绝热重载: {details}"}
 
         try:
-            registered_supervisor = self._get_supervisor_for_plugin(plugin_name)
-        except RuntimeError as exc:
-            return {"success": False, "error": str(exc)}
+            loaded = await self.load_plugin_globally(plugin_name, reason=f"load {plugin_name}")
+        except Exception as e:
+            logger.error(f"[cap.component.load_plugin] 热重载失败: {e}")
+            return {"success": False, "error": str(e)}
 
-        if registered_supervisor is not None:
-            try:
-                reloaded = await registered_supervisor.reload_plugins(
-                    plugin_ids=[plugin_name],
-                    reason=f"load {plugin_name}",
-                )
-                if reloaded:
-                    return {"success": True, "count": 1}
-                return {"success": False, "error": f"插件 {plugin_name} 热重载失败，已回滚"}
-            except Exception as e:
-                logger.error(f"[cap.component.load_plugin] 热重载失败: {e}")
-                return {"success": False, "error": str(e)}
-
-        for sv in self.supervisors:
-            for pdir in sv._plugin_dirs:
-                if (pdir / plugin_name).is_dir():
-                    try:
-                        reloaded = await sv.reload_plugins(
-                            plugin_ids=[plugin_name],
-                            reason=f"load {plugin_name}",
-                        )
-                        if reloaded:
-                            return {"success": True, "count": 1}
-                        return {"success": False, "error": f"插件 {plugin_name} 热重载失败，已回滚"}
-                    except Exception as e:
-                        logger.error(f"[cap.component.load_plugin] 热重载失败: {e}")
-                        return {"success": False, "error": str(e)}
-
-        return {"success": False, "error": f"未找到插件: {plugin_name}"}
+        if loaded:
+            return {"success": True, "count": 1}
+        return {"success": False, "error": f"插件 {plugin_name} 热重载失败"}
 
     async def _cap_component_unload_plugin(
         self: _RuntimeComponentManagerProtocol, plugin_id: str, capability: str, args: Dict[str, Any]
@@ -507,23 +515,14 @@ class RuntimeComponentCapabilityMixin:
             return {"success": False, "error": f"检测到重复插件 ID，拒绝热重载: {details}"}
 
         try:
-            sv = self._get_supervisor_for_plugin(plugin_name)
-        except RuntimeError as exc:
-            return {"success": False, "error": str(exc)}
+            reloaded = await self.reload_plugins_globally([plugin_name], reason=f"reload {plugin_name}")
+        except Exception as e:
+            logger.error(f"[cap.component.reload_plugin] 热重载失败: {e}")
+            return {"success": False, "error": str(e)}
 
-        if sv is not None:
-            try:
-                reloaded = await sv.reload_plugins(
-                    plugin_ids=[plugin_name],
-                    reason=f"reload {plugin_name}",
-                )
-                if reloaded:
-                    return {"success": True}
-                return {"success": False, "error": f"插件 {plugin_name} 热重载失败，已回滚"}
-            except Exception as e:
-                logger.error(f"[cap.component.reload_plugin] 热重载失败: {e}")
-                return {"success": False, "error": str(e)}
-        return {"success": False, "error": f"未找到插件: {plugin_name}"}
+        if reloaded:
+            return {"success": True}
+        return {"success": False, "error": f"插件 {plugin_name} 热重载失败"}
 
     async def _cap_api_call(
         self: _RuntimeComponentManagerProtocol,
@@ -632,15 +631,16 @@ class RuntimeComponentCapabilityMixin:
         )
         apis: List[Dict[str, Any]] = []
         for supervisor in self.supervisors:
-            for entry in supervisor.api_registry.get_apis(
-                plugin_id=target_plugin_id or None,
-                name=api_name,
-                version=version,
-                enabled_only=True,
-            ):
-                if not self._is_api_visible_to_plugin(entry, plugin_id):
-                    continue
-                apis.append(self._serialize_api_entry(entry))
+            apis.extend(
+                self._serialize_api_entry(entry)
+                for entry in supervisor.api_registry.get_apis(
+                    plugin_id=target_plugin_id or None,
+                    name=api_name,
+                    version=version,
+                    enabled_only=True,
+                )
+                if self._is_api_visible_to_plugin(entry, plugin_id)
+            )
 
         apis.sort(key=lambda item: (str(item["plugin_id"]), str(item["name"]), str(item["version"])))
         return {"success": True, "apis": apis}

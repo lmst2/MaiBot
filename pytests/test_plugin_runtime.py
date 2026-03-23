@@ -3,6 +3,7 @@
 验证协议层、传输层、RPC 通信链路的正确性。
 """
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import asyncio
@@ -2362,6 +2363,8 @@ class TestIntegration:
         from src.plugin_runtime import integration as integration_module
 
         instances = []
+        builtin_dir = Path("builtin")
+        thirdparty_dir = Path("thirdparty")
 
         class FakeCapabilityService:
             def register_capability(self, name, impl):
@@ -2369,10 +2372,17 @@ class TestIntegration:
 
         class FakeSupervisor:
             def __init__(self, plugin_dirs=None, socket_path=None):
-                self.plugin_dirs = plugin_dirs or []
+                self._plugin_dirs = plugin_dirs or []
                 self.capability_service = FakeCapabilityService()
+                self.external_plugin_ids = []
                 self.stopped = False
                 instances.append(self)
+
+            def set_external_available_plugin_ids(self, plugin_ids):
+                self.external_plugin_ids = list(plugin_ids)
+
+            def get_loaded_plugin_ids(self):
+                return []
 
             async def start(self):
                 if len(instances) == 2 and self is instances[1]:
@@ -2382,10 +2392,10 @@ class TestIntegration:
                 self.stopped = True
 
         monkeypatch.setattr(
-            integration_module.PluginRuntimeManager, "_get_builtin_plugin_dirs", staticmethod(lambda: ["builtin"])
+            integration_module.PluginRuntimeManager, "_get_builtin_plugin_dirs", staticmethod(lambda: [builtin_dir])
         )
         monkeypatch.setattr(
-            integration_module.PluginRuntimeManager, "_get_thirdparty_plugin_dirs", staticmethod(lambda: ["thirdparty"])
+            integration_module.PluginRuntimeManager, "_get_third_party_plugin_dirs", staticmethod(lambda: [thirdparty_dir])
         )
 
         import src.plugin_runtime.host.supervisor as supervisor_module
@@ -2427,8 +2437,11 @@ class TestIntegration:
                 self.reload_reasons = []
                 self.config_updates = []
 
-            async def reload_plugins(self, plugin_ids=None, reason="manual"):
-                self.reload_reasons.append((plugin_ids, reason))
+            def get_loaded_plugin_ids(self):
+                return sorted(self._registered_plugins.keys())
+
+            async def reload_plugins(self, plugin_ids=None, reason="manual", external_available_plugins=None):
+                self.reload_reasons.append((plugin_ids, reason, external_available_plugins or []))
 
             async def notify_plugin_config_updated(self, plugin_id, config_data, config_version=""):
                 self.config_updates.append((plugin_id, config_data, config_version))
@@ -2453,10 +2466,58 @@ class TestIntegration:
         await manager._handle_plugin_source_changes(changes)
 
         assert manager._builtin_supervisor.reload_reasons == []
-        assert manager._third_party_supervisor.reload_reasons == [(["beta"], "file_watcher")]
+        assert manager._third_party_supervisor.reload_reasons == [(["beta"], "file_watcher", ["alpha"])]
         assert manager._builtin_supervisor.config_updates == []
         assert manager._third_party_supervisor.config_updates == []
         assert refresh_calls == [True]
+
+    @pytest.mark.asyncio
+    async def test_reload_plugins_globally_warns_and_skips_cross_supervisor_dependents(self, monkeypatch):
+        from src.plugin_runtime import integration as integration_module
+
+        class FakeRegistration:
+            def __init__(self, dependencies):
+                self.dependencies = dependencies
+
+        class FakeSupervisor:
+            def __init__(self, registrations):
+                self._registered_plugins = registrations
+                self.reload_calls = []
+
+            def get_loaded_plugin_ids(self):
+                return sorted(self._registered_plugins.keys())
+
+            async def reload_plugins(self, plugin_ids=None, reason="manual", external_available_plugins=None):
+                self.reload_calls.append((plugin_ids, reason, sorted(external_available_plugins or [])))
+                return True
+
+        builtin_supervisor = FakeSupervisor({"alpha": FakeRegistration([])})
+        third_party_supervisor = FakeSupervisor(
+            {
+                "beta": FakeRegistration(["alpha"]),
+                "gamma": FakeRegistration(["beta"]),
+            }
+        )
+
+        manager = integration_module.PluginRuntimeManager()
+        manager._builtin_supervisor = builtin_supervisor
+        manager._third_party_supervisor = third_party_supervisor
+        warning_messages = []
+
+        monkeypatch.setattr(
+            integration_module.logger,
+            "warning",
+            lambda message: warning_messages.append(message),
+        )
+
+        reloaded = await manager.reload_plugins_globally(["alpha"], reason="manual")
+
+        assert reloaded is True
+        assert builtin_supervisor.reload_calls == [(["alpha"], "manual", ["beta", "gamma"])]
+        assert third_party_supervisor.reload_calls == []
+        assert len(warning_messages) == 1
+        assert "beta, gamma" in warning_messages[0]
+        assert "跨 Supervisor API 调用仍然可用" in warning_messages[0]
 
     @pytest.mark.asyncio
     async def test_handle_plugin_config_changes_only_notify_target_plugin(self, monkeypatch, tmp_path):
@@ -2623,55 +2684,30 @@ class TestIntegration:
     async def test_component_reload_plugin_returns_failure_when_reload_rolls_back(self, monkeypatch):
         from src.plugin_runtime import integration as integration_module
 
-        class FakeSupervisor:
-            def __init__(self):
-                self._registered_plugins = {"alpha": object()}
+        manager = integration_module.PluginRuntimeManager()
+        monkeypatch.setattr(manager, "reload_plugins_globally", lambda plugin_ids, reason="manual": asyncio.sleep(0, False))
 
-            async def reload_plugins(self, reason="manual"):
-                return False
-
-        class FakeManager:
-            def __init__(self):
-                self.supervisors = [FakeSupervisor()]
-
-        monkeypatch.setattr(integration_module, "get_plugin_runtime_manager", lambda: FakeManager())
-
-        result = await integration_module.PluginRuntimeManager._cap_component_reload_plugin(
+        result = await manager._cap_component_reload_plugin(
             "plugin_a",
             "component.reload_plugin",
             {"plugin_name": "alpha"},
         )
 
         assert result["success"] is False
-        assert "已回滚" in result["error"]
+        assert result["error"] == "插件 alpha 热重载失败"
 
     @pytest.mark.asyncio
     async def test_component_load_plugin_returns_failure_when_reload_rolls_back(self, monkeypatch, tmp_path):
         from src.plugin_runtime import integration as integration_module
 
-        plugin_root = tmp_path / "plugins"
-        plugin_root.mkdir()
-        (plugin_root / "alpha").mkdir()
+        manager = integration_module.PluginRuntimeManager()
+        monkeypatch.setattr(manager, "load_plugin_globally", lambda plugin_id, reason="manual": asyncio.sleep(0, False))
 
-        class FakeSupervisor:
-            def __init__(self):
-                self._registered_plugins = {}
-                self._plugin_dirs = [str(plugin_root)]
-
-            async def reload_plugins(self, reason="manual"):
-                return False
-
-        class FakeManager:
-            def __init__(self):
-                self.supervisors = [FakeSupervisor()]
-
-        monkeypatch.setattr(integration_module, "get_plugin_runtime_manager", lambda: FakeManager())
-
-        result = await integration_module.PluginRuntimeManager._cap_component_load_plugin(
+        result = await manager._cap_component_load_plugin(
             "plugin_a",
             "component.load_plugin",
             {"plugin_name": "alpha"},
         )
 
         assert result["success"] is False
-        assert "已回滚" in result["error"]
+        assert result["error"] == "插件 alpha 热重载失败"

@@ -166,6 +166,8 @@ class RegisterPluginPayload(BaseModel):
     """组件列表"""
     capabilities_required: List[str] = Field(default_factory=list, description="所需能力列表")
     """所需能力列表"""
+    dependencies: List[str] = Field(default_factory=list, description="插件级依赖插件 ID 列表")
+    """插件级依赖插件 ID 列表"""
     config_reload_subscriptions: List[str] = Field(default_factory=list, description="订阅的全局配置热重载范围")
     """订阅的全局配置热重载范围"""
 
@@ -280,6 +282,8 @@ class ReloadPluginPayload(BaseModel):
     """目标插件 ID"""
     reason: str = Field(default="manual", description="重载原因")
     """重载原因"""
+    external_available_plugins: List[str] = Field(default_factory=list, description="可视为已满足的外部依赖插件 ID")
+    """可视为已满足的外部依赖插件 ID"""
 
 
 class ReloadPluginResultPayload(BaseModel):

@@ -1,15 +1,16 @@
+import asyncio
 from datetime import datetime
+from typing import TYPE_CHECKING, Dict, List, Optional
+
 from rich.traceback import install
 from sqlmodel import select
-from typing import Optional, TYPE_CHECKING, List, Dict
 
-import asyncio
-
-from src.common.logger import get_logger
 from src.common.data_models.chat_session_data_model import MaiChatSession
-from src.common.database.database_model import ChatSession
 from src.common.database.database import get_db_session
+from src.common.database.database_model import ChatSession
+from src.common.logger import get_logger
 from src.common.utils.utils_session import SessionUtils
+from src.platform_io.route_key_factory import RouteKeyFactory
 
 if TYPE_CHECKING:
     from .message import SessionMessage
@@ -82,7 +83,12 @@ class ChatManager:
             logger.error(f"初始化聊天管理器出现错误: {e}")
 
     async def get_or_create_session(
-        self, platform: str, user_id: str, group_id: Optional[str] = None
+        self,
+        platform: str,
+        user_id: str,
+        group_id: Optional[str] = None,
+        account_id: Optional[str] = None,
+        scope: Optional[str] = None,
     ) -> BotChatSession:
         """获取会话，如果不存在则创建一个新会话；一个封装方法。
 
@@ -90,12 +96,20 @@ class ChatManager:
             platform: 平台
             user_id: 用户ID
             group_id: 群ID（如果是群聊）
+            account_id: 平台账号 ID
+            scope: 路由作用域
         Returns:
             return (BotChatSession) 会话对象
         Raises:
             Exception: 获取或创建会话时发生错误
         """
-        session_id = SessionUtils.calculate_session_id(platform, user_id=user_id, group_id=group_id)
+        session_id = SessionUtils.calculate_session_id(
+            platform,
+            user_id=user_id,
+            group_id=group_id,
+            account_id=account_id,
+            scope=scope,
+        )
         if session := self.get_session_by_session_id(session_id):
             session.update_active_time()
             return session
@@ -131,7 +145,18 @@ class ChatManager:
             raise ValueError("消息缺少平台信息")
         user_id = message.message_info.user_info.user_id
         group_id = message.message_info.group_info.group_id if message.message_info.group_info else None
-        session_id = SessionUtils.calculate_session_id(platform, user_id=user_id, group_id=group_id)
+        account_id = None
+        scope = None
+        additional_config = message.message_info.additional_config
+        if isinstance(additional_config, dict):
+            account_id, scope = RouteKeyFactory.extract_components(additional_config)
+        session_id = SessionUtils.calculate_session_id(
+            platform,
+            user_id=user_id,
+            group_id=group_id,
+            account_id=account_id,
+            scope=scope,
+        )
         message.session_id = session_id  # 确保消息的session_id正确设置
         self.last_messages[session_id] = message
 
@@ -188,7 +213,12 @@ class ChatManager:
         return None
 
     def get_session_by_info(
-        self, platform: str, user_id: Optional[str] = None, group_id: Optional[str] = None
+        self,
+        platform: str,
+        user_id: Optional[str] = None,
+        group_id: Optional[str] = None,
+        account_id: Optional[str] = None,
+        scope: Optional[str] = None,
     ) -> Optional[BotChatSession]:
         """根据平台、用户ID和群ID获取对应的会话
 
@@ -196,10 +226,18 @@ class ChatManager:
             platform: 平台
             user_id: 用户ID
             group_id: 群ID（如果是群聊）
+            account_id: 平台账号 ID
+            scope: 路由作用域
         Returns:
             return (Optional[BotChatSession]): 会话对象，如果不存在则返回None
         """
-        session_id = SessionUtils.calculate_session_id(platform, user_id=user_id, group_id=group_id)
+        session_id = SessionUtils.calculate_session_id(
+            platform,
+            user_id=user_id,
+            group_id=group_id,
+            account_id=account_id,
+            scope=scope,
+        )
         return self.get_session_by_session_id(session_id)
 
     def get_session_by_session_id(self, session_id: str) -> Optional[BotChatSession]:

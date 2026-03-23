@@ -95,11 +95,16 @@ class PluginLoader:
         self._manifest_validator = ManifestValidator(host_version=host_version)
         self._compat_hook_installed = False
 
-    def discover_and_load(self, plugin_dirs: List[str]) -> List[PluginMeta]:
+    def discover_and_load(
+        self,
+        plugin_dirs: List[str],
+        extra_available: Optional[Set[str]] = None,
+    ) -> List[PluginMeta]:
         """扫描多个目录并加载所有插件。
 
         Args:
             plugin_dirs: 插件目录列表。
+            extra_available: 额外视为已满足的外部依赖插件 ID 集合。
 
         Returns:
             List[PluginMeta]: 成功加载的插件元数据列表，按依赖顺序排列。
@@ -108,7 +113,7 @@ class PluginLoader:
         self._record_duplicate_candidates(duplicate_candidates)
 
         # 第二阶段：依赖解析（拓扑排序）
-        load_order, failed_deps = self._resolve_dependencies(candidates)
+        load_order, failed_deps = self._resolve_dependencies(candidates, extra_available=extra_available)
         self._record_failed_dependencies(failed_deps)
 
         # 第三阶段：按依赖顺序加载

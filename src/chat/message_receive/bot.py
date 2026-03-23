@@ -10,6 +10,7 @@ from src.chat.heart_flow.heartflow_message_processor import HeartFCMessageReceiv
 from src.common.logger import get_logger
 from src.common.utils.utils_message import MessageUtils
 from src.common.utils.utils_session import SessionUtils
+from src.platform_io.route_key_factory import RouteKeyFactory
 
 # from src.chat.brain_chat.PFC.pfc_manager import PFCManager
 from src.core.announcement_manager import global_announcement_manager
@@ -270,11 +271,18 @@ class ChatBot:
         try:
             group_info = message.message_info.group_info
             user_info = message.message_info.user_info
+            account_id = None
+            scope = None
+            additional_config = message.message_info.additional_config
+            if isinstance(additional_config, dict):
+                account_id, scope = RouteKeyFactory.extract_components(additional_config)
 
             session_id = SessionUtils.calculate_session_id(
                 message.platform,
                 user_id=message.message_info.user_info.user_id,
                 group_id=group_info.group_id if group_info else None,
+                account_id=account_id,
+                scope=scope,
             )
 
             message.session_id = session_id  # 正确初始化session_id
@@ -317,7 +325,13 @@ class ChatBot:
             platform = message.platform
             user_id = user_info.user_id
             group_id = group_info.group_id if group_info else None
-            _ = await chat_manager.get_or_create_session(platform, user_id, group_id)  # 确保会话存在
+            _ = await chat_manager.get_or_create_session(
+                platform,
+                user_id,
+                group_id,
+                account_id=account_id,
+                scope=scope,
+            )  # 确保会话存在
 
             # message.update_chat_stream(chat)
 

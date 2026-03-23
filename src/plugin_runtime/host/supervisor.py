@@ -4,17 +4,26 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import asyncio
 import contextlib
+import json
 import os
 import sys
 
 from src.common.logger import get_logger
-from src.config.config import global_config
+from src.config.config import config_manager, global_config
 from src.platform_io import DriverKind, InboundMessageEnvelope, RouteBinding, RouteKey, get_platform_io_manager
 from src.platform_io.drivers import PluginPlatformDriver
 from src.platform_io.route_key_factory import RouteKeyFactory
-from src.plugin_runtime import ENV_HOST_VERSION, ENV_IPC_ADDRESS, ENV_PLUGIN_DIRS, ENV_SESSION_TOKEN
+from src.plugin_runtime import (
+    ENV_EXTERNAL_PLUGIN_IDS,
+    ENV_GLOBAL_CONFIG_SNAPSHOT,
+    ENV_HOST_VERSION,
+    ENV_IPC_ADDRESS,
+    ENV_PLUGIN_DIRS,
+    ENV_SESSION_TOKEN,
+)
 from src.plugin_runtime.protocol.envelope import (
     BootstrapPluginPayload,
+    ConfigReloadScope,
     ConfigUpdatedPayload,
     Envelope,
     HealthPayload,
@@ -107,6 +116,7 @@ class PluginRunnerSupervisor:
         self._runner_process: Optional[asyncio.subprocess.Process] = None
         self._registered_plugins: Dict[str, RegisterPluginPayload] = {}
         self._message_gateway_states: Dict[str, Dict[str, _MessageGatewayRuntimeState]] = {}
+        self._external_available_plugin_ids: List[str] = []
         self._runner_ready_events: asyncio.Event = asyncio.Event()
         self._runner_ready_payloads: RunnerReadyPayload = RunnerReadyPayload()
         self._health_task: Optional[asyncio.Task[None]] = None
@@ -155,6 +165,21 @@ class PluginRunnerSupervisor:
     def rpc_server(self) -> RPCServer:
         """返回底层 RPC 服务端。"""
         return self._rpc_server
+
+    def set_external_available_plugin_ids(self, plugin_ids: List[str]) -> None:
+        """设置当前 Runner 启动/重载时可视为已满足的外部依赖列表。"""
+
+        normalized_plugin_ids = {
+            str(plugin_id or "").strip()
+            for plugin_id in plugin_ids
+            if str(plugin_id or "").strip()
+        }
+        self._external_available_plugin_ids = sorted(normalized_plugin_ids)
+
+    def get_loaded_plugin_ids(self) -> List[str]:
+        """返回当前 Supervisor 已注册的插件 ID 列表。"""
+
+        return sorted(self._registered_plugins.keys())
 
     async def dispatch_event(
         self,
@@ -344,12 +369,18 @@ class PluginRunnerSupervisor:
             timeout_ms=timeout_ms,
         )
 
-    async def reload_plugin(self, plugin_id: str, reason: str = "manual") -> bool:
+    async def reload_plugin(
+        self,
+        plugin_id: str,
+        reason: str = "manual",
+        external_available_plugins: Optional[List[str]] = None,
+    ) -> bool:
         """按插件 ID 触发精确重载。
 
         Args:
             plugin_id: 目标插件 ID。
             reason: 重载原因。
+            external_available_plugins: 视为已满足的外部依赖插件 ID 列表。
 
         Returns:
             bool: 是否重载成功。
@@ -358,7 +389,11 @@ class PluginRunnerSupervisor:
             response = await self._rpc_server.send_request(
                 "plugin.reload",
                 plugin_id=plugin_id,
-                payload={"plugin_id": plugin_id, "reason": reason},
+                payload={
+                    "plugin_id": plugin_id,
+                    "reason": reason,
+                    "external_available_plugins": external_available_plugins or self._external_available_plugin_ids,
+                },
                 timeout_ms=max(int(self._runner_spawn_timeout * 1000), 10000),
             )
         except Exception as exc:
@@ -374,12 +409,14 @@ class PluginRunnerSupervisor:
         self,
         plugin_ids: Optional[List[str]] = None,
         reason: str = "manual",
+        external_available_plugins: Optional[List[str]] = None,
     ) -> bool:
         """批量重载插件。
 
         Args:
             plugin_ids: 目标插件 ID 列表；为空时重载当前已注册的全部插件。
             reason: 重载原因。
+            external_available_plugins: 视为已满足的外部依赖插件 ID 列表。
 
         Returns:
             bool: 是否全部重载成功。
@@ -389,7 +426,11 @@ class PluginRunnerSupervisor:
         success = True
 
         for plugin_id in ordered_plugin_ids:
-            reloaded = await self.reload_plugin(plugin_id=plugin_id, reason=reason)
+            reloaded = await self.reload_plugin(
+                plugin_id=plugin_id,
+                reason=reason,
+                external_available_plugins=external_available_plugins,
+            )
             success = success and reloaded
 
         return success
@@ -399,7 +440,7 @@ class PluginRunnerSupervisor:
         plugin_id: str,
         config_data: Optional[Dict[str, Any]] = None,
         config_version: str = "",
-        config_scope: str = "self",
+        config_scope: str | ConfigReloadScope = "self",
     ) -> bool:
         """向 Runner 推送插件配置更新。
 
@@ -412,9 +453,15 @@ class PluginRunnerSupervisor:
         Returns:
             bool: 请求是否成功送达并被 Runner 接受。
         """
+        try:
+            normalized_scope = ConfigReloadScope(config_scope)
+        except ValueError:
+            logger.warning(f"插件 {plugin_id} 配置更新通知失败: 非法的 config_scope={config_scope}")
+            return False
+
         payload = ConfigUpdatedPayload(
             plugin_id=plugin_id,
-            config_scope=config_scope,
+            config_scope=normalized_scope,
             config_version=config_version,
             config_data=config_data or {},
         )
@@ -441,11 +488,11 @@ class PluginRunnerSupervisor:
             List[str]: 已声明订阅该范围的插件 ID 列表。
         """
 
-        matched_plugins: List[str] = []
-        for plugin_id, registration in self._registered_plugins.items():
-            if scope in registration.config_reload_subscriptions:
-                matched_plugins.append(plugin_id)
-        return matched_plugins
+        return [
+            plugin_id
+            for plugin_id, registration in self._registered_plugins.items()
+            if scope in registration.config_reload_subscriptions
+        ]
 
     async def _wait_for_runner_connection(self, timeout_sec: float) -> None:
         """等待 Runner 建立 RPC 连接。
@@ -706,10 +753,7 @@ class PluginRunnerSupervisor:
             )
 
         gateways = self._component_registry.get_message_gateways(plugin_id=plugin_id, enabled_only=False)
-        if len(gateways) == 1:
-            return gateways[0]
-
-        return None
+        return gateways[0] if len(gateways) == 1 else None
 
     async def _register_message_gateway_driver(
         self,
@@ -823,8 +867,7 @@ class PluginRunnerSupervisor:
             ValueError: 当平台信息缺失时抛出。
         """
 
-        platform = str(payload.platform or gateway_entry.platform or "").strip()
-        if not platform:
+        if not (platform := str(payload.platform or gateway_entry.platform or "").strip()):
             raise ValueError(f"消息网关 {gateway_entry.full_name} 未提供有效的平台名称")
 
         return RouteKey(
@@ -1090,7 +1133,11 @@ class PluginRunnerSupervisor:
         Returns:
             Dict[str, str]: 传递给 Runner 进程的环境变量映射。
         """
+        global_config_snapshot = config_manager.get_global_config().model_dump()
+        global_config_snapshot["model"] = config_manager.get_model_config().model_dump()
         return {
+            ENV_EXTERNAL_PLUGIN_IDS: json.dumps(self._external_available_plugin_ids, ensure_ascii=False),
+            ENV_GLOBAL_CONFIG_SNAPSHOT: json.dumps(global_config_snapshot, ensure_ascii=False),
             ENV_HOST_VERSION: PROTOCOL_VERSION,
             ENV_IPC_ADDRESS: self._transport.get_address(),
             ENV_PLUGIN_DIRS: os.pathsep.join(str(path) for path in self._plugin_dirs),
@@ -1136,8 +1183,7 @@ class PluginRunnerSupervisor:
                 line = await stream.readline()
                 if not line:
                     return
-                message = line.decode("utf-8", errors="replace").rstrip()
-                if message:
+                if message := line.decode("utf-8", errors="replace").rstrip():
                     logger.warning(f"[runner-stderr] {message}")
         except asyncio.CancelledError:
             raise
