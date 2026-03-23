@@ -543,9 +543,9 @@ class PluginRuntimeManager(
 
         normalized_scopes = self._normalize_config_reload_scopes(changed_scopes)
         if "bot" in normalized_scopes:
-            await self._broadcast_config_reload("bot", config_manager.get_global_config().model_dump())
+            await self._broadcast_config_reload("bot", config_manager.get_global_config().model_dump(mode="json"))
         if "model" in normalized_scopes:
-            await self._broadcast_config_reload("model", config_manager.get_model_config().model_dump())
+            await self._broadcast_config_reload("model", config_manager.get_model_config().model_dump(mode="json"))
 
     # ─── 事件桥接 ──────────────────────────────────────────────
 

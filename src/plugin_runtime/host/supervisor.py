@@ -1146,8 +1146,8 @@ class PluginRunnerSupervisor:
         Returns:
             Dict[str, str]: 传递给 Runner 进程的环境变量映射。
         """
-        global_config_snapshot = config_manager.get_global_config().model_dump()
-        global_config_snapshot["model"] = config_manager.get_model_config().model_dump()
+        global_config_snapshot = config_manager.get_global_config().model_dump(mode="json")
+        global_config_snapshot["model"] = config_manager.get_model_config().model_dump(mode="json")
         return {
             ENV_EXTERNAL_PLUGIN_IDS: json.dumps(self._external_available_plugins, ensure_ascii=False),
             ENV_GLOBAL_CONFIG_SNAPSHOT: json.dumps(global_config_snapshot, ensure_ascii=False),

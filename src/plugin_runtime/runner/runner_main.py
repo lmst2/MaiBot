@@ -335,6 +335,45 @@ class PluginRunner:
         self._rpc_client.register_method("plugin.config_updated", self._handle_config_updated)
         self._rpc_client.register_method("plugin.reload", self._handle_reload_plugin)
 
+    @staticmethod
+    def _resolve_component_handler_name(meta: PluginMeta, component_name: str) -> str:
+        """解析组件名对应的真实处理函数名。
+
+        Args:
+            meta: 已加载插件的元数据。
+            component_name: Host 侧请求中的组件声明名。
+
+        Returns:
+            str: 实际应在插件实例上查找的方法名。
+        """
+        return str(meta.component_handlers.get(component_name, component_name) or component_name)
+
+    def _resolve_component_handler(self, meta: PluginMeta, component_name: str) -> Any:
+        """根据组件声明名解析插件实例上的可调用处理函数。
+
+        Args:
+            meta: 已加载插件的元数据。
+            component_name: Host 侧请求中的组件声明名。
+
+        Returns:
+            Any: 解析到的可调用对象；未找到时返回 ``None``。
+        """
+        instance = meta.instance
+        handler_name = self._resolve_component_handler_name(meta, component_name)
+        handler_method = getattr(instance, handler_name, None)
+        if handler_method is not None:
+            return handler_method
+
+        if handler_name != component_name:
+            legacy_style_handler = getattr(instance, f"handle_{component_name}", None)
+            if legacy_style_handler is not None:
+                return legacy_style_handler
+
+        prefixed_handler = getattr(instance, f"handle_{component_name}", None)
+        if prefixed_handler is not None:
+            return prefixed_handler
+        return getattr(instance, component_name, None)
+
     async def _bootstrap_plugin(self, meta: PluginMeta, capabilities_required: Optional[List[str]] = None) -> bool:
         """向 Host 同步插件 bootstrap 能力令牌。"""
         payload = BootstrapPluginPayload(
@@ -379,15 +418,27 @@ class PluginRunner:
 
         # 从插件实例获取组件声明（SDK 插件须实现 get_components 方法）
         if hasattr(instance, "get_components"):
-            components.extend(
-                ComponentDeclaration(
-                    name=comp_info.get("name", ""),
-                    component_type=comp_info.get("type", ""),
-                    plugin_id=meta.plugin_id,
-                    metadata=comp_info.get("metadata", {}),
+            meta.component_handlers.clear()
+            for comp_info in instance.get_components():
+                if not isinstance(comp_info, dict):
+                    continue
+
+                component_name = str(comp_info.get("name", "") or "").strip()
+                raw_metadata = comp_info.get("metadata", {})
+                component_metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+                handler_name = str(component_metadata.get("handler_name", component_name) or component_name).strip()
+
+                if component_name:
+                    meta.component_handlers[component_name] = handler_name or component_name
+
+                components.append(
+                    ComponentDeclaration(
+                        name=component_name,
+                        component_type=str(comp_info.get("type", "") or "").strip(),
+                        plugin_id=meta.plugin_id,
+                        metadata=component_metadata,
+                    )
                 )
-                for comp_info in instance.get_components()
-            )
         if hasattr(instance, "get_config_reload_subscriptions"):
             config_reload_subscriptions = list(instance.get_config_reload_subscriptions())
 
@@ -812,19 +863,13 @@ class PluginRunner:
                 f"插件 {plugin_id} 未加载",
             )
 
-        # 调用插件实例的组件方法
-        instance = meta.instance
         component_name = invoke.component_name
-
-        # 优先查找 handle_<name> 或直接 <name> 方法（新版 SDK 插件）
-        handler_method = getattr(instance, f"handle_{component_name}", None)
-        if handler_method is None:
-            handler_method = getattr(instance, component_name, None)
+        handler_method = self._resolve_component_handler(meta, component_name)
 
         # 回退: 旧版 LegacyPluginAdapter 通过 invoke_component 统一桥接
-        if (handler_method is None or not callable(handler_method)) and hasattr(instance, "invoke_component"):
+        if (handler_method is None or not callable(handler_method)) and hasattr(meta.instance, "invoke_component"):
             try:
-                result = await instance.invoke_component(component_name, **invoke.args)
+                result = await meta.instance.invoke_component(component_name, **invoke.args)
                 resp_payload = InvokeResultPayload(success=True, result=result)
                 return envelope.make_response(payload=resp_payload.model_dump())
             except Exception as e:
@@ -871,11 +916,8 @@ class PluginRunner:
                 f"插件 {plugin_id} 未加载",
             )
 
-        instance = meta.instance
         component_name = invoke.component_name
-        handler_method = getattr(instance, f"handle_{component_name}", None)
-        if handler_method is None:
-            handler_method = getattr(instance, component_name, None)
+        handler_method = self._resolve_component_handler(meta, component_name)
 
         if handler_method is None or not callable(handler_method):
             return envelope.make_error_response(
@@ -933,9 +975,8 @@ class PluginRunner:
                 f"插件 {plugin_id} 未加载",
             )
 
-        instance = meta.instance
         component_name = invoke.component_name
-        handler_method = getattr(instance, f"handle_{component_name}", None) or getattr(instance, component_name, None)
+        handler_method = self._resolve_component_handler(meta, component_name)
         if handler_method is None or not callable(handler_method):
             return envelope.make_error_response(
                 ErrorCode.E_METHOD_NOT_ALLOWED.value,
@@ -985,9 +1026,8 @@ class PluginRunner:
                 f"插件 {plugin_id} 未加载",
             )
 
-        instance = meta.instance
         component_name = invoke.component_name
-        handler_method = getattr(instance, f"handle_{component_name}", None) or getattr(instance, component_name, None)
+        handler_method = self._resolve_component_handler(meta, component_name)
 
         if handler_method is None or not callable(handler_method):
             return envelope.make_error_response(

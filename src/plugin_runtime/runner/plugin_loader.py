@@ -53,6 +53,7 @@ class PluginMeta:
         self.version = manifest.version
         self.capabilities_required = list(manifest.capabilities)
         self.dependencies: List[str] = list(manifest.plugin_dependency_ids)
+        self.component_handlers: Dict[str, str] = {}
 
 
 class PluginLoader:
@@ -421,7 +422,11 @@ class PluginLoader:
 
         # 动态导入插件模块
         module_name = self._build_safe_module_name(plugin_id)
-        spec = importlib.util.spec_from_file_location(module_name, str(plugin_path))
+        spec = importlib.util.spec_from_file_location(
+            module_name,
+            str(plugin_path),
+            submodule_search_locations=[str(plugin_dir)],
+        )
         if spec is None or spec.loader is None:
             logger.error(f"无法创建模块 spec: {plugin_path}")
             return None
