@@ -1,4 +1,4 @@
-"""
+﻿"""
 MaiSaka - CLI 交互界面与对话引擎
 BufferCLI 整合主循环、对话引擎、子代理管理。
 """
@@ -32,8 +32,6 @@ from .tool_handlers import (
     handle_list_files,
     handle_mcp_tool,
     handle_read_file,
-    handle_send_message,
-    handle_store_context,
     handle_stop,
     handle_unknown_tool,
     handle_wait,
@@ -92,8 +90,6 @@ class BufferCLI:
         )
         ctx.last_user_input_time = self._last_user_input_time
         return ctx
-
-    # ──────── 显示方法 ────────
 
     def _show_banner(self):
         """显示欢迎横幅"""
@@ -272,12 +268,7 @@ class BufferCLI:
             self._chat_history = self.llm_service.build_chat_context(user_text)
         else:
             # 后续对话：追加用户消息到已有上下文
-            self._chat_history.append(
-                {
-                    "role": "user",
-                    "content": user_text,
-                }
-            )
+            self._chat_history.append(build_message(role="user", content=user_text))
 
         await self._run_llm_loop(self._chat_history)
 
@@ -466,6 +457,7 @@ class BufferCLI:
             chat_history.append(response.raw_message)
             self._last_assistant_response_time = datetime.now()
 
+
             # 显示内心思考（content 部分，淡色呈现）
             if response.content:
                 console.print(
@@ -479,17 +471,44 @@ class BufferCLI:
                 )
 
             # ── 处理工具调用 ──
+            if response.content and not response.tool_calls:
+                last_had_tool_calls = False
+                continue
+
             if response.tool_calls:
                 should_stop = False
                 ctx = self._build_tool_context()
 
                 for tc in response.tool_calls:
-                    if tc.name in {"send_message", "say"}:
-                        await handle_send_message(tc, chat_history, ctx)
-
-                    elif tc.name == "stop":
+                    if tc.name == "stop":
                         await handle_stop(tc, chat_history)
                         should_stop = True
+
+                    elif tc.name == "reply":
+                        reply = await self._generate_visible_reply(chat_history, response.content)
+                        chat_history.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "content": "Visible reply generated and recorded.",
+                            }
+                        )
+                        chat_history.append(
+                            build_message(
+                                role="user",
+                                content=f"\u3010\u9ea6\u9ea6\u7684\u53d1\u8a00\u3011{reply}",
+                            )
+                        )
+
+                    elif tc.name == "no_reply":
+                        console.print("[muted]No visible reply this round.[/muted]")
+                        chat_history.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "content": "No visible reply was sent for this round.",
+                            }
+                        )
 
                     elif tc.name == "wait":
                         tool_result = await handle_wait(tc, chat_history, ctx)
@@ -508,9 +527,6 @@ class BufferCLI:
                     elif tc.name == "list_files":
                         await handle_list_files(tc, chat_history)
 
-                    elif tc.name == "store_context":
-                        await handle_store_context(tc, chat_history, ctx)
-
                     elif self._mcp_manager and self._mcp_manager.is_mcp_tool(tc.name):
                         await handle_mcp_tool(tc, chat_history, self._mcp_manager)
 
@@ -528,6 +544,7 @@ class BufferCLI:
                 # （不做任何额外操作，直接回到循环顶部再次调用 LLM）
                 # 标记上次没有调用工具，下次循环跳过模块分析
                 last_had_tool_calls = False
+                continue
 
     # ──────── 主循环 ────────
 
@@ -552,6 +569,24 @@ class BufferCLI:
                         padding=(0, 1),
                     )
                 )
+
+    async def _generate_visible_reply(self, chat_history: list, latest_thought: str) -> str:
+        """Generate and emit a visible reply based on the latest thought."""
+        if not self.llm_service or not latest_thought:
+            return ""
+
+        with console.status("[info]Generating visible reply...[/info]", spinner="dots"):
+            reply = await self.llm_service.generate_reply(latest_thought, chat_history)
+
+        console.print(
+            Panel(
+                Markdown(reply),
+                title="MaiSaka",
+                border_style="magenta",
+                padding=(1, 2),
+            )
+        )
+        return reply
 
     async def run(self):
         """主循环：直接输入文本即可对话"""
@@ -583,3 +618,6 @@ class BufferCLI:
         finally:
             if self._mcp_manager:
                 await self._mcp_manager.close()
+
+
+

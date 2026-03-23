@@ -1,11 +1,14 @@
-"""
+﻿"""
 MaiSaka LLM 服务 - 使用主项目 LLM 系统
 将主项目的 LLMRequest 适配为 MaiSaka 需要的接口
 """
 
+from datetime import datetime
+
+import json
+import random
 from dataclasses import dataclass
 from typing import Any, List, Literal, Optional
-import json
 
 from rich.console import Group
 from rich.panel import Panel
@@ -13,7 +16,7 @@ from rich.pretty import Pretty
 from rich.text import Text
 
 from src.common.logger import get_logger
-from src.config.config import config_manager
+from src.config.config import config_manager, global_config
 from src.llm_models.payload_content.message import MessageBuilder, RoleType
 from src.llm_models.payload_content.tool_option import ToolCall as ToolCallOption, ToolOption
 from src.llm_models.utils_model import LLMRequest
@@ -58,7 +61,13 @@ class ChatResponse:
 
 def build_message(role: str, content: str, msg_type: MessageType = "user", **kwargs) -> dict:
     """构建消息字典，包含消息类型标记。"""
-    msg = {"role": role, "content": content, MSG_TYPE_FIELD: msg_type, **kwargs}
+    msg = {
+        "role": role,
+        "content": content,
+        MSG_TYPE_FIELD: msg_type,
+        "_time": datetime.now().strftime("%H:%M:%S"),
+        **kwargs,
+    }
     return msg
 
 
@@ -107,14 +116,17 @@ class MaiSakaLLMService:
         # 初始化 LLMRequest 实例（只使用 tool_use 和 replyer）
         self._llm_tool_use = LLMRequest(model_set=self._model_configs.tool_use, request_type="maisaka_tool_use")
         # 主对话也使用 tool_use 模型（因为需要工具调用支持）
-        self._llm_chat = self._llm_tool_use
-        # 分析模块也使用 tool_use 模型
+        self._llm_planner = LLMRequest(model_set=self._model_configs.planner, request_type="maisaka_planner")
+        self._llm_chat = self._llm_planner
         self._llm_utils = self._llm_tool_use
         # 回复生成使用 replyer 模型
         self._llm_replyer = LLMRequest(model_set=self._model_configs.replyer, request_type="maisaka_replyer")
 
         # 尝试修复数据库 schema（忽略错误）
         self._try_fix_database_schema()
+
+        # 构建人设信息
+        personality_prompt = self._build_personality_prompt()
 
         # 加载系统提示词
         if chat_system_prompt is None:
@@ -130,6 +142,7 @@ class MaiSakaLLMService:
                     tools_section += "\n• list_files() — 获取 mai_files 目录下所有文件的元信息列表。"
 
                 chat_prompt.add_context("file_tools_section", tools_section if tools_section else "")
+                chat_prompt.add_context("identity", personality_prompt)
                 import asyncio
 
                 loop = asyncio.new_event_loop()
@@ -141,14 +154,14 @@ class MaiSakaLLMService:
                     loop.close()
             except Exception as e:
                 logger.error(f"加载系统提示词失败: {e}")
-                self._chat_system_prompt = "你是一个友好的 AI 助手。"
+                self._chat_system_prompt = f"{personality_prompt}\n\n你是一个友好的 AI 助手。"
         else:
             self._chat_system_prompt = chat_system_prompt
 
-        # 获取模型名称用于显示
         self._model_name = (
-            self._model_configs.tool_use.model_list[0] if self._model_configs.tool_use.model_list else "未配置"
+            self._model_configs.planner.model_list[0] if self._model_configs.planner.model_list else "未配置"
         )
+
 
         # 加载子模块提示词
         self._emotion_prompt: Optional[str] = None
@@ -199,6 +212,37 @@ class MaiSakaLLMService:
         except Exception:
             # 静默忽略任何错误，不影响正常流程
             pass
+
+    def _build_personality_prompt(self) -> str:
+        """构建人设信息，参考 replyer 的做法"""
+        try:
+            bot_name = global_config.bot.nickname
+            if global_config.bot.alias_names:
+                bot_nickname = f",也有人叫你{','.join(global_config.bot.alias_names)}"
+            else:
+                bot_nickname = ""
+
+            # 获取基础personality
+            prompt_personality = global_config.personality.personality
+
+            # 检查是否需要随机替换为状态（personality 本体）
+            if (
+                hasattr(global_config.personality, "states")
+                and global_config.personality.states
+                and hasattr(global_config.personality, "state_probability")
+                and global_config.personality.state_probability > 0
+                and random.random() < global_config.personality.state_probability
+            ):
+                # 随机选择一个状态替换personality
+                selected_state = random.choice(global_config.personality.states)
+                prompt_personality = selected_state
+
+            prompt_personality = f"{prompt_personality};"
+            return f"你的名字是{bot_name}{bot_nickname}，你{prompt_personality}"
+        except Exception as e:
+            logger.warning(f"构建人设信息失败: {e}")
+            # 返回默认人设
+            return "你的名字是麦麦，你是一个活泼可爱的AI助手。"
 
     def set_extra_tools(self, tools: List[dict]) -> None:
         """设置额外的工具定义（如 MCP 工具）"""
@@ -390,14 +434,34 @@ class MaiSakaLLMService:
 
         # 打印消息列表
         built_messages = message_factory(None)
-        console.print(
-            Panel(
-                Group(*[self._render_message_panel(msg, index + 1) for index, msg in enumerate(built_messages)]),
-                title="MaiSaka LLM Request - chat_loop_step",
-                border_style="cyan",
-                padding=(0, 1),
+
+        # 将消息分为普通消息和 tool 消息
+        non_tool_panels = []
+        tool_panels = []
+
+        for index, msg in enumerate(built_messages):
+            panel = self._render_message_panel(msg, index + 1)
+            role = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
+
+            if role == "tool":
+                tool_panels.append(panel)
+            else:
+                non_tool_panels.append(panel)
+
+        # 先显示普通消息（group 在一个 panel 内）
+        if non_tool_panels:
+            console.print(
+                Panel(
+                    Group(*non_tool_panels),
+                    title="MaiSaka LLM Request - chat_loop_step",
+                    border_style="cyan",
+                    padding=(0, 1),
+                )
             )
-        )
+
+        # tool 消息作为单独的块展示
+        for panel in tool_panels:
+            console.print(panel)
 
         response, (reasoning, model, tool_calls) = await self._llm_chat.generate_response_with_message_async(
             message_factory=message_factory,
@@ -424,7 +488,11 @@ class MaiSakaLLMService:
                 )
 
         # 构建原始消息格式（MaiSaka 风格）
-        raw_message = {"role": "assistant", "content": response}
+        raw_message = {
+            "role": "assistant",
+            "content": response,
+            "_time": datetime.now().strftime("%H:%M:%S"),
+        }
         if converted_tool_calls:
             raw_message["tool_calls"] = [
                 {
@@ -660,8 +728,12 @@ class MaiSakaLLMService:
                 temperature=0.8,
                 max_tokens=512,
             )
-
             return response.strip() if response else "..."
         except Exception as e:
             logger.error(f"回复生成 LLM 调用出错: {e}")
             return "..."
+
+
+
+
+

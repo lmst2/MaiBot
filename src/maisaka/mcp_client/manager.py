@@ -12,8 +12,6 @@ from .connection import MCPConnection, MCP_AVAILABLE
 # 内置工具名称集合 —— MCP 工具不允许与这些名称冲突
 BUILTIN_TOOL_NAMES = frozenset(
     {
-        "say",
-        "send_message",
         "wait",
         "stop",
         "create_table",
