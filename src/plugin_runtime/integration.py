@@ -3,8 +3,9 @@
 提供 PluginRuntimeManager 单例，负责：
 1. 管理双 PluginSupervisor 的生命周期（内置插件 / 第三方插件各一个子进程）
 2. 将 EventType 桥接到运行时的 event dispatch
-3. 在运行时的 ComponentRegistry 中查找命令
-4. 提供统一的能力实现注册接口，使插件可以调用主程序功能
+3. 触发跨 Supervisor 的命名 Hook 调用
+4. 在运行时的 ComponentRegistry 中查找命令
+5. 提供统一的能力实现注册接口，使插件可以调用主程序功能
 """
 
 from pathlib import Path
@@ -24,6 +25,7 @@ from src.plugin_runtime.capabilities import (
     RuntimeDataCapabilityMixin,
 )
 from src.plugin_runtime.capabilities.registry import register_capability_impls
+from src.plugin_runtime.host.hook_dispatcher import HookDispatchResult, HookDispatcher, HookSpec
 from src.plugin_runtime.host.message_utils import MessageDict, PluginMessageUtils
 from src.plugin_runtime.runner.manifest_validator import ManifestValidator
 
@@ -72,6 +74,7 @@ class PluginRuntimeManager(
         self._manifest_validator: ManifestValidator = ManifestValidator()
         self._config_reload_callback: Callable[[Sequence[str]], Awaitable[None]] = self._handle_main_config_reload
         self._config_reload_callback_registered: bool = False
+        self._hook_dispatcher: HookDispatcher = HookDispatcher(lambda: self.supervisors)
 
     async def _dispatch_platform_inbound(self, envelope: InboundMessageEnvelope) -> None:
         """接收 Platform IO 审核后的入站消息并送入主消息链。
@@ -182,6 +185,7 @@ class PluginRuntimeManager(
         if builtin_dirs:
             self._builtin_supervisor = PluginSupervisor(
                 plugin_dirs=builtin_dirs,
+                group_name="builtin",
                 socket_path=builtin_socket,
             )
             self._register_capability_impls(self._builtin_supervisor)
@@ -189,6 +193,7 @@ class PluginRuntimeManager(
         if third_party_dirs:
             self._third_party_supervisor = PluginSupervisor(
                 plugin_dirs=third_party_dirs,
+                group_name="third_party",
                 socket_path=third_party_socket,
             )
             self._register_capability_impls(self._third_party_supervisor)
@@ -235,6 +240,7 @@ class PluginRuntimeManager(
                 await platform_io_manager.stop()
             except Exception as platform_io_exc:
                 logger.warning(f"Platform IO 停止失败: {platform_io_exc}")
+            await self._hook_dispatcher.stop()
             self._started = False
             self._builtin_supervisor = None
             self._third_party_supervisor = None
@@ -274,6 +280,7 @@ class PluginRuntimeManager(
             else:
                 logger.info("插件运行时已停止")
         finally:
+            await self._hook_dispatcher.stop()
             self._started = False
             self._builtin_supervisor = None
             self._third_party_supervisor = None
@@ -285,9 +292,39 @@ class PluginRuntimeManager(
         return self._started
 
     @property
+    def hook_dispatcher(self) -> HookDispatcher:
+        """返回跨 Supervisor 的命名 Hook 分发器。"""
+
+        return self._hook_dispatcher
+
+    @property
+    def invoke_dispatcher(self) -> HookDispatcher:
+        """返回命名 Hook 分发器的兼容别名。"""
+
+        return self._hook_dispatcher
+
+    @property
     def supervisors(self) -> List["PluginSupervisor"]:
         """获取所有活跃的 Supervisor"""
         return [s for s in (self._builtin_supervisor, self._third_party_supervisor) if s is not None]
+
+    def register_hook_spec(self, spec: HookSpec) -> None:
+        """注册单个命名 Hook 规格。
+
+        Args:
+            spec: 需要注册的 Hook 规格。
+        """
+
+        self._hook_dispatcher.register_hook_spec(spec)
+
+    def register_hook_specs(self, specs: Sequence[HookSpec]) -> None:
+        """批量注册命名 Hook 规格。
+
+        Args:
+            specs: 需要注册的 Hook 规格序列。
+        """
+
+        self._hook_dispatcher.register_hook_specs(specs)
 
     def _build_registered_dependency_map(self) -> Dict[str, Set[str]]:
         """根据当前已注册插件构建全局依赖图。"""
@@ -587,6 +624,19 @@ class PluginRuntimeManager(
                 logger.error(f"事件 {new_event_type} 分发失败: {e}", exc_info=True)
 
         return True, modified
+
+    async def invoke_hook(self, hook_name: str, **kwargs: Any) -> HookDispatchResult:
+        """触发一次跨 Supervisor 的命名 Hook 调用。
+
+        Args:
+            hook_name: 本次触发的 Hook 名称。
+            **kwargs: 传递给 Hook 处理器的关键字参数。
+
+        Returns:
+            HookDispatchResult: 聚合后的 Hook 调用结果。
+        """
+
+        return await self._hook_dispatcher.invoke_hook(hook_name, **kwargs)
 
     # ─── 命令查找 ──────────────────────────────────────────────
 
