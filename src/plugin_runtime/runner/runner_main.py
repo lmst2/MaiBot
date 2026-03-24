@@ -330,7 +330,6 @@ class PluginRunner:
         self._rpc_client.register_method("plugin.invoke_message_gateway", self._handle_invoke)
         self._rpc_client.register_method("plugin.emit_event", self._handle_event_invoke)
         self._rpc_client.register_method("plugin.invoke_hook", self._handle_hook_invoke)
-        self._rpc_client.register_method("plugin.invoke_workflow_step", self._handle_workflow_step)
         self._rpc_client.register_method("plugin.health", self._handle_health)
         self._rpc_client.register_method("plugin.prepare_shutdown", self._handle_prepare_shutdown)
         self._rpc_client.register_method("plugin.shutdown", self._handle_shutdown)
@@ -1053,72 +1052,27 @@ class PluginRunner:
             )
         except Exception as exc:
             logger.error(f"插件 {plugin_id} hook_handler {component_name} 执行异常: {exc}", exc_info=True)
-            return envelope.make_response(payload={"success": False, "continue_processing": True})
+            return envelope.make_response(
+                payload={
+                    "success": False,
+                    "action": "continue",
+                    "error_message": str(exc),
+                }
+            )
 
         if raw is None:
-            result = {"success": True, "continue_processing": True}
+            result = {"success": True, "action": "continue"}
         elif isinstance(raw, dict):
             result = {
                 "success": True,
-                "continue_processing": raw.get("continue_processing", True),
+                "action": str(raw.get("action", "continue") or "continue").strip().lower() or "continue",
                 "modified_kwargs": raw.get("modified_kwargs"),
                 "custom_result": raw.get("custom_result"),
             }
         else:
-            result = {"success": True, "continue_processing": True, "custom_result": raw}
+            result = {"success": True, "action": "continue", "custom_result": raw}
 
         return envelope.make_response(payload=result)
-
-    async def _handle_workflow_step(self, envelope: Envelope) -> Envelope:
-        """处理 WorkflowStep 调用请求
-
-        与通用 invoke 不同，会将返回值规范化为
-        {hook_result, modified_message, stage_output} 格式。
-        """
-        try:
-            invoke = InvokePayload.model_validate(envelope.payload)
-        except Exception as e:
-            return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(e))
-
-        plugin_id = envelope.plugin_id
-        meta = self._loader.get_plugin(plugin_id)
-        if meta is None:
-            return envelope.make_error_response(
-                ErrorCode.E_PLUGIN_NOT_FOUND.value,
-                f"插件 {plugin_id} 未加载",
-            )
-
-        component_name = invoke.component_name
-        handler_method = self._resolve_component_handler(meta, component_name)
-
-        if handler_method is None or not callable(handler_method):
-            return envelope.make_error_response(
-                ErrorCode.E_METHOD_NOT_ALLOWED.value,
-                f"插件 {plugin_id} 无组件: {component_name}",
-            )
-
-        try:
-            raw = (
-                await handler_method(**invoke.args)
-                if inspect.iscoroutinefunction(handler_method)
-                else handler_method(**invoke.args)
-            )
-
-            # 规范化返回值
-            if isinstance(raw, str):
-                result = {"hook_result": raw}
-            elif isinstance(raw, dict):
-                result = raw
-                result.setdefault("hook_result", "continue")
-            else:
-                result = {"hook_result": "continue"}
-
-            resp_payload = InvokeResultPayload(success=True, result=result)
-            return envelope.make_response(payload=resp_payload.model_dump())
-        except Exception as e:
-            logger.error(f"插件 {plugin_id} workflow_step {component_name} 执行异常: {e}", exc_info=True)
-            resp_payload = InvokeResultPayload(success=False, result=str(e))
-            return envelope.make_response(payload=resp_payload.model_dump())
 
     async def _handle_health(self, envelope: Envelope) -> Envelope:
         """处理健康检查"""

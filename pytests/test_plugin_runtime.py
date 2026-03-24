@@ -5,6 +5,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import asyncio
 import json
@@ -1831,395 +1832,445 @@ class TestMaiMessages:
         assert msg.llm_response_content == "new response"
 
 
-# ─── WorkflowExecutor 测试 ────────────────────────────────
+class _FakeHookSupervisor:
+    """用于 Hook 分发测试的简化 Supervisor。"""
+
+    def __init__(
+        self,
+        group_name: str,
+        component_registry: Any,
+        handlers: Dict[str, Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]] | Dict[str, Any]]],
+        call_log: List[tuple[str, str]],
+    ) -> None:
+        """初始化测试用 Supervisor。
+
+        Args:
+            group_name: 运行时分组名称。
+            component_registry: 组件注册表实例。
+            handlers: 处理器映射，键为 `plugin_id.component_name`。
+            call_log: 记录调用顺序的列表。
+        """
+
+        self._group_name = group_name
+        self.component_registry = component_registry
+        self._handlers = handlers
+        self._call_log = call_log
+
+    @property
+    def group_name(self) -> str:
+        """返回当前测试 Supervisor 的分组名称。"""
+
+        return self._group_name
+
+    async def invoke_plugin(
+        self,
+        method: str,
+        plugin_id: str,
+        component_name: str,
+        args: Optional[Dict[str, Any]] = None,
+        timeout_ms: int = 30000,
+    ) -> SimpleNamespace:
+        """模拟调用插件组件。
+
+        Args:
+            method: RPC 方法名。
+            plugin_id: 目标插件 ID。
+            component_name: 目标组件名称。
+            args: 调用参数。
+            timeout_ms: 超时配置，测试中仅用于保持接口一致。
+
+        Returns:
+            SimpleNamespace: 仅包含 `payload` 字段的简化响应对象。
+        """
+
+        del method
+        del timeout_ms
+
+        full_name = f"{plugin_id}.{component_name}"
+        handler = self._handlers[full_name]
+        self._call_log.append((plugin_id, component_name))
+        result = handler(dict(args or {}))
+        if asyncio.iscoroutine(result):
+            result = await result
+        return SimpleNamespace(payload=result)
 
 
-class TestWorkflowExecutor:
-    """Host-side Workflow 执行器测试（新 pipeline 模型）"""
+# ─── HookDispatcher 测试 ────────────────────────────────
+
+
+class TestHookDispatcher:
+    """命名 Hook 分发器测试。"""
+
+    @staticmethod
+    def _import_dispatcher_modules(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+        """导入 Hook 分发相关模块，并屏蔽配置初始化触发的退出。
+
+        Args:
+            monkeypatch: pytest 的 monkeypatch 工具。
+
+        Returns:
+            tuple[Any, Any]: `ComponentRegistry` 与 `HookDispatcher` 类型。
+        """
+
+        monkeypatch.setattr(sys, "exit", lambda code=0: None)
+        from src.plugin_runtime.host.component_registry import ComponentRegistry
+        from src.plugin_runtime.host.hook_dispatcher import HookDispatcher
+
+        return ComponentRegistry, HookDispatcher
 
     @pytest.mark.asyncio
-    async def test_empty_pipeline_completes(self):
-        """无任何 workflow_step 注册时，pipeline 全阶段跳过，状态 completed"""
-        from src.plugin_runtime.host.component_registry import ComponentRegistry
-        from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
+    async def test_empty_hook_returns_original_kwargs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """未注册处理器时应直接返回原始参数。"""
 
-        reg = ComponentRegistry()
-        executor = WorkflowExecutor(reg)
+        ComponentRegistry, HookDispatcher = self._import_dispatcher_modules(monkeypatch)
 
-        async def mock_invoke(plugin_id, comp_name, args):
-            return {"hook_result": "continue"}
+        dispatcher = HookDispatcher()
+        supervisor = _FakeHookSupervisor("builtin", ComponentRegistry(), {}, [])
 
-        result, final_msg, ctx = await executor.execute(
-            mock_invoke,
-            message={"plain_text": "test"},
-        )
-        assert result.status == "completed"
-        assert result.return_message == "workflow completed"
-        assert len(ctx.timings) == 6  # 6 stages
+        result = await dispatcher.invoke_hook("heart_fc.cycle_start", [supervisor], session_id="s-1")
+
+        assert result.hook_name == "heart_fc.cycle_start"
+        assert result.kwargs == {"session_id": "s-1"}
+        assert result.aborted is False
 
     @pytest.mark.asyncio
-    async def test_blocking_hook_modifies_message(self):
-        """blocking hook 可以修改消息"""
-        from src.plugin_runtime.host.component_registry import ComponentRegistry
-        from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
+    async def test_blocking_hook_modifies_kwargs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """blocking 处理器可以修改参数。"""
 
-        reg = ComponentRegistry()
-        reg.register_component(
+        ComponentRegistry, HookDispatcher = self._import_dispatcher_modules(monkeypatch)
+
+        registry = ComponentRegistry()
+        registry.register_component(
             "upper",
-            "workflow_step",
+            "HOOK_HANDLER",
             "p1",
             {
-                "stage": "pre_process",
-                "priority": 10,
-                "blocking": True,
+                "hook": "heart_fc.cycle_start",
+                "mode": "blocking",
+                "order": "normal",
             },
         )
-        executor = WorkflowExecutor(reg)
-
-        async def mock_invoke(plugin_id, comp_name, args):
-            msg = args.get("message", {})
-            return {
-                "hook_result": "continue",
-                "modified_message": {**msg, "plain_text": msg.get("plain_text", "").upper()},
-            }
-
-        result, final_msg, ctx = await executor.execute(
-            mock_invoke,
-            message={"plain_text": "hello"},
+        dispatcher = HookDispatcher()
+        supervisor = _FakeHookSupervisor(
+            "builtin",
+            registry,
+            {
+                "p1.upper": lambda args: {
+                    "success": True,
+                    "action": "continue",
+                    "modified_kwargs": {
+                        "session_id": args["session_id"],
+                        "text": str(args["text"]).upper(),
+                    },
+                }
+            },
+            [],
         )
-        assert result.status == "completed"
-        assert final_msg["plain_text"] == "HELLO"
-        assert len(ctx.modification_log) == 1
-        assert ctx.modification_log[0].stage == "pre_process"
+
+        result = await dispatcher.invoke_hook("heart_fc.cycle_start", [supervisor], session_id="s-1", text="hello")
+
+        assert result.kwargs["session_id"] == "s-1"
+        assert result.kwargs["text"] == "HELLO"
+        assert result.aborted is False
 
     @pytest.mark.asyncio
-    async def test_abort_stops_pipeline(self):
-        """HookResult.ABORT 立即终止 pipeline"""
-        from src.plugin_runtime.host.component_registry import ComponentRegistry
-        from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
+    async def test_abort_stops_following_blocking_handlers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """blocking 处理器的 abort 应阻止后续 blocking 处理器执行。"""
 
-        reg = ComponentRegistry()
-        reg.register_component(
-            "blocker",
-            "workflow_step",
+        ComponentRegistry, HookDispatcher = self._import_dispatcher_modules(monkeypatch)
+
+        registry = ComponentRegistry()
+        registry.register_component(
+            "stopper",
+            "HOOK_HANDLER",
             "p1",
-            {
-                "stage": "pre_process",
-                "priority": 10,
-                "blocking": True,
-            },
+            {"hook": "heart_fc.cycle_start", "mode": "blocking", "order": "early"},
         )
-        executor = WorkflowExecutor(reg)
-
-        async def mock_invoke(plugin_id, comp_name, args):
-            return {"hook_result": "abort"}
-
-        result, _, ctx = await executor.execute(
-            mock_invoke,
-            message={"plain_text": "test"},
-        )
-        assert result.status == "aborted"
-        assert result.stopped_at == "pre_process"
-
-    @pytest.mark.asyncio
-    async def test_skip_stage(self):
-        """HookResult.SKIP_STAGE 跳过当前阶段剩余 hook"""
-        from src.plugin_runtime.host.component_registry import ComponentRegistry
-        from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
-
-        reg = ComponentRegistry()
-        # high-priority hook 返回 skip_stage
-        reg.register_component(
-            "skipper",
-            "workflow_step",
-            "p1",
-            {
-                "stage": "ingress",
-                "priority": 100,
-                "blocking": True,
-            },
-        )
-        # low-priority hook 不应被执行
-        reg.register_component(
-            "checker",
-            "workflow_step",
+        registry.register_component(
+            "after_stop",
+            "HOOK_HANDLER",
             "p2",
-            {
-                "stage": "ingress",
-                "priority": 1,
-                "blocking": True,
-            },
+            {"hook": "heart_fc.cycle_start", "mode": "blocking", "order": "normal"},
         )
-        executor = WorkflowExecutor(reg)
+        call_log: List[tuple[str, str]] = []
+        dispatcher = HookDispatcher()
+        supervisor = _FakeHookSupervisor(
+            "builtin",
+            registry,
+            {
+                "p1.stopper": lambda args: {"success": True, "action": "abort"},
+                "p2.after_stop": lambda args: {"success": True, "action": "continue"},
+            },
+            call_log,
+        )
 
-        call_log = []
+        result = await dispatcher.invoke_hook("heart_fc.cycle_start", [supervisor], cycle_id="c-1")
 
-        async def mock_invoke(plugin_id, comp_name, args):
-            call_log.append(comp_name)
-            if comp_name == "skipper":
-                return {"hook_result": "skip_stage"}
-            return {"hook_result": "continue"}
-
-        result, _, _ = await executor.execute(mock_invoke, message={"plain_text": "test"})
-        assert result.status == "completed"
-        # 只有 skipper 被调用，checker 被跳过
-        assert call_log == ["skipper"]
+        assert result.aborted is True
+        assert result.stopped_by == "p1.stopper"
+        assert call_log == [("p1", "stopper")]
 
     @pytest.mark.asyncio
-    async def test_pre_filter(self):
-        """filter 条件不匹配时跳过 hook"""
-        from src.plugin_runtime.host.component_registry import ComponentRegistry
-        from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
+    async def test_observe_handler_runs_in_background_without_mutation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """observe 处理器应后台执行且不能影响主流程参数。"""
 
-        reg = ComponentRegistry()
-        reg.register_component(
-            "only_dm",
-            "workflow_step",
-            "p1",
-            {
-                "stage": "ingress",
-                "priority": 10,
-                "blocking": True,
-                "filter": {"chat_type": "direct"},
-            },
-        )
-        executor = WorkflowExecutor(reg)
+        ComponentRegistry, HookDispatcher = self._import_dispatcher_modules(monkeypatch)
 
-        call_log = []
-
-        async def mock_invoke(plugin_id, comp_name, args):
-            call_log.append(comp_name)
-            return {"hook_result": "continue"}
-
-        # 不匹配 filter —— hook 不应被调用
-        await executor.execute(mock_invoke, message={"plain_text": "hi", "chat_type": "group"})
-        assert not call_log
-
-        # 匹配 filter —— hook 应被调用
-        await executor.execute(mock_invoke, message={"plain_text": "hi", "chat_type": "direct"})
-        assert call_log == ["only_dm"]
-
-    @pytest.mark.asyncio
-    async def test_error_policy_skip(self):
-        """error_policy=skip 时跳过失败的 hook 继续执行"""
-        from src.plugin_runtime.host.component_registry import ComponentRegistry
-        from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
-
-        reg = ComponentRegistry()
-        reg.register_component(
-            "failer",
-            "workflow_step",
-            "p1",
-            {
-                "stage": "ingress",
-                "priority": 100,
-                "blocking": True,
-                "error_policy": "skip",
-            },
-        )
-        reg.register_component(
-            "ok_step",
-            "workflow_step",
-            "p2",
-            {
-                "stage": "ingress",
-                "priority": 1,
-                "blocking": True,
-            },
-        )
-        executor = WorkflowExecutor(reg)
-
-        call_log = []
-
-        async def mock_invoke(plugin_id, comp_name, args):
-            call_log.append(comp_name)
-            if comp_name == "failer":
-                raise RuntimeError("boom")
-            return {"hook_result": "continue"}
-
-        result, _, ctx = await executor.execute(mock_invoke, message={"plain_text": "test"})
-        assert result.status == "completed"
-        assert "failer" in call_log
-        assert "ok_step" in call_log
-        assert any("boom" in e for e in ctx.errors)
-
-    @pytest.mark.asyncio
-    async def test_error_policy_abort(self):
-        """error_policy=abort（默认）时 pipeline 失败"""
-        from src.plugin_runtime.host.component_registry import ComponentRegistry
-        from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
-
-        reg = ComponentRegistry()
-        reg.register_component(
-            "failer",
-            "workflow_step",
-            "p1",
-            {
-                "stage": "ingress",
-                "priority": 10,
-                "blocking": True,
-                # error_policy defaults to "abort"
-            },
-        )
-        executor = WorkflowExecutor(reg)
-
-        async def mock_invoke(plugin_id, comp_name, args):
-            raise RuntimeError("fatal")
-
-        result, _, ctx = await executor.execute(mock_invoke, message={"plain_text": "test"})
-        assert result.status == "failed"
-        assert result.stopped_at == "ingress"
-
-    @pytest.mark.asyncio
-    async def test_nonblocking_hooks_concurrent(self):
-        """non-blocking hook 并发执行，不修改消息"""
-        from src.plugin_runtime.host.component_registry import ComponentRegistry
-        from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
-
-        reg = ComponentRegistry()
-        for i in range(3):
-            reg.register_component(
-                f"nb_{i}",
-                "workflow_step",
-                f"p{i}",
-                {
-                    "stage": "post_process",
-                    "priority": 0,
-                    "blocking": False,
-                },
-            )
-        executor = WorkflowExecutor(reg)
-
-        call_log = []
-
-        async def mock_invoke(plugin_id, comp_name, args):
-            call_log.append(comp_name)
-            return {"hook_result": "continue", "modified_message": {"plain_text": "ignored"}}
-
-        result, final_msg, _ = await executor.execute(mock_invoke, message={"plain_text": "original"})
-        # non-blocking 的 modified_message 被忽略
-        assert final_msg["plain_text"] == "original"
-        # 给异步 task 时间完成
-        await asyncio.sleep(0.1)
-        assert result.status == "completed"
-
-    @pytest.mark.asyncio
-    async def test_nonblocking_tasks_are_retained_until_completion(self):
-        """execute 返回后，non-blocking task 仍应保持强引用直到执行完成。"""
-        from src.plugin_runtime.host.component_registry import ComponentRegistry
-        from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
-
-        reg = ComponentRegistry()
-        reg.register_component(
+        registry = ComponentRegistry()
+        registry.register_component(
             "observer",
-            "workflow_step",
+            "HOOK_HANDLER",
             "p1",
-            {
-                "stage": "post_process",
-                "priority": 0,
-                "blocking": False,
-            },
+            {"hook": "heart_fc.cycle_start", "mode": "observe", "order": "normal"},
         )
-        executor = WorkflowExecutor(reg)
-
         started = asyncio.Event()
         release = asyncio.Event()
+        call_log: List[tuple[str, str]] = []
 
-        async def mock_invoke(plugin_id, comp_name, args):
+        async def observe_handler(args: Dict[str, Any]) -> Dict[str, Any]:
+            """模拟耗时观察型处理器。"""
+
             started.set()
             await release.wait()
-            return {"hook_result": "continue"}
+            return {
+                "success": True,
+                "action": "abort",
+                "modified_kwargs": {"session_id": "changed"},
+                "custom_result": args["session_id"],
+            }
 
-        result, final_msg, _ = await executor.execute(mock_invoke, message={"plain_text": "original"})
+        dispatcher = HookDispatcher()
+        supervisor = _FakeHookSupervisor(
+            "builtin",
+            registry,
+            {"p1.observer": observe_handler},
+            call_log,
+        )
+
+        result = await dispatcher.invoke_hook("heart_fc.cycle_start", [supervisor], session_id="s-1")
 
         await asyncio.sleep(0)
-        assert result.status == "completed"
-        assert final_msg["plain_text"] == "original"
+        assert result.aborted is False
+        assert result.kwargs["session_id"] == "s-1"
         assert started.is_set()
-        assert len(executor._background_tasks) == 1
+        assert len(dispatcher._background_tasks) == 1
 
         release.set()
         await asyncio.sleep(0)
         await asyncio.sleep(0)
-        assert not executor._background_tasks
+        assert call_log == [("p1", "observer")]
+        assert not dispatcher._background_tasks
 
     @pytest.mark.asyncio
-    async def test_command_routing(self):
-        """PLAN 阶段内置命令路由"""
-        from src.plugin_runtime.host.component_registry import ComponentRegistry
-        from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
+    async def test_global_order_prefers_order_slot_then_source(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """全局排序应先看 order，再看内置/第三方来源。"""
 
-        reg = ComponentRegistry()
-        reg.register_component(
-            "help",
-            "command",
-            "p1",
-            {
-                "command_pattern": r"^/help",
-            },
+        ComponentRegistry, HookDispatcher = self._import_dispatcher_modules(monkeypatch)
+
+        builtin_registry = ComponentRegistry()
+        third_registry = ComponentRegistry()
+        builtin_registry.register_component(
+            "builtin_early",
+            "HOOK_HANDLER",
+            "b1",
+            {"hook": "heart_fc.cycle_start", "mode": "blocking", "order": "early"},
         )
-        executor = WorkflowExecutor(reg)
+        builtin_registry.register_component(
+            "builtin_normal",
+            "HOOK_HANDLER",
+            "b1",
+            {"hook": "heart_fc.cycle_start", "mode": "blocking", "order": "normal"},
+        )
+        third_registry.register_component(
+            "third_early",
+            "HOOK_HANDLER",
+            "t1",
+            {"hook": "heart_fc.cycle_start", "mode": "blocking", "order": "early"},
+        )
+        third_registry.register_component(
+            "third_normal",
+            "HOOK_HANDLER",
+            "t1",
+            {"hook": "heart_fc.cycle_start", "mode": "blocking", "order": "normal"},
+        )
 
-        async def mock_invoke(plugin_id, comp_name, args):
-            if comp_name == "help":
-                return {"output": "帮助信息"}
-            return {"hook_result": "continue"}
+        call_log: List[tuple[str, str]] = []
+        dispatcher = HookDispatcher()
+        builtin_supervisor = _FakeHookSupervisor(
+            "builtin",
+            builtin_registry,
+            {
+                "b1.builtin_early": lambda args: {"success": True, "action": "continue"},
+                "b1.builtin_normal": lambda args: {"success": True, "action": "continue"},
+            },
+            call_log,
+        )
+        third_supervisor = _FakeHookSupervisor(
+            "third_party",
+            third_registry,
+            {
+                "t1.third_early": lambda args: {"success": True, "action": "continue"},
+                "t1.third_normal": lambda args: {"success": True, "action": "continue"},
+            },
+            call_log,
+        )
 
-        result, _, ctx = await executor.execute(mock_invoke, message={"plain_text": "/help topic"})
-        assert result.status == "completed"
-        assert ctx.matched_command == "p1.help"
-        cmd_result = ctx.get_stage_output("plan", "command_result")
-        assert cmd_result is not None
-        assert cmd_result["output"] == "帮助信息"
+        await dispatcher.invoke_hook(
+            "heart_fc.cycle_start",
+            [third_supervisor, builtin_supervisor],
+            cycle_id="c-1",
+        )
+
+        assert call_log == [
+            ("b1", "builtin_early"),
+            ("t1", "third_early"),
+            ("b1", "builtin_normal"),
+            ("t1", "third_normal"),
+        ]
 
     @pytest.mark.asyncio
-    async def test_stage_outputs(self):
-        """stage_outputs 数据在阶段间传递"""
-        from src.plugin_runtime.host.component_registry import ComponentRegistry
-        from src.plugin_runtime.host.workflow_executor import WorkflowExecutor
+    async def test_error_policy_abort_stops_dispatch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """error_policy=abort 时应中止本次 Hook 调用。"""
 
-        reg = ComponentRegistry()
-        # ingress 阶段写入数据
-        reg.register_component(
-            "writer",
-            "workflow_step",
+        ComponentRegistry, HookDispatcher = self._import_dispatcher_modules(monkeypatch)
+
+        registry = ComponentRegistry()
+        registry.register_component(
+            "failer",
+            "HOOK_HANDLER",
             "p1",
             {
-                "stage": "ingress",
-                "priority": 10,
-                "blocking": True,
+                "hook": "heart_fc.cycle_start",
+                "mode": "blocking",
+                "order": "normal",
+                "error_policy": "abort",
             },
         )
-        # pre_process 阶段读取数据
-        reg.register_component(
-            "reader",
-            "workflow_step",
-            "p2",
+        call_log: List[tuple[str, str]] = []
+
+        async def fail_handler(args: Dict[str, Any]) -> Dict[str, Any]:
+            """抛出异常以触发 abort 策略。"""
+
+            del args
+            raise RuntimeError("boom")
+
+        dispatcher = HookDispatcher()
+        supervisor = _FakeHookSupervisor("builtin", registry, {"p1.failer": fail_handler}, call_log)
+
+        result = await dispatcher.invoke_hook("heart_fc.cycle_start", [supervisor], session_id="s-1")
+
+        assert result.aborted is True
+        assert result.stopped_by == "p1.failer"
+        assert any("boom" in error for error in result.errors)
+        assert call_log == [("p1", "failer")]
+
+    @pytest.mark.asyncio
+    async def test_timeout_respects_handler_timeout_ms(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """处理器超时应被记录为错误并继续。"""
+
+        ComponentRegistry, HookDispatcher = self._import_dispatcher_modules(monkeypatch)
+
+        registry = ComponentRegistry()
+        registry.register_component(
+            "slow",
+            "HOOK_HANDLER",
+            "p1",
             {
-                "stage": "pre_process",
-                "priority": 10,
-                "blocking": True,
+                "hook": "heart_fc.cycle_start",
+                "mode": "blocking",
+                "order": "normal",
+                "timeout_ms": 10,
             },
         )
-        executor = WorkflowExecutor(reg)
+        call_log: List[tuple[str, str]] = []
 
-        async def mock_invoke(plugin_id, comp_name, args):
-            if comp_name == "writer":
-                return {
-                    "hook_result": "continue",
-                    "stage_output": {"parsed_intent": "greeting"},
-                }
-            if comp_name == "reader":
-                # 验证 stage_outputs 被传递过来
-                outputs = args.get("stage_outputs", {})
-                ingress_data = outputs.get("ingress", {})
-                assert ingress_data.get("parsed_intent") == "greeting"
-                return {"hook_result": "continue"}
-            return {"hook_result": "continue"}
+        async def slow_handler(args: Dict[str, Any]) -> Dict[str, Any]:
+            """模拟超时处理器。"""
 
-        result, _, ctx = await executor.execute(mock_invoke, message={"plain_text": "hi"})
-        assert result.status == "completed"
-        assert ctx.get_stage_output("ingress", "parsed_intent") == "greeting"
+            del args
+            await asyncio.sleep(0.05)
+            return {"success": True, "action": "continue"}
+
+        dispatcher = HookDispatcher()
+        supervisor = _FakeHookSupervisor("builtin", registry, {"p1.slow": slow_handler}, call_log)
+
+        result = await dispatcher.invoke_hook("heart_fc.cycle_start", [supervisor], session_id="s-1")
+
+        assert result.aborted is False
+        assert any("超时" in error for error in result.errors)
+        assert call_log == [("p1", "slow")]
+
+
+class TestPluginRuntimeHookEntry:
+    """PluginRuntimeManager 命名 Hook 入口测试。"""
+
+    @staticmethod
+    def _import_manager_modules(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+        """导入运行时管理器相关模块，并屏蔽配置初始化触发的退出。
+
+        Args:
+            monkeypatch: pytest 的 monkeypatch 工具。
+
+        Returns:
+            tuple[Any, Any]: `ComponentRegistry` 与 `PluginRuntimeManager` 类型。
+        """
+
+        monkeypatch.setattr(sys, "exit", lambda code=0: None)
+        from src.plugin_runtime.host.component_registry import ComponentRegistry
+        from src.plugin_runtime.integration import PluginRuntimeManager
+
+        return ComponentRegistry, PluginRuntimeManager
+
+    @pytest.mark.asyncio
+    async def test_manager_invoke_hook_dispatches_across_supervisors(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """PluginRuntimeManager.invoke_hook() 应调用全局 Hook 分发器。"""
+
+        ComponentRegistry, PluginRuntimeManager = self._import_manager_modules(monkeypatch)
+
+        builtin_registry = ComponentRegistry()
+        builtin_registry.register_component(
+            "builtin_guard",
+            "HOOK_HANDLER",
+            "b1",
+            {"hook": "heart_fc.cycle_start", "mode": "blocking", "order": "early"},
+        )
+        third_registry = ComponentRegistry()
+        third_registry.register_component(
+            "observer",
+            "HOOK_HANDLER",
+            "t1",
+            {"hook": "heart_fc.cycle_start", "mode": "observe", "order": "normal"},
+        )
+
+        call_log: List[tuple[str, str]] = []
+        manager = PluginRuntimeManager()
+        manager._started = True
+        manager._builtin_supervisor = _FakeHookSupervisor(
+            "builtin",
+            builtin_registry,
+            {"b1.builtin_guard": lambda args: {"success": True, "action": "continue"}},
+            call_log,
+        )
+        manager._third_party_supervisor = _FakeHookSupervisor(
+            "third_party",
+            third_registry,
+            {"t1.observer": lambda args: {"success": True, "action": "continue"}},
+            call_log,
+        )
+
+        result = await manager.invoke_dispatcher.invoke_hook("heart_fc.cycle_start", session_id="s-1")
+
+        await asyncio.sleep(0)
+        assert manager.invoke_dispatcher is manager.hook_dispatcher
+        assert result.aborted is False
+        assert result.kwargs["session_id"] == "s-1"
+        assert ("b1", "builtin_guard") in call_log
 
 
 class TestRPCServer:
