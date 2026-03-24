@@ -429,9 +429,9 @@ class PluginRunner:
                 component_name = str(comp_info.get("name", "") or "").strip()
                 raw_metadata = comp_info.get("metadata", {})
                 component_metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
-                handler_name = str(component_metadata.get("handler_name", component_name) or component_name).strip()
 
                 if component_name:
+                    handler_name = str(component_metadata.get("handler_name", component_name) or component_name).strip()
                     meta.component_handlers[component_name] = handler_name or component_name
 
                 components.append(
@@ -765,8 +765,7 @@ class PluginRunner:
         target_plugin_ids: Set[str] = {
             plugin_id for plugin_id in reload_root_ids if plugin_id not in loaded_plugin_ids
         }
-        loaded_root_plugin_ids = reload_root_ids & loaded_plugin_ids
-        if loaded_root_plugin_ids:
+        if loaded_root_plugin_ids := reload_root_ids & loaded_plugin_ids:
             target_plugin_ids.update(self._collect_reverse_dependents_for_roots(loaded_root_plugin_ids))
 
         unload_order = self._build_unload_order(target_plugin_ids & loaded_plugin_ids)
@@ -823,11 +822,10 @@ class PluginRunner:
                 continue
 
             _, manifest, _ = candidate
-            unsatisfied_dependencies = self._loader.manifest_validator.get_unsatisfied_plugin_dependencies(
+            if unsatisfied_dependencies := self._loader.manifest_validator.get_unsatisfied_plugin_dependencies(
                 manifest,
                 available_plugin_versions=available_plugins,
-            )
-            if unsatisfied_dependencies:
+            ):
                 failed_plugins[load_plugin_id] = f"依赖未满足: {', '.join(unsatisfied_dependencies)}"
                 continue
 
@@ -1240,10 +1238,12 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
     同时阻止插件代码直接导入主程序内部 ``src.*`` 模块，并清理可直接从
     ``sys.modules`` 摸到的高权限叶子模块，避免绕过 SDK / capability 边界。
     """
+    from importlib import util as importlib_util
+    from types import ModuleType
+
     import builtins
     import importlib
     import sysconfig
-    from types import ModuleType
 
     # 保留: 标准库路径 + site-packages（含 SDK 和依赖）
     stdlib_paths = set()
@@ -1389,26 +1389,28 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
         sys.modules.pop(module_name, None)
 
     # ``import`` 语句与 ``importlib.import_module`` 走的是不同入口，因此两边都需要兜底。
-    original_import = getattr(builtins, "__maibot_runner_original_import__", builtins.__import__)
-    builtins.__maibot_runner_original_import__ = original_import
+    builtins_module = cast(Any, builtins)
+    original_import = getattr(builtins_module, "__maibot_runner_original_import__", builtins.__import__)
+    builtins_module.__maibot_runner_original_import__ = original_import
 
     def _guarded_import(name: str, globals: Any = None, locals: Any = None, fromlist: Any = (), level: int = 0) -> Any:
         if level == 0:
             _assert_plugin_import_allowed(name, import_globals=globals, fromlist=fromlist)
         return original_import(name, globals, locals, fromlist, level)
 
-    _guarded_import.__maibot_runner_plugin_import_guard__ = True
+    cast(Any, _guarded_import).__maibot_runner_plugin_import_guard__ = True
     builtins.__import__ = _guarded_import
 
-    original_import_module = getattr(importlib, "__maibot_runner_original_import_module__", importlib.import_module)
-    importlib.__maibot_runner_original_import_module__ = original_import_module
+    importlib_module = cast(Any, importlib)
+    original_import_module = getattr(importlib_module, "__maibot_runner_original_import_module__", importlib.import_module)
+    importlib_module.__maibot_runner_original_import_module__ = original_import_module
 
     def _guarded_import_module(name: str, package: Optional[str] = None) -> Any:
-        resolved_name = importlib.util.resolve_name(name, package) if name.startswith(".") else name
+        resolved_name = importlib_util.resolve_name(name, package) if name.startswith(".") else name
         _assert_plugin_import_allowed(resolved_name)
         return original_import_module(name, package)
 
-    _guarded_import_module.__maibot_runner_plugin_import_guard__ = True
+    cast(Any, _guarded_import_module).__maibot_runner_plugin_import_guard__ = True
     importlib.import_module = _guarded_import_module
 
 
