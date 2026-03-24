@@ -28,6 +28,9 @@ SHOW_ANALYZE_COGNITION_PROMPT = global_config.maisaka.show_analyze_cognition_pro
 SHOW_THINKING = global_config.maisaka.show_thinking
 USER_NAME = global_config.maisaka.user_name.strip() or "用户"
 DIRECT_IMAGE_INPUT = global_config.maisaka.direct_image_input
+MERGE_USER_MESSAGES = global_config.maisaka.merge_user_messages
+TERMINAL_IMAGE_PREVIEW = global_config.maisaka.terminal_image_preview
+TERMINAL_IMAGE_PREVIEW_WIDTH = global_config.maisaka.terminal_image_preview_width
 TAKE_OVER_HFC = global_config.maisaka.take_over_hfc
 
 

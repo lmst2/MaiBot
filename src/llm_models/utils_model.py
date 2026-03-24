@@ -298,8 +298,17 @@ class LLMRequest:
         """
         self._refresh_task_config()
         start_time = time.time()
+        if self.request_type.startswith("maisaka_"):
+            logger.info(
+                f"LLMRequest[{self.request_type}] generate_response_with_message_async started "
+                f"(temperature={temperature}, max_tokens={max_tokens}, tools={len(tools or [])})"
+            )
 
+        if self.request_type.startswith("maisaka_"):
+            logger.info(f"LLMRequest[{self.request_type}] building internal tool options from {len(tools or [])} tool(s)")
         tool_built = self._build_tool_options(tools)
+        if self.request_type.startswith("maisaka_"):
+            logger.info(f"LLMRequest[{self.request_type}] built {len(tool_built or [])} internal tool option(s)")
 
         response, model_info = await self._execute_request(
             request_type=RequestType.RESPONSE,
@@ -309,6 +318,11 @@ class LLMRequest:
             tool_options=tool_built,
             response_format=response_format,
         )
+        if self.request_type.startswith("maisaka_"):
+            logger.info(
+                f"LLMRequest[{self.request_type}] generate_response_with_message_async finished "
+                f"(model={model_info.name}, time_cost={time.time() - start_time:.2f}s)"
+            )
 
         time_cost = time.time() - start_time
         logger.debug(f"LLM请求总耗时: {time_cost}")
@@ -676,12 +690,28 @@ class LLMRequest:
 
         for _ in range(max_attempts):
             model_info, api_provider, client = self._select_model(exclude_models=failed_models_this_request)
+            if self.request_type.startswith("maisaka_"):
+                logger.info(
+                    f"LLMRequest[{self.request_type}] selected model={model_info.name} "
+                    f"provider={api_provider.name} request_type={request_type.value}"
+                )
 
             message_list = []
             if message_factory:
+                if self.request_type.startswith("maisaka_"):
+                    logger.info(f"LLMRequest[{self.request_type}] building message list via message_factory")
                 message_list = message_factory(client)
+                if self.request_type.startswith("maisaka_"):
+                    logger.info(
+                        f"LLMRequest[{self.request_type}] message_factory returned {len(message_list)} message(s)"
+                    )
 
             try:
+                if self.request_type.startswith("maisaka_"):
+                    logger.info(
+                        f"LLMRequest[{self.request_type}] sending request to model={model_info.name} "
+                        f"with tool_options={len(tool_options or [])}"
+                    )
                 response = await self._attempt_request_on_model(
                     model_info,
                     api_provider,
@@ -697,6 +727,10 @@ class LLMRequest:
                     embedding_input=embedding_input,
                     audio_base64=audio_base64,
                 )
+                if self.request_type.startswith("maisaka_"):
+                    logger.info(
+                        f"LLMRequest[{self.request_type}] model={model_info.name} returned API response"
+                    )
                 total_tokens, penalty, usage_penalty = self.model_usage[model_info.name]
                 if response_usage := response.usage:
                     total_tokens += response_usage.total_tokens

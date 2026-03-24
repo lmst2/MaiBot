@@ -3,6 +3,7 @@ Maisaka runtime for non-CLI integrations.
 """
 
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import asyncio
@@ -21,9 +22,15 @@ from .config import (
     ENABLE_COGNITION_MODULE,
     ENABLE_EMOTION_MODULE,
     ENABLE_KNOWLEDGE_MODULE,
+    ENABLE_LIST_FILES,
+    ENABLE_MCP,
+    ENABLE_READ_FILE,
+    ENABLE_WRITE_FILE,
+    MERGE_USER_MESSAGES,
 )
 from .knowledge import retrieve_relevant_knowledge
 from .llm_service import MaiSakaLLMService
+from .mcp_client import MCPManager
 from .message_adapter import (
     build_message,
     build_visible_text_from_sequence,
@@ -32,6 +39,7 @@ from .message_adapter import (
     get_message_role,
     remove_last_perception,
 )
+from .tool_handlers import handle_list_files, handle_mcp_tool, handle_read_file, handle_unknown_tool, handle_write_file
 
 logger = get_logger("maisaka_runtime")
 
@@ -49,7 +57,9 @@ class MaisakaHeartFlowChatting:
         self.log_prefix = f"[{session_name}]"
         self._llm_service = MaiSakaLLMService(api_key="", base_url=None, model="")
         self._chat_history: list[MaiMessage] = []
+        self._mcp_manager: Optional[MCPManager] = None
         self._pending_messages: list[SessionMessage] = []
+        self._source_messages_by_id: dict[str, SessionMessage] = {}
         self._running = False
         self._loop_task: Optional[asyncio.Task] = None
         self._loop_lock = asyncio.Lock()
@@ -65,6 +75,9 @@ class MaisakaHeartFlowChatting:
         """Start the runtime loop."""
         if self._running:
             return
+
+        if ENABLE_MCP:
+            await self._init_mcp()
 
         self._running = True
         self._loop_task = asyncio.create_task(self._main_loop())
@@ -87,6 +100,10 @@ class MaisakaHeartFlowChatting:
             finally:
                 self._loop_task = None
 
+        if self._mcp_manager is not None:
+            await self._mcp_manager.close()
+            self._mcp_manager = None
+
         logger.info(f"{self.log_prefix} Maisaka runtime stopped")
 
     def adjust_talk_frequency(self, frequency: float) -> None:
@@ -96,6 +113,7 @@ class MaisakaHeartFlowChatting:
     async def register_message(self, message: SessionMessage) -> None:
         """Queue a newly received message for Maisaka processing."""
         self._pending_messages.append(message)
+        self._source_messages_by_id[message.message_id] = message
         self._new_message_event.set()
 
     async def _main_loop(self) -> None:
@@ -118,32 +136,60 @@ class MaisakaHeartFlowChatting:
         self._pending_messages.clear()
         return drained_messages
 
-    async def _ingest_messages(self, messages: list[SessionMessage]) -> None:
-        merged_sequence = await self._merge_messages(messages)
-        merged_content = build_visible_text_from_sequence(merged_sequence).strip()
-        if not merged_sequence.components:
+    async def _init_mcp(self) -> None:
+        """Initialize MCP tools for the runtime and inject them into the planner."""
+        config_path = Path(__file__).with_name("mcp_config.json")
+        self._mcp_manager = await MCPManager.from_config(str(config_path))
+        if self._mcp_manager is None:
+            logger.info(f"{self.log_prefix} MCP not available for Maisaka runtime")
             return
 
+        mcp_tools = self._mcp_manager.get_openai_tools()
+        if not mcp_tools:
+            logger.info(f"{self.log_prefix} MCP manager initialized without exposed tools")
+            return
+
+        self._llm_service.set_extra_tools(mcp_tools)
+        logger.info(
+            f"{self.log_prefix} Loaded {len(mcp_tools)} MCP tool(s) for Maisaka runtime:\n"
+            f"{self._mcp_manager.get_tool_summary()}"
+        )
+
+    async def _ingest_messages(self, messages: list[SessionMessage]) -> None:
         if self._chat_start_time is None:
             self._chat_start_time = messages[0].timestamp
 
         self._last_user_input_time = messages[-1].timestamp
         self._user_input_times.extend(message.timestamp for message in messages)
-        self._chat_history.append(
-            build_message(
-                role="user",
-                content=merged_content,
-                source="user",
-                timestamp=messages[-1].timestamp,
-                platform=messages[-1].platform,
-                session_id=self.session_id,
-                group_info=self._build_group_info(messages[-1]),
-                user_info=self._build_runtime_user_info(),
-                raw_message=merged_sequence,
-                display_text=merged_content,
+        if MERGE_USER_MESSAGES:
+            merged_sequence = await self._merge_messages(messages)
+            merged_content = build_visible_text_from_sequence(merged_sequence).strip()
+            if not merged_sequence.components:
+                return
+
+            self._chat_history.append(
+                build_message(
+                    role="user",
+                    content=merged_content,
+                    source="user",
+                    timestamp=messages[-1].timestamp,
+                    platform=messages[-1].platform,
+                    session_id=self.session_id,
+                    group_info=self._build_group_info(messages[-1]),
+                    user_info=self._build_runtime_user_info(),
+                    raw_message=merged_sequence,
+                    display_text=merged_content,
+                )
             )
-        )
-        self._trim_chat_history()
+            self._trim_chat_history()
+            return
+
+        for message in messages:
+            history_message = await self._build_user_history_message(message)
+            if history_message is None:
+                continue
+            self._chat_history.append(history_message)
+            self._trim_chat_history()
 
     async def _merge_messages(self, messages: list[SessionMessage]) -> MessageSequence:
         merged_sequence = MessageSequence([])
@@ -151,7 +197,7 @@ class MaisakaHeartFlowChatting:
         for message in messages:
             user_info = message.message_info.user_info
             speaker_name = user_info.user_cardname or user_info.user_nickname or user_info.user_id
-            prefix = format_speaker_content(speaker_name, "", message.timestamp)
+            prefix = format_speaker_content(speaker_name, "", message.timestamp, message.message_id)
             merged_sequence.text(prefix)
 
             appended_component = False
@@ -174,14 +220,69 @@ class MaisakaHeartFlowChatting:
 
         return merged_sequence
 
+    async def _build_user_history_message(self, message: SessionMessage) -> Optional[MaiMessage]:
+        user_sequence = await self._build_message_sequence(message)
+        visible_text = build_visible_text_from_sequence(user_sequence).strip()
+        if not user_sequence.components:
+            return None
+
+        return build_message(
+            role="user",
+            content=visible_text,
+            source="user",
+            timestamp=message.timestamp,
+            platform=message.platform,
+            session_id=self.session_id,
+            group_info=self._build_group_info(message),
+            user_info=self._build_runtime_user_info(),
+            raw_message=user_sequence,
+            display_text=visible_text,
+        )
+
+    async def _build_message_sequence(self, message: SessionMessage) -> MessageSequence:
+        message_sequence = MessageSequence([])
+        user_info = message.message_info.user_info
+        speaker_name = user_info.user_cardname or user_info.user_nickname or user_info.user_id
+        message_sequence.text(format_speaker_content(speaker_name, "", message.timestamp, message.message_id))
+
+        appended_component = False
+        if DIRECT_IMAGE_INPUT:
+            source_sequence = getattr(message, "maisaka_original_raw_message", message.raw_message)
+        else:
+            source_sequence = message.raw_message
+
+        for component in clone_message_sequence(source_sequence).components:
+            message_sequence.components.append(component)
+            appended_component = True
+
+        if not appended_component:
+            if not message.processed_plain_text:
+                await message.process()
+            content = (message.processed_plain_text or "").strip()
+            if content:
+                message_sequence.text(content)
+
+        return message_sequence
+
     async def _run_internal_loop(self, anchor_message: SessionMessage) -> None:
         last_had_tool_calls = True
 
-        for _ in range(self._max_internal_rounds):
+        for round_index in range(self._max_internal_rounds):
+            logger.info(
+                f"{self.log_prefix} Internal loop round {round_index + 1}/{self._max_internal_rounds} started "
+                f"(history={len(self._chat_history)})"
+            )
             if last_had_tool_calls:
+                logger.info(f"{self.log_prefix} Building perception snapshot before planner call")
                 await self._append_perception_snapshot()
+                logger.info(f"{self.log_prefix} Perception snapshot step finished")
 
+            logger.info(f"{self.log_prefix} Calling Maisaka chat_loop_step")
             response = await self._llm_service.chat_loop_step(self._chat_history)
+            logger.info(
+                f"{self.log_prefix} chat_loop_step returned "
+                f"(content_len={len(response.content or '')}, tool_calls={len(response.tool_calls)})"
+            )
             response.raw_message.platform = anchor_message.platform
             response.raw_message.session_id = self.session_id
             response.raw_message.message_info.group_info = self._build_group_info(anchor_message)
@@ -189,16 +290,20 @@ class MaisakaHeartFlowChatting:
             self._last_assistant_response_time = datetime.now()
 
             if response.tool_calls:
+                logger.info(f"{self.log_prefix} Handling {len(response.tool_calls)} tool call(s)")
                 should_pause = await self._handle_tool_calls(response.tool_calls, response.content or "", anchor_message)
+                logger.info(f"{self.log_prefix} Tool handling finished (should_pause={should_pause})")
                 if should_pause:
                     return
                 last_had_tool_calls = True
                 continue
 
             if response.content:
+                logger.info(f"{self.log_prefix} Planner returned content without tool calls; continuing inner loop")
                 last_had_tool_calls = False
                 continue
 
+            logger.info(f"{self.log_prefix} Planner returned empty content and no tool calls; leaving inner loop")
             return
 
         logger.info(f"{self.log_prefix} Maisaka internal loop reached max rounds and paused")
@@ -271,8 +376,10 @@ class MaisakaHeartFlowChatting:
     ) -> bool:
         for tool_call in tool_calls:
             if tool_call.func_name == "reply":
-                await self._handle_reply(tool_call, latest_thought, anchor_message)
-                return True
+                reply_sent = await self._handle_reply(tool_call, latest_thought, anchor_message)
+                if reply_sent:
+                    return True
+                continue
 
             if tool_call.func_name == "no_reply":
                 self._chat_history.append(
@@ -302,28 +409,53 @@ class MaisakaHeartFlowChatting:
                 )
                 return True
 
-            self._chat_history.append(
-                self._build_tool_message(
-                    tool_call,
-                    f"Unsupported runtime tool: {tool_call.func_name}",
-                )
-            )
+            if tool_call.func_name == "write_file" and ENABLE_WRITE_FILE:
+                await handle_write_file(tool_call, self._chat_history)
+                continue
+
+            if tool_call.func_name == "read_file" and ENABLE_READ_FILE:
+                await handle_read_file(tool_call, self._chat_history)
+                continue
+
+            if tool_call.func_name == "list_files" and ENABLE_LIST_FILES:
+                await handle_list_files(tool_call, self._chat_history)
+                continue
+
+            if self._mcp_manager and self._mcp_manager.is_mcp_tool(tool_call.func_name):
+                await handle_mcp_tool(tool_call, self._chat_history, self._mcp_manager)
+                continue
+
+            await handle_unknown_tool(tool_call, self._chat_history)
 
         return False
 
-    async def _handle_reply(self, tool_call: ToolCall, latest_thought: str, anchor_message: SessionMessage) -> None:
+    async def _handle_reply(self, tool_call: ToolCall, latest_thought: str, anchor_message: SessionMessage) -> bool:
+        target_message_id = str((tool_call.args or {}).get("message_id", "")).strip()
+        if not target_message_id:
+            self._chat_history.append(
+                self._build_tool_message(tool_call, "reply requires a valid message_id argument.")
+            )
+            return False
+
+        target_message = self._source_messages_by_id.get(target_message_id)
+        if target_message is None:
+            self._chat_history.append(
+                self._build_tool_message(tool_call, f"reply target message_id not found: {target_message_id}")
+            )
+            return False
+
         reply_text = await self._llm_service.generate_reply(latest_thought, self._chat_history)
         sent = await send_service.text_to_stream(
             text=reply_text,
             stream_id=self.session_id,
             set_reply=True,
-            reply_message=anchor_message,
+            reply_message=target_message,
             typing=False,
         )
         tool_result = "Visible reply generated and sent." if sent else "Visible reply generation succeeded but send failed."
         self._chat_history.append(self._build_tool_message(tool_call, tool_result))
         if not sent:
-            return
+            return False
 
         bot_name = global_config.bot.nickname.strip() or "MaiSaka"
         self._chat_history.append(
@@ -331,12 +463,13 @@ class MaisakaHeartFlowChatting:
                 role="user",
                 content=format_speaker_content(bot_name, reply_text, datetime.now()),
                 source="guided_reply",
-                platform=anchor_message.platform,
+                platform=target_message.platform or anchor_message.platform,
                 session_id=self.session_id,
-                group_info=self._build_group_info(anchor_message),
+                group_info=self._build_group_info(target_message),
                 user_info=self._build_runtime_user_info(),
             )
         )
+        return True
 
     def _build_tool_message(self, tool_call: ToolCall, content: str) -> MaiMessage:
         return build_message(

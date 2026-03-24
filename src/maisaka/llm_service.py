@@ -3,13 +3,17 @@ MaiSaka LLM 服务 - 使用主项目 LLM 系统
 将主项目的 LLMRequest 适配为 MaiSaka 需要的接口
 """
 
+from base64 import b64decode
+from dataclasses import dataclass
 from datetime import datetime
+from io import BytesIO
+from time import perf_counter
+from typing import Any, List, Optional
 
 import asyncio
 import random
-from dataclasses import dataclass
-from typing import Any, List, Optional
 
+from PIL import Image as PILImage
 from rich.console import Group
 from rich.panel import Panel
 from rich.pretty import Pretty
@@ -20,7 +24,7 @@ from src.common.logger import get_logger
 from src.common.prompt_i18n import load_prompt
 from src.config.config import config_manager, global_config
 from src.llm_models.payload_content.message import Message, MessageBuilder, RoleType
-from src.llm_models.payload_content.tool_option import ToolCall, ToolOption
+from src.llm_models.payload_content.tool_option import ToolCall, ToolOption, ToolParamType
 from src.llm_models.utils_model import LLMRequest
 
 from . import config
@@ -167,7 +171,55 @@ class MaiSakaLLMService:
 
     def set_extra_tools(self, tools: List[dict]) -> None:
         """设置额外的工具定义（如 MCP 工具）"""
-        self._extra_tools = list(tools)
+        self._extra_tools = [self._normalize_extra_tool(tool) for tool in tools]
+        logger.info(f"Normalized {len(self._extra_tools)} extra tool(s) for Maisaka")
+
+    @staticmethod
+    def _json_type_to_tool_param_type(json_type: str) -> ToolParamType:
+        normalized = (json_type or "").lower()
+        if normalized == "integer":
+            return ToolParamType.INTEGER
+        if normalized == "number":
+            return ToolParamType.FLOAT
+        if normalized == "boolean":
+            return ToolParamType.BOOLEAN
+        return ToolParamType.STRING
+
+    @classmethod
+    def _normalize_extra_tool(cls, tool: dict) -> dict:
+        """Normalize external/OpenAI-style tool definitions into the internal tool schema."""
+        if "name" in tool and "description" in tool:
+            return tool
+
+        if tool.get("type") != "function":
+            return tool
+
+        function_info = tool.get("function", {})
+        parameters_schema = function_info.get("parameters", {}) or {}
+        required_names = set(parameters_schema.get("required", []) or [])
+        properties = parameters_schema.get("properties", {}) or {}
+        parameters: list[tuple[str, ToolParamType, str, bool, list[str] | None]] = []
+
+        for param_name, param_schema in properties.items():
+            if not isinstance(param_schema, dict):
+                continue
+            enum_values = param_schema.get("enum")
+            normalized_enum = [str(value) for value in enum_values] if isinstance(enum_values, list) else None
+            parameters.append(
+                (
+                    str(param_name),
+                    cls._json_type_to_tool_param_type(str(param_schema.get("type", "string"))),
+                    str(param_schema.get("description", "")),
+                    param_name in required_names,
+                    normalized_enum,
+                )
+            )
+
+        return {
+            "name": str(function_info.get("name", "")),
+            "description": str(function_info.get("description", "")),
+            "parameters": parameters,
+        }
 
     async def _ensure_prompts_loaded(self) -> None:
         """异步懒加载提示词，避免在运行中的事件循环里同步渲染 prompt。"""
@@ -220,6 +272,34 @@ class MaiSakaLLMService:
         return "bold white on bright_black"
 
     @staticmethod
+    def _build_terminal_image_preview(image_base64: str) -> Optional[str]:
+        """Build a low-resolution ASCII preview for terminals without inline-image support."""
+        ascii_chars = " .:-=+*#%@"
+
+        try:
+            image_bytes = b64decode(image_base64)
+            with PILImage.open(BytesIO(image_bytes)) as image:
+                grayscale = image.convert("L")
+                width, height = grayscale.size
+                if width <= 0 or height <= 0:
+                    return None
+
+                preview_width = max(8, int(config.TERMINAL_IMAGE_PREVIEW_WIDTH))
+                preview_height = max(1, int(height * (preview_width / width) * 0.5))
+                resized = grayscale.resize((preview_width, preview_height))
+                pixels = list(resized.getdata())
+        except Exception:
+            return None
+
+        rows: list[str] = []
+        for row_index in range(preview_height):
+            row_pixels = pixels[row_index * preview_width : (row_index + 1) * preview_width]
+            row = "".join(ascii_chars[min(len(ascii_chars) - 1, pixel * len(ascii_chars) // 256)] for pixel in row_pixels)
+            rows.append(row)
+
+        return "\n".join(rows)
+
+    @staticmethod
     def _render_message_content(content: Any) -> object:
         """把消息内容转成适合 Rich 输出的 renderable。"""
         if isinstance(content, str):
@@ -236,9 +316,16 @@ class MaiSakaLLMService:
                     if isinstance(image_format, str) and isinstance(image_base64, str):
                         approx_size = max(0, len(image_base64) * 3 // 4)
                         size_text = f"{approx_size / 1024:.1f} KB" if approx_size >= 1024 else f"{approx_size} B"
+                        preview_parts: list[object] = [
+                            Text(f"image/{image_format}  {size_text}\nbase64 omitted", style="magenta")
+                        ]
+                        if config.TERMINAL_IMAGE_PREVIEW:
+                            preview_text = MaiSakaLLMService._build_terminal_image_preview(image_base64)
+                            if preview_text:
+                                preview_parts.append(Text(preview_text, style="white"))
                         parts.append(
                             Panel(
-                                Text(f"image/{image_format}  {size_text}\nbase64 omitted", style="magenta"),
+                                Group(*preview_parts),
                                 border_style="magenta",
                                 padding=(0, 1),
                             )
@@ -392,13 +479,21 @@ class MaiSakaLLMService:
                     padding=(0, 1),
                 )
             )
+            logger.info(f"chat_loop_step prompt display finished ({len(built_messages)} messages, {len(all_tools)} tools)")
 
 
+        request_started_at = perf_counter()
+        logger.info("chat_loop_step calling planner model generate_response_with_message_async")
         response, (reasoning, model, tool_calls) = await self._llm_chat.generate_response_with_message_async(
             message_factory=message_factory,
             tools=all_tools if all_tools else None,
             temperature=self._temperature,
             max_tokens=self._max_tokens,
+        )
+        elapsed = perf_counter() - request_started_at
+        logger.info(
+            f"chat_loop_step planner model returned in {elapsed:.2f}s "
+            f"(model={model}, tool_calls={len(tool_calls or [])}, response_len={len(response or '')})"
         )
         raw_message = build_message(
             role=RoleType.Assistant.value,
@@ -406,6 +501,7 @@ class MaiSakaLLMService:
             source="assistant",
             tool_calls=tool_calls or None,
         )
+        logger.info("chat_loop_step converted planner response into MaiMessage")
 
         return ChatResponse(
             content=response,

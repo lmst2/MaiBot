@@ -1609,6 +1609,34 @@ class MaiSakaConfig(ConfigBase):
     )
     """æ˜¯å¦å°†å›¾ç‰‡ç›´æŽ¥ä½œä¸ºå¤šæ¨¡æ€æ¶ˆæ¯ä¼ å…¥ Maisaka ä¸»å¾ªçŽ¯ï¼Œè€Œä¸æ˜¯ä»…ä½¿ç”¨è½¬è¯‘æ–‡æœ¬"""
 
+    merge_user_messages: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "merge",
+        },
+    )
+    """Whether Maisaka should merge newly received user utterances into a single user message per round"""
+
+    terminal_image_preview: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "image",
+        },
+    )
+    """Whether Maisaka should render a low-resolution terminal preview for images in prompt display"""
+
+    terminal_image_preview_width: int = Field(
+        default=24,
+        ge=8,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "columns",
+        },
+    )
+    """Character width for Maisaka terminal image previews"""
+
     take_over_hfc: bool = Field(
         default=False,
         json_schema_extra={

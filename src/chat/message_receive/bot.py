@@ -1,4 +1,5 @@
 from contextlib import suppress
+from copy import deepcopy
 from typing import Any, Dict, Optional
 
 import os
@@ -10,6 +11,7 @@ from src.chat.heart_flow.heartflow_message_processor import HeartFCMessageReceiv
 from src.common.logger import get_logger
 from src.common.utils.utils_message import MessageUtils
 from src.common.utils.utils_session import SessionUtils
+from src.config.config import global_config
 from src.platform_io.route_key_factory import RouteKeyFactory
 
 # from src.chat.brain_chat.PFC.pfc_manager import PFCManager
@@ -301,6 +303,8 @@ class ChatBot:
             #     pass
 
             # 处理消息内容，识别表情包等二进制数据并转化为文本描述
+            if global_config.maisaka.take_over_hfc and global_config.maisaka.direct_image_input:
+                message.maisaka_original_raw_message = deepcopy(message.raw_message)  # type: ignore[attr-defined]
             await message.process()
 
             # 平台层的 @ 检测由底层 is_mentioned_bot_in_message 统一处理；此处不做用户名硬编码匹配
