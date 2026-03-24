@@ -676,6 +676,101 @@ class TestSDK:
         methods = [call["method"] for call in runner._rpc_client.calls]
         assert methods == ["plugin.bootstrap", "plugin.register_components", "cap.call", "runner.ready"]
 
+    @pytest.mark.asyncio
+    async def test_runner_batch_reload_merges_overlapping_reverse_dependents(self, monkeypatch):
+        """批量重载应只对重叠依赖闭包执行一次 unload/load。"""
+        from src.plugin_runtime.runner.runner_main import PluginRunner
+
+        runner = PluginRunner(host_address="dummy", session_token="token", plugin_dirs=[])
+        plugin_a_id = "test.plugin-a"
+        plugin_b_id = "test.plugin-b"
+        plugin_c_id = "test.plugin-c"
+
+        def build_meta(plugin_id: str, dependencies: list[str]) -> SimpleNamespace:
+            return SimpleNamespace(
+                plugin_id=plugin_id,
+                dependencies=dependencies,
+                plugin_dir=f"/tmp/{plugin_id}",
+                version="1.0.0",
+                instance=SimpleNamespace(),
+            )
+
+        loaded_metas = {
+            plugin_a_id: build_meta(plugin_a_id, []),
+            plugin_b_id: build_meta(plugin_b_id, [plugin_a_id]),
+            plugin_c_id: build_meta(plugin_c_id, [plugin_b_id]),
+        }
+        reloaded_metas = {
+            plugin_id: build_meta(plugin_id, list(meta.dependencies))
+            for plugin_id, meta in loaded_metas.items()
+        }
+        candidates = {
+            plugin_a_id: (
+                "dir_plugin_a",
+                build_test_manifest_model(plugin_a_id),
+                "plugin_a/plugin.py",
+            ),
+            plugin_b_id: (
+                "dir_plugin_b",
+                build_test_manifest_model(
+                    plugin_b_id,
+                    dependencies=[{"type": "plugin", "id": plugin_a_id, "version_spec": ">=1.0.0,<2.0.0"}],
+                ),
+                "plugin_b/plugin.py",
+            ),
+            plugin_c_id: (
+                "dir_plugin_c",
+                build_test_manifest_model(
+                    plugin_c_id,
+                    dependencies=[{"type": "plugin", "id": plugin_b_id, "version_spec": ">=1.0.0,<2.0.0"}],
+                ),
+                "plugin_c/plugin.py",
+            ),
+        }
+        unloaded_plugins: list[str] = []
+        activated_plugins: list[str] = []
+
+        monkeypatch.setattr(runner._loader, "discover_candidates", lambda plugin_dirs: (candidates, {}))
+        monkeypatch.setattr(runner._loader, "list_plugins", lambda: sorted(loaded_metas.keys()))
+        monkeypatch.setattr(runner._loader, "get_plugin", lambda plugin_id: loaded_metas.get(plugin_id))
+        monkeypatch.setattr(
+            runner._loader,
+            "remove_loaded_plugin",
+            lambda plugin_id: loaded_metas.pop(plugin_id, None),
+        )
+        monkeypatch.setattr(runner._loader, "purge_plugin_modules", lambda plugin_id, plugin_dir: [])
+        monkeypatch.setattr(
+            runner._loader,
+            "resolve_dependencies",
+            lambda reload_candidates, extra_available=None: (sorted(reload_candidates.keys()), {}),
+        )
+        monkeypatch.setattr(
+            runner._loader,
+            "load_candidate",
+            lambda plugin_id, candidate: reloaded_metas[plugin_id],
+        )
+
+        async def fake_unload_plugin(meta, reason, purge_modules=False):
+            del reason, purge_modules
+            unloaded_plugins.append(meta.plugin_id)
+            loaded_metas.pop(meta.plugin_id, None)
+
+        async def fake_activate_plugin(meta):
+            activated_plugins.append(meta.plugin_id)
+            loaded_metas[meta.plugin_id] = meta
+            return True
+
+        monkeypatch.setattr(runner, "_unload_plugin", fake_unload_plugin)
+        monkeypatch.setattr(runner, "_activate_plugin", fake_activate_plugin)
+
+        result = await runner._reload_plugins_by_ids([plugin_a_id, plugin_b_id], reason="manual")
+
+        assert result.success is True
+        assert result.requested_plugin_ids == [plugin_a_id, plugin_b_id]
+        assert unloaded_plugins == [plugin_c_id, plugin_b_id, plugin_a_id]
+        assert activated_plugins == [plugin_a_id, plugin_b_id, plugin_c_id]
+        assert result.reloaded_plugins == [plugin_a_id, plugin_b_id, plugin_c_id]
+
 
 class TestPluginSdkUsage:
     """验证仓库内插件按新 SDK 归一化返回值工作。"""
@@ -1220,6 +1315,25 @@ class TestDependencyResolution:
             sys.path[:] = original_path
             sys.meta_path[:] = original_meta_path
 
+    def test_isolate_sys_path_blocks_disallowed_src_imports(self):
+        import importlib
+
+        from src.plugin_runtime.runner import runner_main
+
+        original_path = list(sys.path)
+        original_meta_path = list(sys.meta_path)
+        sys.modules.pop("src.forbidden_demo", None)
+
+        try:
+            runner_main._isolate_sys_path([])
+
+            with pytest.raises(ImportError, match="不允许导入主程序模块"):
+                importlib.import_module("src.forbidden_demo")
+        finally:
+            sys.path[:] = original_path
+            sys.meta_path[:] = original_meta_path
+            sys.modules.pop("src.forbidden_demo", None)
+
 
 # ─── Host-side ComponentRegistry 测试 ──────────────────────
 
@@ -1263,6 +1377,30 @@ class TestComponentRegistry:
         assert stats["action"] == 1
         assert stats["command"] == 1
         assert stats["tool"] == 1
+
+    def test_register_command_with_invalid_regex_only_warns(self, monkeypatch):
+        from src.plugin_runtime.host.component_registry import ComponentRegistry
+
+        reg = ComponentRegistry()
+        warnings: list[str] = []
+        monkeypatch.setattr(
+            "src.plugin_runtime.host.component_registry.logger.warning",
+            lambda message: warnings.append(str(message)),
+        )
+
+        success = reg.register_component(
+            "broken",
+            "command",
+            "plugin_a",
+            {
+                "command_pattern": "[",
+            },
+        )
+
+        assert success is True
+        assert reg.get_component("plugin_a.broken") is not None
+        assert warnings
+        assert "plugin_a.broken" in warnings[0]
 
     def test_query_by_type(self):
         from src.plugin_runtime.host.component_registry import ComponentRegistry
@@ -2302,6 +2440,39 @@ class TestSupervisor:
         assert reloaded is True
         assert supervisor.component_registry.get_component("plugin_a.handler") is not None
         assert supervisor.component_registry.get_component("plugin_a.obsolete") is None
+
+    @pytest.mark.asyncio
+    async def test_reload_plugins_uses_batch_rpc_for_multiple_roots(self):
+        from src.plugin_runtime.host.supervisor import PluginSupervisor
+        from src.plugin_runtime.protocol.envelope import ReloadPluginsResultPayload
+
+        supervisor = PluginSupervisor(plugin_dirs=[])
+        sent_requests: list[tuple[str, dict[str, object], int]] = []
+
+        class FakeRPCServer:
+            async def send_request(self, method, payload, timeout_ms=5000, **kwargs):
+                del kwargs
+                sent_requests.append((method, payload, timeout_ms))
+                return SimpleNamespace(
+                    payload=ReloadPluginsResultPayload(
+                        success=True,
+                        requested_plugin_ids=["plugin_a", "plugin_b"],
+                        reloaded_plugins=["plugin_a", "plugin_b", "plugin_c"],
+                        unloaded_plugins=["plugin_c", "plugin_b", "plugin_a"],
+                    ).model_dump()
+                )
+
+        supervisor._rpc_server = FakeRPCServer()
+
+        reloaded = await supervisor.reload_plugins(["plugin_a", "plugin_b", "plugin_a"], reason="manual")
+
+        assert reloaded is True
+        assert len(sent_requests) == 1
+        method, payload, timeout_ms = sent_requests[0]
+        assert method == "plugin.reload_batch"
+        assert payload["plugin_ids"] == ["plugin_a", "plugin_b"]
+        assert payload["reason"] == "manual"
+        assert timeout_ms >= 10000
 
     @pytest.mark.asyncio
     async def test_reload_rolls_back_when_runner_ready_not_received(self, monkeypatch):

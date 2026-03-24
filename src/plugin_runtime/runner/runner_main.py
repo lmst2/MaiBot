@@ -42,6 +42,8 @@ from src.plugin_runtime.protocol.envelope import (
     RegisterPluginPayload,
     ReloadPluginPayload,
     ReloadPluginResultPayload,
+    ReloadPluginsPayload,
+    ReloadPluginsResultPayload,
     RunnerReadyPayload,
     UnregisterPluginPayload,
 )
@@ -334,6 +336,7 @@ class PluginRunner:
         self._rpc_client.register_method("plugin.shutdown", self._handle_shutdown)
         self._rpc_client.register_method("plugin.config_updated", self._handle_config_updated)
         self._rpc_client.register_method("plugin.reload", self._handle_reload_plugin)
+        self._rpc_client.register_method("plugin.reload_batch", self._handle_reload_plugins)
 
     @staticmethod
     def _resolve_component_handler_name(meta: PluginMeta, component_name: str) -> str:
@@ -597,6 +600,21 @@ class PluginRunner:
 
         return impacted_plugins
 
+    def _collect_reverse_dependents_for_roots(self, plugin_ids: Set[str]) -> Set[str]:
+        """收集多个根插件对应的反向依赖并集。
+
+        Args:
+            plugin_ids: 根插件 ID 集合。
+
+        Returns:
+            Set[str]: 所有根插件及其反向依赖并集。
+        """
+
+        impacted_plugins: Set[str] = set()
+        for plugin_id in sorted(plugin_ids):
+            impacted_plugins.update(self._collect_reverse_dependents(plugin_id))
+        return impacted_plugins
+
     def _build_unload_order(self, plugin_ids: Set[str]) -> List[str]:
         """构建受影响插件的卸载顺序。
 
@@ -634,6 +652,20 @@ class PluginRunner:
             queue.sort()
 
         return list(reversed(load_order))
+
+    @staticmethod
+    def _normalize_requested_plugin_ids(plugin_ids: List[str]) -> List[str]:
+        """规范化批量重载请求中的插件 ID 列表。"""
+
+        normalized_plugin_ids: List[str] = []
+        seen_plugin_ids: Set[str] = set()
+        for plugin_id in plugin_ids:
+            normalized_plugin_id = str(plugin_id or "").strip()
+            if not normalized_plugin_id or normalized_plugin_id in seen_plugin_ids:
+                continue
+            seen_plugin_ids.add(normalized_plugin_id)
+            normalized_plugin_ids.append(normalized_plugin_id)
+        return normalized_plugin_ids
 
     @staticmethod
     def _finalize_failed_reload_messages(
@@ -674,6 +706,31 @@ class PluginRunner:
         Returns:
             ReloadPluginResultPayload: 结构化重载结果。
         """
+        batch_result = await self._reload_plugins_by_ids(
+            [plugin_id],
+            reason,
+            external_available_plugins=external_available_plugins,
+        )
+        return ReloadPluginResultPayload(
+            success=batch_result.success,
+            requested_plugin_id=plugin_id,
+            reloaded_plugins=batch_result.reloaded_plugins,
+            unloaded_plugins=batch_result.unloaded_plugins,
+            failed_plugins=batch_result.failed_plugins,
+        )
+
+    async def _reload_plugins_by_ids(
+        self,
+        plugin_ids: List[str],
+        reason: str,
+        external_available_plugins: Optional[Dict[str, str]] = None,
+    ) -> ReloadPluginsResultPayload:
+        """按插件 ID 列表在 Runner 进程内执行一次批量重载。"""
+
+        normalized_plugin_ids = self._normalize_requested_plugin_ids(plugin_ids)
+        if not normalized_plugin_ids:
+            return ReloadPluginsResultPayload(success=True, requested_plugin_ids=[])
+
         candidates, duplicate_candidates = self._loader.discover_candidates(self._plugin_dirs)
         failed_plugins: Dict[str, str] = {}
         normalized_external_available = {
@@ -682,28 +739,35 @@ class PluginRunner:
             if str(candidate_plugin_id or "").strip() and str(candidate_plugin_version or "").strip()
         }
 
-        if plugin_id in duplicate_candidates:
-            conflict_paths = ", ".join(str(path) for path in duplicate_candidates[plugin_id])
-            return ReloadPluginResultPayload(
-                success=False,
-                requested_plugin_id=plugin_id,
-                failed_plugins={plugin_id: f"检测到重复插件 ID: {conflict_paths}"},
-            )
-
         loaded_plugin_ids = set(self._loader.list_plugins())
-        plugin_is_loaded = plugin_id in loaded_plugin_ids
-        plugin_has_candidate = plugin_id in candidates
+        reload_root_ids: Set[str] = set()
+        for plugin_id in normalized_plugin_ids:
+            if plugin_id in duplicate_candidates:
+                conflict_paths = ", ".join(str(path) for path in duplicate_candidates[plugin_id])
+                failed_plugins[plugin_id] = f"检测到重复插件 ID: {conflict_paths}"
+                continue
 
-        if not plugin_is_loaded and not plugin_has_candidate:
-            return ReloadPluginResultPayload(
+            plugin_is_loaded = plugin_id in loaded_plugin_ids
+            plugin_has_candidate = plugin_id in candidates
+            if not plugin_is_loaded and not plugin_has_candidate:
+                failed_plugins[plugin_id] = "插件不存在或未找到合法的 manifest/plugin.py"
+                continue
+
+            reload_root_ids.add(plugin_id)
+
+        if not reload_root_ids:
+            return ReloadPluginsResultPayload(
                 success=False,
-                requested_plugin_id=plugin_id,
-                failed_plugins={plugin_id: "插件不存在或未找到合法的 manifest/plugin.py"},
+                requested_plugin_ids=normalized_plugin_ids,
+                failed_plugins=failed_plugins,
             )
 
-        target_plugin_ids: Set[str] = {plugin_id}
-        if plugin_is_loaded:
-            target_plugin_ids = self._collect_reverse_dependents(plugin_id)
+        target_plugin_ids: Set[str] = {
+            plugin_id for plugin_id in reload_root_ids if plugin_id not in loaded_plugin_ids
+        }
+        loaded_root_plugin_ids = reload_root_ids & loaded_plugin_ids
+        if loaded_root_plugin_ids:
+            target_plugin_ids.update(self._collect_reverse_dependents_for_roots(loaded_root_plugin_ids))
 
         unload_order = self._build_unload_order(target_plugin_ids & loaded_plugin_ids)
         unloaded_plugins: List[str] = []
@@ -813,19 +877,19 @@ class PluginRunner:
                 if not restored:
                     rollback_failures[rollback_plugin_id] = "无法重新激活旧版本"
 
-            return ReloadPluginResultPayload(
+            return ReloadPluginsResultPayload(
                 success=False,
-                requested_plugin_id=plugin_id,
+                requested_plugin_ids=normalized_plugin_ids,
                 reloaded_plugins=[],
                 unloaded_plugins=unloaded_plugins,
                 failed_plugins=self._finalize_failed_reload_messages(failed_plugins, rollback_failures),
             )
 
-        requested_plugin_success = plugin_id in reloaded_plugins
+        requested_plugin_success = all(plugin_id in reloaded_plugins for plugin_id in reload_root_ids)
 
-        return ReloadPluginResultPayload(
-            success=requested_plugin_success,
-            requested_plugin_id=plugin_id,
+        return ReloadPluginsResultPayload(
+            success=requested_plugin_success and not failed_plugins,
+            requested_plugin_ids=normalized_plugin_ids,
             reloaded_plugins=reloaded_plugins,
             unloaded_plugins=unloaded_plugins,
             failed_plugins=failed_plugins,
@@ -1139,6 +1203,29 @@ class PluginRunner:
             )
             return envelope.make_response(payload=result.model_dump())
 
+    async def _handle_reload_plugins(self, envelope: Envelope) -> Envelope:
+        """处理批量插件重载请求。"""
+
+        try:
+            payload = ReloadPluginsPayload.model_validate(envelope.payload)
+        except Exception as exc:
+            return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(exc))
+
+        if self._reload_lock.locked():
+            requested_plugin_ids = ", ".join(self._normalize_requested_plugin_ids(payload.plugin_ids)) or "<empty>"
+            return envelope.make_error_response(
+                ErrorCode.E_RELOAD_IN_PROGRESS.value,
+                f"插件 {requested_plugin_ids} 批量重载请求被拒绝：已有重载任务正在执行",
+            )
+
+        async with self._reload_lock:
+            result = await self._reload_plugins_by_ids(
+                list(payload.plugin_ids),
+                payload.reason,
+                external_available_plugins=dict(payload.external_available_plugins),
+            )
+            return envelope.make_response(payload=result.model_dump())
+
     def request_capability(self) -> RPCClient:
         """获取 RPC 客户端（供 SDK 使用，发起能力调用）"""
         return self._rpc_client
@@ -1153,6 +1240,7 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
     防止插件代码 import 主程序模块读取运行时数据。
     """
     import importlib.abc
+    from importlib.machinery import ModuleSpec
     import sysconfig
 
     # 保留: 标准库路径 + site-packages（含 SDK 和依赖）
@@ -1195,6 +1283,20 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
 
     # 安装 import 钩子，阻止插件导入主程序核心模块
     # 仅允许 src.plugin_runtime 和 src.common，拒绝其他 src.* 子包
+    class _BlockedSrcModuleLoader(importlib.abc.Loader):
+        """阻止被 Runner 允许列表之外的主程序模块完成导入。"""
+
+        def __init__(self, fullname: str) -> None:
+            self._fullname = fullname
+
+        def create_module(self, spec: ModuleSpec) -> None:
+            del spec
+            return None
+
+        def exec_module(self, module: Any) -> None:
+            del module
+            raise ImportError(f"Runner 子进程不允许导入主程序模块: {self._fullname}")
+
     class _PluginImportBlocker(importlib.abc.MetaPathFinder):
         """阻止 Runner 子进程导入主程序核心模块。
 
@@ -1203,14 +1305,15 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
         """
 
         _ALLOWED_SRC_PREFIXES = ("src.plugin_runtime", "src.common")
+        __maibot_runner_plugin_import_blocker__ = True
 
-        def find_module(self, fullname: str, path: Any = None) -> Any:
+        def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> ModuleSpec | None:
             """决定是否拦截指定模块导入。"""
-            return self if self._should_block(fullname) else None
-
-        def load_module(self, fullname: str) -> None:
-            """阻止被拦截模块继续导入。"""
-            raise ImportError(f"Runner 子进程不允许导入主程序模块: {fullname}")
+            del path, target
+            if not self._should_block(fullname):
+                return None
+            # Python 3.13+/3.14 会优先走 find_spec，不再依赖 find_module。
+            return ModuleSpec(fullname, _BlockedSrcModuleLoader(fullname), is_package=True)
 
         def _should_block(self, fullname: str) -> bool:
             """判断给定模块名是否应被阻止导入。"""
@@ -1222,6 +1325,11 @@ def _isolate_sys_path(plugin_dirs: List[str]) -> None:
                 fullname == prefix or fullname.startswith(f"{prefix}.") for prefix in self._ALLOWED_SRC_PREFIXES
             )
 
+    sys.meta_path[:] = [
+        finder
+        for finder in sys.meta_path
+        if not getattr(finder, "__maibot_runner_plugin_import_blocker__", False)
+    ]
     sys.meta_path.insert(0, _PluginImportBlocker())
 
 

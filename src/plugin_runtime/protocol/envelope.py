@@ -289,6 +289,20 @@ class ReloadPluginPayload(BaseModel):
     """可视为已满足的外部依赖插件版本映射"""
 
 
+class ReloadPluginsPayload(BaseModel):
+    """批量插件重载请求载荷。"""
+
+    plugin_ids: List[str] = Field(default_factory=list, description="目标插件 ID 列表")
+    """目标插件 ID 列表"""
+    reason: str = Field(default="manual", description="重载原因")
+    """重载原因"""
+    external_available_plugins: Dict[str, str] = Field(
+        default_factory=dict,
+        description="可视为已满足的外部依赖插件版本映射",
+    )
+    """可视为已满足的外部依赖插件版本映射"""
+
+
 class ReloadPluginResultPayload(BaseModel):
     """插件重载结果载荷。"""
 
@@ -296,6 +310,21 @@ class ReloadPluginResultPayload(BaseModel):
     """是否重载成功"""
     requested_plugin_id: str = Field(description="请求重载的插件 ID")
     """请求重载的插件 ID"""
+    reloaded_plugins: List[str] = Field(default_factory=list, description="成功完成重载的插件列表")
+    """成功完成重载的插件列表"""
+    unloaded_plugins: List[str] = Field(default_factory=list, description="本次已卸载的插件列表")
+    """本次已卸载的插件列表"""
+    failed_plugins: Dict[str, str] = Field(default_factory=dict, description="重载失败的插件及原因")
+    """重载失败的插件及原因"""
+
+
+class ReloadPluginsResultPayload(BaseModel):
+    """批量插件重载结果载荷。"""
+
+    success: bool = Field(description="是否重载成功")
+    """是否重载成功"""
+    requested_plugin_ids: List[str] = Field(default_factory=list, description="请求重载的插件 ID 列表")
+    """请求重载的插件 ID 列表"""
     reloaded_plugins: List[str] = Field(default_factory=list, description="成功完成重载的插件列表")
     """成功完成重载的插件列表"""
     unloaded_plugins: List[str] = Field(default_factory=list, description="本次已卸载的插件列表")

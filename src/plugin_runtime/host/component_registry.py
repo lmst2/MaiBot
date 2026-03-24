@@ -75,14 +75,14 @@ class CommandEntry(ComponentEntry):
     """Command 组件条目"""
 
     def __init__(self, name: str, component_type: str, plugin_id: str, metadata: Dict[str, Any]) -> None:
-        self.compiled_pattern: Optional[re.Pattern] = None
+        super().__init__(name, component_type, plugin_id, metadata)
         self.aliases: List[str] = metadata.get("aliases", [])
+        self.compiled_pattern: Optional[re.Pattern] = None
         if pattern := metadata.get("command_pattern", ""):
             try:
                 self.compiled_pattern = re.compile(pattern)
-            except re.error as e:
+            except (re.error, TypeError) as e:
                 logger.warning(f"命令 {self.full_name} 正则编译失败: {e}")
-        super().__init__(name, component_type, plugin_id, metadata)
 
 
 class ToolEntry(ComponentEntry):
