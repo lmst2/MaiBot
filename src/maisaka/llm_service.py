@@ -5,47 +5,39 @@ MaiSaka LLM 服务 - 使用主项目 LLM 系统
 
 from datetime import datetime
 
-import json
 import random
 from dataclasses import dataclass
-from typing import Any, List, Literal, Optional
+from typing import Any, List, Optional
 
 from rich.console import Group
 from rich.panel import Panel
 from rich.pretty import Pretty
 from rich.text import Text
 
+from src.common.data_models.mai_message_data_model import MaiMessage
 from src.common.logger import get_logger
 from src.config.config import config_manager, global_config
-from src.llm_models.payload_content.message import MessageBuilder, RoleType
-from src.llm_models.payload_content.tool_option import ToolCall as ToolCallOption, ToolOption
+from src.llm_models.payload_content.message import Message, MessageBuilder, RoleType
+from src.llm_models.payload_content.tool_option import ToolCall, ToolOption
 from src.llm_models.utils_model import LLMRequest
 from src.prompt.prompt_manager import prompt_manager
+
 from . import config
 from .config import console
 from .builtin_tools import get_builtin_tools
+from .message_adapter import (
+    build_message,
+    format_speaker_content,
+    get_message_kind,
+    get_message_role,
+    get_message_text,
+    get_tool_call_id,
+    get_tool_calls,
+    remove_last_perception,
+    to_llm_message,
+)
 
 logger = get_logger("maisaka_llm")
-
-# ──────────────────── 消息类型 ────────────────────
-
-MessageType = Literal["user", "assistant", "system", "perception"]
-
-# 内部使用的字段前缀，用于标记不应发送给 API 的元数据
-INTERNAL_FIELD_PREFIX = "_"
-
-# 消息类型字段名
-MSG_TYPE_FIELD = "_type"
-
-
-@dataclass
-class ToolCall:
-    """工具调用信息"""
-
-    id: str
-    name: str
-    arguments: dict
-
 
 @dataclass
 class ChatResponse:
@@ -53,30 +45,7 @@ class ChatResponse:
 
     content: Optional[str]
     tool_calls: List[ToolCall]
-    raw_message: dict  # 可直接追加到对话历史的消息字典
-
-
-# ──────────────────── 工具函数 ────────────────────
-
-
-def build_message(role: str, content: str, msg_type: MessageType = "user", **kwargs) -> dict:
-    """构建消息字典，包含消息类型标记。"""
-    msg = {
-        "role": role,
-        "content": content,
-        MSG_TYPE_FIELD: msg_type,
-        "_time": datetime.now().strftime("%H:%M:%S"),
-        **kwargs,
-    }
-    return msg
-
-
-def remove_last_perception(messages: list[dict]) -> None:
-    """移除最后一条感知消息（直接修改原列表）。"""
-    for i in range(len(messages) - 1, -1, -1):
-        if messages[i].get(MSG_TYPE_FIELD) == "perception":
-            messages.pop(i)
-            break
+    raw_message: MaiMessage
 
 
 class MaiSakaLLMService:
@@ -132,7 +101,6 @@ class MaiSakaLLMService:
         if chat_system_prompt is None:
             try:
                 chat_prompt = prompt_manager.get_prompt("maidairy_chat")
-                logger.info("成功加载 maidairy_chat 提示词模板")
                 tools_section = ""
                 if config.ENABLE_WRITE_FILE:
                     tools_section += "\n• write_file(filename, content) — 在 mai_files 目录下写入文件。"
@@ -142,6 +110,7 @@ class MaiSakaLLMService:
                     tools_section += "\n• list_files() — 获取 mai_files 目录下所有文件的元信息列表。"
 
                 chat_prompt.add_context("file_tools_section", tools_section if tools_section else "")
+                chat_prompt.add_context("bot_name", global_config.bot.nickname)
                 chat_prompt.add_context("identity", personality_prompt)
                 import asyncio
 
@@ -167,8 +136,6 @@ class MaiSakaLLMService:
         self._emotion_prompt: Optional[str] = None
         self._cognition_prompt: Optional[str] = None
         self._timing_prompt: Optional[str] = None
-        self._context_summarize_prompt: Optional[str] = None
-
         try:
             import asyncio
 
@@ -183,9 +150,6 @@ class MaiSakaLLMService:
                 )
                 self._timing_prompt = loop.run_until_complete(
                     prompt_manager.render_prompt(prompt_manager.get_prompt("maidairy_timing"))
-                )
-                self._context_summarize_prompt = loop.run_until_complete(
-                    prompt_manager.render_prompt(prompt_manager.get_prompt("maidairy_context_summarize"))
                 )
                 logger.info("成功加载 MaiSaka 子模块提示词")
             finally:
@@ -367,12 +331,12 @@ class MaiSakaLLMService:
                 params.append((param.name, param.param_type, param.description, param.required, param.enum_values))
         return {"name": tool.name, "description": tool.description, "parameters": params}
 
-    async def chat_loop_step(self, chat_history: List[dict]) -> ChatResponse:
+    async def chat_loop_step(self, chat_history: list[MaiMessage]) -> ChatResponse:
         """执行对话循环的一步 - 使用 tool_use 模型"""
 
-        def message_factory(client) -> List:
+        def message_factory(client) -> list[Message]:
             """将 MaiSaka 的 chat_history 转换为主项目的 Message 格式"""
-            messages = []
+            messages: list[Message] = []
 
             # 首先添加系统提示词
             system_msg = MessageBuilder().set_role(RoleType.System)
@@ -381,48 +345,9 @@ class MaiSakaLLMService:
 
             # 然后添加对话历史
             for msg in chat_history:
-                role = msg.get("role", "")
-                content = msg.get("content", "")
-
-                # 跳过内部字段类型的消息和系统消息（已经有系统提示词了）
-                if role in ("perception", "system"):
-                    continue
-
-                # 映射角色类型
-                if role == "user":
-                    role_type = RoleType.User
-                elif role == "assistant":
-                    role_type = RoleType.Assistant
-                elif role == "tool":
-                    role_type = RoleType.Tool
-                else:
-                    continue
-
-                builder = MessageBuilder().set_role(role_type)
-
-                # 处理工具调用
-                if role == "assistant" and "tool_calls" in msg:
-                    # 转换 tool_calls 格式：从 MaiSaka 格式转为主项目格式
-                    tool_calls_list = []
-                    for tc in msg["tool_calls"]:
-                        tc_func = tc.get("function", {})
-                        # 主项目的 ToolCall: call_id, func_name, args
-                        tool_calls_list.append(
-                            ToolCallOption(
-                                call_id=tc.get("id", ""),
-                                func_name=tc_func.get("name", ""),
-                                args=json.loads(tc_func.get("arguments", "{}")) if tc_func.get("arguments") else {},
-                            )
-                        )
-                    builder.set_tool_calls(tool_calls_list)
-                elif role == "tool" and "tool_call_id" in msg:
-                    builder.add_tool_call(msg["tool_call_id"])
-
-                # 添加文本内容
-                if content:
-                    builder.add_text_content(content)
-
-                messages.append(builder.build())
+                llm_message = to_llm_message(msg)
+                if llm_message is not None:
+                    messages.append(llm_message)
 
             return messages
 
@@ -435,33 +360,18 @@ class MaiSakaLLMService:
         # 打印消息列表
         built_messages = message_factory(None)
 
-        # 将消息分为普通消息和 tool 消息
-        non_tool_panels = []
-        tool_panels = []
+        ordered_panels = [self._render_message_panel(msg, index + 1) for index, msg in enumerate(built_messages)]
 
-        for index, msg in enumerate(built_messages):
-            panel = self._render_message_panel(msg, index + 1)
-            role = msg.role.value if hasattr(msg.role, "value") else str(msg.role)
-
-            if role == "tool":
-                tool_panels.append(panel)
-            else:
-                non_tool_panels.append(panel)
-
-        # 先显示普通消息（group 在一个 panel 内）
-        if non_tool_panels:
+        if config.SHOW_THINKING and ordered_panels:
             console.print(
                 Panel(
-                    Group(*non_tool_panels),
+                    Group(*ordered_panels),
                     title="MaiSaka LLM Request - chat_loop_step",
                     border_style="cyan",
                     padding=(0, 1),
                 )
             )
 
-        # tool 消息作为单独的块展示
-        for panel in tool_panels:
-            console.print(panel)
 
         response, (reasoning, model, tool_calls) = await self._llm_chat.generate_response_with_message_async(
             message_factory=message_factory,
@@ -469,86 +379,60 @@ class MaiSakaLLMService:
             temperature=self._temperature,
             max_tokens=self._max_tokens,
         )
-
-        # 转换 tool_calls 格式：从主项目格式转为 MaiSaka 格式
-        converted_tool_calls = []
-        if tool_calls:
-            for tc in tool_calls:
-                # 主项目的 ToolCall 有 call_id, func_name, args
-                call_id = tc.call_id if hasattr(tc, "call_id") else ""
-                func_name = tc.func_name if hasattr(tc, "func_name") else ""
-                args = tc.args if hasattr(tc, "args") else {}
-
-                converted_tool_calls.append(
-                    ToolCall(
-                        id=call_id,
-                        name=func_name,
-                        arguments=args,
-                    )
-                )
-
-        # 构建原始消息格式（MaiSaka 风格）
-        raw_message = {
-            "role": "assistant",
-            "content": response,
-            "_time": datetime.now().strftime("%H:%M:%S"),
-        }
-        if converted_tool_calls:
-            raw_message["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {
-                        "name": tc.name,
-                        "arguments": json.dumps(tc.arguments),
-                    },
-                }
-                for tc in converted_tool_calls
-            ]
+        raw_message = build_message(
+            role=RoleType.Assistant.value,
+            content=response or "",
+            source="assistant",
+            tool_calls=tool_calls or None,
+        )
 
         return ChatResponse(
             content=response,
-            tool_calls=converted_tool_calls,
+            tool_calls=tool_calls or [],
             raw_message=raw_message,
         )
 
-    def _filter_for_api(self, chat_history: List[dict]) -> str:
+    def _filter_for_api(self, chat_history: list[MaiMessage]) -> str:
         """过滤对话历史为 API 格式"""
         parts = []
         for msg in chat_history:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
+            role = get_message_role(msg)
+            content = get_message_text(msg)
 
             # 跳过内部字段
-            if role in ("perception", "tool"):
+            if get_message_kind(msg) == "perception" or role == RoleType.Tool.value:
                 continue
 
-            if role == "system":
+            if role == RoleType.System.value:
                 parts.append(f"System: {content}")
-            elif role == "user":
+            elif role == RoleType.User.value:
                 parts.append(f"User: {content}")
-            elif role == "assistant":
+            elif role == RoleType.Assistant.value:
                 # 处理工具调用
-                if "tool_calls" in msg:
-                    tool_desc = ", ".join([tc.get("name", "") for tc in msg["tool_calls"]])
+                tool_calls = get_tool_calls(msg)
+                if tool_calls:
+                    tool_desc = ", ".join([tc.func_name for tc in tool_calls if tc.func_name])
                     parts.append(f"Assistant (called tools: {tool_desc})")
                 else:
                     parts.append(f"Assistant: {content}")
 
         return "\n\n".join(parts)
 
-    def build_chat_context(self, user_text: str) -> List[dict]:
+    def build_chat_context(self, user_text: str) -> list[MaiMessage]:
         """构建对话上下文"""
         return [
-            {"role": "system", "content": self._chat_system_prompt},
-            {"role": "user", "content": user_text},
+            build_message(
+                role=RoleType.User.value,
+                content=format_speaker_content(config.USER_NAME, user_text),
+                source="user",
+            )
         ]
 
     # ──────── 分析模块（使用 utils 模型） ────────
 
-    async def analyze_emotion(self, chat_history: List[dict]) -> str:
+    async def analyze_emotion(self, chat_history: list[MaiMessage]) -> str:
         """情绪分析 - 使用 utils 模型"""
-        filtered = [m for m in chat_history if m.get("_type") != "perception"]
+        filtered = [m for m in chat_history if get_message_kind(m) != "perception"]
         recent = filtered[-10:] if len(filtered) > 10 else filtered
 
         # 使用加载的系统提示词
@@ -556,17 +440,20 @@ class MaiSakaLLMService:
 
         prompt_parts = [f"{system_prompt}\n\n【对话内容】\n"]
         for msg in recent:
-            if msg.get("role") == "user":
-                prompt_parts.append(f"用户: {msg.get('content', '')}")
-            elif msg.get("role") == "assistant":
-                prompt_parts.append(f"助手: {msg.get('content', '')}")
+            role = get_message_role(msg)
+            content = get_message_text(msg)
+            if role == RoleType.User.value:
+                prompt_parts.append(f"{config.USER_NAME}: {content}")
+            elif role == RoleType.Assistant.value:
+                prompt_parts.append(f"助手: {content}")
 
         prompt = "\n".join(prompt_parts)
 
-        print("\n" + "=" * 60)
-        print("MaiSaka LLM Request - analyze_emotion:")
-        print(f"  {prompt}")
-        print("=" * 60 + "\n")
+        if config.SHOW_THINKING:
+            print("\n" + "=" * 60)
+            print("MaiSaka LLM Request - analyze_emotion:")
+            print(f"  {prompt}")
+            print("=" * 60 + "\n")
 
         try:
             response, _ = await self._llm_utils.generate_response_async(
@@ -580,9 +467,9 @@ class MaiSakaLLMService:
             logger.error(f"情绪分析 LLM 调用出错: {e}")
             return ""
 
-    async def analyze_cognition(self, chat_history: List[dict]) -> str:
+    async def analyze_cognition(self, chat_history: list[MaiMessage]) -> str:
         """认知分析 - 使用 utils 模型"""
-        filtered = [m for m in chat_history if m.get("_type") != "perception"]
+        filtered = [m for m in chat_history if get_message_kind(m) != "perception"]
         recent = filtered[-10:] if len(filtered) > 10 else filtered
 
         # 使用加载的系统提示词
@@ -590,14 +477,16 @@ class MaiSakaLLMService:
 
         prompt_parts = [f"{system_prompt}\n\n【对话内容】\n"]
         for msg in recent:
-            if msg.get("role") == "user":
-                prompt_parts.append(f"用户: {msg.get('content', '')}")
-            elif msg.get("role") == "assistant":
-                prompt_parts.append(f"助手: {msg.get('content', '')}")
+            role = get_message_role(msg)
+            content = get_message_text(msg)
+            if role == RoleType.User.value:
+                prompt_parts.append(f"{config.USER_NAME}: {content}")
+            elif role == RoleType.Assistant.value:
+                prompt_parts.append(f"助手: {content}")
 
         prompt = "\n".join(prompt_parts)
 
-        if config.SHOW_ANALYZE_COGNITION_PROMPT:
+        if config.SHOW_THINKING and config.SHOW_ANALYZE_COGNITION_PROMPT:
             print("\n" + "=" * 60)
             print("MaiSaka LLM Request - analyze_cognition:")
             print(f"  {prompt}")
@@ -615,25 +504,29 @@ class MaiSakaLLMService:
             logger.error(f"认知分析 LLM 调用出错: {e}")
             return ""
 
-    async def analyze_timing(self, chat_history: List[dict], timing_info: str) -> str:
+    async def analyze_timing(self, chat_history: list[MaiMessage], timing_info: str) -> str:
         """时间分析 - 使用 utils 模型"""
-        filtered = [m for m in chat_history if m.get("_type") not in ("perception", "system")]
+        filtered = [
+            m
+            for m in chat_history
+            if get_message_kind(m) != "perception" and get_message_role(m) != RoleType.System.value
+        ]
 
         # 使用加载的系统提示词
         system_prompt = self._timing_prompt or "请分析以下对话的时间节奏和用户状态："
 
         prompt_parts = [f"{system_prompt}\n\n【系统时间戳信息】\n{timing_info}\n\n【当前对话记录】\n"]
         for msg in filtered:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            if role == "user":
-                prompt_parts.append(f"用户: {content}")
-            elif role == "assistant":
+            role = get_message_role(msg)
+            content = get_message_text(msg)
+            if role == RoleType.User.value:
+                prompt_parts.append(f"{config.USER_NAME}: {content}")
+            elif role == RoleType.Assistant.value:
                 prompt_parts.append(f"助手: {content}")
 
         prompt = "\n".join(prompt_parts)
 
-        if config.SHOW_ANALYZE_TIMING_PROMPT:
+        if config.SHOW_THINKING and config.SHOW_ANALYZE_TIMING_PROMPT:
             print("\n" + "=" * 60)
             print("MaiSaka LLM Request - analyze_timing:")
             print(f"  {prompt}")
@@ -651,44 +544,9 @@ class MaiSakaLLMService:
             logger.error(f"时间分析 LLM 调用出错: {e}")
             return ""
 
-    async def summarize_context(self, context_messages: List[dict]) -> str:
-        """上下文总结 - 使用 utils 模型"""
-        filtered = [m for m in context_messages if m.get("role") != "system"]
-
-        # 使用加载的系统提示词
-        system_prompt = self._context_summarize_prompt or "请对以下对话内容进行总结："
-
-        prompt_parts = [f"{system_prompt}\n\n【对话内容】\n"]
-        for msg in filtered:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            if role == "user":
-                prompt_parts.append(f"用户: {content}")
-            elif role == "assistant":
-                prompt_parts.append(f"助手: {content}")
-
-        prompt = "\n".join(prompt_parts)
-
-        print("\n" + "=" * 60)
-        print("MaiSaka LLM Request - summarize_context:")
-        print(f"  {prompt}")
-        print("=" * 60 + "\n")
-
-        try:
-            response, _ = await self._llm_utils.generate_response_async(
-                prompt=prompt,
-                temperature=0.3,
-                max_tokens=1024,
-            )
-
-            return response
-        except Exception as e:
-            logger.error(f"上下文总结 LLM 调用出错: {e}")
-            return ""
-
     # ──────── 回复生成（使用 replyer 模型） ────────
 
-    async def generate_reply(self, reason: str, chat_history: List[dict]) -> str:
+    async def generate_reply(self, reason: str, chat_history: list[MaiMessage]) -> str:
         """
         生成回复 - 使用 replyer 模型
         可供 Replyer 类直接调用
@@ -700,7 +558,9 @@ class MaiSakaLLMService:
 
         # 格式化对话历史
         filtered_history = [
-            msg for msg in chat_history if msg.get("role") != "system" and msg.get("_type") != "perception"
+            msg
+            for msg in chat_history
+            if get_message_role(msg) != RoleType.System.value and get_message_kind(msg) != "perception"
         ]
         formatted_history = format_chat_history(filtered_history)
 
@@ -717,10 +577,11 @@ class MaiSakaLLMService:
 
         messages = f"System: {system_prompt}\n\nUser: {user_prompt}"
 
-        print("\n" + "=" * 60)
-        print("MaiSaka LLM Request - generate_reply:")
-        print(f"  {messages}")
-        print("=" * 60 + "\n")
+        if config.SHOW_THINKING:
+            print("\n" + "=" * 60)
+            print("MaiSaka LLM Request - generate_reply:")
+            print(f"  {messages}")
+            print("=" * 60 + "\n")
 
         try:
             response, _ = await self._llm_replyer.generate_response_async(

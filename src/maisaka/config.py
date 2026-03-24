@@ -27,6 +27,8 @@ ENABLE_READ_FILE = global_config.maisaka.enable_read_file
 ENABLE_LIST_FILES = global_config.maisaka.enable_list_files
 SHOW_ANALYZE_COGNITION_PROMPT = global_config.maisaka.show_analyze_cognition_prompt
 SHOW_ANALYZE_TIMING_PROMPT = global_config.maisaka.show_analyze_timing_prompt
+SHOW_THINKING = global_config.maisaka.show_thinking
+USER_NAME = global_config.maisaka.user_name.strip() or "用户"
 
 
 # ──────────────────── Rich 主题 & Console ────────────────────

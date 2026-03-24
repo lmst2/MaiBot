@@ -2,7 +2,7 @@
 MaiSaka built-in tool definitions.
 """
 
-from typing import Any, Dict, List
+from typing import List
 
 from src.llm_models.payload_content.tool_option import ToolOption, ToolParamType
 
@@ -43,44 +43,6 @@ def create_builtin_tools() -> List[ToolOption]:
     return tools
 
 
-def builtin_tools_as_dicts() -> List[Dict[str, Any]]:
-    """Return built-in tools as plain dictionaries."""
-    return [
-        {
-            "name": "wait",
-            "description": "Pause speaking and wait for the user to provide more input.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "seconds": {
-                        "type": "number",
-                        "description": "How many seconds to wait before timing out.",
-                    }
-                },
-                "required": ["seconds"],
-            },
-        },
-        {
-            "name": "reply",
-            "description": "Generate and emit a visible reply based on the current thought.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-        {
-            "name": "no_reply",
-            "description": "Do not emit a visible reply this round and continue thinking.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-        {
-            "name": "stop",
-            "description": "Stop the current inner loop and return control to the outer chat flow.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    ]
-
-
 def get_builtin_tools() -> List[ToolOption]:
     """Return built-in tools."""
     return create_builtin_tools()
-
-
-BUILTIN_TOOLS_DICTS = builtin_tools_as_dicts()

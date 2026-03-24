@@ -1600,6 +1600,24 @@ class MaiSakaConfig(ConfigBase):
     )
     """是否在 CLI 中显示 analyze_timing 的 Prompt"""
 
+    show_thinking: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "brain",
+        },
+    )
+    """鏄惁鍦?CLI 涓樉绀哄唴蹇冩€濊€冨拰瀹屾暣 Prompt"""
+
+    user_name: str = Field(
+        default="用户",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "user",
+        },
+    )
+    """MaiSaka 涓敤鎴风殑鏄剧ず鍚嶇О"""
+
 class PluginRuntimeConfig(ConfigBase):
     """插件运行时配置类"""
 

@@ -2,14 +2,14 @@
 MaiSaka reply helper.
 """
 
-from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
+from src.common.data_models.mai_message_data_model import MaiMessage
 from src.config.config import global_config
 
+from .config import USER_NAME
 from .llm_service import MaiSakaLLMService
-
-VISIBLE_REPLY_PREFIX = "\u3010\u9ea6\u9ea6\u7684\u53d1\u8a00\u3011"
+from .message_adapter import get_message_role, get_message_text, is_perception_message, parse_speaker_content
 
 
 def _normalize_content(content: str, limit: int = 500) -> str:
@@ -19,57 +19,49 @@ def _normalize_content(content: str, limit: int = 500) -> str:
     return normalized
 
 
-def _format_message_time(_: dict[str, Any]) -> str:
-    return datetime.now().strftime("%H:%M:%S")
+def _format_message_time(message: MaiMessage) -> str:
+    return message.timestamp.strftime("%H:%M:%S")
 
 
-def _extract_visible_assistant_reply(message: dict[str, Any]) -> str:
-    if message.get("_type") == "perception":
+def _extract_visible_assistant_reply(message: MaiMessage) -> str:
+    if is_perception_message(message):
         return ""
-
-    content = (message.get("content", "") or "").strip()
-    if not content:
-        return ""
-
-    marker = "[generated_reply]"
-    if marker in content:
-        _, visible_reply = content.rsplit(marker, 1)
-        return _normalize_content(visible_reply)
-
     return ""
 
 
-def _extract_guided_bot_reply(message: dict[str, Any]) -> str:
-    content = (message.get("content", "") or "").strip()
-    if content.startswith(VISIBLE_REPLY_PREFIX):
-        return _normalize_content(content[len(VISIBLE_REPLY_PREFIX) :].strip())
+def _extract_guided_bot_reply(message: MaiMessage) -> str:
+    speaker_name, body = parse_speaker_content(get_message_text(message).strip())
+    bot_nickname = global_config.bot.nickname.strip() or "Bot"
+    if speaker_name == bot_nickname:
+        return _normalize_content(body.strip())
     return ""
 
 
-def format_chat_history(messages: list[dict[str, Any]]) -> str:
+def format_chat_history(messages: list[MaiMessage]) -> str:
     """Format visible chat history for reply generation."""
     bot_nickname = global_config.bot.nickname.strip() or "Bot"
     parts: list[str] = []
 
     for message in messages:
-        role = message.get("role", "")
+        role = get_message_role(message)
         timestamp = _format_message_time(message)
 
         if role == "user":
             guided_reply = _extract_guided_bot_reply(message)
             if guided_reply:
-                parts.append(f"{timestamp} {bot_nickname}（分析器指导的麦麦发言）：{guided_reply}")
+                parts.append(f"{timestamp} {bot_nickname}(you): {guided_reply}")
                 continue
 
-            content = _normalize_content(message.get("content", "") or "")
+            _, content_body = parse_speaker_content(get_message_text(message))
+            content = _normalize_content(content_body)
             if content:
-                parts.append(f"{timestamp} 用户：{content}")
+                parts.append(f"{timestamp} {USER_NAME}: {content}")
             continue
 
         if role == "assistant":
             visible_reply = _extract_visible_assistant_reply(message)
             if visible_reply:
-                parts.append(f"{timestamp} {bot_nickname}（你）：{visible_reply}")
+                parts.append(f"{timestamp} {bot_nickname}(you): {visible_reply}")
 
     return "\n".join(parts)
 
@@ -87,7 +79,7 @@ class Replyer:
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
 
-    async def reply(self, reason: str, chat_history: list[dict[str, Any]]) -> str:
+    async def reply(self, reason: str, chat_history: list[MaiMessage]) -> str:
         if not self._enabled or not reason or self._llm_service is None:
             return "..."
 
