@@ -14,7 +14,7 @@
 # #     user_nickname: str = field(default_factory=str)
 # #     person_id: Optional[str] = None
 # #     person_name: Optional[str] = None
-
+# 已重构，见src/common/data_models/chat_target_info_data_model.py
 
 # @dataclass
 # class ActionPlannerInfo(BaseDataModel):

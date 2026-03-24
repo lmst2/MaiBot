@@ -20,4 +20,4 @@
 #     timing: Optional[Dict[str, Any]] = None
 #     processed_output: Optional[List[str]] = None
 #     timing_logs: Optional[List[str]] = None
-# TODO: 重构
+# 已重构，见src/common/data_models/reply_generation_data_models.py
