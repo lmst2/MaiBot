@@ -21,7 +21,6 @@ from .config import (
     ENABLE_EMOTION_MODULE,
     ENABLE_KNOWLEDGE_MODULE,
     ENABLE_MCP,
-    ENABLE_TIMING_MODULE,
     SHOW_THINKING,
     USER_NAME,
     console,
@@ -32,7 +31,6 @@ from .knowledge_store import get_knowledge_store
 from .llm_service import MaiSakaLLMService, build_message, remove_last_perception
 from .message_adapter import format_speaker_content
 from .mcp_client import MCPManager
-from .timing import build_timing_info
 from .tool_handlers import (
     ToolHandlerContext,
     handle_list_files,
@@ -117,7 +115,12 @@ class BufferCLI:
             self._last_assistant_response_time = None
             self._chat_history = self.llm_service.build_chat_context(user_text)
         else:
-            self._chat_history.append(build_message(role="user", content=format_speaker_content(USER_NAME, user_text)))
+            self._chat_history.append(
+                build_message(
+                    role="user",
+                    content=format_speaker_content(USER_NAME, user_text, now),
+                )
+            )
 
         await self._run_llm_loop(self._chat_history)
 
@@ -141,13 +144,6 @@ class BufferCLI:
 
         while True:
             if last_had_tool_calls:
-                timing_info = build_timing_info(
-                    self._chat_start_time,
-                    self._last_user_input_time,
-                    self._last_assistant_response_time,
-                    self._user_input_times,
-                )
-
                 tasks = []
                 status_text_parts = []
 
@@ -157,9 +153,6 @@ class BufferCLI:
                 if ENABLE_COGNITION_MODULE:
                     tasks.append(("cognition", self.llm_service.analyze_cognition(chat_history)))
                     status_text_parts.append("cognition")
-                if ENABLE_TIMING_MODULE:
-                    tasks.append(("timing", self.llm_service.analyze_timing(chat_history, timing_info)))
-                    status_text_parts.append("timing")
                 if ENABLE_KNOWLEDGE_MODULE:
                     tasks.append(("knowledge", retrieve_relevant_knowledge(self.llm_service, chat_history)))
                     status_text_parts.append("knowledge")
@@ -170,16 +163,13 @@ class BufferCLI:
                 ):
                     results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
 
-                eq_result, cognition_result, timing_result, knowledge_result = None, None, None, None
+                eq_result, cognition_result, knowledge_result = None, None, None
                 result_idx = 0
                 if ENABLE_EMOTION_MODULE:
                     eq_result = results[result_idx]
                     result_idx += 1
                 if ENABLE_COGNITION_MODULE:
                     cognition_result = results[result_idx]
-                    result_idx += 1
-                if ENABLE_TIMING_MODULE:
-                    timing_result = results[result_idx]
                     result_idx += 1
                 if ENABLE_KNOWLEDGE_MODULE:
                     knowledge_result = results[result_idx]
@@ -219,23 +209,6 @@ class BufferCLI:
                                 )
                             )
 
-                timing_analysis = ""
-                if ENABLE_TIMING_MODULE:
-                    if isinstance(timing_result, Exception):
-                        console.print(f"[warning]Timing analysis failed: {timing_result}[/warning]")
-                    elif timing_result:
-                        timing_analysis = timing_result
-                        if SHOW_THINKING:
-                            console.print(
-                                Panel(
-                                    Markdown(timing_analysis),
-                                    title="Timing",
-                                    border_style="bright_blue",
-                                    padding=(0, 1),
-                                    style="dim",
-                                )
-                            )
-
                 knowledge_analysis = ""
                 if ENABLE_KNOWLEDGE_MODULE:
                     if isinstance(knowledge_result, Exception):
@@ -260,8 +233,6 @@ class BufferCLI:
                     perception_parts.append(f"Emotion\n{eq_analysis}")
                 if cognition_analysis:
                     perception_parts.append(f"Cognition\n{cognition_analysis}")
-                if timing_analysis:
-                    perception_parts.append(f"Timing\n{timing_analysis}")
                 if knowledge_analysis:
                     perception_parts.append(f"Knowledge\n{knowledge_analysis}")
 
@@ -330,7 +301,11 @@ class BufferCLI:
                         chat_history.append(
                             build_message(
                                 role="user",
-                                content=format_speaker_content(global_config.bot.nickname.strip() or "MaiSaka", reply),
+                                content=format_speaker_content(
+                                    global_config.bot.nickname.strip() or "MaiSaka",
+                                    reply,
+                                    datetime.now(),
+                                ),
                                 source="guided_reply",
                             )
                         )

@@ -2,9 +2,11 @@ from typing import Dict
 
 import traceback
 
-from src.common.logger import get_logger
-from src.chat.message_receive.chat_manager import chat_manager
 from src.chat.heart_flow.heartFC_chat import HeartFChatting
+from src.chat.message_receive.chat_manager import chat_manager
+from src.common.logger import get_logger
+from src.config.config import global_config
+from src.maisaka.runtime import MaisakaHeartFlowChatting
 # from src.chat.brain_chat.brain_chat import BrainChatting
 
 logger = get_logger("heartflow")
@@ -16,7 +18,7 @@ class HeartflowManager:
 
     def __init__(self):
         # self.heartflow_chat_list: Dict[str, HeartFChatting | BrainChatting] = {}
-        self.heartflow_chat_list: Dict[str, HeartFChatting] = {}
+        self.heartflow_chat_list: Dict[str, HeartFChatting | MaisakaHeartFlowChatting] = {}
 
     async def get_or_create_heartflow_chat(self, session_id: str):  # -> Optional[HeartFChatting | BrainChatting]:
         """获取或创建一个新的HeartFChatting实例"""
@@ -29,7 +31,10 @@ class HeartflowManager:
             # new_chat = (
             #     HeartFChatting(session_id=session_id) if chat_session.group_id else BrainChatting(session_id=session_id)
             # )
-            new_chat = HeartFChatting(session_id=session_id)
+            if global_config.maisaka.take_over_hfc:
+                new_chat = MaisakaHeartFlowChatting(session_id=session_id)
+            else:
+                new_chat = HeartFChatting(session_id=session_id)
             await new_chat.start()
             self.heartflow_chat_list[session_id] = new_chat
             return new_chat
@@ -41,7 +46,7 @@ class HeartflowManager:
     def adjust_talk_frequency(self, session_id: str, frequency: float):
         """调整指定聊天流的说话频率"""
         chat = self.heartflow_chat_list.get(session_id)
-        if chat and isinstance(chat, HeartFChatting):
+        if chat and hasattr(chat, "adjust_talk_frequency"):
             chat.adjust_talk_frequency(frequency)
             logger.info(f"已调整聊天 {session_id} 的说话频率为 {frequency}")
         else:

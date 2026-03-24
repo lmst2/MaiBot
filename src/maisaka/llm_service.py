@@ -5,6 +5,7 @@ MaiSaka LLM 服务 - 使用主项目 LLM 系统
 
 from datetime import datetime
 
+import asyncio
 import random
 from dataclasses import dataclass
 from typing import Any, List, Optional
@@ -16,11 +17,11 @@ from rich.text import Text
 
 from src.common.data_models.mai_message_data_model import MaiMessage
 from src.common.logger import get_logger
+from src.common.prompt_i18n import load_prompt
 from src.config.config import config_manager, global_config
 from src.llm_models.payload_content.message import Message, MessageBuilder, RoleType
 from src.llm_models.payload_content.tool_option import ToolCall, ToolOption
 from src.llm_models.utils_model import LLMRequest
-from src.prompt.prompt_manager import prompt_manager
 
 from . import config
 from .config import console
@@ -70,6 +71,8 @@ class MaiSakaLLMService:
         self._max_tokens = max_tokens
         self._enable_thinking = enable_thinking
         self._extra_tools: List[dict] = []
+        self._prompts_loaded = False
+        self._prompt_load_lock = asyncio.Lock()
 
         # 获取主项目模型配置
         try:
@@ -96,66 +99,20 @@ class MaiSakaLLMService:
 
         # 构建人设信息
         personality_prompt = self._build_personality_prompt()
+        self._personality_prompt = personality_prompt
 
-        # 加载系统提示词
+        # 提示词在真正调用 LLM 前异步懒加载，避免在已有事件循环中嵌套 run_until_complete
         if chat_system_prompt is None:
-            try:
-                chat_prompt = prompt_manager.get_prompt("maidairy_chat")
-                tools_section = ""
-                if config.ENABLE_WRITE_FILE:
-                    tools_section += "\n• write_file(filename, content) — 在 mai_files 目录下写入文件。"
-                if config.ENABLE_READ_FILE:
-                    tools_section += "\n• read_file(filename) — 读取 mai_files 目录下的文件内容。"
-                if config.ENABLE_LIST_FILES:
-                    tools_section += "\n• list_files() — 获取 mai_files 目录下所有文件的元信息列表。"
-
-                chat_prompt.add_context("file_tools_section", tools_section if tools_section else "")
-                chat_prompt.add_context("bot_name", global_config.bot.nickname)
-                chat_prompt.add_context("identity", personality_prompt)
-                import asyncio
-
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    self._chat_system_prompt = loop.run_until_complete(prompt_manager.render_prompt(chat_prompt))
-                    logger.info(f"系统提示词已渲染，长度: {len(self._chat_system_prompt)}")
-                finally:
-                    loop.close()
-            except Exception as e:
-                logger.error(f"加载系统提示词失败: {e}")
-                self._chat_system_prompt = f"{personality_prompt}\n\n你是一个友好的 AI 助手。"
+            self._chat_system_prompt = f"{personality_prompt}\n\n你是一个友好的 AI 助手。"
         else:
             self._chat_system_prompt = chat_system_prompt
 
         self._model_name = (
             self._model_configs.planner.model_list[0] if self._model_configs.planner.model_list else "未配置"
         )
-
-
-        # 加载子模块提示词
+        # 子模块提示词同样采用懒加载
         self._emotion_prompt: Optional[str] = None
         self._cognition_prompt: Optional[str] = None
-        self._timing_prompt: Optional[str] = None
-        try:
-            import asyncio
-
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                self._emotion_prompt = loop.run_until_complete(
-                    prompt_manager.render_prompt(prompt_manager.get_prompt("maidairy_emotion"))
-                )
-                self._cognition_prompt = loop.run_until_complete(
-                    prompt_manager.render_prompt(prompt_manager.get_prompt("maidairy_cognition"))
-                )
-                self._timing_prompt = loop.run_until_complete(
-                    prompt_manager.render_prompt(prompt_manager.get_prompt("maidairy_timing"))
-                )
-                logger.info("成功加载 MaiSaka 子模块提示词")
-            finally:
-                loop.close()
-        except Exception as e:
-            logger.warning(f"加载子模块提示词失败，将使用默认提示词: {e}")
 
     def _try_fix_database_schema(self) -> None:
         """尝试修复数据库 schema，添加缺失的列"""
@@ -212,6 +169,43 @@ class MaiSakaLLMService:
         """设置额外的工具定义（如 MCP 工具）"""
         self._extra_tools = list(tools)
 
+    async def _ensure_prompts_loaded(self) -> None:
+        """异步懒加载提示词，避免在运行中的事件循环里同步渲染 prompt。"""
+        if self._prompts_loaded:
+            return
+
+        async with self._prompt_load_lock:
+            if self._prompts_loaded:
+                return
+
+            try:
+                tools_section = ""
+                if config.ENABLE_WRITE_FILE:
+                    tools_section += "\n• write_file(filename, content) — 在 mai_files 目录下写入文件。"
+                if config.ENABLE_READ_FILE:
+                    tools_section += "\n• read_file(filename) — 读取 mai_files 目录下的文件内容。"
+                if config.ENABLE_LIST_FILES:
+                    tools_section += "\n• list_files() — 获取 mai_files 目录下所有文件的元信息列表。"
+                self._chat_system_prompt = load_prompt(
+                    "maidairy_chat",
+                    file_tools_section=tools_section if tools_section else "",
+                    bot_name=global_config.bot.nickname,
+                    identity=self._personality_prompt,
+                )
+                logger.info(f"系统提示词已渲染，长度: {len(self._chat_system_prompt)}")
+            except Exception as e:
+                logger.error(f"加载系统提示词失败: {e}")
+                self._chat_system_prompt = f"{self._personality_prompt}\n\n你是一个友好的 AI 助手。"
+
+            try:
+                self._emotion_prompt = load_prompt("maidairy_emotion")
+                self._cognition_prompt = load_prompt("maidairy_cognition")
+                logger.info("成功加载 MaiSaka 子模块提示词")
+            except Exception as e:
+                logger.warning(f"加载子模块提示词失败，将使用默认提示词: {e}")
+
+            self._prompts_loaded = True
+
     @staticmethod
     def _get_role_badge_style(role: str) -> str:
         """为不同 role 返回不同的标签样式。"""
@@ -234,6 +228,22 @@ class MaiSakaLLMService:
         if isinstance(content, list):
             parts: list[object] = []
             for item in content:
+                if isinstance(item, str):
+                    parts.append(Text(item))
+                    continue
+                if isinstance(item, tuple) and len(item) == 2:
+                    image_format, image_base64 = item
+                    if isinstance(image_format, str) and isinstance(image_base64, str):
+                        approx_size = max(0, len(image_base64) * 3 // 4)
+                        size_text = f"{approx_size / 1024:.1f} KB" if approx_size >= 1024 else f"{approx_size} B"
+                        parts.append(
+                            Panel(
+                                Text(f"image/{image_format}  {size_text}\nbase64 omitted", style="magenta"),
+                                border_style="magenta",
+                                padding=(0, 1),
+                            )
+                        )
+                        continue
                 if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str):
                     parts.append(Text(item["text"]))
                 else:
@@ -262,6 +272,19 @@ class MaiSakaLLMService:
             "arguments": getattr(tool_call, "args", getattr(tool_call, "arguments", None)),
         }
 
+    def _render_tool_call_panel(self, tool_call: Any, index: int, parent_index: int) -> Panel:
+        """Render assistant tool calls as standalone cards."""
+        title = Text.assemble(
+            Text(" TOOL CALL ", style="bold white on magenta"),
+            Text(f"  #{parent_index}.{index}", style="muted"),
+        )
+        return Panel(
+            Pretty(self._format_tool_call_for_display(tool_call), expand_all=True),
+            title=title,
+            border_style="magenta",
+            padding=(0, 1),
+        )
+
     def _render_message_panel(self, message: Any, index: int) -> Panel:
         """渲染主循环 prompt 中的一条消息。"""
         if isinstance(message, dict):
@@ -285,15 +308,6 @@ class MaiSakaLLMService:
         if content not in (None, "", []):
             parts.append(Text(" message ", style="bold cyan"))
             parts.append(self._render_message_content(content))
-
-        if tool_calls:
-            parts.append(Text(" tool_calls ", style="bold magenta"))
-            parts.append(
-                Pretty(
-                    [self._format_tool_call_for_display(tool_call) for tool_call in tool_calls],
-                    expand_all=True,
-                )
-            )
 
         if tool_call_id:
             parts.append(
@@ -333,6 +347,7 @@ class MaiSakaLLMService:
 
     async def chat_loop_step(self, chat_history: list[MaiMessage]) -> ChatResponse:
         """执行对话循环的一步 - 使用 tool_use 模型"""
+        await self._ensure_prompts_loaded()
 
         def message_factory(client) -> list[Message]:
             """将 MaiSaka 的 chat_history 转换为主项目的 Message 格式"""
@@ -360,7 +375,13 @@ class MaiSakaLLMService:
         # 打印消息列表
         built_messages = message_factory(None)
 
-        ordered_panels = [self._render_message_panel(msg, index + 1) for index, msg in enumerate(built_messages)]
+        ordered_panels: list[Panel] = []
+        for index, msg in enumerate(built_messages, start=1):
+            ordered_panels.append(self._render_message_panel(msg, index))
+            tool_calls = getattr(msg, "tool_calls", None)
+            if tool_calls:
+                for tool_call_index, tool_call in enumerate(tool_calls, start=1):
+                    ordered_panels.append(self._render_tool_call_panel(tool_call, tool_call_index, index))
 
         if config.SHOW_THINKING and ordered_panels:
             console.print(
@@ -423,7 +444,7 @@ class MaiSakaLLMService:
         return [
             build_message(
                 role=RoleType.User.value,
-                content=format_speaker_content(config.USER_NAME, user_text),
+                content=format_speaker_content(config.USER_NAME, user_text, datetime.now()),
                 source="user",
             )
         ]
@@ -432,6 +453,7 @@ class MaiSakaLLMService:
 
     async def analyze_emotion(self, chat_history: list[MaiMessage]) -> str:
         """情绪分析 - 使用 utils 模型"""
+        await self._ensure_prompts_loaded()
         filtered = [m for m in chat_history if get_message_kind(m) != "perception"]
         recent = filtered[-10:] if len(filtered) > 10 else filtered
 
@@ -469,6 +491,7 @@ class MaiSakaLLMService:
 
     async def analyze_cognition(self, chat_history: list[MaiMessage]) -> str:
         """认知分析 - 使用 utils 模型"""
+        await self._ensure_prompts_loaded()
         filtered = [m for m in chat_history if get_message_kind(m) != "perception"]
         recent = filtered[-10:] if len(filtered) > 10 else filtered
 
@@ -504,8 +527,9 @@ class MaiSakaLLMService:
             logger.error(f"认知分析 LLM 调用出错: {e}")
             return ""
 
-    async def analyze_timing(self, chat_history: list[MaiMessage], timing_info: str) -> str:
+    async def _removed_analyze_timing(self, chat_history: list[MaiMessage], timing_info: str) -> str:
         """时间分析 - 使用 utils 模型"""
+        await self._ensure_prompts_loaded()
         filtered = [
             m
             for m in chat_history
@@ -526,7 +550,7 @@ class MaiSakaLLMService:
 
         prompt = "\n".join(prompt_parts)
 
-        if config.SHOW_THINKING and config.SHOW_ANALYZE_TIMING_PROMPT:
+        if False:
             print("\n" + "=" * 60)
             print("MaiSaka LLM Request - analyze_timing:")
             print(f"  {prompt}")
@@ -551,6 +575,7 @@ class MaiSakaLLMService:
         生成回复 - 使用 replyer 模型
         可供 Replyer 类直接调用
         """
+        await self._ensure_prompts_loaded()
         from datetime import datetime
         from .replyer import format_chat_history
 
@@ -566,8 +591,7 @@ class MaiSakaLLMService:
 
         # 获取回复提示词
         try:
-            replyer_prompt = prompt_manager.get_prompt("maidairy_replyer")
-            system_prompt = await prompt_manager.render_prompt(replyer_prompt)
+            system_prompt = load_prompt("maidairy_replyer")
         except Exception:
             system_prompt = "你是一个友好的 AI 助手，请根据用户的想法生成自然的回复。"
 

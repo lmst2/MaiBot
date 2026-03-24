@@ -37,6 +37,33 @@ def _extract_guided_bot_reply(message: MaiMessage) -> str:
     return ""
 
 
+def _split_user_message_segments(raw_content: str) -> list[tuple[Optional[str], str]]:
+    """Split a user message into speaker-labeled segments.
+
+    A new segment only starts when a line explicitly begins with `[speaker]`.
+    Continuation lines remain part of the current speaker's message.
+    """
+    segments: list[tuple[Optional[str], str]] = []
+    current_speaker: Optional[str] = None
+    current_lines: list[str] = []
+
+    for raw_line in raw_content.splitlines():
+        speaker_name, content_body = parse_speaker_content(raw_line)
+        if speaker_name is not None:
+            if current_lines:
+                segments.append((current_speaker, "\n".join(current_lines)))
+            current_speaker = speaker_name
+            current_lines = [content_body]
+            continue
+
+        current_lines.append(raw_line)
+
+    if current_lines:
+        segments.append((current_speaker, "\n".join(current_lines)))
+
+    return segments
+
+
 def format_chat_history(messages: list[MaiMessage]) -> str:
     """Format visible chat history for reply generation."""
     bot_nickname = global_config.bot.nickname.strip() or "Bot"
@@ -52,10 +79,13 @@ def format_chat_history(messages: list[MaiMessage]) -> str:
                 parts.append(f"{timestamp} {bot_nickname}(you): {guided_reply}")
                 continue
 
-            _, content_body = parse_speaker_content(get_message_text(message))
-            content = _normalize_content(content_body)
-            if content:
-                parts.append(f"{timestamp} {USER_NAME}: {content}")
+            raw_content = get_message_text(message)
+            for speaker_name, content_body in _split_user_message_segments(raw_content):
+                content = _normalize_content(content_body)
+                if not content:
+                    continue
+                visible_speaker = speaker_name or USER_NAME
+                parts.append(f"{timestamp} {visible_speaker}: {content}")
             continue
 
         if role == "assistant":

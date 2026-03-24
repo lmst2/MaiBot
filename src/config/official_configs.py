@@ -1528,15 +1528,6 @@ class MaiSakaConfig(ConfigBase):
     )
     """启用认知分析模块"""
 
-    enable_timing_module: bool = Field(
-        default=True,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "clock",
-        },
-    )
-    """启用时间感知模块（含自我反思功能）"""
-
     enable_knowledge_module: bool = Field(
         default=True,
         json_schema_extra={
@@ -1591,15 +1582,6 @@ class MaiSakaConfig(ConfigBase):
     )
     """是否在 CLI 中显示 analyze_cognition 的 Prompt"""
 
-    show_analyze_timing_prompt: bool = Field(
-        default=False,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "terminal",
-        },
-    )
-    """是否在 CLI 中显示 analyze_timing 的 Prompt"""
-
     show_thinking: bool = Field(
         default=True,
         json_schema_extra={
@@ -1617,6 +1599,24 @@ class MaiSakaConfig(ConfigBase):
         },
     )
     """MaiSaka 涓敤鎴风殑鏄剧ず鍚嶇О"""
+
+    direct_image_input: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "image",
+        },
+    )
+    """æ˜¯å¦å°†å›¾ç‰‡ç›´æŽ¥ä½œä¸ºå¤šæ¨¡æ€æ¶ˆæ¯ä¼ å…¥ Maisaka ä¸»å¾ªçŽ¯ï¼Œè€Œä¸æ˜¯ä»…ä½¿ç”¨è½¬è¯‘æ–‡æœ¬"""
+
+    take_over_hfc: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "git-branch",
+        },
+    )
+    """Enable Maisaka takeover for the Heart Flow Chat planner and reply pipeline"""
 
 class PluginRuntimeConfig(ConfigBase):
     """插件运行时配置类"""
