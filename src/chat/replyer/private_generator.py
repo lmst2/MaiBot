@@ -16,7 +16,6 @@ from maim_message import BaseMessageInfo, MessageBase, Seg, UserInfo as MaimUser
 from src.common.data_models.mai_message_data_model import MaiMessage
 from src.chat.message_receive.message import SessionMessage
 from src.chat.message_receive.chat_manager import BotChatSession
-from src.chat.message_receive.uni_message_sender import UniversalMessageSender
 from src.chat.utils.timer_calculator import Timer
 from src.chat.utils.utils import get_bot_account, get_chat_type_and_target_info, is_bot_self
 from src.prompt.prompt_manager import prompt_manager
@@ -27,13 +26,13 @@ from src.services.message_service import (
     replace_user_references,
     translate_pid_to_description,
 )
-from src.bw_learner.expression_selector import expression_selector
+from src.learners.expression_selector import expression_selector
 
 # from src.memory_system.memory_activator import MemoryActivator
 from src.person_info.person_info import Person, is_person_known
 from src.core.types import ActionInfo, EventType
 from src.memory_system.memory_retrieval import init_memory_retrieval_sys, build_memory_retrieval_prompt
-from src.bw_learner.jargon_explainer_old import explain_jargon_in_context
+from src.learners.jargon_explainer_old import explain_jargon_in_context
 
 init_memory_retrieval_sys()
 
@@ -47,10 +46,15 @@ class PrivateReplyer:
         chat_stream: BotChatSession,
         request_type: str = "replyer",
     ):
+        """初始化私聊回复器。
+
+        Args:
+            chat_stream: 当前绑定的聊天会话。
+            request_type: LLM 请求类型标识。
+        """
         self.express_model = LLMRequest(model_set=model_config.model_task_config.replyer, request_type=request_type)
         self.chat_stream = chat_stream
         self.is_group_chat, self.chat_target_info = get_chat_type_and_target_info(self.chat_stream.session_id)
-        self.heart_fc_sender = UniversalMessageSender()
         # self.memory_activator = MemoryActivator()
 
         from src.chat.tool_executor import ToolExecutor
@@ -970,7 +974,9 @@ class PrivateReplyer:
                     user_nickname=global_config.bot.nickname,
                 ),
                 group_info=None,
-                additional_config={},
+                additional_config={
+                    "platform_io_target_user_id": self.chat_stream.user_id,
+                },
             ),
             message_segment=message_segment,
         )

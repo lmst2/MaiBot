@@ -1,8 +1,9 @@
-from typing import Optional
-from sqlalchemy import Column, Float, Enum as SQLEnum, DateTime
-from sqlmodel import SQLModel, Field, LargeBinary
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from typing import Optional
+
+from sqlalchemy import Column, DateTime, Enum as SQLEnum, Float
+from sqlmodel import Field, LargeBinary, SQLModel
 
 
 class ModelUser(str, Enum):
@@ -172,8 +173,8 @@ class Expression(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)  # 自增主键
 
-    situation: str = Field(index=True, max_length=255, primary_key=True)  # 情景
-    style: str = Field(index=True, max_length=255, primary_key=True)  # 风格
+    situation: str = Field(index=True, max_length=255)  # 情景
+    style: str = Field(index=True, max_length=255)  # 风格
 
     # context: str  # 上下文
     # up_content: str
@@ -200,7 +201,7 @@ class Jargon(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)  # 自增主键
 
-    content: str = Field(index=True, max_length=255, primary_key=True)  # 黑话内容
+    content: str = Field(index=True, max_length=255)  # 黑话内容
     raw_content: Optional[str] = Field(default=None, nullable=True)  # 原始内容，未处理的黑话内容，为List[str]
 
     meaning: str  # 黑话含义

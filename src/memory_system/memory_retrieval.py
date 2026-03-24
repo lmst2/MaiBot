@@ -14,7 +14,7 @@ from src.common.database.database_model import ThinkingQuestion
 from src.memory_system.retrieval_tools import get_tool_registry, init_all_tools
 from src.llm_models.payload_content.message import MessageBuilder, RoleType, Message
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
-from src.bw_learner.jargon_explainer_old import retrieve_concepts_with_jargon
+from src.learners.jargon_explainer_old import retrieve_concepts_with_jargon
 
 logger = get_logger("memory_retrieval")
 

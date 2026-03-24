@@ -1633,24 +1633,6 @@ class PluginRuntimeConfig(ConfigBase):
     )
     """启用插件系统"""
 
-    builtin_plugin_dir: str = Field(
-        default="src/plugins/built_in",
-        json_schema_extra={
-            "x-widget": "input",
-            "x-icon": "folder",
-        },
-    )
-    """内置插件目录（相对于项目根目录）"""
-
-    thirdparty_plugin_dir: str = Field(
-        default="plugins",
-        json_schema_extra={
-            "x-widget": "input",
-            "x-icon": "folder-open",
-        },
-    )
-    """第三方插件目录（相对于项目根目录）"""
-
     health_check_interval_sec: float = Field(
         default=30.0,
         json_schema_extra={
@@ -1678,14 +1660,14 @@ class PluginRuntimeConfig(ConfigBase):
     )
     """等待 Runner 子进程启动并注册的超时时间（秒）"""
 
-    workflow_blocking_timeout_sec: float = Field(
-        default=120.0,
+    hook_blocking_timeout_sec: float = Field(
+        default=30,
         json_schema_extra={
             "x-widget": "number",
             "x-icon": "timer",
         },
     )
-    """Workflow 阻塞步骤的全局超时上限（秒）"""
+    """Hook 阻塞步骤的全局超时上限（秒）"""
 
     ipc_socket_path: str = Field(
         default="",
@@ -1694,4 +1676,7 @@ class PluginRuntimeConfig(ConfigBase):
             "x-icon": "link",
         },
     )
-    """_wrap_\n    自定义 IPC Socket 路径（仅 Linux/macOS 生效）\n    留空则自动生成临时路径"""
+    """
+    自定义 IPC Socket 路径（仅 Linux/macOS 生效）
+    留空则自动生成临时路径
+    """

@@ -1,19 +1,20 @@
 from contextlib import suppress
-import traceback
-import os
-
-from maim_message import MessageBase
 from typing import Any, Dict, Optional
 
+import os
+import traceback
 
+from maim_message import MessageBase
+
+from src.chat.heart_flow.heartflow_message_processor import HeartFCMessageReceiver
 from src.common.logger import get_logger
 from src.common.utils.utils_message import MessageUtils
 from src.common.utils.utils_session import SessionUtils
-from src.chat.heart_flow.heartflow_message_processor import HeartFCMessageReceiver
+from src.platform_io.route_key_factory import RouteKeyFactory
 
 # from src.chat.brain_chat.PFC.pfc_manager import PFCManager
 from src.core.announcement_manager import global_announcement_manager
-from src.core.component_registry import component_registry
+from src.plugin_runtime.component_query import component_query_service
 
 from .message import SessionMessage
 from .chat_manager import chat_manager
@@ -58,16 +59,22 @@ class ChatBot:
             logger.error(f"创建PFC聊天失败: {e}")
             logger.error(traceback.format_exc())
 
-    async def _process_commands(self, message: SessionMessage):
-        # sourcery skip: use-named-expression
-        """使用新插件系统处理命令"""
+    async def _process_commands(self, message: SessionMessage) -> tuple[bool, Optional[str], bool]:
+        """使用统一组件注册表处理命令。
+
+        Args:
+            message: 当前待处理的会话消息。
+
+        Returns:
+            tuple[bool, Optional[str], bool]: ``(是否命中命令, 命令响应文本, 是否继续后续处理)``。
+        """
         if not message.processed_plain_text:
             return False, None, True  # 没有文本内容，继续处理消息
         try:
             text = message.processed_plain_text
 
-            # 使用核心组件注册表查找命令
-            command_result = component_registry.find_command_by_text(text)
+            # 使用插件运行时统一查询服务查找命令
+            command_result = component_query_service.find_command_by_text(text)
             if command_result:
                 command_executor, matched_groups, command_info = command_result
                 plugin_name = command_info.plugin_name
@@ -81,7 +88,7 @@ class ChatBot:
                 message.is_command = True
 
                 # 获取插件配置
-                plugin_config = component_registry.get_plugin_config(plugin_name)
+                plugin_config = component_query_service.get_plugin_config(plugin_name)
 
                 try:
                     # 调用命令执行器
@@ -112,88 +119,32 @@ class ChatBot:
                     # 命令出错时，根据命令的拦截设置决定是否继续处理消息
                     return True, str(e), False  # 出错时继续处理消息
 
-            # 没有找到旧系统命令，尝试新版本插件运行时
-            new_cmd_result = await self._process_new_runtime_command(message)
-            return new_cmd_result if new_cmd_result is not None else (False, None, True)
+            return False, None, True
 
         except Exception as e:
             logger.error(f"处理命令时出错: {e}")
             return False, None, True  # 出错时继续处理消息
 
-    async def _process_new_runtime_command(self, message: SessionMessage):
-        """尝试在新版本插件运行时中查找并执行命令
-
-        Returns:
-            (found, response, continue_processing) 三元组，
-            或 None 表示新运行时中也未找到匹配命令。
-        """
-        from src.plugin_runtime.integration import get_plugin_runtime_manager
-
-        prm = get_plugin_runtime_manager()
-        if not prm.is_running:
-            return None
-
-        matched = prm.find_command_by_text(message.processed_plain_text)
-        if matched is None:
-            return None
-
-        command_name = matched["name"]
-        if message.session_id and command_name in global_announcement_manager.get_disabled_chat_commands(
-            message.session_id
-        ):
-            logger.info(f"[新运行时] 用户禁用的命令，跳过处理: {matched['full_name']}")
-            return False, None, True
-
-        message.is_command = True
-        logger.info(f"[新运行时] 匹配命令: {matched['full_name']}")
-
-        try:
-            resp = await prm.invoke_plugin(
-                method="plugin.invoke_command",
-                plugin_id=matched["plugin_id"],
-                component_name=matched["name"],
-                args={
-                    "text": message.processed_plain_text,
-                    "stream_id": message.session_id or "",
-                    "matched_groups": matched.get("matched_groups") or {},
-                },
-                timeout_ms=30000,
-            )
-
-            payload = resp.payload
-            success = payload.get("success", False)
-            cmd_result = payload.get("result")
-
-            # 拦截位优先从命令返回值中获取（支持运行时动态决定），
-            # 回退到组件 metadata 中的静态声明
-            if isinstance(cmd_result, (list, tuple)) and len(cmd_result) >= 3:
-                # 命令返回 (found, response_text, intercept_bool) 三元组
-                response_text = cmd_result[1] if cmd_result[1] is not None else ""
-                intercept = bool(cmd_result[2])
-            else:
-                response_text = cmd_result if cmd_result is not None else ""
-                intercept = bool(matched["metadata"].get("intercept_message_level", 0))
-
-            self._mark_command_message(message, int(intercept))
-
-            if success:
-                logger.info(f"[新运行时] 命令执行成功: {matched['full_name']}")
-            else:
-                logger.warning(f"[新运行时] 命令执行失败: {matched['full_name']} - {response_text}")
-
-            return True, response_text, not intercept
-
-        except Exception as e:
-            logger.error(f"[新运行时] 执行命令 {matched['full_name']} 异常: {e}", exc_info=True)
-            return True, str(e), True
-
     @staticmethod
     def _mark_command_message(message: SessionMessage, intercept_message_level: int) -> None:
+        """标记消息已经被命令链消费。
+
+        Args:
+            message: 待标记的会话消息。
+            intercept_message_level: 命令设置的拦截级别。
+        """
+
         message.is_command = True
         message.message_info.additional_config["intercept_message_level"] = intercept_message_level
 
     @staticmethod
     def _store_intercepted_command_message(message: SessionMessage) -> None:
+        """将被命令链拦截的消息写入数据库。
+
+        Args:
+            message: 已完成命令处理的会话消息。
+        """
+
         MessageUtils.store_message_to_db(message)
 
     async def _handle_command_processing_result(
@@ -310,13 +261,28 @@ class ChatBot:
             # logger.debug(str(message_data))
             maim_raw_message = MessageBase.from_dict(message_data)
             message = SessionMessage.from_maim_message(maim_raw_message)
+            await self.receive_message(message)
+
+        except Exception as e:
+            logger.error(f"预处理消息失败: {e}")
+            traceback.print_exc()
+
+    async def receive_message(self, message: SessionMessage):
+        try:
             group_info = message.message_info.group_info
             user_info = message.message_info.user_info
+            account_id = None
+            scope = None
+            additional_config = message.message_info.additional_config
+            if isinstance(additional_config, dict):
+                account_id, scope = RouteKeyFactory.extract_components(additional_config)
 
             session_id = SessionUtils.calculate_session_id(
                 message.platform,
                 user_id=message.message_info.user_info.user_id,
                 group_id=group_info.group_id if group_info else None,
+                account_id=account_id,
+                scope=scope,
             )
 
             message.session_id = session_id  # 正确初始化session_id
@@ -359,24 +325,24 @@ class ChatBot:
             platform = message.platform
             user_id = user_info.user_id
             group_id = group_info.group_id if group_info else None
-            _ = await chat_manager.get_or_create_session(platform, user_id, group_id)  # 确保会话存在
-            try:
-                from src.services.memory_flow_service import memory_automation_service
-
-                await memory_automation_service.on_incoming_message(message)
-            except Exception as exc:
-                logger.warning(f"[长期记忆自动总结] 注册会话总结器失败: {exc}")
+            _ = await chat_manager.get_or_create_session(
+                platform,
+                user_id,
+                group_id,
+                account_id=account_id,
+                scope=scope,
+            )  # 确保会话存在
 
             # message.update_chat_stream(chat)
 
             # 命令处理 - 使用新插件系统检查并处理命令
             # 注意：命令返回的 response 当前只用于日志记录和流程判断，
             # 不会在这里自动作为回复消息发送回会话。
-            is_command, cmd_result, continue_process = await self._process_commands(message)
+            # is_command, cmd_result, continue_process = await self._process_commands(message)
 
-            # 如果是命令且不需要继续处理，则直接返回
-            if is_command and await self._handle_command_processing_result(message, cmd_result, continue_process):
-                return
+            # # 如果是命令且不需要继续处理，则直接返回
+            # if is_command and await self._handle_command_processing_result(message, cmd_result, continue_process):
+            #     return
 
             # continue_flag, modified_message = await events_manager.handle_mai_events(EventType.ON_MESSAGE, message)
             # if not continue_flag:

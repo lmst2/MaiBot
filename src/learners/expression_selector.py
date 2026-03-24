@@ -9,7 +9,7 @@ from src.config.config import global_config, model_config
 from src.common.logger import get_logger
 from src.common.database.database_model import Expression
 from src.prompt.prompt_manager import prompt_manager
-from src.bw_learner.learner_utils_old import weighted_sample
+from src.learners.learner_utils_old import weighted_sample
 from src.chat.utils.common_utils import TempMethodsExpression
 
 logger = get_logger("expression_selector")
