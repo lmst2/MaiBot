@@ -4,7 +4,7 @@ MaiSaka - 了解模块
 """
 
 from typing import List
-from knowledge_store import get_knowledge_store, KNOWLEDGE_CATEGORIES
+from .knowledge_store import KNOWLEDGE_CATEGORIES, get_knowledge_store
 
 
 def build_knowledge_summary() -> str:

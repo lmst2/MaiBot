@@ -5,14 +5,13 @@ MaiSaka - MCP 管理器
 
 from typing import Optional
 
-from config import console
+from ..config import console
 from .config import MCPServerConfig, load_mcp_config
 from .connection import MCPConnection, MCP_AVAILABLE
 
 # 内置工具名称集合 —— MCP 工具不允许与这些名称冲突
 BUILTIN_TOOL_NAMES = frozenset(
     {
-        "say",
         "wait",
         "stop",
         "create_table",

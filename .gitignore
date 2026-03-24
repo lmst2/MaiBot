@@ -35,6 +35,7 @@ message_queue_content.bat
 message_queue_window.bat
 message_queue_window.txt
 queue_update.txt
+start_saka.bat
 .env
 .env.*
 .cursor
@@ -46,7 +47,7 @@ config/lpmm_config.toml
 config/lpmm_config.toml.bak
 template/compare/bot_config_template.toml
 template/compare/model_config_template.toml
-CLAUDE.md
+# CLAUDE.md
 cloudflare-workers/
 log_viewer/
 dev/

@@ -23,21 +23,24 @@ if str(_maisaka_path) not in sys.path:
     sys.path.insert(0, str(_maisaka_path))
 
 from src.prompt.prompt_manager import prompt_manager
-from config import console
-from cli import BufferCLI
+from src.maisaka.cli import BufferCLI
+from src.maisaka.config import console
 
 
 def main():
+    cli = None
+
     # 加载所有提示词文件
     prompt_manager.load_prompts()
 
-    cli = BufferCLI()
     try:
+        cli = BufferCLI()
         asyncio.run(cli.run())
     except KeyboardInterrupt:
         console.print("\n[muted]程序已终止[/muted]")
     finally:
-        cli._debug_viewer.close()
+        if cli and hasattr(cli, "_debug_viewer"):
+            cli._debug_viewer.close()
 
 
 if __name__ == "__main__":

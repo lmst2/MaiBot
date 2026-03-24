@@ -4,7 +4,7 @@ MaiSaka - MCP (Model Context Protocol) 客户端包
 提供 MCPManager 用于管理 MCP 服务器连接、发现工具、调用工具。
 
 用法:
-    from mcp_client import MCPManager
+    from .manager import MCPManager
 
     manager = await MCPManager.from_config("mcp_config.json")
     if manager:

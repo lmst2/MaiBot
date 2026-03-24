@@ -52,7 +52,7 @@ class ActionModifier:
         all_actions = self.action_manager.get_using_actions()
 
         message_list_before_now_half = get_messages_before_time_in_chat(
-            chat_id=self.chat_stream.stream_id,
+            chat_id=self.chat_stream.session_id,
             timestamp=time.time(),
             limit=min(int(global_config.chat.max_context_size * 0.33), 10),
             filter_intercept_message_level=1,
