@@ -1,22 +1,24 @@
-import hashlib
+from datetime import datetime
+from typing import Dict, Optional, Union
+
 import asyncio
+import hashlib
 import json
-import time
-import random
 import math
+import random
+import time
 
 from json_repair import repair_json
-from typing import Union, Optional, Dict
-from datetime import datetime
 
 from sqlmodel import col, select
 
-from src.common.logger import get_logger
+from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
+from src.common.data_models.person_info_data_model import dump_group_cardname_records, parse_group_cardname_json
 from src.common.database.database import get_db_session
 from src.common.database.database_model import PersonInfo
-from src.llm_models.utils_model import LLMRequest
+from src.common.logger import get_logger
 from src.config.config import global_config, model_config
-from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
+from src.llm_models.utils_model import LLMRequest
 
 
 logger = get_logger("person_info")
@@ -24,6 +26,32 @@ logger = get_logger("person_info")
 relation_selection_model = LLMRequest(
     model_set=model_config.model_task_config.tool_use, request_type="relation_selection"
 )
+
+
+def _to_group_cardname_records(group_cardname_json: Optional[str]) -> list[dict[str, str]]:
+    """将数据库中的群名片 JSON 转换为 `Person` 内部使用的结构。
+
+    Args:
+        group_cardname_json: 数据库存储的群名片 JSON 字符串。
+
+    Returns:
+        list[dict[str, str]]: 统一使用 `group_cardname` 键名的群名片列表。
+
+    Raises:
+        json.JSONDecodeError: 当 JSON 文本格式非法时抛出。
+        TypeError: 当输入值类型不符合 `json.loads()` 要求时抛出。
+    """
+    group_cardname_list = parse_group_cardname_json(group_cardname_json)
+    if not group_cardname_list:
+        return []
+
+    return [
+        {
+            "group_id": group_cardname.group_id,
+            "group_cardname": group_cardname.group_cardname,
+        }
+        for group_cardname in group_cardname_list
+    ]
 
 
 def get_person_id(platform: str, user_id: Union[int, str]) -> str:
@@ -231,7 +259,7 @@ class Person:
         person.know_since = time.time()
         person.last_know = time.time()
         person.memory_points = []
-        person.group_nick_name = []  # 初始化群昵称列表
+        person.group_cardname_list = []  # 初始化群名片列表
 
         # 如果是群聊，添加群昵称
         if group_id and group_nick_name:
@@ -269,7 +297,7 @@ class Person:
             self.platform = platform
             self.nickname = global_config.bot.nickname
             self.person_name = global_config.bot.nickname
-            self.group_nick_name: list[dict[str, str]] = []
+            self.group_cardname_list: list[dict[str, str]] = []
             return
 
         self.user_id = ""
@@ -308,7 +336,7 @@ class Person:
         self.know_since = None
         self.last_know: Optional[float] = None
         self.memory_points = []
-        self.group_nick_name: list[dict[str, str]] = []  # 群昵称列表，存储 {"group_id": str, "group_nick_name": str}
+        self.group_cardname_list: list[dict[str, str]] = []  # 群名片列表，存储 {"group_id": str, "group_cardname": str}
 
         # 从数据库加载数据
         self.load_from_database()
@@ -408,16 +436,16 @@ class Person:
             return
 
         # 检查是否已存在该群号的记录
-        for item in self.group_nick_name:
+        for item in self.group_cardname_list:
             if item.get("group_id") == group_id:
                 # 更新现有记录
-                item["group_nick_name"] = group_nick_name
+                item["group_cardname"] = group_nick_name
                 self.sync_to_database()
                 logger.debug(f"更新用户 {self.person_id} 在群 {group_id} 的群昵称为 {group_nick_name}")
                 return
 
         # 添加新记录
-        self.group_nick_name.append({"group_id": group_id, "group_nick_name": group_nick_name})
+        self.group_cardname_list.append({"group_id": group_id, "group_cardname": group_nick_name})
         self.sync_to_database()
         logger.debug(f"添加用户 {self.person_id} 在群 {group_id} 的群昵称 {group_nick_name}")
 
@@ -452,20 +480,15 @@ class Person:
                     else:
                         self.memory_points = []
 
-                    # 处理group_nick_name字段（JSON格式的列表）
+                    # 处理 group_cardname 字段（JSON 格式的列表）
                     if record.group_cardname:
                         try:
-                            loaded_group_nick_names = json.loads(record.group_cardname)
-                            # 确保是列表格式
-                            if isinstance(loaded_group_nick_names, list):
-                                self.group_nick_name = loaded_group_nick_names
-                            else:
-                                self.group_nick_name = []
+                            self.group_cardname_list = _to_group_cardname_records(record.group_cardname)
                         except (json.JSONDecodeError, TypeError):
                             logger.warning(f"解析用户 {self.person_id} 的group_cardname字段失败，使用默认值")
-                            self.group_nick_name = []
+                            self.group_cardname_list = []
                     else:
-                        self.group_nick_name = []
+                        self.group_cardname_list = []
 
                     logger.debug(f"已从数据库加载用户 {self.person_id} 的信息")
                 else:
@@ -486,11 +509,7 @@ class Person:
                 if self.memory_points
                 else json.dumps([], ensure_ascii=False)
             )
-            group_nickname_value = (
-                json.dumps(self.group_nick_name, ensure_ascii=False)
-                if self.group_nick_name
-                else json.dumps([], ensure_ascii=False)
-            )
+            group_cardname_value = dump_group_cardname_records(self.group_cardname_list)
             first_known_time = datetime.fromtimestamp(self.know_since) if self.know_since else None
             last_known_time = datetime.fromtimestamp(self.last_know) if self.last_know else None
 
@@ -510,7 +529,7 @@ class Person:
                     record.first_known_time = first_known_time
                     record.last_known_time = last_known_time
                     record.memory_points = memory_points_value
-                    record.group_nickname = group_nickname_value
+                    record.group_cardname = group_cardname_value
                     session.add(record)
                     logger.debug(f"已同步用户 {self.person_id} 的信息到数据库")
                 else:
@@ -526,7 +545,7 @@ class Person:
                         first_known_time=first_known_time,
                         last_known_time=last_known_time,
                         memory_points=memory_points_value,
-                        group_nickname=group_nickname_value,
+                        group_cardname=group_cardname_value,
                     )
                     session.add(record)
                     logger.debug(f"已创建用户 {self.person_id} 的信息到数据库")

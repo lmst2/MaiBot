@@ -66,6 +66,12 @@ class RunnerIPCLogHandler(logging.Handler):
     ALLOWED_LOGGER_PREFIXES: tuple[str, ...] = ("plugin.", "plugin_runtime.", "_maibot_plugin_")
 
     def __init__(self) -> None:
+        """初始化 Runner 端日志转发处理器。
+
+        创建有界日志缓冲区，并准备与 RPC 客户端绑定的后台刷新任务。
+        此时不会启动任何异步任务；真正开始转发要等到 :meth:`start`
+        被调用后才会发生。
+        """
         super().__init__()
         # deque(maxlen=N): append/popleft 在 CPython GIL 保护下线程安全
         self._buffer: collections.deque[LogEntry] = collections.deque(maxlen=self.QUEUE_MAX)

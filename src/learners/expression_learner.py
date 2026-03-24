@@ -329,7 +329,13 @@ class ExpressionLearner:
         return filtered_expressions
 
     # ====== DB 操作相关 ======
-    async def _upsert_expression_to_db(self, situation: str, style: str):
+    async def _upsert_expression_to_db(self, situation: str, style: str) -> None:
+        """将表达方式写入数据库，存在时更新，不存在时新增。
+
+        Args:
+            situation: 表达方式对应的使用情景。
+            style: 表达方式风格。
+        """
         expr, similarity = self._find_similar_expression(situation) or (None, 0)
         if expr:
             # 根据相似度决定是否使用 LLM 总结
@@ -340,7 +346,13 @@ class ExpressionLearner:
         # 没有找到匹配的记录，创建新记录
         self._create_expression(situation, style)
 
-    def _create_expression(self, situation: str, style: str):
+    def _create_expression(self, situation: str, style: str) -> None:
+        """创建新的表达方式记录。
+
+        Args:
+            situation: 表达方式对应的使用情景。
+            style: 表达方式风格。
+        """
         content_list = [situation]
         try:
             with get_db_session() as db:
@@ -353,6 +365,7 @@ class ExpressionLearner:
                     last_active_time=datetime.now(),
                 )
                 db.add(new_expr)
+                db.flush()
         except Exception as e:
             logger.error(f"创建表达方式失败: {e}")
 
@@ -448,25 +461,43 @@ class ExpressionLearner:
     def _find_similar_expression(
         self, situation: str, similarity_threshold: float = 0.75
     ) -> Optional[Tuple[MaiExpression, float]]:
-        """在数据库中查找相似的表达方式"""
+        """在数据库中查找相似的表达方式。
+
+        Args:
+            situation: 当前待匹配的情景描述。
+            similarity_threshold: 认定为相似表达方式的最低相似度阈值。
+
+        Returns:
+            Optional[Tuple[MaiExpression, float]]: 若找到最相似的表达方式，则返回
+            ``(表达方式对象, 相似度)``；否则返回 ``None``。
+        """
         try:
-            with get_db_session() as session:
+            with get_db_session(auto_commit=False) as session:
                 statement = select(Expression).filter_by(session_id=self.session_id)
                 expressions = session.exec(statement).all()
 
-            best_match: Optional[Expression] = None
-            best_similarity = 0.0
+                best_match: Optional[MaiExpression] = None
+                best_similarity = 0.0
 
-            for expr in expressions:
-                content_list = json.loads(expr.content_list)
-                for situation in content_list:
-                    similarity = difflib.SequenceMatcher(None, situation, expr.situation).ratio()
-                    if similarity > similarity_threshold and similarity > best_similarity:
-                        best_similarity = similarity
-                        best_match = expr
+                for db_expression in expressions:
+                    expression = MaiExpression.from_db_instance(db_expression)
+                    candidate_situations = [expression.situation, *expression.content]
+                    for candidate_situation in candidate_situations:
+                        normalized_candidate_situation = candidate_situation.strip()
+                        if not normalized_candidate_situation:
+                            continue
+                        similarity = difflib.SequenceMatcher(
+                            None,
+                            situation,
+                            normalized_candidate_situation,
+                        ).ratio()
+                        if similarity > similarity_threshold and similarity > best_similarity:
+                            best_similarity = similarity
+                            best_match = expression
+
             if best_match:
-                logger.debug(f"找到相似表达方式情景 [ID: {best_match.id}]，相似度: {best_similarity:.2f}")
-                return MaiExpression.from_db_instance(best_match), best_similarity
+                logger.debug(f"找到相似表达方式情景 [ID: {best_match.item_id}]，相似度: {best_similarity:.2f}")
+                return best_match, best_similarity
 
         except Exception as e:
             logger.error(f"查找相似表达方式失败: {e}")

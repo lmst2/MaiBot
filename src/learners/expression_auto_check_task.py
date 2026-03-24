@@ -3,15 +3,15 @@
 
 功能：
 1. 定期随机选取指定数量的表达方式
-2. 使用LLM进行评估
+2. 使用 LLM 进行评估
 3. 通过评估的：rejected=0, checked=1
 4. 未通过评估的：rejected=1, checked=1
 """
 
-from typing import List
 import asyncio
 import json
 import random
+from typing import List
 
 from sqlmodel import select
 
@@ -146,7 +146,8 @@ class ExpressionAutoCheckTask(AsyncTask):
             选中的表达方式列表
         """
         try:
-            with get_db_session() as session:
+            # 这里只做查询，避免退出上下文时自动提交导致 ORM 实例过期。
+            with get_db_session(auto_commit=False) as session:
                 statement = select(Expression)
                 all_expressions = session.exec(statement).all()
 
