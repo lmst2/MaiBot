@@ -1,0 +1,4 @@
+[submodule "plugins/A_memorix"]
+	path = plugins/A_memorix
+	url = https://github.com/A-Dawn/A_memorix.git
+	branch = MaiBot_branch

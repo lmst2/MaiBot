@@ -7,6 +7,63 @@ permissions:
   issues: write
 
 jobs:
+  submodule-alignment-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
+      - name: Validate A_Memorix submodule strict alignment
+        env:
+          SUBMODULE_PATH: plugins/A_memorix
+          SUBMODULE_URL: https://github.com/A-Dawn/A_memorix.git
+          SUBMODULE_BRANCH: MaiBot_branch
+        run: |
+          set -euo pipefail
+
+          if [ ! -f .gitmodules ]; then
+            echo "::error::.gitmodules is missing."
+            exit 1
+          fi
+
+          actual_path=$(git config -f .gitmodules --get submodule.plugins/A_memorix.path || true)
+          actual_url=$(git config -f .gitmodules --get submodule.plugins/A_memorix.url || true)
+          actual_branch=$(git config -f .gitmodules --get submodule.plugins/A_memorix.branch || true)
+
+          if [ "${actual_path}" != "${SUBMODULE_PATH}" ]; then
+            echo "::error::submodule path mismatch: expected ${SUBMODULE_PATH}, got ${actual_path:-<empty>}"
+            exit 1
+          fi
+
+          if [ "${actual_url}" != "${SUBMODULE_URL}" ]; then
+            echo "::error::submodule url mismatch: expected ${SUBMODULE_URL}, got ${actual_url:-<empty>}"
+            exit 1
+          fi
+
+          if [ "${actual_branch}" != "${SUBMODULE_BRANCH}" ]; then
+            echo "::error::submodule branch mismatch: expected ${SUBMODULE_BRANCH}, got ${actual_branch:-<empty>}"
+            exit 1
+          fi
+
+          if [ ! -f "${SUBMODULE_PATH}/_manifest.json" ]; then
+            echo "::error::${SUBMODULE_PATH}/_manifest.json is missing. Run: git submodule update --init --recursive"
+            exit 1
+          fi
+
+          git -C "${SUBMODULE_PATH}" remote set-url origin "${SUBMODULE_URL}"
+          git -C "${SUBMODULE_PATH}" fetch origin "${SUBMODULE_BRANCH}" --depth=1
+
+          local_sha=$(git -C "${SUBMODULE_PATH}" rev-parse HEAD)
+          remote_sha=$(git -C "${SUBMODULE_PATH}" rev-parse FETCH_HEAD)
+
+          if [ "${local_sha}" != "${remote_sha}" ]; then
+            echo "::error::submodule ${SUBMODULE_PATH} must match origin/${SUBMODULE_BRANCH} HEAD."
+            echo "local=${local_sha} remote=${remote_sha}"
+            echo "Please run: git submodule update --remote --recursive ${SUBMODULE_PATH} && git add ${SUBMODULE_PATH} && git commit"
+            exit 1
+          fi
   conflict-check:
     runs-on: ubuntu-24.04
     outputs:
@@ -16,6 +73,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
+          submodules: recursive
       - name: Check Conflicts
         id: check-conflicts
         env:
