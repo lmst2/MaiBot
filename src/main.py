@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import asyncio
 import time
 
-from src.bw_learner.expression_auto_check_task import ExpressionAutoCheckTask
+from src.learners.expression_auto_check_task import ExpressionAutoCheckTask
 from src.chat.emoji_system.emoji_manager import emoji_manager
 from src.chat.knowledge import lpmm_start_up
 from src.chat.message_receive.bot import chat_bot

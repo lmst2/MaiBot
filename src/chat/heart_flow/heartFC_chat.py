@@ -7,8 +7,8 @@ import traceback
 
 from rich.traceback import install
 
-from src.bw_learner.expression_learner import ExpressionLearner
-from src.bw_learner.jargon_miner import JargonMiner
+from src.learners.expression_learner import ExpressionLearner
+from src.learners.jargon_miner import JargonMiner
 from src.chat.event_helpers import build_event_message
 from src.chat.logger.plan_reply_logger import PlanReplyLogger
 from src.chat.message_receive.chat_manager import BotChatSession

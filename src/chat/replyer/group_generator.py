@@ -27,7 +27,7 @@ from src.services.message_service import (
     replace_user_references,
     translate_pid_to_description,
 )
-from src.bw_learner.expression_selector import expression_selector
+from src.learners.expression_selector import expression_selector
 
 # from src.memory_system.memory_activator import MemoryActivator
 from src.person_info.person_info import Person
@@ -36,7 +36,7 @@ from src.services import llm_service as llm_api
 
 from src.chat.logger.plan_reply_logger import PlanReplyLogger
 from src.memory_system.memory_retrieval import init_memory_retrieval_sys, build_memory_retrieval_prompt
-from src.bw_learner.jargon_explainer_old import explain_jargon_in_context, retrieve_concepts_with_jargon
+from src.learners.jargon_explainer_old import explain_jargon_in_context, retrieve_concepts_with_jargon
 from src.chat.utils.common_utils import TempMethodsExpression
 
 init_memory_retrieval_sys()

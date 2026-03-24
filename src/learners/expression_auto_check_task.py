@@ -15,7 +15,7 @@ import random
 
 from sqlmodel import select
 
-from src.bw_learner.expression_review_store import get_review_state, set_review_state
+from src.learners.expression_review_store import get_review_state, set_review_state
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Expression
 from src.common.logger import get_logger

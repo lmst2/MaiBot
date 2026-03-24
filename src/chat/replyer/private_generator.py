@@ -27,13 +27,13 @@ from src.services.message_service import (
     replace_user_references,
     translate_pid_to_description,
 )
-from src.bw_learner.expression_selector import expression_selector
+from src.learners.expression_selector import expression_selector
 
 # from src.memory_system.memory_activator import MemoryActivator
 from src.person_info.person_info import Person, is_person_known
 from src.core.types import ActionInfo, EventType
 from src.memory_system.memory_retrieval import init_memory_retrieval_sys, build_memory_retrieval_prompt
-from src.bw_learner.jargon_explainer_old import explain_jargon_in_context
+from src.learners.jargon_explainer_old import explain_jargon_in_context
 
 init_memory_retrieval_sys()
 

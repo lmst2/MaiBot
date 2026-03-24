@@ -8,8 +8,8 @@ from rich.traceback import install
 from src.config.config import global_config
 from src.common.logger import get_logger
 from src.common.utils.utils_config import ExpressionConfigUtils
-from src.bw_learner.expression_learner import ExpressionLearner
-from src.bw_learner.jargon_miner import JargonMiner
+from src.learners.expression_learner import ExpressionLearner
+from src.learners.jargon_miner import JargonMiner
 from src.chat.message_receive.chat_manager import BotChatSession
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.chat.message_receive.message import SessionMessage

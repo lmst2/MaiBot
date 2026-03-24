@@ -41,7 +41,7 @@ This plan is based on the checked-in code, not on assumptions from previous draf
 | `src/person_info/person_info.py:247` | `_is_bot_self(self, platform, user_id)` | Duplicate logic with same QQ fallback |
 
 Wrong-order call sites (8 total):
-- `src/bw_learner/expression_learner.py` x3 (lines 158, 241, 301)
+- `src/learners/expression_learner.py` x3 (lines 158, 241, 301)
 - `src/common/utils/utils_message.py` x4 (lines 370, 440, 476, 515)
 - `src/webui/routers/chat/support.py` x1 (line 65)
 
@@ -122,7 +122,7 @@ Make `src/chat/utils/utils.py::is_bot_self(platform, user_id)` the only real imp
 - `src/common/utils/system_utils.py`
 - `src/chat/utils/utils.py`
 - `src/person_info/person_info.py`
-- `src/bw_learner/expression_learner.py`
+- `src/learners/expression_learner.py`
 - `src/common/utils/utils_message.py`
 - `src/webui/routers/chat/support.py`
 - tests
@@ -468,7 +468,7 @@ When stopping, name: the exact file(s), the blocking mismatch, why it is outside
 
 | Phase | Allowed files |
 |-------|---------------|
-| Phase 0 | `src/common/utils/system_utils.py`, `src/chat/utils/utils.py`, `src/person_info/person_info.py`, `src/bw_learner/expression_learner.py`, `src/common/utils/utils_message.py`, `src/webui/routers/chat/support.py`, tests (including `pytests/utils_test/message_utils_test.py`) |
+| Phase 0 | `src/common/utils/system_utils.py`, `src/chat/utils/utils.py`, `src/person_info/person_info.py`, `src/learners/expression_learner.py`, `src/common/utils/utils_message.py`, `src/webui/routers/chat/support.py`, tests (including `pytests/utils_test/message_utils_test.py`) |
 | Phase 1 | `src/chat/utils/utils.py`, `src/chat/planner_actions/planner.py`, `src/chat/utils/statistic.py`, `src/common/message_repository.py`, `src/webui/routers/chat/support.py`, `src/services/send_service.py`, `src/chat/replyer/group_generator.py`, `src/chat/replyer/private_generator.py`, `src/chat/brain_chat/PFC/message_sender.py`, `src/person_info/person_info.py`, tests |
 
 ### INVALID OUTPUT EXAMPLES

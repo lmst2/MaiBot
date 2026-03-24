@@ -4,7 +4,7 @@
 """
 
 from src.common.logger import get_logger
-from src.bw_learner.jargon_explainer_old import retrieve_concepts_with_jargon
+from src.learners.jargon_explainer_old import retrieve_concepts_with_jargon
 from .tool_registry import register_memory_retrieval_tool
 
 logger = get_logger("memory_retrieval_tools")
