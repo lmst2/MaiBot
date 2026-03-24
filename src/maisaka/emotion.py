@@ -8,8 +8,13 @@ MaiSaka - Emotion 模块
 
 from typing import List, Optional
 
+from src.common.data_models.mai_message_data_model import MaiMessage
 
-def extract_user_messages(chat_history: List[dict], limit: Optional[int] = None) -> List[dict]:
+from .config import USER_NAME
+from .message_adapter import get_message_role, get_message_text
+
+
+def extract_user_messages(chat_history: List[MaiMessage], limit: Optional[int] = None) -> List[MaiMessage]:
     """
     从对话历史中提取用户消息。
 
@@ -20,13 +25,13 @@ def extract_user_messages(chat_history: List[dict], limit: Optional[int] = None)
     Returns:
         只包含用户消息的列表
     """
-    user_messages = [msg for msg in chat_history if msg.get("role") == "user"]
+    user_messages = [msg for msg in chat_history if get_message_role(msg) == "user"]
     if limit and len(user_messages) > limit:
         return user_messages[-limit:]
     return user_messages
 
 
-def build_emotion_context(chat_history: List[dict]) -> str:
+def build_emotion_context(chat_history: List[MaiMessage]) -> str:
     """
     构建用于情绪分析的对话上下文文本。
 
@@ -41,11 +46,11 @@ def build_emotion_context(chat_history: List[dict]) -> str:
 
     context_parts = []
     for msg in recent_messages:
-        role = msg.get("role", "")
-        content = msg.get("content", "")
+        role = get_message_role(msg)
+        content = get_message_text(msg)
 
         if role == "user":
-            context_parts.append(f"用户: {content}")
+            context_parts.append(f"{USER_NAME}: {content}")
         elif role == "assistant":
             # 只显示 assistant 的实际发言，跳过感知信息
             if "【AI 感知】" not in content:
