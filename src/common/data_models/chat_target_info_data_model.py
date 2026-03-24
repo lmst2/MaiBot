@@ -34,11 +34,7 @@ class ChatTargetInfo(BaseDataModel):
     @property
     def display_name(self) -> str:
         """返回用于 Prompt、日志和界面展示的目标名称。"""
-        if self.person_name:
-            return self.person_name
-        if self.session_nickname:
-            return self.session_nickname
-        return self.user_id
+        return self.person_name or self.session_nickname or self.user_id
 
     @classmethod
     def from_person_info(
