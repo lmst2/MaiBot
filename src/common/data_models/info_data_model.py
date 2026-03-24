@@ -25,4 +25,4 @@
 #     available_actions: Optional[Dict[str, "ActionInfo"]] = None
 #     loop_start_time: Optional[float] = None
 #     action_reasoning: Optional[str] = None
-# TODO: 重构
+# 已重构，见src/common/data_models/planned_action_data_models.py
