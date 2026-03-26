@@ -3,8 +3,7 @@ from src.common.logger import get_logger
 
 # NOTE: HippocampusManager doesn't exist in v0.12.2 - memory system was redesigned
 # from src.plugins.memory_system.Hippocampus import HippocampusManager
-from src.llm_models.utils_model import LLMRequest
-from src.config.config import model_config
+from src.services.llm_service import LLMServiceClient
 from src.chat.knowledge import qa_manager
 
 logger = get_logger("knowledge_fetcher")
@@ -14,7 +13,7 @@ class KnowledgeFetcher:
     """知识调取器"""
 
     def __init__(self, private_name: str):
-        self.llm = LLMRequest(model_set=model_config.model_task_config.utils)
+        self.llm = LLMServiceClient(task_name="utils")
         self.private_name = private_name
 
     def _lpmm_get_knowledge(self, query: str) -> str:

@@ -65,8 +65,8 @@ class BufferCLI:
         self._mcp_manager: Optional[MCPManager] = None
         self._init_llm()
 
-    def _init_llm(self):
-        """Initialize the LLM service from the main project config."""
+    def _init_llm(self) -> None:
+        """从主项目配置初始化 LLM 服务。"""
         thinking_env = os.getenv("ENABLE_THINKING", "").strip().lower()
         enable_thinking: Optional[bool] = True if thinking_env == "true" else False if thinking_env == "false" else None
 
@@ -77,7 +77,7 @@ class BufferCLI:
             enable_thinking=enable_thinking,
         )
 
-        model_name = self.llm_service._model_name
+        model_name = self.llm_service.get_current_model_name()
         console.print(f"[success][OK] LLM service initialized[/success] [muted](model: {model_name})[/muted]")
 
     def _build_tool_context(self) -> ToolHandlerContext:

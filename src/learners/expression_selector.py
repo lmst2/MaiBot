@@ -4,10 +4,11 @@ import time
 from typing import List, Dict, Optional, Any, Tuple
 from json_repair import repair_json
 
-from src.llm_models.utils_model import LLMRequest
-from src.config.config import global_config, model_config
+from src.services.llm_service import LLMServiceClient
+from src.config.config import global_config
 from src.common.logger import get_logger
 from src.common.database.database_model import Expression
+from src.common.utils.utils_session import SessionUtils
 from src.prompt.prompt_manager import prompt_manager
 from src.learners.learner_utils_old import weighted_sample
 from src.chat.utils.common_utils import TempMethodsExpression
@@ -17,8 +18,8 @@ logger = get_logger("expression_selector")
 
 class ExpressionSelector:
     def __init__(self):
-        self.llm_model = LLMRequest(
-            model_set=model_config.model_task_config.tool_use, request_type="expression.selector"
+        self.llm_model = LLMServiceClient(
+            task_name="tool_use", request_type="expression.selector"
         )
 
     def can_use_expression_for_chat(self, chat_id: str) -> bool:
@@ -383,8 +384,8 @@ class ExpressionSelector:
             prompt = await prompt_manager.render_prompt(prompt_template)
 
             # 4. 调用LLM
-            content, (reasoning_content, model_name, _) = await self.llm_model.generate_response_async(prompt=prompt)
-
+            generation_result = await self.llm_model.generate_response(prompt=prompt)
+            content = generation_result.response
             # print(prompt)
             # print(content)
 

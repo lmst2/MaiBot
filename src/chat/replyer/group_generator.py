@@ -10,8 +10,8 @@ from datetime import datetime
 from src.common.logger import get_logger
 from src.common.data_models.info_data_model import ActionPlannerInfo
 from src.common.data_models.llm_data_model import LLMGenerationDataModel
-from src.config.config import global_config, model_config
-from src.llm_models.utils_model import LLMRequest
+from src.config.config import global_config
+from src.services.llm_service import LLMServiceClient
 from maim_message import BaseMessageInfo, MessageBase, Seg, UserInfo as MaimUserInfo
 
 from src.common.data_models.mai_message_data_model import MaiMessage
@@ -56,7 +56,9 @@ class DefaultReplyer:
             chat_stream: 当前绑定的聊天会话。
             request_type: LLM 请求类型标识。
         """
-        self.express_model = LLMRequest(model_set=model_config.model_task_config.replyer, request_type=request_type)
+        self.express_model = LLMServiceClient(
+            task_name="replyer", request_type=request_type
+        )
         self.chat_stream = chat_stream
         self.is_group_chat, self.chat_target_info = get_chat_type_and_target_info(self.chat_stream.session_id)
 
@@ -1158,9 +1160,11 @@ class DefaultReplyer:
             # else:
             #     logger.debug(f"\nreplyer_Prompt:{prompt}\n")
 
-            content, (reasoning_content, model_name, tool_calls) = await self.express_model.generate_response_async(
-                prompt
-            )
+            generation_result = await self.express_model.generate_response(prompt)
+            content = generation_result.response
+            reasoning_content = generation_result.reasoning
+            model_name = generation_result.model_name
+            tool_calls = generation_result.tool_calls
 
             # 移除 content 前后的换行符和空格
             content = content.strip()
@@ -1200,11 +1204,15 @@ class DefaultReplyer:
             template_prompt.add_context("sender", sender)
             template_prompt.add_context("target_message", target)
             prompt = await prompt_manager.render_prompt(template_prompt)
-            _, _, _, _, tool_calls = await llm_api.generate_with_model_with_tools(
-                prompt,
-                model_config=model_config.model_task_config.tool_use,
-                tool_options=[search_knowledge_tool.get_tool_definition()],
+            generation_result = await llm_api.generate(
+                llm_api.LLMServiceRequest(
+                    task_name="tool_use",
+                    request_type="replyer.lpmm_knowledge",
+                    prompt=prompt,
+                    tool_options=[search_knowledge_tool.get_tool_definition()],
+                )
             )
+            tool_calls = generation_result.completion.tool_calls
 
             # logger.info(f"工具调用提示词: {prompt}")
             # logger.info(f"工具调用: {tool_calls}")

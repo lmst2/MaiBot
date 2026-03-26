@@ -139,14 +139,14 @@ class EmbeddingStore:
         asyncio.set_event_loop(loop)
 
         try:
-            # 创建新的LLMRequest实例
-            from src.llm_models.utils_model import LLMRequest
-            from src.config.config import model_config
+            # 创建新的服务层实例
+            from src.services.llm_service import LLMServiceClient
 
-            llm = LLMRequest(model_set=model_config.model_task_config.embedding, request_type="embedding")
+            llm = LLMServiceClient(task_name="embedding", request_type="embedding")
 
             # 使用新的事件循环运行异步方法
-            embedding, _ = loop.run_until_complete(llm.get_embedding(s))
+            embedding_result = loop.run_until_complete(llm.embed_text(s))
+            embedding = embedding_result.embedding
 
             if embedding and len(embedding) > 0:
                 return embedding
@@ -195,13 +195,12 @@ class EmbeddingStore:
             start_idx, chunk_strs = chunk_data
             chunk_results = []
 
-            # 为每个线程创建独立的LLMRequest实例
-            from src.llm_models.utils_model import LLMRequest
-            from src.config.config import model_config
+            # 为每个线程创建独立的服务层实例
+            from src.services.llm_service import LLMServiceClient
 
             try:
-                # 创建线程专用的LLM实例
-                llm = LLMRequest(model_set=model_config.model_task_config.embedding, request_type="embedding")
+                # 创建线程专用的服务层实例
+                llm = LLMServiceClient(task_name="embedding", request_type="embedding")
 
                 for i, s in enumerate(chunk_strs):
                     try:
@@ -209,7 +208,8 @@ class EmbeddingStore:
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
                         try:
-                            embedding = loop.run_until_complete(llm.get_embedding(s))
+                            embedding_result = loop.run_until_complete(llm.embed_text(s))
+                            embedding = embedding_result.embedding
                         finally:
                             loop.close()
 

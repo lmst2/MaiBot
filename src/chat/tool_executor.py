@@ -4,16 +4,18 @@
 自动判断并执行相应的工具，返回结构化的工具执行结果。
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import hashlib
 import time
 
 from src.common.logger import get_logger
-from src.config.config import global_config, model_config
+from src.config.config import global_config
 from src.core.announcement_manager import global_announcement_manager
 from src.llm_models.payload_content import ToolCall
-from src.llm_models.utils_model import LLMRequest
+from src.llm_models.payload_content.tool_option import ToolDefinitionInput
+from src.common.data_models.llm_service_data_models import LLMGenerationOptions
+from src.services.llm_service import LLMServiceClient
 from src.plugin_runtime.component_query import component_query_service
 from src.prompt.prompt_manager import prompt_manager
 
@@ -33,7 +35,9 @@ class ToolExecutor:
         self.chat_stream = _chat_manager.get_session_by_session_id(self.chat_id)
         self.log_prefix = f"[{_chat_manager.get_session_name(self.chat_id) or self.chat_id}]"
 
-        self.llm_model = LLMRequest(model_set=model_config.model_task_config.tool_use, request_type="tool_executor")
+        self.llm_model = LLMServiceClient(
+            task_name="tool_use", request_type="tool_executor"
+        )
 
         self.enable_cache = enable_cache
         self.cache_ttl = cache_ttl
@@ -69,9 +73,11 @@ class ToolExecutor:
 
         logger.debug(f"{self.log_prefix}开始LLM工具调用分析")
 
-        response, (reasoning_content, model_name, tool_calls) = await self.llm_model.generate_response_async(
-            prompt=prompt, tools=tools, raise_when_empty=False
+        generation_result = await self.llm_model.generate_response(
+            prompt=prompt,
+            options=LLMGenerationOptions(tool_options=tools, raise_when_empty=False),
         )
+        tool_calls = generation_result.tool_calls
 
         tool_results, used_tools = await self.execute_tool_calls(tool_calls)
 
@@ -85,11 +91,15 @@ class ToolExecutor:
             return tool_results, used_tools, prompt
         return tool_results, [], ""
 
-    def _get_tool_definitions(self) -> List[Dict[str, Any]]:
+    def _get_tool_definitions(self) -> List[ToolDefinitionInput]:
         """获取 LLM 可用的工具定义列表"""
         all_tools = component_query_service.get_llm_available_tools()
         user_disabled_tools = global_announcement_manager.get_disabled_chat_tools(self.chat_id)
-        return [info.get_llm_definition() for name, info in all_tools.items() if name not in user_disabled_tools]
+        return [
+            cast(ToolDefinitionInput, info.get_llm_definition())
+            for name, info in all_tools.items()
+            if name not in user_disabled_tools
+        ]
 
     async def execute_tool_calls(self, tool_calls: Optional[List[ToolCall]]) -> Tuple[List[Dict[str, Any]], List[str]]:
         """执行工具调用列表"""

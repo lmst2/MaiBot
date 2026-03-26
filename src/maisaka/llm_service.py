@@ -1,6 +1,6 @@
-﻿"""
-MaiSaka LLM 服务 - 使用主项目 LLM 系统
-将主项目的 LLMRequest 适配为 MaiSaka 需要的接口
+﻿"""MaiSaka LLM 服务。
+
+该模块基于主项目服务层封装 MaiSaka 所需的对话与工具调用接口。
 """
 
 from base64 import b64decode
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
 from time import perf_counter
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 import asyncio
 import random
@@ -23,9 +23,16 @@ from src.common.data_models.mai_message_data_model import MaiMessage
 from src.common.logger import get_logger
 from src.common.prompt_i18n import load_prompt
 from src.config.config import config_manager, global_config
+from src.llm_models.model_client.base_client import BaseClient
 from src.llm_models.payload_content.message import Message, MessageBuilder, RoleType
-from src.llm_models.payload_content.tool_option import ToolCall, ToolOption, ToolParamType
-from src.llm_models.utils_model import LLMRequest
+from src.llm_models.payload_content.tool_option import (
+    ToolCall,
+    ToolDefinitionInput,
+    ToolOption,
+    normalize_tool_options,
+)
+from src.common.data_models.llm_service_data_models import LLMGenerationOptions
+from src.services.llm_service import LLMServiceClient
 
 from . import config
 from .config import console
@@ -36,17 +43,15 @@ from .message_adapter import (
     get_message_kind,
     get_message_role,
     get_message_text,
-    get_tool_call_id,
     get_tool_calls,
-    remove_last_perception,
     to_llm_message,
 )
 
 logger = get_logger("maisaka_llm")
 
-@dataclass
+@dataclass(slots=True)
 class ChatResponse:
-    """LLM 对话循环单步响应"""
+    """LLM 对话循环单步响应。"""
 
     content: Optional[str]
     tool_calls: List[ToolCall]
@@ -65,38 +70,34 @@ class MaiSakaLLMService:
         temperature: float = 0.5,
         max_tokens: int = 2048,
         enable_thinking: Optional[bool] = None,
-    ):
-        """
-        初始化 LLM 服务
+    ) -> None:
+        """初始化 MaiSaka LLM 服务。
 
-        参数仅为兼容性保留，实际使用主项目配置
+        Args:
+            api_key: 兼容旧接口保留的参数，当前不使用。
+            base_url: 兼容旧接口保留的参数，当前不使用。
+            model: 兼容旧接口保留的参数，当前不使用。
+            chat_system_prompt: 可选的系统提示词覆盖值。
+            temperature: 默认温度参数。
+            max_tokens: 默认最大输出 token 数。
+            enable_thinking: 是否启用思考模式。
         """
+        del api_key, base_url, model
         self._temperature = temperature
         self._max_tokens = max_tokens
         self._enable_thinking = enable_thinking
-        self._extra_tools: List[dict] = []
+        self._extra_tools: List[ToolOption] = []
         self._prompts_loaded = False
         self._prompt_load_lock = asyncio.Lock()
 
-        # 获取主项目模型配置
-        try:
-            model_config = config_manager.get_model_config()
-            self._model_configs = model_config.model_task_config
-        except Exception:
-            # 如果配置加载失败，使用默认配置
-            from src.config.model_configs import ModelTaskConfig
-
-            self._model_configs = ModelTaskConfig()
-            logger.warning("无法加载主项目模型配置，使用默认配置")
-
-        # 初始化 LLMRequest 实例（只使用 tool_use 和 replyer）
-        self._llm_tool_use = LLMRequest(model_set=self._model_configs.tool_use, request_type="maisaka_tool_use")
-        # 主对话也使用 tool_use 模型（因为需要工具调用支持）
-        self._llm_planner = LLMRequest(model_set=self._model_configs.planner, request_type="maisaka_planner")
+        # 初始化服务层 LLM 门面（按任务名实时解析配置，确保热重载生效）
+        self._llm_tool_use = LLMServiceClient(task_name="tool_use", request_type="maisaka_tool_use")
+        # 主对话也使用 planner 模型
+        self._llm_planner = LLMServiceClient(task_name="planner", request_type="maisaka_planner")
         self._llm_chat = self._llm_planner
         self._llm_utils = self._llm_tool_use
         # 回复生成使用 replyer 模型
-        self._llm_replyer = LLMRequest(model_set=self._model_configs.replyer, request_type="maisaka_replyer")
+        self._llm_replyer = LLMServiceClient(task_name="replyer", request_type="maisaka_replyer")
 
         # 尝试修复数据库 schema（忽略错误）
         self._try_fix_database_schema()
@@ -111,15 +112,30 @@ class MaiSakaLLMService:
         else:
             self._chat_system_prompt = chat_system_prompt
 
-        self._model_name = (
-            self._model_configs.planner.model_list[0] if self._model_configs.planner.model_list else "未配置"
-        )
         # 子模块提示词同样采用懒加载
         self._emotion_prompt: Optional[str] = None
         self._cognition_prompt: Optional[str] = None
 
+    def get_current_model_name(self) -> str:
+        """获取当前 Maisaka 对话主模型名称。
+
+        Returns:
+            str: 当前 planner 任务的首选模型名；未配置时返回 ``未配置``。
+        """
+        try:
+            model_task_config = config_manager.get_model_config().model_task_config
+            if model_task_config.planner.model_list:
+                return model_task_config.planner.model_list[0]
+        except Exception as exc:
+            logger.warning(f"获取当前 Maisaka 模型名称失败: {exc}")
+        return "未配置"
+
     def _try_fix_database_schema(self) -> None:
-        """尝试修复数据库 schema，添加缺失的列"""
+        """尝试修复数据库 schema。
+
+        Returns:
+            None: 该方法仅执行数据库修复副作用。
+        """
         try:
             from src.common.database.database_client import get_db_session
             from sqlalchemy import text
@@ -139,7 +155,11 @@ class MaiSakaLLMService:
             pass
 
     def _build_personality_prompt(self) -> str:
-        """构建人设信息，参考 replyer 的做法"""
+        """构建当前人设提示词。
+
+        Returns:
+            str: 最终用于系统提示词的人设描述。
+        """
         try:
             bot_name = global_config.bot.nickname
             if global_config.bot.alias_names:
@@ -169,60 +189,21 @@ class MaiSakaLLMService:
             # 返回默认人设
             return "你的名字是麦麦，你是一个活泼可爱的AI助手。"
 
-    def set_extra_tools(self, tools: List[dict]) -> None:
-        """设置额外的工具定义（如 MCP 工具）"""
-        self._extra_tools = [self._normalize_extra_tool(tool) for tool in tools]
-        logger.info(f"Normalized {len(self._extra_tools)} extra tool(s) for Maisaka")
+    def set_extra_tools(self, tools: List[ToolDefinitionInput]) -> None:
+        """设置额外工具定义。
 
-    @staticmethod
-    def _json_type_to_tool_param_type(json_type: str) -> ToolParamType:
-        normalized = (json_type or "").lower()
-        if normalized == "integer":
-            return ToolParamType.INTEGER
-        if normalized == "number":
-            return ToolParamType.FLOAT
-        if normalized == "boolean":
-            return ToolParamType.BOOLEAN
-        return ToolParamType.STRING
-
-    @classmethod
-    def _normalize_extra_tool(cls, tool: dict) -> dict:
-        """Normalize external/OpenAI-style tool definitions into the internal tool schema."""
-        if "name" in tool and "description" in tool:
-            return tool
-
-        if tool.get("type") != "function":
-            return tool
-
-        function_info = tool.get("function", {})
-        parameters_schema = function_info.get("parameters", {}) or {}
-        required_names = set(parameters_schema.get("required", []) or [])
-        properties = parameters_schema.get("properties", {}) or {}
-        parameters: list[tuple[str, ToolParamType, str, bool, list[str] | None]] = []
-
-        for param_name, param_schema in properties.items():
-            if not isinstance(param_schema, dict):
-                continue
-            enum_values = param_schema.get("enum")
-            normalized_enum = [str(value) for value in enum_values] if isinstance(enum_values, list) else None
-            parameters.append(
-                (
-                    str(param_name),
-                    cls._json_type_to_tool_param_type(str(param_schema.get("type", "string"))),
-                    str(param_schema.get("description", "")),
-                    param_name in required_names,
-                    normalized_enum,
-                )
-            )
-
-        return {
-            "name": str(function_info.get("name", "")),
-            "description": str(function_info.get("description", "")),
-            "parameters": parameters,
-        }
+        Args:
+            tools: 外部传入的工具定义列表，例如 MCP 暴露的 OpenAI-compatible 工具。
+        """
+        self._extra_tools = normalize_tool_options(tools) or []
+        logger.info(f"已为 Maisaka 加载 {len(self._extra_tools)} 个额外工具")
 
     async def _ensure_prompts_loaded(self) -> None:
-        """异步懒加载提示词，避免在运行中的事件循环里同步渲染 prompt。"""
+        """异步懒加载提示词。
+
+        Returns:
+            None: 该方法仅刷新内部提示词缓存。
+        """
         if self._prompts_loaded:
             return
 
@@ -260,7 +241,14 @@ class MaiSakaLLMService:
 
     @staticmethod
     def _get_role_badge_style(role: str) -> str:
-        """为不同 role 返回不同的标签样式。"""
+        """为不同角色返回终端标签样式。
+
+        Args:
+            role: 消息角色名称。
+
+        Returns:
+            str: Rich 可识别的样式字符串。
+        """
         if role == "system":
             return "bold white on blue"
         if role == "user":
@@ -273,7 +261,14 @@ class MaiSakaLLMService:
 
     @staticmethod
     def _build_terminal_image_preview(image_base64: str) -> Optional[str]:
-        """Build a low-resolution ASCII preview for terminals without inline-image support."""
+        """构建终端 ASCII 图片预览。
+
+        Args:
+            image_base64: 图片的 Base64 数据。
+
+        Returns:
+            Optional[str]: 可渲染的 ASCII 预览文本；失败时返回 `None`。
+        """
         ascii_chars = " .:-=+*#%@"
 
         try:
@@ -291,7 +286,7 @@ class MaiSakaLLMService:
         except Exception:
             return None
 
-        rows: list[str] = []
+        rows: List[str] = []
         for row_index in range(preview_height):
             row_pixels = pixels[row_index * preview_width : (row_index + 1) * preview_width]
             row = "".join(ascii_chars[min(len(ascii_chars) - 1, pixel * len(ascii_chars) // 256)] for pixel in row_pixels)
@@ -301,12 +296,19 @@ class MaiSakaLLMService:
 
     @staticmethod
     def _render_message_content(content: Any) -> object:
-        """把消息内容转成适合 Rich 输出的 renderable。"""
+        """将消息内容转换为 Rich 可渲染对象。
+
+        Args:
+            content: 原始消息内容。
+
+        Returns:
+            object: Rich 可渲染对象。
+        """
         if isinstance(content, str):
             return Text(content)
 
         if isinstance(content, list):
-            parts: list[object] = []
+            parts: List[object] = []
             for item in content:
                 if isinstance(item, str):
                     parts.append(Text(item))
@@ -316,7 +318,7 @@ class MaiSakaLLMService:
                     if isinstance(image_format, str) and isinstance(image_base64, str):
                         approx_size = max(0, len(image_base64) * 3 // 4)
                         size_text = f"{approx_size / 1024:.1f} KB" if approx_size >= 1024 else f"{approx_size} B"
-                        preview_parts: list[object] = [
+                        preview_parts: List[object] = [
                             Text(f"image/{image_format}  {size_text}\nbase64 omitted", style="magenta")
                         ]
                         if config.TERMINAL_IMAGE_PREVIEW:
@@ -343,8 +345,15 @@ class MaiSakaLLMService:
         return Pretty(content, expand_all=True)
 
     @staticmethod
-    def _format_tool_call_for_display(tool_call: Any) -> dict[str, Any]:
-        """将 tool call 转成适合 CLI 展示的结构。"""
+    def _format_tool_call_for_display(tool_call: Any) -> Dict[str, Any]:
+        """将工具调用转换为 CLI 展示结构。
+
+        Args:
+            tool_call: 原始工具调用对象或字典。
+
+        Returns:
+            Dict[str, Any]: 统一后的展示字典。
+        """
         if isinstance(tool_call, dict):
             function_info = tool_call.get("function", {})
             return {
@@ -360,7 +369,16 @@ class MaiSakaLLMService:
         }
 
     def _render_tool_call_panel(self, tool_call: Any, index: int, parent_index: int) -> Panel:
-        """Render assistant tool calls as standalone cards."""
+        """渲染单个工具调用面板。
+
+        Args:
+            tool_call: 原始工具调用对象或字典。
+            index: 当前工具调用在父消息中的序号。
+            parent_index: 父消息在消息列表中的序号。
+
+        Returns:
+            Panel: 可直接打印的工具调用面板。
+        """
         title = Text.assemble(
             Text(" TOOL CALL ", style="bold white on magenta"),
             Text(f"  #{parent_index}.{index}", style="muted"),
@@ -373,16 +391,22 @@ class MaiSakaLLMService:
         )
 
     def _render_message_panel(self, message: Any, index: int) -> Panel:
-        """渲染主循环 prompt 中的一条消息。"""
+        """渲染主循环 Prompt 中的一条消息。
+
+        Args:
+            message: 原始消息对象或字典。
+            index: 当前消息序号。
+
+        Returns:
+            Panel: 可直接打印的消息面板。
+        """
         if isinstance(message, dict):
             raw_role = message.get("role", "unknown")
             content = message.get("content")
-            tool_calls = message.get("tool_calls")
             tool_call_id = message.get("tool_call_id")
         else:
             raw_role = getattr(message, "role", "unknown")
             content = getattr(message, "content", None)
-            tool_calls = getattr(message, "tool_calls", None)
             tool_call_id = getattr(message, "tool_call_id", None)
 
         role = raw_role.value if hasattr(raw_role, "value") else str(raw_role)
@@ -391,7 +415,7 @@ class MaiSakaLLMService:
             Text(f"  #{index}", style="muted"),
         )
 
-        parts: list[object] = []
+        parts: List[object] = []
         if content not in (None, "", []):
             parts.append(Text(" message ", style="bold cyan"))
             parts.append(self._render_message_content(content))
@@ -415,30 +439,27 @@ class MaiSakaLLMService:
             padding=(0, 1),
         )
 
-    @staticmethod
-    def _tool_option_to_dict(tool: "ToolOption") -> dict:
-        """将 ToolOption 对象转换为主项目期望的 dict 格式
+    async def chat_loop_step(self, chat_history: List[MaiMessage]) -> ChatResponse:
+        """执行主对话循环的一步。
 
-        主项目的 _build_tool_options() 期望的格式:
-        {
-            "name": str,
-            "description": str,
-            "parameters": List[Tuple[name, ToolParamType, description, required, enum_values]]
-        }
+        Args:
+            chat_history: 当前对话历史。
+
+        Returns:
+            ChatResponse: 本轮对话生成结果。
         """
-        params = []
-        if tool.params:
-            for param in tool.params:
-                params.append((param.name, param.param_type, param.description, param.required, param.enum_values))
-        return {"name": tool.name, "description": tool.description, "parameters": params}
-
-    async def chat_loop_step(self, chat_history: list[MaiMessage]) -> ChatResponse:
-        """执行对话循环的一步 - 使用 tool_use 模型"""
         await self._ensure_prompts_loaded()
 
-        def message_factory(client) -> list[Message]:
-            """将 MaiSaka 的 chat_history 转换为主项目的 Message 格式"""
-            messages: list[Message] = []
+        def message_factory(_client: BaseClient) -> List[Message]:
+            """将 MaiSaka 对话历史转换为内部消息列表。
+
+            Args:
+                _client: 当前底层客户端实例。
+
+            Returns:
+                List[Message]: 规范化后的消息列表。
+            """
+            messages: List[Message] = []
 
             # 首先添加系统提示词
             system_msg = MessageBuilder().set_role(RoleType.System)
@@ -454,15 +475,13 @@ class MaiSakaLLMService:
             return messages
 
         # 调用 LLM（使用带消息的接口）
-        # 合并内置工具和额外工具（将 ToolOption 对象转换为 dict）
-        all_tools = [self._tool_option_to_dict(t) for t in get_builtin_tools()] + (
-            self._extra_tools if self._extra_tools else []
-        )
+        # 合并内置工具和额外工具，统一交给底层规范化流程处理。
+        all_tools = [*get_builtin_tools(), *self._extra_tools]
 
         # 打印消息列表
         built_messages = message_factory(None)
 
-        ordered_panels: list[Panel] = []
+        ordered_panels: List[Panel] = []
         for index, msg in enumerate(built_messages, start=1):
             ordered_panels.append(self._render_message_panel(msg, index))
             tool_calls = getattr(msg, "tool_calls", None)
@@ -483,13 +502,18 @@ class MaiSakaLLMService:
 
 
         request_started_at = perf_counter()
-        logger.info("chat_loop_step calling planner model generate_response_with_message_async")
-        response, (reasoning, model, tool_calls) = await self._llm_chat.generate_response_with_message_async(
+        logger.info("chat_loop_step calling planner model generate_response_with_messages")
+        generation_result = await self._llm_chat.generate_response_with_messages(
             message_factory=message_factory,
-            tools=all_tools if all_tools else None,
-            temperature=self._temperature,
-            max_tokens=self._max_tokens,
+            options=LLMGenerationOptions(
+                tool_options=all_tools if all_tools else None,
+                temperature=self._temperature,
+                max_tokens=self._max_tokens,
+            ),
         )
+        response = generation_result.response
+        model = generation_result.model_name
+        tool_calls = generation_result.tool_calls
         elapsed = perf_counter() - request_started_at
         logger.info(
             f"chat_loop_step planner model returned in {elapsed:.2f}s "
@@ -509,8 +533,15 @@ class MaiSakaLLMService:
             raw_message=raw_message,
         )
 
-    def _filter_for_api(self, chat_history: list[MaiMessage]) -> str:
-        """过滤对话历史为 API 格式"""
+    def _filter_for_api(self, chat_history: List[MaiMessage]) -> str:
+        """将对话历史过滤为简单文本格式。
+
+        Args:
+            chat_history: 当前对话历史。
+
+        Returns:
+            str: 过滤后的文本上下文。
+        """
         parts = []
         for msg in chat_history:
             role = get_message_role(msg)
@@ -535,8 +566,15 @@ class MaiSakaLLMService:
 
         return "\n\n".join(parts)
 
-    def build_chat_context(self, user_text: str) -> list[MaiMessage]:
-        """构建对话上下文"""
+    def build_chat_context(self, user_text: str) -> List[MaiMessage]:
+        """构建新的对话上下文。
+
+        Args:
+            user_text: 用户输入文本。
+
+        Returns:
+            List[MaiMessage]: 初始对话上下文消息列表。
+        """
         return [
             build_message(
                 role=RoleType.User.value,
@@ -547,8 +585,15 @@ class MaiSakaLLMService:
 
     # ──────── 分析模块（使用 utils 模型） ────────
 
-    async def analyze_emotion(self, chat_history: list[MaiMessage]) -> str:
-        """情绪分析 - 使用 utils 模型"""
+    async def analyze_emotion(self, chat_history: List[MaiMessage]) -> str:
+        """执行情绪分析。
+
+        Args:
+            chat_history: 当前对话历史。
+
+        Returns:
+            str: 情绪分析文本。
+        """
         await self._ensure_prompts_loaded()
         filtered = [m for m in chat_history if get_message_kind(m) != "perception"]
         recent = filtered[-10:] if len(filtered) > 10 else filtered
@@ -574,19 +619,26 @@ class MaiSakaLLMService:
             print("=" * 60 + "\n")
 
         try:
-            response, _ = await self._llm_utils.generate_response_async(
+            generation_result = await self._llm_utils.generate_response(
                 prompt=prompt,
-                temperature=0.3,
-                max_tokens=512,
+                options=LLMGenerationOptions(temperature=0.3, max_tokens=512),
             )
+            response = generation_result.response
 
             return response
         except Exception as e:
             logger.error(f"情绪分析 LLM 调用出错: {e}")
             return ""
 
-    async def analyze_cognition(self, chat_history: list[MaiMessage]) -> str:
-        """认知分析 - 使用 utils 模型"""
+    async def analyze_cognition(self, chat_history: List[MaiMessage]) -> str:
+        """执行认知分析。
+
+        Args:
+            chat_history: 当前对话历史。
+
+        Returns:
+            str: 认知分析文本。
+        """
         await self._ensure_prompts_loaded()
         filtered = [m for m in chat_history if get_message_kind(m) != "perception"]
         recent = filtered[-10:] if len(filtered) > 10 else filtered
@@ -612,19 +664,27 @@ class MaiSakaLLMService:
             print("=" * 60 + "\n")
 
         try:
-            response, _ = await self._llm_utils.generate_response_async(
+            generation_result = await self._llm_utils.generate_response(
                 prompt=prompt,
-                temperature=0.3,
-                max_tokens=512,
+                options=LLMGenerationOptions(temperature=0.3, max_tokens=512),
             )
+            response = generation_result.response
 
             return response
         except Exception as e:
             logger.error(f"认知分析 LLM 调用出错: {e}")
             return ""
 
-    async def _removed_analyze_timing(self, chat_history: list[MaiMessage], timing_info: str) -> str:
-        """时间分析 - 使用 utils 模型"""
+    async def _removed_analyze_timing(self, chat_history: List[MaiMessage], timing_info: str) -> str:
+        """执行时间节奏分析。
+
+        Args:
+            chat_history: 当前对话历史。
+            timing_info: 外部传入的时间信息摘要。
+
+        Returns:
+            str: 时间分析文本。
+        """
         await self._ensure_prompts_loaded()
         filtered = [
             m
@@ -653,11 +713,11 @@ class MaiSakaLLMService:
             print("=" * 60 + "\n")
 
         try:
-            response, _ = await self._llm_utils.generate_response_async(
+            generation_result = await self._llm_utils.generate_response(
                 prompt=prompt,
-                temperature=0.3,
-                max_tokens=512,
+                options=LLMGenerationOptions(temperature=0.3, max_tokens=512),
             )
+            response = generation_result.response
 
             return response
         except Exception as e:
@@ -666,10 +726,15 @@ class MaiSakaLLMService:
 
     # ──────── 回复生成（使用 replyer 模型） ────────
 
-    async def generate_reply(self, reason: str, chat_history: list[MaiMessage]) -> str:
-        """
-        生成回复 - 使用 replyer 模型
-        可供 Replyer 类直接调用
+    async def generate_reply(self, reason: str, chat_history: List[MaiMessage]) -> str:
+        """生成最终回复文本。
+
+        Args:
+            reason: 当前轮次的内部想法或回复理由。
+            chat_history: 当前对话历史。
+
+        Returns:
+            str: 最终回复文本。
         """
         await self._ensure_prompts_loaded()
         from datetime import datetime
@@ -704,17 +769,12 @@ class MaiSakaLLMService:
             print("=" * 60 + "\n")
 
         try:
-            response, _ = await self._llm_replyer.generate_response_async(
+            generation_result = await self._llm_replyer.generate_response(
                 prompt=messages,
-                temperature=0.8,
-                max_tokens=512,
+                options=LLMGenerationOptions(temperature=0.8, max_tokens=512),
             )
+            response = generation_result.response
             return response.strip() if response else "..."
         except Exception as e:
             logger.error(f"回复生成 LLM 调用出错: {e}")
             return "..."
-
-
-
-
-

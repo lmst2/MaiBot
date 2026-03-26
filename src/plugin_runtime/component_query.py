@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Optional, Tupl
 
 from src.common.logger import get_logger
 from src.core.types import ActionActivationType, ActionInfo, CommandInfo, ComponentInfo, ComponentType, ToolInfo
-from src.llm_models.payload_content.tool_option import ToolParamType
+from src.llm_models.payload_content.tool_option import normalize_tool_option
 
 if TYPE_CHECKING:
     from src.plugin_runtime.host.component_registry import ActionEntry, CommandEntry, ComponentEntry, ToolEntry
@@ -27,13 +27,6 @@ _HOST_COMPONENT_TYPE_MAP: Dict[ComponentType, str] = {
     ComponentType.ACTION: "ACTION",
     ComponentType.COMMAND: "COMMAND",
     ComponentType.TOOL: "TOOL",
-}
-_TOOL_PARAM_TYPE_MAP: Dict[str, ToolParamType] = {
-    "string": ToolParamType.STRING,
-    "integer": ToolParamType.INTEGER,
-    "float": ToolParamType.FLOAT,
-    "boolean": ToolParamType.BOOLEAN,
-    "bool": ToolParamType.BOOLEAN,
 }
 
 
@@ -171,11 +164,9 @@ class ComponentQueryService:
 
         return ActionInfo(
             name=entry.name,
-            component_type=ComponentType.ACTION,
             description=str(metadata.get("description", "") or ""),
             enabled=bool(entry.enabled),
             plugin_name=entry.plugin_id,
-            metadata=metadata,
             action_parameters=action_parameters,
             action_require=action_require,
             associated_types=associated_types,
@@ -202,72 +193,48 @@ class ComponentQueryService:
         metadata = dict(entry.metadata)
         return CommandInfo(
             name=entry.name,
-            component_type=ComponentType.COMMAND,
             description=str(metadata.get("description", "") or ""),
             enabled=bool(entry.enabled),
             plugin_name=entry.plugin_id,
-            metadata=metadata,
-            command_pattern=str(metadata.get("command_pattern", "") or ""),
         )
 
     @staticmethod
-    def _coerce_tool_param_type(raw_value: Any) -> ToolParamType:
-        """规范化工具参数类型。
-
-        Args:
-            raw_value: 原始工具参数类型值。
-
-        Returns:
-            ToolParamType: 规范化后的工具参数类型。
-        """
-
-        normalized_value = str(raw_value or "").strip().lower()
-        return _TOOL_PARAM_TYPE_MAP.get(normalized_value, ToolParamType.STRING)
-
-    @staticmethod
-    def _build_tool_parameters(entry: "ToolEntry") -> list[tuple[str, ToolParamType, str, bool, list[str] | None]]:
-        """将运行时工具参数元数据转换为核心 ToolInfo 参数列表。
+    def _build_tool_definition(entry: "ToolEntry") -> dict[str, Any]:
+        """将运行时 Tool 条目转换为原始工具定义字典。
 
         Args:
             entry: 插件运行时中的 Tool 条目。
 
         Returns:
-            list[tuple[str, ToolParamType, str, bool, list[str] | None]]: 转换后的参数列表。
+            dict[str, Any]: 可交给 `normalize_tool_option()` 的原始工具定义。
         """
+        raw_definition: dict[str, Any] = {
+            "name": entry.name,
+            "description": entry.description,
+        }
+        if isinstance(entry.parameters_raw, dict) and entry.parameters_raw:
+            raw_definition["parameters_schema"] = entry.parameters_raw
+            return raw_definition
+        if isinstance(entry.parameters, list) and entry.parameters:
+            raw_definition["parameters"] = entry.parameters
+            return raw_definition
+        if isinstance(entry.parameters_raw, list) and entry.parameters_raw:
+            raw_definition["parameters"] = entry.parameters_raw
+            return raw_definition
+        return raw_definition
 
-        structured_parameters = entry.parameters if isinstance(entry.parameters, list) else []
-        if not structured_parameters and isinstance(entry.parameters_raw, dict):
-            structured_parameters = [
-                {"name": key, **value}
-                for key, value in entry.parameters_raw.items()
-                if isinstance(value, dict)
-            ]
+    @staticmethod
+    def _build_tool_parameters_schema(entry: "ToolEntry") -> dict[str, Any] | None:
+        """将运行时 Tool 条目转换为对象级参数 Schema。
 
-        normalized_parameters: list[tuple[str, ToolParamType, str, bool, list[str] | None]] = []
-        for parameter in structured_parameters:
-            if not isinstance(parameter, dict):
-                continue
+        Args:
+            entry: 插件运行时中的 Tool 条目。
 
-            parameter_name = str(parameter.get("name", "") or "").strip()
-            if not parameter_name:
-                continue
-
-            enum_values = parameter.get("enum")
-            normalized_enum_values = (
-                [str(item) for item in enum_values if item is not None]
-                if isinstance(enum_values, list)
-                else None
-            )
-            normalized_parameters.append(
-                (
-                    parameter_name,
-                    ComponentQueryService._coerce_tool_param_type(parameter.get("param_type") or parameter.get("type")),
-                    str(parameter.get("description", "") or ""),
-                    bool(parameter.get("required", True)),
-                    normalized_enum_values,
-                )
-            )
-        return normalized_parameters
+        Returns:
+            dict[str, Any] | None: 规范化后的对象级参数 Schema。
+        """
+        normalized_option = normalize_tool_option(ComponentQueryService._build_tool_definition(entry))
+        return normalized_option.parameters_schema
 
     @staticmethod
     def _build_tool_info(entry: "ToolEntry") -> ToolInfo:
@@ -282,13 +249,10 @@ class ComponentQueryService:
 
         return ToolInfo(
             name=entry.name,
-            component_type=ComponentType.TOOL,
             description=entry.description,
             enabled=bool(entry.enabled),
             plugin_name=entry.plugin_id,
-            metadata=dict(entry.metadata),
-            tool_parameters=ComponentQueryService._build_tool_parameters(entry),
-            tool_description=entry.description,
+            parameters_schema=ComponentQueryService._build_tool_parameters_schema(entry),
         )
 
     @staticmethod

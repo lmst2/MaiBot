@@ -2,8 +2,8 @@ import time
 from typing import Tuple, Optional  # 增加了 Optional
 
 from src.common.logger import get_logger
-from src.llm_models.utils_model import LLMRequest
-from src.config.config import global_config, model_config
+from src.services.llm_service import LLMServiceClient
+from src.config.config import global_config
 import random
 from .chat_observer import ChatObserver
 from .pfc_utils import get_items_from_json
@@ -109,8 +109,8 @@ class ActionPlanner:
     """行动规划器"""
 
     def __init__(self, stream_id: str, private_name: str):
-        self.llm = LLMRequest(
-            model_set=model_config.model_task_config.planner,
+        self.llm = LLMServiceClient(
+            task_name="planner",
             request_type="action_planning",
         )
         self.personality_info = self._get_personality_prompt()
@@ -398,7 +398,8 @@ class ActionPlanner:
 
         logger.debug(f"[私聊][{self.private_name}]发送到LLM的最终提示词:\n------\n{prompt}\n------")
         try:
-            content, _ = await self.llm.generate_response_async(prompt)
+            generation_result = await self.llm.generate_response(prompt)
+            content = generation_result.response
             logger.debug(f"[私聊][{self.private_name}]LLM (行动规划) 原始返回内容: {content}")
 
             # --- 初始行动规划解析 ---
@@ -427,7 +428,8 @@ class ActionPlanner:
                     f"[私聊][{self.private_name}]发送到LLM的结束决策提示词:\n------\n{end_decision_prompt}\n------"
                 )
                 try:
-                    end_content, _ = await self.llm.generate_response_async(end_decision_prompt)  # 再次调用LLM
+                    end_generation_result = await self.llm.generate_response(end_decision_prompt)
+                    end_content = end_generation_result.response  # 再次调用LLM
                     logger.debug(f"[私聊][{self.private_name}]LLM (结束决策) 原始返回内容: {end_content}")
 
                     # 解析结束决策的JSON

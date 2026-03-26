@@ -1,7 +1,7 @@
 from typing import List, Tuple, TYPE_CHECKING
 from src.common.logger import get_logger
-from src.llm_models.utils_model import LLMRequest
-from src.config.config import global_config, model_config
+from src.services.llm_service import LLMServiceClient
+from src.config.config import global_config
 import random
 from .chat_observer import ChatObserver
 from .pfc_utils import get_items_from_json
@@ -43,7 +43,9 @@ class GoalAnalyzer:
     """对话目标分析器"""
 
     def __init__(self, stream_id: str, private_name: str):
-        self.llm = LLMRequest(model_set=model_config.model_task_config.planner, request_type="conversation_goal")
+        self.llm = LLMServiceClient(
+            task_name="planner", request_type="conversation_goal"
+        )
 
         self.personality_info = self._get_personality_prompt()
         self.name = global_config.bot.nickname
@@ -157,7 +159,8 @@ class GoalAnalyzer:
 
         logger.debug(f"[私聊][{self.private_name}]发送到LLM的提示词: {prompt}")
         try:
-            content, _ = await self.llm.generate_response_async(prompt)
+            generation_result = await self.llm.generate_response(prompt)
+            content = generation_result.response
             logger.debug(f"[私聊][{self.private_name}]LLM原始返回内容: {content}")
         except Exception as e:
             logger.error(f"[私聊][{self.private_name}]分析对话目标时出错: {str(e)}")
@@ -271,7 +274,8 @@ class GoalAnalyzer:
 }}"""
 
         try:
-            content, _ = await self.llm.generate_response_async(prompt)
+            generation_result = await self.llm.generate_response(prompt)
+            content = generation_result.response
             logger.debug(f"[私聊][{self.private_name}]LLM原始返回内容: {content}")
 
             # 尝试解析JSON

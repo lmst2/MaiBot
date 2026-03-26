@@ -91,13 +91,14 @@ class LPMMOperations:
 
             # 2. 实体与三元组抽取 (内部调用大模型)
             from src.chat.knowledge.ie_process import IEProcess
-            from src.llm_models.utils_model import LLMRequest
-            from src.config.config import model_config
+            from src.services.llm_service import LLMServiceClient
 
-            llm_ner = LLMRequest(
-                model_set=model_config.model_task_config.lpmm_entity_extract, request_type="lpmm.entity_extract"
+            llm_ner = LLMServiceClient(
+                task_name="lpmm_entity_extract", request_type="lpmm.entity_extract"
             )
-            llm_rdf = LLMRequest(model_set=model_config.model_task_config.lpmm_rdf_build, request_type="lpmm.rdf_build")
+            llm_rdf = LLMServiceClient(
+                task_name="lpmm_rdf_build", request_type="lpmm.rdf_build"
+            )
             ie_process = IEProcess(llm_ner, llm_rdf)
 
             logger.info(f"[Plugin API] 正在对 {len(paragraphs)} 段文本执行信息抽取...")

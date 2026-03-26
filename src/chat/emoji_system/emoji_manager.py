@@ -17,8 +17,9 @@ from src.common.database.database_model import Images, ImageType
 from src.common.database.database import get_db_session, get_db_session_manual
 from src.common.utils.utils_image import ImageUtils
 from src.prompt.prompt_manager import prompt_manager
-from src.config.config import config_manager, global_config, model_config
-from src.llm_models.utils_model import LLMRequest
+from src.config.config import config_manager, global_config
+from src.common.data_models.llm_service_data_models import LLMGenerationOptions, LLMImageOptions
+from src.services.llm_service import LLMServiceClient
 
 logger = get_logger("emoji")
 
@@ -38,8 +39,10 @@ def _ensure_directories() -> None:
 
 
 # TODO: 修改这个vlm为获取的vlm client，暂时使用这个VLM方法
-emoji_manager_vlm = LLMRequest(model_set=model_config.model_task_config.vlm, request_type="emoji.see")
-emoji_manager_emotion_judge_llm = LLMRequest(model_set=model_config.model_task_config.utils, request_type="emoji")
+emoji_manager_vlm = LLMServiceClient(task_name="vlm", request_type="emoji.see")
+emoji_manager_emotion_judge_llm = LLMServiceClient(
+    task_name="utils", request_type="emoji"
+)
 
 
 class EmojiManager:
@@ -461,9 +464,11 @@ class EmojiManager:
         emoji_replace_prompt_template.add_context("emoji_list", "\n".join(emoji_info_list))
         emoji_replace_prompt = await prompt_manager.render_prompt(emoji_replace_prompt_template)
 
-        decision, _ = await emoji_manager_emotion_judge_llm.generate_response_async(
-            emoji_replace_prompt, temperature=0.8, max_tokens=600
+        decision_result = await emoji_manager_emotion_judge_llm.generate_response(
+            emoji_replace_prompt,
+            options=LLMGenerationOptions(temperature=0.8, max_tokens=600),
         )
+        decision = decision_result.response
         logger.info(f"[决策] 结果: {decision}")
 
         # 解析决策结果
@@ -524,24 +529,36 @@ class EmojiManager:
                 return False, target_emoji
             prompt: str = "这是一个动态图表情包，每一张图代表了动态图的某一帧，黑色背景代表透明，简短描述一下表情包表达的情感和内容，从互联网梗、meme的角度去分析，精简回答"
             image_base64 = ImageUtils.image_bytes_to_base64(image_bytes)
-            description, _ = await emoji_manager_vlm.generate_response_for_image(
-                prompt, image_base64, "jpg", temperature=0.5
+            description_result = await emoji_manager_vlm.generate_response_for_image(
+                prompt,
+                image_base64,
+                "jpg",
+                options=LLMImageOptions(temperature=0.5),
             )
+            description = description_result.response
         else:
             prompt: str = "这是一个表情包，请详细描述一下表情包所表达的情感和内容，简短描述细节，从互联网梗、meme的角度去分析，精简回答"
             image_base64 = ImageUtils.image_bytes_to_base64(image_bytes)
-            description, _ = await emoji_manager_vlm.generate_response_for_image(
-                prompt, image_base64, image_format, temperature=0.5
+            description_result = await emoji_manager_vlm.generate_response_for_image(
+                prompt,
+                image_base64,
+                image_format,
+                options=LLMImageOptions(temperature=0.5),
             )
+            description = description_result.response
 
         # 表情包审查
         if global_config.emoji.content_filtration:
             filtration_prompt_template = prompt_manager.get_prompt("emoji_content_filtration")
             filtration_prompt_template.add_context("demand", global_config.emoji.filtration_prompt)
             filtration_prompt = await prompt_manager.render_prompt(filtration_prompt_template)
-            llm_response, _ = await emoji_manager_vlm.generate_response_for_image(
-                filtration_prompt, image_base64, image_format, temperature=0.3
+            filtration_result = await emoji_manager_vlm.generate_response_for_image(
+                filtration_prompt,
+                image_base64,
+                image_format,
+                options=LLMImageOptions(temperature=0.3),
             )
+            llm_response = filtration_result.response
             if "否" in llm_response:
                 logger.warning(f"[表情包审查] 表情包内容不符合要求，拒绝注册: {target_emoji.file_name}")
                 return False, target_emoji
@@ -567,9 +584,11 @@ class EmojiManager:
         emotion_prompt_template.add_context("description", target_emoji.description)
         emotion_prompt = await prompt_manager.render_prompt(emotion_prompt_template)
         # 调用LLM生成情感标签
-        emotion_result, _ = await emoji_manager_emotion_judge_llm.generate_response_async(
-            emotion_prompt, temperature=0.3, max_tokens=200
+        emotion_generation_result = await emoji_manager_emotion_judge_llm.generate_response(
+            emotion_prompt,
+            options=LLMGenerationOptions(temperature=0.3, max_tokens=200),
         )
+        emotion_result = emotion_generation_result.response
 
         # 解析情感标签结果
         emotions = [e.strip() for e in emotion_result.replace("，", ",").split(",") if e.strip()]

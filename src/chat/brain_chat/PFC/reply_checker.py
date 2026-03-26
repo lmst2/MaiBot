@@ -2,8 +2,8 @@ import json
 import random
 from typing import Tuple, List, Dict, Any
 from src.common.logger import get_logger
-from src.llm_models.utils_model import LLMRequest
-from src.config.config import global_config, model_config
+from src.services.llm_service import LLMServiceClient
+from src.config.config import global_config
 from .chat_observer import ChatObserver
 from maim_message import UserInfo
 
@@ -14,7 +14,7 @@ class ReplyChecker:
     """回复检查器"""
 
     def __init__(self, stream_id: str, private_name: str):
-        self.llm = LLMRequest(model_set=model_config.model_task_config.utils, request_type="reply_check")
+        self.llm = LLMServiceClient(task_name="utils", request_type="reply_check")
         self.personality_info = self._get_personality_prompt()
         self.name = global_config.bot.nickname
         self.private_name = private_name
@@ -137,7 +137,8 @@ class ReplyChecker:
 注意：请严格按照JSON格式输出，不要包含任何其他内容。"""
 
         try:
-            content, _ = await self.llm.generate_response_async(prompt)
+            generation_result = await self.llm.generate_response(prompt)
+            content = generation_result.response
             logger.debug(f"[私聊][{self.private_name}]检查回复的原始返回: {content}")
 
             # 清理内容，尝试提取JSON部分

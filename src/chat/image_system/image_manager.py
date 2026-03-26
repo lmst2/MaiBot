@@ -11,8 +11,9 @@ from src.common.logger import get_logger
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Images, ImageType
 from src.common.data_models.image_data_model import MaiImage
-from src.config.config import global_config, model_config
-from src.llm_models.utils_model import LLMRequest
+from src.config.config import global_config
+from src.common.data_models.llm_service_data_models import LLMImageOptions
+from src.services.llm_service import LLMServiceClient
 
 install(extra_lines=3)
 
@@ -27,7 +28,7 @@ def _ensure_image_dir_exists():
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-vlm = LLMRequest(model_set=model_config.model_task_config.vlm, request_type="image")
+vlm = LLMServiceClient(task_name="vlm", request_type="image")
 
 
 class ImageManager:
@@ -260,7 +261,13 @@ class ImageManager:
         prompt = global_config.personality.visual_style
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
-        description, _ = await vlm.generate_response_for_image(prompt, image_base64, image_format, 0.4)
+        generation_result = await vlm.generate_response_for_image(
+            prompt,
+            image_base64,
+            image_format,
+            options=LLMImageOptions(temperature=0.4),
+        )
+        description = generation_result.response
         if not description:
             logger.warning("VLM未能生成图片描述")
         return description or ""

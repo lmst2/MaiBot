@@ -1,7 +1,35 @@
+from enum import Enum
 from typing import Any
 
-from .config_base import ConfigBase, Field
 from src.common.i18n import t
+from .config_base import ConfigBase, Field
+
+
+class OpenAICompatibleAuthType(str, Enum):
+    """OpenAI 兼容接口的鉴权方式。"""
+
+    BEARER = "bearer"
+    HEADER = "header"
+    QUERY = "query"
+    NONE = "none"
+
+
+class ReasoningParseMode(str, Enum):
+    """推理内容解析策略。"""
+
+    AUTO = "auto"
+    NATIVE = "native"
+    THINK_TAG = "think_tag"
+    NONE = "none"
+
+
+class ToolArgumentParseMode(str, Enum):
+    """工具调用参数的解析策略。"""
+
+    AUTO = "auto"
+    STRICT = "strict"
+    REPAIR = "repair"
+    DOUBLE_DECODE = "double_decode"
 
 
 class APIProvider(ConfigBase):
@@ -33,7 +61,7 @@ class APIProvider(ConfigBase):
             "x-icon": "key",
         },
     )
-    """API密钥"""
+    """API密钥。对于不需要鉴权的兼容端点，可将 `auth_type` 设为 `none`。"""
 
     client_type: str = Field(
         default="openai",
@@ -43,6 +71,105 @@ class APIProvider(ConfigBase):
         },
     )
     """客户端类型 (可选: openai/google, 默认为openai)"""
+
+    auth_type: str = Field(
+        default=OpenAICompatibleAuthType.BEARER.value,
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "shield",
+        },
+    )
+    """OpenAI 兼容接口的鉴权方式。可选值：`bearer`、`header`、`query`、`none`。"""
+
+    auth_header_name: str = Field(
+        default="Authorization",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "header",
+        },
+    )
+    """当 `auth_type` 为 `header` 时使用的请求头名称。"""
+
+    auth_header_prefix: str = Field(
+        default="Bearer",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "shield-check",
+        },
+    )
+    """当 `auth_type` 为 `header` 时使用的请求头前缀。留空表示直接发送原始密钥。"""
+
+    auth_query_name: str = Field(
+        default="api_key",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "link",
+        },
+    )
+    """当 `auth_type` 为 `query` 时使用的查询参数名称。"""
+
+    default_headers: dict[str, str] = Field(
+        default_factory=dict,
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "header",
+        },
+    )
+    """所有请求默认附带的 HTTP Header。"""
+
+    default_query: dict[str, str] = Field(
+        default_factory=dict,
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "list-filter",
+        },
+    )
+    """所有请求默认附带的查询参数。"""
+
+    organization: str | None = Field(
+        default=None,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "building-2",
+        },
+    )
+    """OpenAI 官方接口可选的 `organization`。"""
+
+    project: str | None = Field(
+        default=None,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "folder-kanban",
+        },
+    )
+    """OpenAI 官方接口可选的 `project`。"""
+
+    model_list_endpoint: str = Field(
+        default="/models",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "list",
+        },
+    )
+    """模型列表端点路径。适用于 OpenAI 兼容接口的探测与管理。"""
+
+    reasoning_parse_mode: str = Field(
+        default=ReasoningParseMode.AUTO.value,
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "brain",
+        },
+    )
+    """推理内容解析模式。可选值：`auto`、`native`、`think_tag`、`none`。"""
+
+    tool_argument_parse_mode: str = Field(
+        default=ToolArgumentParseMode.AUTO.value,
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "braces",
+        },
+    )
+    """工具参数解析模式。可选值：`auto`、`strict`、`repair`、`double_decode`。"""
 
     max_retry: int = Field(
         default=2,
@@ -76,15 +203,26 @@ class APIProvider(ConfigBase):
     )
     """重试间隔 (如果API调用失败, 重试的间隔时间, 单位: 秒)"""
 
-    def model_post_init(self, context: Any = None):
-        """确保api_key在repr中不被显示"""
-        if not self.api_key:
+    def model_post_init(self, context: Any = None) -> None:
+        """执行 API 提供商配置的后置校验。
+
+        Args:
+            context: Pydantic 传入的上下文对象。
+
+        Raises:
+            ValueError: 当配置项缺失或组合不合法时抛出。
+        """
+        if self.auth_type != OpenAICompatibleAuthType.NONE and not self.api_key:
             raise ValueError(t("config.api_key_empty"))
         if not self.base_url and self.client_type != "gemini":  # TODO: 允许gemini使用base_url
             raise ValueError(t("config.api_base_url_empty"))
         if not self.name:
             raise ValueError(t("config.api_provider_name_empty"))
-        return super().model_post_init(context)
+        if self.auth_type == OpenAICompatibleAuthType.HEADER and not self.auth_header_name.strip():
+            raise ValueError("当 auth_type=header 时，auth_header_name 不能为空")
+        if self.auth_type == OpenAICompatibleAuthType.QUERY and not self.auth_query_name.strip():
+            raise ValueError("当 auth_type=query 时，auth_query_name 不能为空")
+        super().model_post_init(context)
 
 
 class ModelInfo(ConfigBase):

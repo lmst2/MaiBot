@@ -19,9 +19,9 @@ from src.chat.planner_actions.action_manager import ActionManager
 from src.chat.utils.utils import get_chat_type_and_target_info, is_bot_self
 from src.common.data_models.info_data_model import ActionPlannerInfo
 from src.common.logger import get_logger
-from src.config.config import global_config, model_config
+from src.config.config import global_config
 from src.core.types import ActionActivationType, ActionInfo, ComponentType
-from src.llm_models.utils_model import LLMRequest
+from src.services.llm_service import LLMServiceClient
 from src.person_info.person_info import Person
 from src.plugin_runtime.component_query import component_query_service
 from src.prompt.prompt_manager import prompt_manager
@@ -46,8 +46,8 @@ class ActionPlanner:
         self.log_prefix = f"[{_chat_manager.get_session_name(chat_id) or chat_id}]"
         self.action_manager = action_manager
         # LLM规划器配置
-        self.planner_llm = LLMRequest(
-            model_set=model_config.model_task_config.planner, request_type="planner"
+        self.planner_llm = LLMServiceClient(
+            task_name="planner", request_type="planner"
         )  # 用于动作规划
 
         self.last_obs_time_mark = 0.0
@@ -725,7 +725,9 @@ class ActionPlanner:
         try:
             # 调用LLM
             llm_start = time.perf_counter()
-            llm_content, (reasoning_content, _, _) = await self.planner_llm.generate_response_async(prompt=prompt)
+            generation_result = await self.planner_llm.generate_response(prompt=prompt)
+            llm_content = generation_result.response
+            reasoning_content = generation_result.reasoning
             llm_duration_ms = (time.perf_counter() - llm_start) * 1000
             llm_reasoning = reasoning_content
 

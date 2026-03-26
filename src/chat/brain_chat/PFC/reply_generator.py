@@ -1,7 +1,7 @@
 from typing import Tuple, List, Dict, Any
 from src.common.logger import get_logger
-from src.llm_models.utils_model import LLMRequest
-from src.config.config import global_config, model_config
+from src.services.llm_service import LLMServiceClient
+from src.config.config import global_config
 import random
 from .chat_observer import ChatObserver
 from .reply_checker import ReplyChecker
@@ -87,8 +87,8 @@ class ReplyGenerator:
     """回复生成器"""
 
     def __init__(self, stream_id: str, private_name: str):
-        self.llm = LLMRequest(
-            model_set=model_config.model_task_config.replyer,
+        self.llm = LLMServiceClient(
+            task_name="replyer",
             request_type="reply_generation",
         )
         self.personality_info = self._get_personality_prompt()
@@ -223,7 +223,8 @@ class ReplyGenerator:
         # --- 调用 LLM 生成 ---
         logger.debug(f"[私聊][{self.private_name}]发送到LLM的生成提示词:\n------\n{prompt}\n------")
         try:
-            content, _ = await self.llm.generate_response_async(prompt)
+            generation_result = await self.llm.generate_response(prompt)
+            content = generation_result.response
             logger.debug(f"[私聊][{self.private_name}]生成的回复: {content}")
             # 移除旧的检查新消息逻辑，这应该由 conversation 控制流处理
             return content

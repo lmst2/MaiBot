@@ -91,7 +91,7 @@ class ToolEntry(ComponentEntry):
     def __init__(self, name: str, component_type: str, plugin_id: str, metadata: Dict[str, Any]) -> None:
         self.description: str = metadata.get("description", "")
         self.parameters: List[Dict[str, Any]] = metadata.get("parameters", [])
-        self.parameters_raw: List[Dict[str, Any]] = metadata.get("parameters_raw", [])
+        self.parameters_raw: Dict[str, Any] | List[Dict[str, Any]] = metadata.get("parameters_raw", {})
         super().__init__(name, component_type, plugin_id, metadata)
 
 
