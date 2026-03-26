@@ -752,7 +752,12 @@ class MaiSakaLLMService:
 
         # 获取回复提示词
         try:
-            system_prompt = load_prompt("maidairy_replyer")
+            system_prompt = load_prompt(
+                "maidairy_replyer",
+                bot_name=global_config.bot.nickname,
+                identity=self._personality_prompt,
+                reply_style=global_config.personality.reply_style,
+            )
         except Exception:
             system_prompt = "你是一个友好的 AI 助手，请根据用户的想法生成自然的回复。"
 

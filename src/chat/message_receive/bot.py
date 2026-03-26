@@ -303,9 +303,13 @@ class ChatBot:
             #     pass
 
             # 处理消息内容，识别表情包等二进制数据并转化为文本描述
-            if global_config.maisaka.take_over_hfc and global_config.maisaka.direct_image_input:
+            if group_info is not None and global_config.maisaka.direct_image_input:
                 message.maisaka_original_raw_message = deepcopy(message.raw_message)  # type: ignore[attr-defined]
-            await message.process()
+            # 入站主链优先保证消息尽快入队，避免图片、表情包、语音分析阻塞适配器超时。
+            await message.process(
+                enable_heavy_media_analysis=False,
+                enable_voice_transcription=False,
+            )
 
             # 平台层的 @ 检测由底层 is_mentioned_bot_in_message 统一处理；此处不做用户名硬编码匹配
 

@@ -1,7 +1,8 @@
 from asyncio import Task
+from typing import Dict, List, Sequence, Tuple
+
 from rich.traceback import install
 from sqlmodel import select
-from typing import List, Dict, Tuple, Sequence
 
 import asyncio
 
@@ -27,14 +28,36 @@ logger = get_logger("chat_message")
 
 
 class MsgIDMapping:
-    def __init__(self):
-        self.mapping: Dict[str, Tuple[str | Task, UserInfo]] = {}
+    """回复消息内容缓存。"""
+
+    def __init__(self) -> None:
+        """初始化消息 ID 到内容的映射缓存。"""
+        self.mapping: Dict[str, Tuple[str | Task[str], UserInfo]] = {}
 
 
 class SessionMessage(MaiMessage):
-    async def process(self):
-        """处理消息内容，识别消息内容并转化为文本（会修改消息组件属性）"""
-        tasks = [self.process_single_component(component, MsgIDMapping()) for component in self.raw_message.components]
+    async def process(
+        self,
+        *,
+        enable_heavy_media_analysis: bool = True,
+        enable_voice_transcription: bool = True,
+    ) -> None:
+        """处理消息内容并转化为纯文本。
+
+        Args:
+            enable_heavy_media_analysis: 是否同步执行图片与表情包描述生成。
+            enable_voice_transcription: 是否同步执行语音转写。
+        """
+        id_content_map = MsgIDMapping()
+        tasks = [
+            self.process_single_component(
+                component,
+                id_content_map,
+                enable_heavy_media_analysis=enable_heavy_media_analysis,
+                enable_voice_transcription=enable_voice_transcription,
+            )
+            for component in self.raw_message.components
+        ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         processed_texts: List[str] = []
         for result in results:
@@ -45,50 +68,116 @@ class SessionMessage(MaiMessage):
         self.processed_plain_text = " ".join(processed_texts)
 
     async def process_single_component(
-        self, component: StandardMessageComponents, id_content_map: MsgIDMapping, recursion_depth: int = 0
+        self,
+        component: StandardMessageComponents,
+        id_content_map: MsgIDMapping,
+        recursion_depth: int = 0,
+        *,
+        enable_heavy_media_analysis: bool = True,
+        enable_voice_transcription: bool = True,
     ) -> str:
-        """按照类型处理单个消息组件，返回处理后的文本内容（会修改消息组件属性）"""
+        """按类型处理单个消息组件。
+
+        Args:
+            component: 待处理的消息组件。
+            id_content_map: 回复消息解析缓存。
+            recursion_depth: 当前递归深度。
+            enable_heavy_media_analysis: 是否同步执行图片与表情包描述生成。
+            enable_voice_transcription: 是否同步执行语音转写。
+
+        Returns:
+            str: 组件对应的文本表示。
+        """
         if isinstance(component, TextComponent):
             return component.text
         elif isinstance(component, ImageComponent):
-            return await self.process_image_component(component)
+            return await self.process_image_component(
+                component,
+                enable_heavy_media_analysis=enable_heavy_media_analysis,
+            )
         elif isinstance(component, EmojiComponent):
-            return await self.process_emoji_component(component)
+            return await self.process_emoji_component(
+                component,
+                enable_heavy_media_analysis=enable_heavy_media_analysis,
+            )
         elif isinstance(component, AtComponent):
             return await self.process_at_component(component)
         elif isinstance(component, VoiceComponent):
-            return await self.process_voice_component(component)
+            return await self.process_voice_component(
+                component,
+                enable_voice_transcription=enable_voice_transcription,
+            )
         elif isinstance(component, ReplyComponent):
             return await self.process_reply_component(component, id_content_map)
         elif isinstance(component, ForwardNodeComponent):
-            return await self.process_forward_component(component, id_content_map, recursion_depth=recursion_depth + 1)
+            return await self.process_forward_component(
+                component,
+                id_content_map,
+                recursion_depth=recursion_depth + 1,
+                enable_heavy_media_analysis=enable_heavy_media_analysis,
+                enable_voice_transcription=enable_voice_transcription,
+            )
         else:
             raise NotImplementedError(f"暂时不支持的消息组件类型: {type(component)}")
 
-    async def process_image_component(self, component: ImageComponent) -> str:
+    async def process_image_component(
+        self,
+        component: ImageComponent,
+        *,
+        enable_heavy_media_analysis: bool = True,
+    ) -> str:
+        """处理图片组件。
+
+        Args:
+            component: 图片组件。
+            enable_heavy_media_analysis: 是否同步执行图片描述生成。
+
+        Returns:
+            str: 图片组件对应的文本表示。
+        """
         if component.content:  # 先检查是否处理过
             return component.content
         from src.chat.image_system.image_manager import image_manager
 
         # 获取描述
         try:
-            desc = await image_manager.get_image_description(image_bytes=component.binary_data)
+            desc = await image_manager.get_image_description(
+                image_bytes=component.binary_data,
+                wait_for_build=enable_heavy_media_analysis,
+            )
         except Exception:
             desc = None  # 失败置空
 
-        content = f"[图片：{desc}]" if desc else "[一张图片，网卡了加载不出来]"
+        content = f"[图片：{desc}]" if desc else "[图片]"
         component.content = content
         component.binary_data = b""  # 处理完就丢掉二进制数据，节省内存
         return content
 
-    async def process_emoji_component(self, component: EmojiComponent) -> str:
+    async def process_emoji_component(
+        self,
+        component: EmojiComponent,
+        *,
+        enable_heavy_media_analysis: bool = True,
+    ) -> str:
+        """处理表情包组件。
+
+        Args:
+            component: 表情包组件。
+            enable_heavy_media_analysis: 是否同步执行表情包描述生成。
+
+        Returns:
+            str: 表情包组件对应的文本表示。
+        """
         if component.content:  # 先检查是否处理过
             return component.content
         from src.chat.emoji_system.emoji_manager import emoji_manager
 
         # 获取表情包描述
         try:
-            tuple_content = await emoji_manager.get_emoji_description(emoji_bytes=component.binary_data)
+            tuple_content = await emoji_manager.get_emoji_description(
+                emoji_bytes=component.binary_data,
+                wait_for_build=enable_heavy_media_analysis,
+            )
         except Exception:
             tuple_content = None  # 失败置空
 
@@ -96,7 +185,7 @@ class SessionMessage(MaiMessage):
             desc, _ = tuple_content
             content = f"[表情包: {desc}]"
         else:
-            content = "[一个表情，网卡了加载不出来]"
+            content = "[表情包]"
         component.content = content
         component.binary_data = b""  # 处理完就丢掉二进制数据，节省内存
         return content
@@ -124,8 +213,25 @@ class SessionMessage(MaiMessage):
         else:  # 最后使用用户ID
             return f"@{component.target_user_id}"
 
-    async def process_voice_component(self, component: VoiceComponent) -> str:
+    async def process_voice_component(
+        self,
+        component: VoiceComponent,
+        *,
+        enable_voice_transcription: bool = True,
+    ) -> str:
+        """处理语音组件。
+
+        Args:
+            component: 语音组件。
+            enable_voice_transcription: 是否同步执行语音转写。
+
+        Returns:
+            str: 语音组件对应的文本表示。
+        """
         if component.content:  # 先检查是否处理过
+            return component.content
+        if not enable_voice_transcription:
+            component.content = "[语音消息]"
             return component.content
         from src.common.utils.utils_voice import get_voice_text
 
@@ -169,13 +275,37 @@ class SessionMessage(MaiMessage):
             return "[回复了一条消息，但原消息已无法访问]"
 
     async def process_forward_component(
-        self, component: ForwardNodeComponent, id_content_map: MsgIDMapping, recursion_depth: int = 0
+        self,
+        component: ForwardNodeComponent,
+        id_content_map: MsgIDMapping,
+        recursion_depth: int = 0,
+        *,
+        enable_heavy_media_analysis: bool = True,
+        enable_voice_transcription: bool = True,
     ) -> str:
+        """处理合并转发组件。
+
+        Args:
+            component: 合并转发组件。
+            id_content_map: 回复消息解析缓存。
+            recursion_depth: 当前递归深度。
+            enable_heavy_media_analysis: 是否同步执行图片与表情包描述生成。
+            enable_voice_transcription: 是否同步执行语音转写。
+
+        Returns:
+            str: 合并转发组件对应的文本表示。
+        """
         task_list: List[Task] = []
         node_user_info_list: List[UserInfo] = []
         for node in component.forward_components:
             task = asyncio.create_task(
-                self._process_multiple_components(node.content, id_content_map, recursion_depth + 1)
+                self._process_multiple_components(
+                    node.content,
+                    id_content_map,
+                    recursion_depth + 1,
+                    enable_heavy_media_analysis=enable_heavy_media_analysis,
+                    enable_voice_transcription=enable_voice_transcription,
+                )
             )
             node_user_info = UserInfo(node.user_id or "未知用户", node.user_nickname, node.user_cardname)
             # 传入ID缓存映射，方便Reply组件获取并等待处理结果
@@ -196,9 +326,36 @@ class SessionMessage(MaiMessage):
         return "【合并转发消息: \n" + "\n".join(forward_texts) + "\n】"
 
     async def _process_multiple_components(
-        self, components: Sequence[StandardMessageComponents], id_content_map: MsgIDMapping, recursion_depth: int = 0
+        self,
+        components: Sequence[StandardMessageComponents],
+        id_content_map: MsgIDMapping,
+        recursion_depth: int = 0,
+        *,
+        enable_heavy_media_analysis: bool = True,
+        enable_voice_transcription: bool = True,
     ) -> str:
-        tasks = [self.process_single_component(component, id_content_map, recursion_depth) for component in components]
+        """并行处理多个消息组件。
+
+        Args:
+            components: 待处理的组件序列。
+            id_content_map: 回复消息解析缓存。
+            recursion_depth: 当前递归深度。
+            enable_heavy_media_analysis: 是否同步执行图片与表情包描述生成。
+            enable_voice_transcription: 是否同步执行语音转写。
+
+        Returns:
+            str: 多个组件拼接后的文本表示。
+        """
+        tasks = [
+            self.process_single_component(
+                component,
+                id_content_map,
+                recursion_depth,
+                enable_heavy_media_analysis=enable_heavy_media_analysis,
+                enable_voice_transcription=enable_voice_transcription,
+            )
+            for component in components
+        ]
         results = await asyncio.gather(*tasks, return_exceptions=True)  # 并行处理多个组件
         processed_texts: List[str] = []
         for result in results:

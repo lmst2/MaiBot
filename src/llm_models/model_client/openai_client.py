@@ -103,7 +103,7 @@ def _normalize_reasoning_parse_mode(parse_mode: str | ReasoningParseMode) -> Rea
     try:
         return ReasoningParseMode(parse_mode)
     except ValueError:
-        logger.warning("未识别的推理解析模式 %s，已回退为 auto", parse_mode)
+        logger.warning(f"未识别的推理解析模式 {parse_mode}，已回退为 auto")
         return ReasoningParseMode.AUTO
 
 
@@ -121,7 +121,7 @@ def _normalize_tool_argument_parse_mode(parse_mode: str | ToolArgumentParseMode)
     try:
         return ToolArgumentParseMode(parse_mode)
     except ValueError:
-        logger.warning("未识别的工具参数解析模式 %s，已回退为 auto", parse_mode)
+        logger.warning(f"未识别的工具参数解析模式 {parse_mode}，已回退为 auto")
         return ToolArgumentParseMode.AUTO
 
 
@@ -425,7 +425,7 @@ def _log_length_truncation(finish_reason: str | None, model_name: str | None) ->
         model_name: 上游返回的模型标识。
     """
     if finish_reason == "length":
-        logger.info("模型%s因为超过最大 max_token 限制，可能仅输出部分内容，可视情况调整", model_name or "")
+        logger.info(f"模型{model_name or ''}因为超过最大 max_token 限制，可能仅输出部分内容，可视情况调整")
 
 
 def _coerce_openai_argument(value: Any) -> Any | Omit:

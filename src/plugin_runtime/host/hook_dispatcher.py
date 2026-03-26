@@ -578,19 +578,16 @@ class HookDispatcher:
             return
         if not hook_spec.allow_abort:
             logger.warning(
-                "Hook %s 禁止 abort，已将 %s 的错误策略按 skip 处理",
-                dispatch_result.hook_name,
-                target.entry.full_name,
+                f"Hook {dispatch_result.hook_name} 禁止 abort，"
+                f"已将 {target.entry.full_name} 的错误策略按 skip 处理"
             )
             return
 
         dispatch_result.aborted = True
         dispatch_result.stopped_by = target.entry.full_name
         logger.warning(
-            "HookHandler %s 因错误策略 abort 中止了 Hook %s: %s",
-            target.entry.full_name,
-            dispatch_result.hook_name,
-            error_message,
+            f"HookHandler {target.entry.full_name} 因错误策略 abort "
+            f"中止了 Hook {dispatch_result.hook_name}: {error_message}"
         )
 
     def _schedule_observe_handler(
@@ -610,7 +607,7 @@ class HookDispatcher:
         """
 
         if not hook_spec.allow_observe:
-            logger.warning("Hook %s 不允许 observe 处理器，已跳过 %s", hook_name, target.entry.full_name)
+            logger.warning(f"Hook {hook_name} 不允许 observe 处理器，已跳过 {target.entry.full_name}")
             return
 
         task = asyncio.create_task(
@@ -649,20 +646,15 @@ class HookDispatcher:
 
         if not execution_result.success:
             logger.warning(
-                "观察型 HookHandler %s 执行失败: %s",
-                target.entry.full_name,
-                execution_result.error_message or "未知错误",
+                f"观察型 HookHandler {target.entry.full_name} 执行失败: "
+                f"{execution_result.error_message or '未知错误'}"
             )
             return
 
         if execution_result.modified_kwargs is not None:
-            logger.warning(
-                "观察型 HookHandler %s 返回了 modified_kwargs，已忽略", target.entry.full_name
-            )
+            logger.warning(f"观察型 HookHandler {target.entry.full_name} 返回了 modified_kwargs，已忽略")
         if execution_result.action == "abort":
-            logger.warning(
-                "观察型 HookHandler %s 请求 abort，已忽略", target.entry.full_name
-            )
+            logger.warning(f"观察型 HookHandler {target.entry.full_name} 请求 abort，已忽略")
 
     def _handle_background_task_done(self, task: asyncio.Task[Any]) -> None:
         """处理观察任务完成回调。

@@ -627,7 +627,7 @@ class GeminiClient(AdapterClient[AsyncIterator[GenerateContentResponse], Generat
             try:
                 thinking_budget = int(extra_params["thinking_budget"])
             except (TypeError, ValueError):
-                logger.warning("无效的 thinking_budget=%s，已回退为自动模式", extra_params["thinking_budget"])
+                logger.warning(f"无效的 thinking_budget={extra_params['thinking_budget']}，已回退为自动模式")
 
         limits: Dict[str, int | bool] | None = None
         if model_id in THINKING_BUDGET_LIMITS:
@@ -646,21 +646,21 @@ class GeminiClient(AdapterClient[AsyncIterator[GenerateContentResponse], Generat
                 return THINKING_BUDGET_DISABLED
             if limits:
                 minimum_value = int(limits["min"])
-                logger.warning("模型 %s 不支持禁用思考预算，已回退为最小值 %s", model_id, minimum_value)
+                logger.warning(f"模型 {model_id} 不支持禁用思考预算，已回退为最小值 {minimum_value}")
                 return minimum_value
             return THINKING_BUDGET_AUTO
 
         if limits is None:
-            logger.warning("模型 %s 未配置思考预算范围，已回退为自动模式", model_id)
+            logger.warning(f"模型 {model_id} 未配置思考预算范围，已回退为自动模式")
             return THINKING_BUDGET_AUTO
 
         minimum_value = int(limits["min"])
         maximum_value = int(limits["max"])
         if thinking_budget < minimum_value:
-            logger.warning("模型 %s 的 thinking_budget=%s 过小，已调整为 %s", model_id, thinking_budget, minimum_value)
+            logger.warning(f"模型 {model_id} 的 thinking_budget={thinking_budget} 过小，已调整为 {minimum_value}")
             return minimum_value
         if thinking_budget > maximum_value:
-            logger.warning("模型 %s 的 thinking_budget=%s 过大，已调整为 %s", model_id, thinking_budget, maximum_value)
+            logger.warning(f"模型 {model_id} 的 thinking_budget={thinking_budget} 过大，已调整为 {maximum_value}")
             return maximum_value
         return thinking_budget
 

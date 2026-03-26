@@ -170,7 +170,7 @@ def _format_prompt_template(name: str, template: str, **kwargs: object) -> str:
         error = KeyError(t("prompt.missing_placeholder", name=name, placeholder=missing_placeholder))
         if is_strict_prompt_i18n_mode():
             raise error from exc
-        logger.error("%s", error)
+        logger.error(f"{error}")
         return template
     except Exception as exc:
         logger.error(t("prompt.format_failed", name=name, error=exc))
