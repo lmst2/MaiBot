@@ -149,7 +149,7 @@ class MaiSakaLLMService:
                     # 添加缺失的列
                     session.execute(text("ALTER TABLE llm_usage ADD COLUMN model_api_provider_name VARCHAR(255)"))
                     session.commit()
-                    logger.info("数据库 schema 已修复：添加 model_api_provider_name 列")
+                    logger.info("数据库结构已修复：已添加 model_api_provider_name 列")
         except Exception:
             # 静默忽略任何错误，不影响正常流程
             pass
@@ -498,11 +498,11 @@ class MaiSakaLLMService:
                     padding=(0, 1),
                 )
             )
-            logger.info(f"chat_loop_step prompt display finished ({len(built_messages)} messages, {len(all_tools)} tools)")
+            logger.info(f"对话循环步骤的提示展示已完成（共 {len(built_messages)} 条消息，{len(all_tools)} 个工具）")
 
 
         request_started_at = perf_counter()
-        logger.info("chat_loop_step calling planner model generate_response_with_messages")
+        logger.info("对话循环步骤正在调用规划模型生成响应")
         generation_result = await self._llm_chat.generate_response_with_messages(
             message_factory=message_factory,
             options=LLMGenerationOptions(
@@ -516,8 +516,8 @@ class MaiSakaLLMService:
         tool_calls = generation_result.tool_calls
         elapsed = perf_counter() - request_started_at
         logger.info(
-            f"chat_loop_step planner model returned in {elapsed:.2f}s "
-            f"(model={model}, tool_calls={len(tool_calls or [])}, response_len={len(response or '')})"
+            f"对话循环步骤中的规划模型已返回，耗时 {elapsed:.2f} 秒"
+            f"（模型={model}，工具调用数={len(tool_calls or [])}，回复长度={len(response or '')}）"
         )
         raw_message = build_message(
             role=RoleType.Assistant.value,
@@ -525,7 +525,7 @@ class MaiSakaLLMService:
             source="assistant",
             tool_calls=tool_calls or None,
         )
-        logger.info("chat_loop_step converted planner response into MaiMessage")
+        logger.info("已将规划模型响应转换为 MaiMessage")
 
         return ChatResponse(
             content=response,

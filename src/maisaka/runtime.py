@@ -81,7 +81,7 @@ class MaisakaHeartFlowChatting:
 
         self._running = True
         self._loop_task = asyncio.create_task(self._main_loop())
-        logger.info(f"{self.log_prefix} Maisaka runtime started")
+        logger.info(f"{self.log_prefix} MaiSaka 运行时已启动")
 
     async def stop(self) -> None:
         """Stop the runtime loop."""
@@ -104,7 +104,7 @@ class MaisakaHeartFlowChatting:
             await self._mcp_manager.close()
             self._mcp_manager = None
 
-        logger.info(f"{self.log_prefix} Maisaka runtime stopped")
+        logger.info(f"{self.log_prefix} MaiSaka 运行时已停止")
 
     def adjust_talk_frequency(self, frequency: float) -> None:
         """Compatibility shim for the existing manager API."""
@@ -129,7 +129,7 @@ class MaisakaHeartFlowChatting:
                     await self._ingest_messages(pending_messages)
                     await self._run_internal_loop(anchor_message=pending_messages[-1])
         except asyncio.CancelledError:
-            logger.info(f"{self.log_prefix} Maisaka runtime loop cancelled")
+            logger.info(f"{self.log_prefix} MaiSaka 运行循环已取消")
 
     def _drain_pending_messages(self) -> list[SessionMessage]:
         drained_messages = list(self._pending_messages)
@@ -141,17 +141,17 @@ class MaisakaHeartFlowChatting:
         config_path = Path(__file__).with_name("mcp_config.json")
         self._mcp_manager = await MCPManager.from_config(str(config_path))
         if self._mcp_manager is None:
-            logger.info(f"{self.log_prefix} MCP not available for Maisaka runtime")
+            logger.info(f"{self.log_prefix} MaiSaka 运行时的 MCP 不可用")
             return
 
         mcp_tools = self._mcp_manager.get_openai_tools()
         if not mcp_tools:
-            logger.info(f"{self.log_prefix} MCP manager initialized without exposed tools")
+            logger.info(f"{self.log_prefix} MCP 管理器已初始化，但未暴露任何工具")
             return
 
         self._llm_service.set_extra_tools(mcp_tools)
         logger.info(
-            f"{self.log_prefix} Loaded {len(mcp_tools)} MCP tool(s) for Maisaka runtime:\n"
+            f"{self.log_prefix} 已为 MaiSaka 运行时加载 {len(mcp_tools)} 个 MCP 工具：\n"
             f"{self._mcp_manager.get_tool_summary()}"
         )
 
@@ -269,19 +269,19 @@ class MaisakaHeartFlowChatting:
 
         for round_index in range(self._max_internal_rounds):
             logger.info(
-                f"{self.log_prefix} Internal loop round {round_index + 1}/{self._max_internal_rounds} started "
-                f"(history={len(self._chat_history)})"
+                f"{self.log_prefix} 内部循环第 {round_index + 1}/{self._max_internal_rounds} 轮已开始"
+                f"（历史消息数={len(self._chat_history)}）"
             )
             if last_had_tool_calls:
-                logger.info(f"{self.log_prefix} Building perception snapshot before planner call")
+                logger.info(f"{self.log_prefix} 调用规划器前正在构建感知快照")
                 await self._append_perception_snapshot()
-                logger.info(f"{self.log_prefix} Perception snapshot step finished")
+                logger.info(f"{self.log_prefix} 感知快照步骤已完成")
 
-            logger.info(f"{self.log_prefix} Calling Maisaka chat_loop_step")
+            logger.info(f"{self.log_prefix} 正在调用 MaiSaka 对话循环步骤")
             response = await self._llm_service.chat_loop_step(self._chat_history)
             logger.info(
-                f"{self.log_prefix} chat_loop_step returned "
-                f"(content_len={len(response.content or '')}, tool_calls={len(response.tool_calls)})"
+                f"{self.log_prefix} 对话循环步骤已返回"
+                f"（内容长度={len(response.content or '')}，工具调用数={len(response.tool_calls)}）"
             )
             response.raw_message.platform = anchor_message.platform
             response.raw_message.session_id = self.session_id
@@ -290,23 +290,23 @@ class MaisakaHeartFlowChatting:
             self._last_assistant_response_time = datetime.now()
 
             if response.tool_calls:
-                logger.info(f"{self.log_prefix} Handling {len(response.tool_calls)} tool call(s)")
+                logger.info(f"{self.log_prefix} 正在处理 {len(response.tool_calls)} 个工具调用")
                 should_pause = await self._handle_tool_calls(response.tool_calls, response.content or "", anchor_message)
-                logger.info(f"{self.log_prefix} Tool handling finished (should_pause={should_pause})")
+                logger.info(f"{self.log_prefix} 工具处理已完成（是否应暂停={should_pause}）")
                 if should_pause:
                     return
                 last_had_tool_calls = True
                 continue
 
             if response.content:
-                logger.info(f"{self.log_prefix} Planner returned content without tool calls; continuing inner loop")
+                logger.info(f"{self.log_prefix} 规划器返回了内容但没有工具调用，继续内部循环")
                 last_had_tool_calls = False
                 continue
 
-            logger.info(f"{self.log_prefix} Planner returned empty content and no tool calls; leaving inner loop")
+            logger.info(f"{self.log_prefix} 规划器返回空内容且没有工具调用，退出内部循环")
             return
 
-        logger.info(f"{self.log_prefix} Maisaka internal loop reached max rounds and paused")
+        logger.info(f"{self.log_prefix} MaiSaka 内部循环已达到最大轮次并暂停")
 
     def _trim_chat_history(self) -> None:
         """Trim the oldest history until the user-message count is below the configured limit."""
@@ -325,8 +325,8 @@ class MaisakaHeartFlowChatting:
 
         self._chat_history = trimmed_history
         logger.info(
-            f"{self.log_prefix} Trimmed Maisaka history by {removed_count} message(s); "
-            f"user-message count is now {user_message_count}."
+            f"{self.log_prefix} 已裁剪 MaiSaka 历史消息 {removed_count} 条；"
+            f"当前用户消息数为 {user_message_count}。"
         )
 
     async def _append_perception_snapshot(self) -> None:
@@ -346,7 +346,12 @@ class MaisakaHeartFlowChatting:
         perception_parts: list[str] = []
         for (task_name, _), result in zip(tasks, results):
             if isinstance(result, Exception):
-                logger.warning(f"{self.log_prefix} Maisaka {task_name} analysis failed: {result}")
+                analysis_name = {
+                    "emotion": "情绪",
+                    "cognition": "认知",
+                    "knowledge": "知识",
+                }.get(task_name, task_name)
+                logger.warning(f"{self.log_prefix} MaiSaka 的{analysis_name}分析失败: {result}")
                 continue
             if result:
                 perception_parts.append(f"{task_name.title()}\n{result}")
