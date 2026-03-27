@@ -19,8 +19,6 @@ from src.services import send_service
 
 from .config import (
     DIRECT_IMAGE_INPUT,
-    ENABLE_COGNITION_MODULE,
-    ENABLE_EMOTION_MODULE,
     ENABLE_KNOWLEDGE_MODULE,
     ENABLE_LIST_FILES,
     ENABLE_MCP,
@@ -331,10 +329,6 @@ class MaisakaHeartFlowChatting:
 
     async def _append_perception_snapshot(self) -> None:
         tasks = []
-        if ENABLE_EMOTION_MODULE:
-            tasks.append(("emotion", self._llm_service.analyze_emotion(self._chat_history)))
-        if ENABLE_COGNITION_MODULE:
-            tasks.append(("cognition", self._llm_service.analyze_cognition(self._chat_history)))
         if ENABLE_KNOWLEDGE_MODULE:
             tasks.append(("knowledge", retrieve_relevant_knowledge(self._llm_service, self._chat_history)))
 

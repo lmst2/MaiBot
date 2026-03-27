@@ -112,10 +112,6 @@ class MaiSakaLLMService:
         else:
             self._chat_system_prompt = chat_system_prompt
 
-        # 子模块提示词同样采用懒加载
-        self._emotion_prompt: Optional[str] = None
-        self._cognition_prompt: Optional[str] = None
-
     def get_current_model_name(self) -> str:
         """获取当前 Maisaka 对话主模型名称。
 
@@ -229,13 +225,6 @@ class MaiSakaLLMService:
             except Exception as e:
                 logger.error(f"加载系统提示词失败: {e}")
                 self._chat_system_prompt = f"{self._personality_prompt}\n\n你是一个友好的 AI 助手。"
-
-            try:
-                self._emotion_prompt = load_prompt("maidairy_emotion")
-                self._cognition_prompt = load_prompt("maidairy_cognition")
-                logger.info("成功加载 MaiSaka 子模块提示词")
-            except Exception as e:
-                logger.warning(f"加载子模块提示词失败，将使用默认提示词: {e}")
 
             self._prompts_loaded = True
 
@@ -582,98 +571,6 @@ class MaiSakaLLMService:
                 source="user",
             )
         ]
-
-    # ──────── 分析模块（使用 utils 模型） ────────
-
-    async def analyze_emotion(self, chat_history: List[MaiMessage]) -> str:
-        """执行情绪分析。
-
-        Args:
-            chat_history: 当前对话历史。
-
-        Returns:
-            str: 情绪分析文本。
-        """
-        await self._ensure_prompts_loaded()
-        filtered = [m for m in chat_history if get_message_kind(m) != "perception"]
-        recent = filtered[-10:] if len(filtered) > 10 else filtered
-
-        # 使用加载的系统提示词
-        system_prompt = self._emotion_prompt or "请分析以下对话中用户的情绪状态和言语态度："
-
-        prompt_parts = [f"{system_prompt}\n\n【对话内容】\n"]
-        for msg in recent:
-            role = get_message_role(msg)
-            content = get_message_text(msg)
-            if role == RoleType.User.value:
-                prompt_parts.append(f"{config.USER_NAME}: {content}")
-            elif role == RoleType.Assistant.value:
-                prompt_parts.append(f"助手: {content}")
-
-        prompt = "\n".join(prompt_parts)
-
-        if config.SHOW_THINKING:
-            print("\n" + "=" * 60)
-            print("MaiSaka LLM Request - analyze_emotion:")
-            print(f"  {prompt}")
-            print("=" * 60 + "\n")
-
-        try:
-            generation_result = await self._llm_utils.generate_response(
-                prompt=prompt,
-                options=LLMGenerationOptions(temperature=0.3, max_tokens=512),
-            )
-            response = generation_result.response
-
-            return response
-        except Exception as e:
-            logger.error(f"情绪分析 LLM 调用出错: {e}")
-            return ""
-
-    async def analyze_cognition(self, chat_history: List[MaiMessage]) -> str:
-        """执行认知分析。
-
-        Args:
-            chat_history: 当前对话历史。
-
-        Returns:
-            str: 认知分析文本。
-        """
-        await self._ensure_prompts_loaded()
-        filtered = [m for m in chat_history if get_message_kind(m) != "perception"]
-        recent = filtered[-10:] if len(filtered) > 10 else filtered
-
-        # 使用加载的系统提示词
-        system_prompt = self._cognition_prompt or "请分析以下对话中用户的意图、认知状态和目的："
-
-        prompt_parts = [f"{system_prompt}\n\n【对话内容】\n"]
-        for msg in recent:
-            role = get_message_role(msg)
-            content = get_message_text(msg)
-            if role == RoleType.User.value:
-                prompt_parts.append(f"{config.USER_NAME}: {content}")
-            elif role == RoleType.Assistant.value:
-                prompt_parts.append(f"助手: {content}")
-
-        prompt = "\n".join(prompt_parts)
-
-        if config.SHOW_THINKING and config.SHOW_ANALYZE_COGNITION_PROMPT:
-            print("\n" + "=" * 60)
-            print("MaiSaka LLM Request - analyze_cognition:")
-            print(f"  {prompt}")
-            print("=" * 60 + "\n")
-
-        try:
-            generation_result = await self._llm_utils.generate_response(
-                prompt=prompt,
-                options=LLMGenerationOptions(temperature=0.3, max_tokens=512),
-            )
-            response = generation_result.response
-
-            return response
-        except Exception as e:
-            logger.error(f"认知分析 LLM 调用出错: {e}")
-            return ""
 
     async def _removed_analyze_timing(self, chat_history: List[MaiMessage], timing_info: str) -> str:
         """执行时间节奏分析。

@@ -17,8 +17,6 @@ from src.common.data_models.mai_message_data_model import MaiMessage
 from src.config.config import global_config
 
 from .config import (
-    ENABLE_COGNITION_MODULE,
-    ENABLE_EMOTION_MODULE,
     ENABLE_KNOWLEDGE_MODULE,
     ENABLE_MCP,
     SHOW_THINKING,
@@ -135,7 +133,7 @@ class BufferCLI:
         - stop(): stop the current inner loop and return to idle
 
         Per round:
-        1. Run enabled analysis modules in parallel when the previous round used tools.
+        1. Run enabled perception modules in parallel when the previous round used tools.
         2. Call the planner model with the current history.
         3. Append the assistant thought and execute any requested tools.
         """
@@ -147,12 +145,6 @@ class BufferCLI:
                 tasks = []
                 status_text_parts = []
 
-                if ENABLE_EMOTION_MODULE:
-                    tasks.append(("eq", self.llm_service.analyze_emotion(chat_history)))
-                    status_text_parts.append("emotion")
-                if ENABLE_COGNITION_MODULE:
-                    tasks.append(("cognition", self.llm_service.analyze_cognition(chat_history)))
-                    status_text_parts.append("cognition")
                 if ENABLE_KNOWLEDGE_MODULE:
                     tasks.append(("knowledge", retrieve_relevant_knowledge(self.llm_service, chat_history)))
                     status_text_parts.append("knowledge")
@@ -163,54 +155,9 @@ class BufferCLI:
                 ):
                     results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
 
-                eq_result, cognition_result, knowledge_result = None, None, None
-                result_idx = 0
-                if ENABLE_EMOTION_MODULE:
-                    eq_result = results[result_idx]
-                    result_idx += 1
-                if ENABLE_COGNITION_MODULE:
-                    cognition_result = results[result_idx]
-                    result_idx += 1
-                if ENABLE_KNOWLEDGE_MODULE:
-                    knowledge_result = results[result_idx]
-                    result_idx += 1
-
-                eq_analysis = ""
-                if ENABLE_EMOTION_MODULE:
-                    if isinstance(eq_result, Exception):
-                        console.print(f"[warning]Emotion analysis failed: {eq_result}[/warning]")
-                    elif eq_result:
-                        eq_analysis = eq_result
-                        if SHOW_THINKING:
-                            console.print(
-                                Panel(
-                                    Markdown(eq_analysis),
-                                    title="Emotion",
-                                    border_style="bright_yellow",
-                                    padding=(0, 1),
-                                    style="dim",
-                                )
-                            )
-
-                cognition_analysis = ""
-                if ENABLE_COGNITION_MODULE:
-                    if isinstance(cognition_result, Exception):
-                        console.print(f"[warning]Cognition analysis failed: {cognition_result}[/warning]")
-                    elif cognition_result:
-                        cognition_analysis = cognition_result
-                        if SHOW_THINKING:
-                            console.print(
-                                Panel(
-                                    Markdown(cognition_analysis),
-                                    title="Cognition",
-                                    border_style="bright_cyan",
-                                    padding=(0, 1),
-                                    style="dim",
-                                )
-                            )
-
                 knowledge_analysis = ""
                 if ENABLE_KNOWLEDGE_MODULE:
+                    knowledge_result = results[0] if results else None
                     if isinstance(knowledge_result, Exception):
                         console.print(f"[warning]Knowledge analysis failed: {knowledge_result}[/warning]")
                     elif knowledge_result:
@@ -229,10 +176,6 @@ class BufferCLI:
                 remove_last_perception(chat_history)
 
                 perception_parts = []
-                if eq_analysis:
-                    perception_parts.append(f"Emotion\n{eq_analysis}")
-                if cognition_analysis:
-                    perception_parts.append(f"Cognition\n{cognition_analysis}")
                 if knowledge_analysis:
                     perception_parts.append(f"Knowledge\n{knowledge_analysis}")
 
