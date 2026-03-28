@@ -19,8 +19,6 @@ from src.config.config import global_config
 from src.llm_models.payload_content.message import Message, MessageBuilder, RoleType
 from src.llm_models.payload_content.tool_option import ToolCall
 
-from .config import USER_NAME
-
 MAISAKA_PLATFORM = "maisaka"
 MAISAKA_SESSION_ID = "maisaka_cli"
 MESSAGE_KIND_KEY = "maisaka_message_kind"
@@ -36,7 +34,11 @@ SPEAKER_PREFIX_PATTERN = re.compile(
 
 def _build_user_info_for_role(role: str) -> UserInfo:
     if role == RoleType.User.value:
-        return UserInfo(user_id="maisaka_user", user_nickname=USER_NAME, user_cardname=None)
+        return UserInfo(
+            user_id="maisaka_user",
+            user_nickname=global_config.maisaka.user_name.strip() or "用户",
+            user_cardname=None,
+        )
     if role == RoleType.Tool.value:
         return UserInfo(user_id="maisaka_tool", user_nickname="tool", user_cardname=None)
     return UserInfo(

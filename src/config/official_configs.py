@@ -1618,6 +1618,16 @@ class MaiSakaConfig(ConfigBase):
     )
     """Whether Maisaka should merge newly received user utterances into a single user message per round"""
 
+    max_internal_rounds: int = Field(
+        default=6,
+        ge=1,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "repeat",
+        },
+    )
+    """Maximum number of internal planning rounds per inbound message."""
+
     terminal_image_preview: bool = Field(
         default=False,
         json_schema_extra={

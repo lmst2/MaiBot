@@ -5,7 +5,7 @@ MaiSaka - MCP 管理器
 
 from typing import Optional
 
-from ..config import console
+from ..console import console
 from .config import MCPServerConfig, load_mcp_config
 from .connection import MCPConnection, MCP_AVAILABLE
 

@@ -34,9 +34,8 @@ from src.llm_models.payload_content.tool_option import (
 )
 from src.services.llm_service import LLMServiceClient
 
-from . import config
-from .config import console
 from .builtin_tools import get_builtin_tools
+from .console import console
 from .message_adapter import (
     build_message,
     format_speaker_content,
@@ -209,11 +208,11 @@ class MaiSakaLLMService:
 
             try:
                 tools_section = ""
-                if config.ENABLE_WRITE_FILE:
+                if global_config.maisaka.enable_write_file:
                     tools_section += "\n• write_file(filename, content) — 在 mai_files 目录下写入文件。"
-                if config.ENABLE_READ_FILE:
+                if global_config.maisaka.enable_read_file:
                     tools_section += "\n• read_file(filename) — 读取 mai_files 目录下的文件内容。"
-                if config.ENABLE_LIST_FILES:
+                if global_config.maisaka.enable_list_files:
                     tools_section += "\n• list_files() — 获取 mai_files 目录下所有文件的元信息列表。"
                 self._chat_system_prompt = load_prompt(
                     "maidairy_chat",
@@ -268,7 +267,7 @@ class MaiSakaLLMService:
                 if width <= 0 or height <= 0:
                     return None
 
-                preview_width = max(8, int(config.TERMINAL_IMAGE_PREVIEW_WIDTH))
+                preview_width = max(8, int(global_config.maisaka.terminal_image_preview_width))
                 preview_height = max(1, int(height * (preview_width / width) * 0.5))
                 resized = grayscale.resize((preview_width, preview_height))
                 pixels = list(resized.getdata())
@@ -310,7 +309,7 @@ class MaiSakaLLMService:
                         preview_parts: List[object] = [
                             Text(f"image/{image_format}  {size_text}\nbase64 omitted", style="magenta")
                         ]
-                        if config.TERMINAL_IMAGE_PREVIEW:
+                        if global_config.maisaka.terminal_image_preview:
                             preview_text = MaiSakaLLMService._build_terminal_image_preview(image_base64)
                             if preview_text:
                                 preview_parts.append(Text(preview_text, style="white"))
@@ -478,7 +477,7 @@ class MaiSakaLLMService:
                 for tool_call_index, tool_call in enumerate(tool_calls, start=1):
                     ordered_panels.append(self._render_tool_call_panel(tool_call, tool_call_index, index))
 
-        if config.SHOW_THINKING and ordered_panels:
+        if global_config.maisaka.show_thinking and ordered_panels:
             console.print(
                 Panel(
                     Group(*ordered_panels),
@@ -567,7 +566,11 @@ class MaiSakaLLMService:
         return [
             build_message(
                 role=RoleType.User.value,
-                content=format_speaker_content(config.USER_NAME, user_text, datetime.now()),
+                content=format_speaker_content(
+                    global_config.maisaka.user_name.strip() or "用户",
+                    user_text,
+                    datetime.now(),
+                ),
                 source="user",
             )
         ]
@@ -597,7 +600,7 @@ class MaiSakaLLMService:
             role = get_message_role(msg)
             content = get_message_text(msg)
             if role == RoleType.User.value:
-                prompt_parts.append(f"{config.USER_NAME}: {content}")
+                prompt_parts.append(f"{global_config.maisaka.user_name.strip() or '用户'}: {content}")
             elif role == RoleType.Assistant.value:
                 prompt_parts.append(f"助手: {content}")
 
@@ -664,7 +667,7 @@ class MaiSakaLLMService:
 
         messages = f"System: {system_prompt}\n\nUser: {user_prompt}"
 
-        if config.SHOW_THINKING:
+        if global_config.maisaka.show_thinking:
             print("\n" + "=" * 60)
             print("MaiSaka LLM Request - generate_reply:")
             print(f"  {messages}")

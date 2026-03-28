@@ -7,7 +7,6 @@ from typing import Optional
 from src.chat.message_receive.message import SessionMessage
 from src.config.config import global_config
 
-from .config import USER_NAME
 from .llm_service import MaiSakaLLMService
 from .message_adapter import get_message_role, get_message_text, is_perception_message, parse_speaker_content
 
@@ -84,7 +83,7 @@ def format_chat_history(messages: list[SessionMessage]) -> str:
                 content = _normalize_content(content_body)
                 if not content:
                     continue
-                visible_speaker = speaker_name or USER_NAME
+                visible_speaker = speaker_name or global_config.maisaka.user_name.strip() or "用户"
                 parts.append(f"{timestamp} {visible_speaker}: {content}")
             continue
 

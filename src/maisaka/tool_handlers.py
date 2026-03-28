@@ -14,7 +14,7 @@ from rich.panel import Panel
 from src.chat.message_receive.message import SessionMessage
 from src.llm_models.payload_content.tool_option import ToolCall
 
-from .config import console
+from .console import console
 from .input_reader import InputReader
 from .llm_service import MaiSakaLLMService
 from .message_adapter import build_message

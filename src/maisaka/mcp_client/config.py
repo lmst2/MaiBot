@@ -26,7 +26,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional
 
-from ..config import console
+from ..console import console
 
 
 @dataclass

@@ -16,13 +16,7 @@ from rich.text import Text
 from src.chat.message_receive.message import SessionMessage
 from src.config.config import global_config
 
-from .config import (
-    ENABLE_KNOWLEDGE_MODULE,
-    ENABLE_MCP,
-    SHOW_THINKING,
-    USER_NAME,
-    console,
-)
+from .console import console
 from .input_reader import InputReader
 from .knowledge import retrieve_relevant_knowledge
 from .knowledge_store import get_knowledge_store
@@ -116,7 +110,11 @@ class BufferCLI:
             self._chat_history.append(
                 build_message(
                     role="user",
-                    content=format_speaker_content(USER_NAME, user_text, now),
+                    content=format_speaker_content(
+                        global_config.maisaka.user_name.strip() or "用户",
+                        user_text,
+                        now,
+                    ),
                 )
             )
 
@@ -145,7 +143,7 @@ class BufferCLI:
                 tasks = []
                 status_text_parts = []
 
-                if ENABLE_KNOWLEDGE_MODULE:
+                if global_config.maisaka.enable_knowledge_module:
                     tasks.append(("knowledge", retrieve_relevant_knowledge(self.llm_service, chat_history)))
                     status_text_parts.append("knowledge")
 
@@ -156,13 +154,13 @@ class BufferCLI:
                     results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
 
                 knowledge_analysis = ""
-                if ENABLE_KNOWLEDGE_MODULE:
+                if global_config.maisaka.enable_knowledge_module:
                     knowledge_result = results[0] if results else None
                     if isinstance(knowledge_result, Exception):
                         console.print(f"[warning]Knowledge analysis failed: {knowledge_result}[/warning]")
                     elif knowledge_result:
                         knowledge_analysis = knowledge_result
-                        if SHOW_THINKING:
+                        if global_config.maisaka.show_thinking:
                             console.print(
                                 Panel(
                                     Markdown(knowledge_analysis),
@@ -189,7 +187,7 @@ class BufferCLI:
                         )
                     )
             else:
-                if SHOW_THINKING:
+                if global_config.maisaka.show_thinking:
                     console.print("[muted]Skipping module analysis because the last round used no tools.[/muted]")
 
             with console.status("[info]AI is thinking...[/info]", spinner="dots"):
@@ -207,7 +205,7 @@ class BufferCLI:
             chat_history.append(response.raw_message)
             self._last_assistant_response_time = datetime.now()
 
-            if SHOW_THINKING and response.content:
+            if global_config.maisaka.show_thinking and response.content:
                 console.print(
                     Panel(
                         Markdown(response.content),
@@ -254,7 +252,7 @@ class BufferCLI:
                         )
 
                     elif tc.func_name == "no_reply":
-                        if SHOW_THINKING:
+                        if global_config.maisaka.show_thinking:
                             console.print("[muted]No visible reply this round.[/muted]")
                         chat_history.append(
                             build_message(
@@ -339,7 +337,7 @@ class BufferCLI:
 
     async def run(self):
         """Main interactive loop."""
-        if ENABLE_MCP:
+        if global_config.maisaka.enable_mcp:
             await self._init_mcp()
         else:
             console.print("[muted]MCP is disabled (ENABLE_MCP=false)[/muted]")
