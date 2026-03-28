@@ -25,13 +25,10 @@ from .message_adapter import build_message, format_speaker_content, remove_last_
 from .mcp_client import MCPManager
 from .tool_handlers import (
     ToolHandlerContext,
-    handle_list_files,
     handle_mcp_tool,
-    handle_read_file,
     handle_stop,
     handle_unknown_tool,
     handle_wait,
-    handle_write_file,
 )
 
 
@@ -269,15 +266,6 @@ class BufferCLI:
                             self._last_user_input_time = ctx.last_user_input_time
                         if tool_result.startswith("[[QUIT]]"):
                             should_stop = True
-
-                    elif tc.func_name == "write_file":
-                        await handle_write_file(tc, chat_history)
-
-                    elif tc.func_name == "read_file":
-                        await handle_read_file(tc, chat_history)
-
-                    elif tc.func_name == "list_files":
-                        await handle_list_files(tc, chat_history)
 
                     elif self._mcp_manager and self._mcp_manager.is_mcp_tool(tc.func_name):
                         await handle_mcp_tool(tc, chat_history, self._mcp_manager)

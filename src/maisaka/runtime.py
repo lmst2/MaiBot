@@ -27,6 +27,7 @@ from .message_adapter import (
     format_speaker_content,
     get_message_role,
 )
+from .reasoning_engine import MaisakaReasoningEngine
 from .tool_handlers import (
     handle_list_files,
     handle_mcp_tool,
@@ -71,6 +72,7 @@ class MaisakaHeartFlowChatting:
         self._max_context_size = max(1, int(global_config.chat.max_context_size))
         self._agent_state: Literal["running", "wait", "stop"] = self._STATE_STOP
         self._wait_until: Optional[float] = None
+        self._reasoning_engine = MaisakaReasoningEngine(self)
 
     async def start(self) -> None:
         """Start the runtime loop."""
@@ -81,7 +83,7 @@ class MaisakaHeartFlowChatting:
             await self._init_mcp()
 
         self._running = True
-        self._internal_loop_task = asyncio.create_task(self._internal_loop())
+        self._internal_loop_task = asyncio.create_task(self._reasoning_engine.run_loop())
         self._loop_task = asyncio.create_task(self._main_loop())
         logger.info(f"{self.log_prefix} MaiSaka 启动")
 
@@ -429,15 +431,15 @@ class MaisakaHeartFlowChatting:
                 self._enter_stop_state()
                 return True
 
-            if tool_call.func_name == "write_file" and global_config.maisaka.enable_write_file:
+            if False and tool_call.func_name == "write_file" and global_config.maisaka.enable_write_file:
                 await handle_write_file(tool_call, self._chat_history)
                 continue
 
-            if tool_call.func_name == "read_file" and global_config.maisaka.enable_read_file:
+            if False and tool_call.func_name == "read_file" and global_config.maisaka.enable_read_file:
                 await handle_read_file(tool_call, self._chat_history)
                 continue
 
-            if tool_call.func_name == "list_files" and global_config.maisaka.enable_list_files:
+            if False and tool_call.func_name == "list_files" and global_config.maisaka.enable_list_files:
                 await handle_list_files(tool_call, self._chat_history)
                 continue
 
@@ -530,3 +532,26 @@ class MaisakaHeartFlowChatting:
             return None
 
         return GroupInfo(group_id=group_info.group_id, group_name=group_info.group_name)
+
+    def _log_cycle_started(self, cycle_detail: CycleDetail, round_index: int) -> None:
+        logger.info(
+            f"{self.log_prefix} MaiSaka cycle={cycle_detail.cycle_id} "
+            f"round={round_index + 1}/{self._max_internal_rounds} "
+            f"context_size={len(self._chat_history)}"
+        )
+
+    def _log_cycle_completed(self, cycle_detail: CycleDetail, timer_strings: list[str]) -> None:
+        logger.info(
+            f"{self.log_prefix} MaiSaka cycle={cycle_detail.cycle_id} completed "
+            f"in {cycle_detail.end_time - cycle_detail.start_time:.2f}s; "
+            f"stages={', '.join(timer_strings) if timer_strings else 'none'}"
+        )
+
+    def _log_history_trimmed(self, removed_count: int, user_message_count: int) -> None:
+        logger.info(
+            f"{self.log_prefix} Trimmed {removed_count} history messages; "
+            f"remaining_user_messages={user_message_count}"
+        )
+
+    def _log_internal_loop_cancelled(self) -> None:
+        logger.info(f"{self.log_prefix} Maisaka internal loop cancelled")

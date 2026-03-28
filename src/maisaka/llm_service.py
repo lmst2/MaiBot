@@ -98,8 +98,6 @@ class MaiSakaLLMService:
         # 回复生成使用 replyer 模型
         self._llm_replyer = LLMServiceClient(task_name="replyer", request_type="maisaka_replyer")
 
-        # 尝试修复数据库 schema（忽略错误）
-        self._try_fix_database_schema()
 
         # 构建人设信息
         personality_prompt = self._build_personality_prompt()
@@ -125,29 +123,6 @@ class MaiSakaLLMService:
             logger.warning(f"获取当前 Maisaka 模型名称失败: {exc}")
         return "未配置"
 
-    def _try_fix_database_schema(self) -> None:
-        """尝试修复数据库 schema。
-
-        Returns:
-            None: 该方法仅执行数据库修复副作用。
-        """
-        try:
-            from src.common.database.database_client import get_db_session
-            from sqlalchemy import text
-
-            with get_db_session() as session:
-                # 检查 model_api_provider_name 列是否存在
-                result = session.execute(text("PRAGMA table_info(llm_usage)"))
-                columns = [row[1] for row in result.fetchall()]
-
-                if "model_api_provider_name" not in columns:
-                    # 添加缺失的列
-                    session.execute(text("ALTER TABLE llm_usage ADD COLUMN model_api_provider_name VARCHAR(255)"))
-                    session.commit()
-                    logger.info("数据库结构已修复：已添加 model_api_provider_name 列")
-        except Exception:
-            # 静默忽略任何错误，不影响正常流程
-            pass
 
     def _build_personality_prompt(self) -> str:
         """构建当前人设提示词。
@@ -208,11 +183,11 @@ class MaiSakaLLMService:
 
             try:
                 tools_section = ""
-                if global_config.maisaka.enable_write_file:
+                if False and global_config.maisaka.enable_write_file:
                     tools_section += "\n• write_file(filename, content) — 在 mai_files 目录下写入文件。"
-                if global_config.maisaka.enable_read_file:
+                if False and global_config.maisaka.enable_read_file:
                     tools_section += "\n• read_file(filename) — 读取 mai_files 目录下的文件内容。"
-                if global_config.maisaka.enable_list_files:
+                if False and global_config.maisaka.enable_list_files:
                     tools_section += "\n• list_files() — 获取 mai_files 目录下所有文件的元信息列表。"
                 self._chat_system_prompt = load_prompt(
                     "maidairy_chat",
