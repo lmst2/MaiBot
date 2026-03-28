@@ -237,17 +237,18 @@ class MaisakaReasoningEngine:
         latest_thought: str,
         anchor_message: SessionMessage,
     ) -> bool:
-        target_message_id = str((tool_call.args or {}).get("message_id", "")).strip()
+        tool_args = tool_call.args or {}
+        target_message_id = str(tool_args.get("msg_id") or "").strip()
         if not target_message_id:
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "reply requires a valid message_id argument.")
+                self._build_tool_message(tool_call, "reply requires a valid msg_id argument.")
             )
             return False
 
         target_message = self._runtime._source_messages_by_id.get(target_message_id)
         if target_message is None:
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, f"reply target message_id not found: {target_message_id}")
+                self._build_tool_message(tool_call, f"reply target msg_id not found: {target_message_id}")
             )
             return False
 

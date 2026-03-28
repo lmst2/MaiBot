@@ -27,11 +27,11 @@ def create_builtin_tools() -> List[ToolOption]:
 
     reply_builder = ToolOptionBuilder()
     reply_builder.set_name("reply")
-    reply_builder.set_description("Generate and emit a visible reply based on the current thought. You must specify the target user message_id to reply to.")
+    reply_builder.set_description("Generate and emit a visible reply based on the current thought. You must specify the target user msg_id to reply to.")
     reply_builder.add_param(
-        name="message_id",
+        name="msg_id",
         param_type=ToolParamType.STRING,
-        description="The message_id of the specific user message that this reply should target.",
+        description="The msg_id of the specific user message that this reply should target.",
         required=True,
         enum_values=None,
     )

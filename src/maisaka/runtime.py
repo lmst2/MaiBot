@@ -29,11 +29,8 @@ from .message_adapter import (
 )
 from .reasoning_engine import MaisakaReasoningEngine
 from .tool_handlers import (
-    handle_list_files,
     handle_mcp_tool,
-    handle_read_file,
     handle_unknown_tool,
-    handle_write_file,
 )
 
 logger = get_logger("maisaka_runtime")
@@ -164,62 +161,6 @@ class MaisakaHeartFlowChatting:
                         await self._internal_turn_queue.put(cached_messages)
         except asyncio.CancelledError:
             logger.info(f"{self.log_prefix} MaiSaka runtime loop cancelled")
-
-    async def _internal_loop(self) -> None:
-        """处理一批缓存消息，并执行对应的内部思考轮次。"""
-        try:
-            while self._running:
-                cached_messages = await self._internal_turn_queue.get()
-                if not cached_messages:
-                    self._internal_turn_queue.task_done()
-                    continue
-
-                self._agent_state = self._STATE_RUNNING
-                await self._ingest_messages(cached_messages)
-
-                anchor_message = cached_messages[-1]
-                try:
-                    for round_index in range(self._max_internal_rounds):
-                        cycle_detail = self._start_cycle()
-                        logger.info(
-                            f"{self.log_prefix} MaiSaka cycle={cycle_detail.cycle_id} "
-                            f"round={round_index + 1}/{self._max_internal_rounds} "
-                            f"context_size={len(self._chat_history)}"
-                        )
-                        try:
-                            planner_started_at = time.time()
-                            response = await self._llm_service.chat_loop_step(self._chat_history)
-                            cycle_detail.time_records["planner"] = time.time() - planner_started_at
-
-                            response.raw_message.platform = anchor_message.platform
-                            response.raw_message.session_id = self.session_id
-                            response.raw_message.message_info.group_info = self._build_group_info(anchor_message)
-                            self._chat_history.append(response.raw_message)
-
-                            if response.tool_calls:
-                                tool_started_at = time.time()
-                                should_pause = await self._handle_tool_calls(
-                                    response.tool_calls,
-                                    response.content or "",
-                                    anchor_message,
-                                )
-                                cycle_detail.time_records["tool_calls"] = time.time() - tool_started_at
-                                if should_pause:
-                                    break
-                                continue
-
-                            if response.content:
-                                continue
-
-                            break
-                        finally:
-                            self._end_cycle(cycle_detail)
-                finally:
-                    if self._agent_state == self._STATE_RUNNING:
-                        self._agent_state = self._STATE_STOP
-                    self._internal_turn_queue.task_done()
-        except asyncio.CancelledError:
-            logger.info(f"{self.log_prefix} Maisaka internal loop cancelled")
 
     async def _wait_for_trigger(self) -> bool:
         """等待外部触发。返回 True 表示有新消息事件，返回 False 表示等待超时。"""
@@ -381,128 +322,6 @@ class MaisakaHeartFlowChatting:
         logger.info(
             f"{self.log_prefix} Trimmed {removed_count} history messages; "
             f"remaining_user_messages={user_message_count}"
-        )
-
-    async def _handle_tool_calls(
-        self,
-        tool_calls: list[ToolCall],
-        latest_thought: str,
-        anchor_message: SessionMessage,
-    ) -> bool:
-        for tool_call in tool_calls:
-            if tool_call.func_name == "reply":
-                reply_sent = await self._handle_reply(tool_call, latest_thought, anchor_message)
-                if reply_sent:
-                    return True
-                continue
-
-            if tool_call.func_name == "no_reply":
-                self._chat_history.append(
-                    self._build_tool_message(
-                        tool_call,
-                        "No visible reply was sent for this round.",
-                    )
-                )
-                continue
-
-            if tool_call.func_name == "wait":
-                seconds = (tool_call.args or {}).get("seconds", 30)
-                try:
-                    wait_seconds = int(seconds)
-                except (TypeError, ValueError):
-                    wait_seconds = 30
-                wait_seconds = max(0, wait_seconds)
-                self._chat_history.append(
-                    self._build_tool_message(
-                        tool_call,
-                        f"Waiting for future input for up to {wait_seconds} seconds.",
-                    )
-                )
-                self._enter_wait_state(seconds=wait_seconds)
-                return True
-
-            if tool_call.func_name == "stop":
-                self._chat_history.append(
-                    self._build_tool_message(
-                        tool_call,
-                        "Conversation loop paused until a new message arrives.",
-                    )
-                )
-                self._enter_stop_state()
-                return True
-
-            if False and tool_call.func_name == "write_file" and global_config.maisaka.enable_write_file:
-                await handle_write_file(tool_call, self._chat_history)
-                continue
-
-            if False and tool_call.func_name == "read_file" and global_config.maisaka.enable_read_file:
-                await handle_read_file(tool_call, self._chat_history)
-                continue
-
-            if False and tool_call.func_name == "list_files" and global_config.maisaka.enable_list_files:
-                await handle_list_files(tool_call, self._chat_history)
-                continue
-
-            if self._mcp_manager and self._mcp_manager.is_mcp_tool(tool_call.func_name):
-                await handle_mcp_tool(tool_call, self._chat_history, self._mcp_manager)
-                continue
-
-            await handle_unknown_tool(tool_call, self._chat_history)
-
-        return False
-
-    async def _handle_reply(self, tool_call: ToolCall, latest_thought: str, anchor_message: SessionMessage) -> bool:
-        target_message_id = str((tool_call.args or {}).get("message_id", "")).strip()
-        if not target_message_id:
-            self._chat_history.append(
-                self._build_tool_message(tool_call, "reply requires a valid message_id argument.")
-            )
-            return False
-
-        target_message = self._source_messages_by_id.get(target_message_id)
-        if target_message is None:
-            self._chat_history.append(
-                self._build_tool_message(tool_call, f"reply target message_id not found: {target_message_id}")
-            )
-            return False
-
-        reply_text = await self._llm_service.generate_reply(latest_thought, self._chat_history)
-        sent = await send_service.text_to_stream(
-            text=reply_text,
-            stream_id=self.session_id,
-            set_reply=True,
-            reply_message=target_message,
-            typing=False,
-        )
-        tool_result = "Visible reply generated and sent." if sent else "Visible reply generation succeeded but send failed."
-        self._chat_history.append(self._build_tool_message(tool_call, tool_result))
-        if not sent:
-            return False
-
-        bot_name = global_config.bot.nickname.strip() or "MaiSaka"
-        self._chat_history.append(
-            build_message(
-                role="user",
-                content=format_speaker_content(bot_name, reply_text, datetime.now()),
-                source="guided_reply",
-                platform=target_message.platform or anchor_message.platform,
-                session_id=self.session_id,
-                group_info=self._build_group_info(target_message),
-                user_info=self._build_runtime_user_info(),
-            )
-        )
-        return True
-
-    def _build_tool_message(self, tool_call: ToolCall, content: str) -> SessionMessage:
-        return build_message(
-            role="tool",
-            content=content,
-            source="tool",
-            tool_call_id=tool_call.call_id,
-            platform=self.chat_stream.platform,
-            session_id=self.session_id,
-            group_info=self._build_group_info(),
-            user_info=UserInfo(user_id="maisaka_tool", user_nickname="tool", user_cardname=None),
         )
 
     def _build_runtime_user_info(self) -> UserInfo:

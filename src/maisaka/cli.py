@@ -122,7 +122,7 @@ class BufferCLI:
         Main inner loop for the Maisaka planner.
 
         Each round may produce internal thoughts and optionally call tools:
-        - reply(): generate a visible reply for the current round
+        - reply(msg_id): generate a visible reply for the current round
         - no_reply(): skip visible output and continue the loop
         - wait(seconds): wait for new user input
         - stop(): stop the current inner loop and return to idle

@@ -27,7 +27,7 @@ LLM_ROLE_KEY = "maisaka_llm_role"
 TOOL_CALL_ID_KEY = "maisaka_tool_call_id"
 TOOL_CALLS_KEY = "maisaka_tool_calls"
 SPEAKER_PREFIX_PATTERN = re.compile(
-    r"^(?:(?P<timestamp>\d{2}:\d{2}:\d{2}))?(?:<mid:(?P<message_id>[^>]+)>)?\[(?P<speaker>[^\]]+)\](?P<content>.*)$",
+    r"^(?:(?P<timestamp>\d{2}:\d{2}:\d{2}))?(?:\[msg_id:(?P<message_id>[^\]]+)\])?\[(?P<speaker>[^\]]+)\](?P<content>.*)$",
     re.DOTALL,
 )
 
@@ -64,6 +64,23 @@ def _deserialize_tool_call(data: dict) -> ToolCall:
     )
 
 
+def _ensure_message_id_in_speaker_content(content: str, message_id: str) -> str:
+    """Ensure speaker-formatted visible text carries a msg_id marker."""
+    match = SPEAKER_PREFIX_PATTERN.match(content or "")
+    if not match:
+        return content
+
+    existing_message_id = match.group("message_id")
+    if existing_message_id:
+        return content
+
+    timestamp_text = match.group("timestamp")
+    speaker_name = match.group("speaker")
+    visible_content = match.group("content")
+    timestamp = datetime.strptime(timestamp_text, "%H:%M:%S") if timestamp_text else None
+    return format_speaker_content(speaker_name, visible_content, timestamp, message_id)
+
+
 def build_message(
     role: str,
     content: str = "",
@@ -89,6 +106,7 @@ def build_message(
         timestamp=resolved_timestamp,
         platform=platform,
     )
+    normalized_content = _ensure_message_id_in_speaker_content(content, message.message_id) if content else content
     message.message_info = MessageInfo(
         user_info=user_info or _build_user_info_for_role(resolved_role),
         group_info=group_info,
@@ -102,9 +120,9 @@ def build_message(
     )
     message.session_id = session_id
     message.raw_message = raw_message if raw_message is not None else MessageSequence([])
-    if raw_message is None and content:
-        message.raw_message.text(content)
-    visible_text = display_text if display_text is not None else content
+    if raw_message is None and normalized_content:
+        message.raw_message.text(normalized_content)
+    visible_text = display_text if display_text is not None else normalized_content
     message.processed_plain_text = visible_text
     message.display_message = visible_text
     message.initialized = True
@@ -119,7 +137,7 @@ def format_speaker_content(
 ) -> str:
     """Format visible conversation content with an explicit speaker label."""
     time_prefix = timestamp.strftime("%H:%M:%S") if timestamp is not None else ""
-    message_id_prefix = f"<mid:{message_id}>" if message_id else ""
+    message_id_prefix = f"[msg_id:{message_id}]" if message_id else ""
     return f"{time_prefix}{message_id_prefix}[{speaker_name}]{content}"
 
 
@@ -141,7 +159,20 @@ def build_visible_text_from_sequence(message_sequence: MessageSequence) -> str:
     parts: list[str] = []
     for component in message_sequence.components:
         if isinstance(component, TextComponent):
-            parts.append(SPEAKER_PREFIX_PATTERN.sub(r"\g<timestamp>[\g<speaker>]\g<content>", component.text))
+            match = SPEAKER_PREFIX_PATTERN.match(component.text or "")
+            if not match:
+                parts.append(component.text)
+                continue
+
+            normalized_parts: list[str] = []
+            if match.group("timestamp"):
+                normalized_parts.append(match.group("timestamp"))
+            message_id = match.group("message_id")
+            if message_id:
+                normalized_parts.append(f"[msg_id:{message_id}]")
+            normalized_parts.append(f"[{match.group('speaker')}]")
+            normalized_parts.append(match.group("content"))
+            parts.append("".join(normalized_parts))
             continue
 
         if isinstance(component, EmojiComponent):
