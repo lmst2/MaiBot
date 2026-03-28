@@ -12,7 +12,7 @@ import asyncio
 from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.chat.message_receive.chat_manager import BotChatSession, chat_manager
 from src.chat.message_receive.message import SessionMessage
-from src.common.data_models.mai_message_data_model import GroupInfo, MaiMessage, UserInfo
+from src.common.data_models.mai_message_data_model import GroupInfo, UserInfo
 from src.common.data_models.message_component_data_model import MessageSequence
 from src.common.logger import get_logger
 from src.config.config import global_config
@@ -56,7 +56,7 @@ class MaisakaHeartFlowChatting:
         session_name = chat_manager.get_session_name(session_id) or session_id
         self.log_prefix = f"[{session_name}]"
         self._llm_service = MaiSakaLLMService(api_key="", base_url=None, model="")
-        self._chat_history: list[MaiMessage] = []
+        self._chat_history: list[SessionMessage] = []
         self.history_loop: list[CycleDetail] = []
         self.message_cache: list[SessionMessage] = []
         self._mcp_manager: Optional[MCPManager] = None
@@ -227,7 +227,7 @@ class MaisakaHeartFlowChatting:
 
         return merged_sequence
 
-    async def _build_user_history_message(self, message: SessionMessage) -> Optional[MaiMessage]:
+    async def _build_user_history_message(self, message: SessionMessage) -> Optional[SessionMessage]:
         user_sequence = await self._build_message_sequence(message)
         visible_text = build_visible_text_from_sequence(user_sequence).strip()
         if not user_sequence.components:
@@ -498,7 +498,7 @@ class MaisakaHeartFlowChatting:
         )
         return True
 
-    def _build_tool_message(self, tool_call: ToolCall, content: str) -> MaiMessage:
+    def _build_tool_message(self, tool_call: ToolCall, content: str) -> SessionMessage:
         return build_message(
             role="tool",
             content=content,

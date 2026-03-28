@@ -4,7 +4,7 @@ MaiSaka knowledge retrieval helpers.
 
 from typing import List
 
-from src.common.data_models.mai_message_data_model import MaiMessage
+from src.chat.message_receive.message import SessionMessage
 
 from .knowledge_store import KNOWLEDGE_CATEGORIES, get_knowledge_store
 
@@ -43,7 +43,7 @@ def extract_category_ids_from_result(result: str) -> List[str]:
 
 async def retrieve_relevant_knowledge(
     llm_service,
-    chat_history: List[MaiMessage],
+    chat_history: List[SessionMessage],
 ) -> str:
     """Retrieve formatted knowledge snippets relevant to the current chat history."""
     store = get_knowledge_store()

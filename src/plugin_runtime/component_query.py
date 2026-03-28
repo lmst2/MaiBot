@@ -139,27 +139,18 @@ class ComponentQueryService:
         metadata = dict(entry.metadata)
         raw_action_parameters = metadata.get("action_parameters")
         action_parameters = (
-            {
-                str(param_name): str(param_description)
-                for param_name, param_description in raw_action_parameters.items()
-            }
+            {str(param_name): str(param_description) for param_name, param_description in raw_action_parameters.items()}
             if isinstance(raw_action_parameters, dict)
             else {}
         )
         action_require = [
-            str(item)
-            for item in (metadata.get("action_require") or [])
-            if item is not None and str(item).strip()
+            str(item) for item in (metadata.get("action_require") or []) if item is not None and str(item).strip()
         ]
         associated_types = [
-            str(item)
-            for item in (metadata.get("associated_types") or [])
-            if item is not None and str(item).strip()
+            str(item) for item in (metadata.get("associated_types") or []) if item is not None and str(item).strip()
         ]
         activation_keywords = [
-            str(item)
-            for item in (metadata.get("activation_keywords") or [])
-            if item is not None and str(item).strip()
+            str(item) for item in (metadata.get("activation_keywords") or []) if item is not None and str(item).strip()
         ]
 
         return ActionInfo(
@@ -442,9 +433,14 @@ class ComponentQueryService:
             message = kwargs.get("message")
             matched_groups = kwargs.get("matched_groups")
             plugin_config = kwargs.get("plugin_config")
+            message_info = getattr(message, "message_info", None)
+            group_info = getattr(message_info, "group_info", None)
+            user_info = getattr(message_info, "user_info", None)
             invoke_args: Dict[str, Any] = {
                 "text": str(getattr(message, "processed_plain_text", "") or ""),
                 "stream_id": str(getattr(message, "session_id", "") or ""),
+                "group_id": str(getattr(group_info, "group_id", "") or ""),
+                "user_id": str(getattr(user_info, "user_id", "") or ""),
                 "matched_groups": matched_groups if isinstance(matched_groups, dict) else {},
             }
             if isinstance(plugin_config, dict):

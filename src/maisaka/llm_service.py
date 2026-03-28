@@ -19,7 +19,8 @@ from rich.panel import Panel
 from rich.pretty import Pretty
 from rich.text import Text
 
-from src.common.data_models.mai_message_data_model import MaiMessage
+from src.chat.message_receive.message import SessionMessage
+from src.common.data_models.llm_service_data_models import LLMGenerationOptions
 from src.common.logger import get_logger
 from src.common.prompt_i18n import load_prompt
 from src.config.config import config_manager, global_config
@@ -31,7 +32,6 @@ from src.llm_models.payload_content.tool_option import (
     ToolOption,
     normalize_tool_options,
 )
-from src.common.data_models.llm_service_data_models import LLMGenerationOptions
 from src.services.llm_service import LLMServiceClient
 
 from . import config
@@ -55,7 +55,7 @@ class ChatResponse:
 
     content: Optional[str]
     tool_calls: List[ToolCall]
-    raw_message: MaiMessage
+    raw_message: SessionMessage
 
 
 class MaiSakaLLMService:
@@ -428,7 +428,7 @@ class MaiSakaLLMService:
             padding=(0, 1),
         )
 
-    async def chat_loop_step(self, chat_history: List[MaiMessage]) -> ChatResponse:
+    async def chat_loop_step(self, chat_history: List[SessionMessage]) -> ChatResponse:
         """执行主对话循环的一步。
 
         Args:
@@ -514,7 +514,7 @@ class MaiSakaLLMService:
             source="assistant",
             tool_calls=tool_calls or None,
         )
-        logger.info("已将规划模型响应转换为 MaiMessage")
+        logger.info("已将规划模型响应转换为 SessionMessage")
 
         return ChatResponse(
             content=response,
@@ -522,7 +522,7 @@ class MaiSakaLLMService:
             raw_message=raw_message,
         )
 
-    def _filter_for_api(self, chat_history: List[MaiMessage]) -> str:
+    def _filter_for_api(self, chat_history: List[SessionMessage]) -> str:
         """将对话历史过滤为简单文本格式。
 
         Args:
@@ -555,14 +555,14 @@ class MaiSakaLLMService:
 
         return "\n\n".join(parts)
 
-    def build_chat_context(self, user_text: str) -> List[MaiMessage]:
+    def build_chat_context(self, user_text: str) -> List[SessionMessage]:
         """构建新的对话上下文。
 
         Args:
             user_text: 用户输入文本。
 
         Returns:
-            List[MaiMessage]: 初始对话上下文消息列表。
+            List[SessionMessage]: 初始对话上下文消息列表。
         """
         return [
             build_message(
@@ -572,7 +572,7 @@ class MaiSakaLLMService:
             )
         ]
 
-    async def _removed_analyze_timing(self, chat_history: List[MaiMessage], timing_info: str) -> str:
+    async def _removed_analyze_timing(self, chat_history: List[SessionMessage], timing_info: str) -> str:
         """执行时间节奏分析。
 
         Args:
@@ -623,7 +623,7 @@ class MaiSakaLLMService:
 
     # ──────── 回复生成（使用 replyer 模型） ────────
 
-    async def generate_reply(self, reason: str, chat_history: List[MaiMessage]) -> str:
+    async def generate_reply(self, reason: str, chat_history: List[SessionMessage]) -> str:
         """生成最终回复文本。
 
         Args:

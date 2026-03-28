@@ -343,14 +343,13 @@ class ChatBot:
 
             # message.update_chat_stream(chat)
 
-            # 命令处理 - 使用新插件系统检查并处理命令
-            # 注意：命令返回的 response 当前只用于日志记录和流程判断，
-            # 不会在这里自动作为回复消息发送回会话。
-            # is_command, cmd_result, continue_process = await self._process_commands(message)
+            # 命令处理 - 使用新插件系统检查并处理命令。
+            # 命令处理器内部自行决定是否回复消息，这里只负责流程分发与拦截。
+            is_command, cmd_result, continue_process = await self._process_commands(message)
 
-            # # 如果是命令且不需要继续处理，则直接返回
-            # if is_command and await self._handle_command_processing_result(message, cmd_result, continue_process):
-            #     return
+            # 如果是命令且不需要继续处理，则直接返回，避免落入 HeartFlow / MaiSaka。
+            if is_command and await self._handle_command_processing_result(message, cmd_result, continue_process):
+                return
 
             # continue_flag, modified_message = await events_manager.handle_mai_events(EventType.ON_MESSAGE, message)
             # if not continue_flag:

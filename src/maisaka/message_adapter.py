@@ -1,5 +1,5 @@
 """
-MaiSaka message adapters built on top of the main project's MaiMessage model.
+MaiSaka 内部消息适配器。
 """
 
 from copy import deepcopy
@@ -12,7 +12,8 @@ import re
 
 from PIL import Image as PILImage
 
-from src.common.data_models.mai_message_data_model import GroupInfo, MaiMessage, MessageInfo, UserInfo
+from src.chat.message_receive.message import SessionMessage
+from src.common.data_models.mai_message_data_model import GroupInfo, MessageInfo, UserInfo
 from src.common.data_models.message_component_data_model import EmojiComponent, ImageComponent, MessageSequence, TextComponent
 from src.config.config import global_config
 from src.llm_models.payload_content.message import Message, MessageBuilder, RoleType
@@ -77,11 +78,11 @@ def build_message(
     group_info: Optional[GroupInfo] = None,
     raw_message: Optional[MessageSequence] = None,
     display_text: Optional[str] = None,
-) -> MaiMessage:
-    """Build a MaiMessage for the Maisaka session history."""
+) -> SessionMessage:
+    """为 MaiSaka 会话历史构建内部 ``SessionMessage``。"""
     resolved_timestamp = timestamp or datetime.now()
     resolved_role = role.value if isinstance(role, RoleType) else role
-    message = MaiMessage(
+    message = SessionMessage(
         message_id=message_id or f"maisaka_{uuid4().hex}",
         timestamp=resolved_timestamp,
         platform=platform,
@@ -104,6 +105,7 @@ def build_message(
     visible_text = display_text if display_text is not None else content
     message.processed_plain_text = visible_text
     message.display_message = visible_text
+    message.initialized = True
     return message
 
 
@@ -160,7 +162,7 @@ def _guess_image_format(image_bytes: bytes) -> Optional[str]:
         return None
 
 
-def get_message_text(message: MaiMessage) -> str:
+def get_message_text(message: SessionMessage) -> str:
     if message.processed_plain_text is not None:
         return message.processed_plain_text
     if message.display_message is not None:
@@ -174,42 +176,42 @@ def get_message_text(message: MaiMessage) -> str:
     return "".join(parts)
 
 
-def get_message_role(message: MaiMessage) -> str:
+def get_message_role(message: SessionMessage) -> str:
     return str(message.message_info.additional_config.get(LLM_ROLE_KEY, RoleType.User.value))
 
 
-def get_message_kind(message: MaiMessage) -> str:
+def get_message_kind(message: SessionMessage) -> str:
     return str(message.message_info.additional_config.get(MESSAGE_KIND_KEY, "normal"))
 
 
-def get_message_source(message: MaiMessage) -> str:
+def get_message_source(message: SessionMessage) -> str:
     return str(message.message_info.additional_config.get(SOURCE_KEY, get_message_role(message)))
 
 
-def is_perception_message(message: MaiMessage) -> bool:
+def is_perception_message(message: SessionMessage) -> bool:
     return get_message_kind(message) == "perception"
 
 
-def get_tool_call_id(message: MaiMessage) -> Optional[str]:
+def get_tool_call_id(message: SessionMessage) -> Optional[str]:
     value = message.message_info.additional_config.get(TOOL_CALL_ID_KEY)
     return str(value) if value else None
 
 
-def get_tool_calls(message: MaiMessage) -> list[ToolCall]:
+def get_tool_calls(message: SessionMessage) -> list[ToolCall]:
     raw_tool_calls = message.message_info.additional_config.get(TOOL_CALLS_KEY, [])
     if not isinstance(raw_tool_calls, list):
         return []
     return [_deserialize_tool_call(item) for item in raw_tool_calls if isinstance(item, dict)]
 
 
-def remove_last_perception(messages: list[MaiMessage]) -> None:
+def remove_last_perception(messages: list[SessionMessage]) -> None:
     for index in range(len(messages) - 1, -1, -1):
         if is_perception_message(messages[index]):
             messages.pop(index)
             break
 
 
-def to_llm_message(message: MaiMessage) -> Optional[Message]:
+def to_llm_message(message: SessionMessage) -> Optional[Message]:
     role = get_message_role(message)
     tool_call_id = get_tool_call_id(message)
     tool_calls = get_tool_calls(message)

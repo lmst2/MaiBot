@@ -328,17 +328,17 @@ class LLMOrchestrator:
         start_time = time.time()
         if self.request_type.startswith("maisaka_"):
             logger.info(
-                f"LLMOrchestrator[{self.request_type}] generate_response_with_message_async started "
+                f"LLMOrchestrator[{self.request_type}] 开始执行 generate_response_with_message_async "
                 f"(temperature={temperature}, max_tokens={max_tokens}, tools={len(tools or [])})"
             )
 
         if self.request_type.startswith("maisaka_"):
             logger.info(
-                f"LLMOrchestrator[{self.request_type}] building internal tool options from {len(tools or [])} tool(s)"
+                f"LLMOrchestrator[{self.request_type}] 正在根据 {len(tools or [])} 个工具构建内部工具选项"
             )
         tool_built = self._build_tool_options(tools)
         if self.request_type.startswith("maisaka_"):
-            logger.info(f"LLMOrchestrator[{self.request_type}] built {len(tool_built or [])} internal tool option(s)")
+            logger.info(f"LLMOrchestrator[{self.request_type}] 已构建 {len(tool_built or [])} 个内部工具选项")
 
         execution_result = await self._execute_request(
             request_type=RequestType.RESPONSE,
@@ -353,7 +353,7 @@ class LLMOrchestrator:
         model_info = execution_result.model_info
         if self.request_type.startswith("maisaka_"):
             logger.info(
-                f"LLMOrchestrator[{self.request_type}] generate_response_with_message_async finished "
+                f"LLMOrchestrator[{self.request_type}] generate_response_with_message_async 执行完成 "
                 f"(model={model_info.name}, time_cost={time.time() - start_time:.2f}s)"
             )
 
@@ -832,18 +832,18 @@ class LLMOrchestrator:
             model_info, api_provider, client = self._select_model(exclude_models=failed_models_this_request)
             if self.request_type.startswith("maisaka_"):
                 logger.info(
-                    f"LLMOrchestrator[{self.request_type}] selected model={model_info.name} "
+                    f"LLMOrchestrator[{self.request_type}] 已选择模型 model={model_info.name} "
                     f"provider={api_provider.name} request_type={request_type.value}"
                 )
 
             message_list = []
             if message_factory:
                 if self.request_type.startswith("maisaka_"):
-                    logger.info(f"LLMOrchestrator[{self.request_type}] building message list via message_factory")
+                    logger.info(f"LLMOrchestrator[{self.request_type}] 正在通过 message_factory 构建消息列表")
                 message_list = message_factory(client)
                 if self.request_type.startswith("maisaka_"):
                     logger.info(
-                        f"LLMOrchestrator[{self.request_type}] message_factory returned {len(message_list)} message(s)"
+                        f"LLMOrchestrator[{self.request_type}] message_factory 返回了 {len(message_list)} 条消息"
                     )
 
             try:
@@ -863,8 +863,8 @@ class LLMOrchestrator:
                 )
                 if self.request_type.startswith("maisaka_"):
                     logger.info(
-                        f"LLMOrchestrator[{self.request_type}] sending request to model={model_info.name} "
-                        f"with tool_options={len(tool_options or [])}"
+                        f"LLMOrchestrator[{self.request_type}] 正在向模型 model={model_info.name} 发送请求 "
+                        f"(tool_options={len(tool_options or [])})"
                     )
                 response = await self._attempt_request_on_model(
                     api_provider,
@@ -873,7 +873,7 @@ class LLMOrchestrator:
                 )
                 if self.request_type.startswith("maisaka_"):
                     logger.info(
-                        f"LLMOrchestrator[{self.request_type}] model={model_info.name} returned API response"
+                        f"LLMOrchestrator[{self.request_type}] 模型 model={model_info.name} 已返回 API 响应"
                     )
                 total_tokens, penalty, usage_penalty = self.model_usage[model_info.name]
                 if response_usage := response.usage:

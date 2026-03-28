@@ -13,7 +13,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
-from src.common.data_models.mai_message_data_model import MaiMessage
+from src.chat.message_receive.message import SessionMessage
 from src.config.config import global_config
 
 from .config import (
@@ -26,8 +26,8 @@ from .config import (
 from .input_reader import InputReader
 from .knowledge import retrieve_relevant_knowledge
 from .knowledge_store import get_knowledge_store
-from .llm_service import MaiSakaLLMService, build_message, remove_last_perception
-from .message_adapter import format_speaker_content
+from .llm_service import MaiSakaLLMService
+from .message_adapter import build_message, format_speaker_content, remove_last_perception
 from .mcp_client import MCPManager
 from .tool_handlers import (
     ToolHandlerContext,
@@ -47,7 +47,7 @@ class BufferCLI:
     def __init__(self):
         self.llm_service: Optional[MaiSakaLLMService] = None
         self._reader = InputReader()
-        self._chat_history: Optional[list[MaiMessage]] = None
+        self._chat_history: Optional[list[SessionMessage]] = None
         self._knowledge_store = get_knowledge_store()
 
         knowledge_stats = self._knowledge_store.get_stats()
@@ -122,7 +122,7 @@ class BufferCLI:
 
         await self._run_llm_loop(self._chat_history)
 
-    async def _run_llm_loop(self, chat_history: list[MaiMessage]):
+    async def _run_llm_loop(self, chat_history: list[SessionMessage]):
         """
         Main inner loop for the Maisaka planner.
 
@@ -318,7 +318,7 @@ class BufferCLI:
                     )
                 )
 
-    async def _generate_visible_reply(self, chat_history: list[MaiMessage], latest_thought: str) -> str:
+    async def _generate_visible_reply(self, chat_history: list[SessionMessage], latest_thought: str) -> str:
         """Generate and emit a visible reply based on the latest thought."""
         if not self.llm_service or not latest_thought:
             return ""

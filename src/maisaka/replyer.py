@@ -4,7 +4,7 @@ MaiSaka reply helper.
 
 from typing import Optional
 
-from src.common.data_models.mai_message_data_model import MaiMessage
+from src.chat.message_receive.message import SessionMessage
 from src.config.config import global_config
 
 from .config import USER_NAME
@@ -19,17 +19,17 @@ def _normalize_content(content: str, limit: int = 500) -> str:
     return normalized
 
 
-def _format_message_time(message: MaiMessage) -> str:
+def _format_message_time(message: SessionMessage) -> str:
     return message.timestamp.strftime("%H:%M:%S")
 
 
-def _extract_visible_assistant_reply(message: MaiMessage) -> str:
+def _extract_visible_assistant_reply(message: SessionMessage) -> str:
     if is_perception_message(message):
         return ""
     return ""
 
 
-def _extract_guided_bot_reply(message: MaiMessage) -> str:
+def _extract_guided_bot_reply(message: SessionMessage) -> str:
     speaker_name, body = parse_speaker_content(get_message_text(message).strip())
     bot_nickname = global_config.bot.nickname.strip() or "Bot"
     if speaker_name == bot_nickname:
@@ -64,7 +64,7 @@ def _split_user_message_segments(raw_content: str) -> list[tuple[Optional[str], 
     return segments
 
 
-def format_chat_history(messages: list[MaiMessage]) -> str:
+def format_chat_history(messages: list[SessionMessage]) -> str:
     """Format visible chat history for reply generation."""
     bot_nickname = global_config.bot.nickname.strip() or "Bot"
     parts: list[str] = []
@@ -109,7 +109,7 @@ class Replyer:
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
 
-    async def reply(self, reason: str, chat_history: list[MaiMessage]) -> str:
+    async def reply(self, reason: str, chat_history: list[SessionMessage]) -> str:
         if not self._enabled or not reason or self._llm_service is None:
             return "..."
 

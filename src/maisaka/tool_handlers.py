@@ -11,7 +11,7 @@ import os
 
 from rich.panel import Panel
 
-from src.common.data_models.mai_message_data_model import MaiMessage
+from src.chat.message_receive.message import SessionMessage
 from src.llm_models.payload_content.tool_option import ToolCall
 
 from .config import console
@@ -41,7 +41,7 @@ class ToolHandlerContext:
         self.last_user_input_time: Optional[datetime] = None
 
 
-async def handle_stop(tc: ToolCall, chat_history: list[MaiMessage]) -> None:
+async def handle_stop(tc: ToolCall, chat_history: list[SessionMessage]) -> None:
     """Handle the stop tool."""
     console.print("[accent]Calling tool: stop()[/accent]")
     chat_history.append(
@@ -49,7 +49,7 @@ async def handle_stop(tc: ToolCall, chat_history: list[MaiMessage]) -> None:
     )
 
 
-async def handle_wait(tc: ToolCall, chat_history: list[MaiMessage], ctx: ToolHandlerContext) -> str:
+async def handle_wait(tc: ToolCall, chat_history: list[SessionMessage], ctx: ToolHandlerContext) -> str:
     """Handle the wait tool."""
     seconds = (tc.args or {}).get("seconds", 30)
     seconds = max(5, min(seconds, 300))
@@ -86,7 +86,7 @@ async def _do_wait(seconds: int, ctx: ToolHandlerContext) -> str:
     return f"User input received: {user_input}"
 
 
-async def handle_mcp_tool(tc: ToolCall, chat_history: list[MaiMessage], mcp_manager: "MCPManager") -> None:
+async def handle_mcp_tool(tc: ToolCall, chat_history: list[SessionMessage], mcp_manager: "MCPManager") -> None:
     """Handle an MCP tool call."""
     args_str = _json.dumps(tc.args or {}, ensure_ascii=False)
     args_preview = args_str if len(args_str) <= 120 else args_str[:120] + "..."
@@ -107,13 +107,13 @@ async def handle_mcp_tool(tc: ToolCall, chat_history: list[MaiMessage], mcp_mana
     chat_history.append(build_message(role="tool", content=result, tool_call_id=tc.call_id))
 
 
-async def handle_unknown_tool(tc: ToolCall, chat_history: list[MaiMessage]) -> None:
+async def handle_unknown_tool(tc: ToolCall, chat_history: list[SessionMessage]) -> None:
     """Handle an unknown tool call."""
     console.print(f"[accent]Calling unknown tool: {tc.func_name}({tc.args})[/accent]")
     chat_history.append(build_message(role="tool", content=f"Unknown tool: {tc.func_name}", tool_call_id=tc.call_id))
 
 
-async def handle_write_file(tc: ToolCall, chat_history: list[MaiMessage]) -> None:
+async def handle_write_file(tc: ToolCall, chat_history: list[SessionMessage]) -> None:
     """Write a file under the local mai_files workspace."""
     filename = (tc.args or {}).get("filename", "")
     content = (tc.args or {}).get("content", "")
@@ -149,7 +149,7 @@ async def handle_write_file(tc: ToolCall, chat_history: list[MaiMessage]) -> Non
         chat_history.append(build_message(role="tool", content=error_msg, tool_call_id=tc.call_id))
 
 
-async def handle_read_file(tc: ToolCall, chat_history: list[MaiMessage]) -> None:
+async def handle_read_file(tc: ToolCall, chat_history: list[SessionMessage]) -> None:
     """Read a file from the local mai_files workspace."""
     filename = (tc.args or {}).get("filename", "")
     console.print(f'[accent]Calling tool: read_file("{filename}")[/accent]')
@@ -190,7 +190,7 @@ async def handle_read_file(tc: ToolCall, chat_history: list[MaiMessage]) -> None
         chat_history.append(build_message(role="tool", content=error_msg, tool_call_id=tc.call_id))
 
 
-async def handle_list_files(tc: ToolCall, chat_history: list[MaiMessage]) -> None:
+async def handle_list_files(tc: ToolCall, chat_history: list[SessionMessage]) -> None:
     """List files under the local mai_files workspace."""
     console.print("[accent]Calling tool: list_files()[/accent]")
 
