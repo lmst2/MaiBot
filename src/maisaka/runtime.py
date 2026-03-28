@@ -18,7 +18,7 @@ from src.config.config import global_config
 from src.llm_models.payload_content.tool_option import ToolCall
 from src.services import send_service
 
-from .llm_service import MaiSakaLLMService
+from .chat_loop_service import MaisakaChatLoopService
 from .mcp_client import MCPManager
 from .message_adapter import (
     build_message,
@@ -51,7 +51,7 @@ class MaisakaHeartFlowChatting:
 
         session_name = chat_manager.get_session_name(session_id) or session_id
         self.log_prefix = f"[{session_name}]"
-        self._llm_service = MaiSakaLLMService(api_key="", base_url=None, model="")
+        self._chat_loop_service = MaisakaChatLoopService()
         self._chat_history: list[SessionMessage] = []
         self.history_loop: list[CycleDetail] = []
         self.message_cache: list[SessionMessage] = []
@@ -201,11 +201,23 @@ class MaisakaHeartFlowChatting:
 
     def _drain_message_cache(self) -> list[SessionMessage]:
         """Drain the current message cache as one processing batch."""
-        drained_messages = list(self.message_cache)
+        drained_messages: list[SessionMessage] = []
+        seen_message_ids: set[str] = set()
+
+        def append_unique(message: SessionMessage) -> None:
+            message_id = message.message_id
+            if message_id in seen_message_ids:
+                return
+            seen_message_ids.add(message_id)
+            drained_messages.append(message)
+
+        for message in self.message_cache:
+            append_unique(message)
+
         self.message_cache.clear()
         while not self._message_queue.empty():
             try:
-                drained_messages.append(self._message_queue.get_nowait())
+                append_unique(self._message_queue.get_nowait())
             except asyncio.QueueEmpty:
                 break
         return drained_messages
@@ -223,7 +235,7 @@ class MaisakaHeartFlowChatting:
             logger.info(f"{self.log_prefix} No MCP tools were exposed to Maisaka")
             return
 
-        self._llm_service.set_extra_tools(mcp_tools)
+        self._chat_loop_service.set_extra_tools(mcp_tools)
         logger.info(
             f"{self.log_prefix} Loaded {len(mcp_tools)} MCP tools into Maisaka:\n"
             f"{self._mcp_manager.get_tool_summary()}"

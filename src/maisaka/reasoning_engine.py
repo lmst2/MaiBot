@@ -7,8 +7,10 @@ from typing import TYPE_CHECKING, Optional
 
 from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.chat.message_receive.message import SessionMessage
+from src.chat.replyer.replyer_manager import replyer_manager
 from src.common.data_models.mai_message_data_model import UserInfo
 from src.common.data_models.message_component_data_model import MessageSequence
+from src.common.logger import get_logger
 from src.config.config import global_config
 from src.llm_models.payload_content.tool_option import ToolCall
 from src.services import send_service
@@ -27,6 +29,8 @@ from .tool_handlers import (
 
 if TYPE_CHECKING:
     from .runtime import MaisakaHeartFlowChatting
+
+logger = get_logger("maisaka_reasoning_engine")
 
 
 class MaisakaReasoningEngine:
@@ -54,7 +58,7 @@ class MaisakaReasoningEngine:
                         self._runtime._log_cycle_started(cycle_detail, round_index)
                         try:
                             planner_started_at = time.time()
-                            response = await self._runtime._llm_service.chat_loop_step(self._runtime._chat_history)
+                            response = await self._runtime._chat_loop_service.chat_loop_step(self._runtime._chat_history)
                             cycle_detail.time_records["planner"] = time.time() - planner_started_at
 
                             response.raw_message.platform = anchor_message.platform
@@ -86,6 +90,9 @@ class MaisakaReasoningEngine:
                     self._runtime._internal_turn_queue.task_done()
         except asyncio.CancelledError:
             self._runtime._log_internal_loop_cancelled()
+            raise
+        except Exception:
+            logger.exception("%s Maisaka internal loop crashed", self._runtime.log_prefix)
             raise
 
     async def _ingest_messages(self, messages: list[SessionMessage]) -> None:
@@ -252,13 +259,92 @@ class MaisakaReasoningEngine:
             )
             return False
 
-        reply_text = await self._runtime._llm_service.generate_reply(latest_thought, self._runtime._chat_history)
-        sent = await send_service.text_to_stream(
-            text=reply_text,
-            stream_id=self._runtime.session_id,
-            set_reply=True,
-            reply_message=target_message,
-            typing=False,
+        logger.info(
+            f"{self._runtime.log_prefix} reply tool triggered: "
+            f"target_msg_id={target_message_id} latest_thought={latest_thought!r}"
+        )
+        logger.info(f"{self._runtime.log_prefix} acquiring Maisaka reply generator")
+        try:
+            replyer = replyer_manager.get_replyer(
+                chat_stream=self._runtime.chat_stream,
+                request_type="maisaka_replyer",
+                replyer_type="maisaka",
+            )
+        except Exception:
+            logger.exception(
+                f"{self._runtime.log_prefix} replyer_manager.get_replyer crashed: "
+                f"target_msg_id={target_message_id}"
+            )
+            self._runtime._chat_history.append(
+                self._build_tool_message(tool_call, "Maisaka reply generator acquisition crashed.")
+            )
+            return False
+
+        if replyer is None:
+            logger.error(f"{self._runtime.log_prefix} failed to acquire Maisaka reply generator")
+            self._runtime._chat_history.append(
+                self._build_tool_message(tool_call, "Maisaka reply generator is unavailable.")
+            )
+            return False
+
+        logger.info(f"{self._runtime.log_prefix} acquired Maisaka reply generator successfully")
+
+        try:
+            success, reply_result = await replyer.generate_reply_with_context(
+                reply_reason=latest_thought,
+                stream_id=self._runtime.session_id,
+                reply_message=target_message,
+                chat_history=self._runtime._chat_history,
+                log_reply=False,
+            )
+        except Exception:
+            logger.exception(f"{self._runtime.log_prefix} reply generator crashed: target_msg_id={target_message_id}")
+            self._runtime._chat_history.append(
+                self._build_tool_message(tool_call, "Visible reply generation crashed.")
+            )
+            return False
+
+        logger.info(
+            f"{self._runtime.log_prefix} reply generator finished: "
+            f"success={success} response_text={reply_result.completion.response_text!r} "
+            f"error={reply_result.error_message!r}"
+        )
+        reply_text = reply_result.completion.response_text.strip() if success else ""
+        if not reply_text:
+            logger.warning(
+                f"{self._runtime.log_prefix} reply generator returned empty text: "
+                f"target_msg_id={target_message_id} error={reply_result.error_message!r}"
+            )
+            self._runtime._chat_history.append(
+                self._build_tool_message(tool_call, "Visible reply generation failed.")
+            )
+            return False
+
+        logger.info(
+            f"{self._runtime.log_prefix} sending guided reply: "
+            f"target_msg_id={target_message_id} reply_text={reply_text!r}"
+        )
+        try:
+            sent = await send_service.text_to_stream(
+                text=reply_text,
+                stream_id=self._runtime.session_id,
+                set_reply=True,
+                reply_message=target_message,
+                typing=False,
+            )
+        except Exception:
+            logger.exception(
+                f"{self._runtime.log_prefix} send_service.text_to_stream crashed "
+                f"for target_msg_id={target_message_id}"
+            )
+            self._runtime._chat_history.append(
+                self._build_tool_message(tool_call, "Visible reply send crashed.")
+            )
+            return False
+
+        logger.info(
+            f"{self._runtime.log_prefix} guided reply send result: "
+            f"target_msg_id={target_message_id} sent={sent}"
         )
         tool_result = "Visible reply generated and sent." if sent else "Visible reply generation succeeded but send failed."
         self._runtime._chat_history.append(self._build_tool_message(tool_call, tool_result))

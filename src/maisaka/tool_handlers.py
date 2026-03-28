@@ -16,7 +16,6 @@ from src.llm_models.payload_content.tool_option import ToolCall
 
 from .console import console
 from .input_reader import InputReader
-from .llm_service import MaiSakaLLMService
 from .message_adapter import build_message
 
 if TYPE_CHECKING:
@@ -31,11 +30,9 @@ class ToolHandlerContext:
 
     def __init__(
         self,
-        llm_service: MaiSakaLLMService,
         reader: InputReader,
         user_input_times: list[datetime],
     ) -> None:
-        self.llm_service = llm_service
         self.reader = reader
         self.user_input_times = user_input_times
         self.last_user_input_time: Optional[datetime] = None

@@ -14,13 +14,14 @@ from rich.panel import Panel
 from rich.text import Text
 
 from src.chat.message_receive.message import SessionMessage
-from src.config.config import global_config
+from src.chat.replyer.maisaka_generator import MaisakaReplyGenerator
+from src.config.config import config_manager, global_config
 
+from .chat_loop_service import MaisakaChatLoopService
 from .console import console
 from .input_reader import InputReader
 from .knowledge import retrieve_relevant_knowledge
 from .knowledge_store import get_knowledge_store
-from .llm_service import MaiSakaLLMService
 from .message_adapter import build_message, format_speaker_content, remove_last_perception
 from .mcp_client import MCPManager
 from .tool_handlers import (
@@ -33,10 +34,11 @@ from .tool_handlers import (
 
 
 class BufferCLI:
-    """Command line interface for Maisaka."""
+    """Maisaka 命令行交互入口。"""
 
-    def __init__(self):
-        self.llm_service: Optional[MaiSakaLLMService] = None
+    def __init__(self) -> None:
+        self._chat_loop_service: Optional[MaisakaChatLoopService] = None
+        self._reply_generator = MaisakaReplyGenerator()
         self._reader = InputReader()
         self._chat_history: Optional[list[SessionMessage]] = None
         self._knowledge_store = get_knowledge_store()
@@ -55,32 +57,38 @@ class BufferCLI:
         self._init_llm()
 
     def _init_llm(self) -> None:
-        """从主项目配置初始化 LLM 服务。"""
+        """初始化 Maisaka 使用的聊天服务。"""
         thinking_env = os.getenv("ENABLE_THINKING", "").strip().lower()
         enable_thinking: Optional[bool] = True if thinking_env == "true" else False if thinking_env == "false" else None
 
-        self.llm_service = MaiSakaLLMService(
-            api_key="",
-            base_url=None,
-            model="",
-            enable_thinking=enable_thinking,
-        )
+        _ = enable_thinking
+        self._chat_loop_service = MaisakaChatLoopService()
 
-        model_name = self.llm_service.get_current_model_name()
+        model_name = self._get_current_model_name()
         console.print(f"[success][OK] LLM service initialized[/success] [muted](model: {model_name})[/muted]")
 
+    @staticmethod
+    def _get_current_model_name() -> str:
+        """读取当前 planner 模型名。"""
+        try:
+            model_task_config = config_manager.get_model_config().model_task_config
+            if model_task_config.planner.model_list:
+                return model_task_config.planner.model_list[0]
+        except Exception:
+            pass
+        return "unconfigured"
+
     def _build_tool_context(self) -> ToolHandlerContext:
-        """Build the shared tool handler context."""
-        ctx = ToolHandlerContext(
-            llm_service=self.llm_service,
+        """构建工具处理的共享上下文。"""
+        tool_context = ToolHandlerContext(
             reader=self._reader,
             user_input_times=self._user_input_times,
         )
-        ctx.last_user_input_time = self._last_user_input_time
-        return ctx
+        tool_context.last_user_input_time = self._last_user_input_time
+        return tool_context
 
-    def _show_banner(self):
-        """Render the startup banner."""
+    def _show_banner(self) -> None:
+        """渲染启动横幅。"""
         banner = Text()
         banner.append("MaiSaka", style="bold cyan")
         banner.append(" v2.0\n", style="muted")
@@ -89,9 +97,9 @@ class BufferCLI:
         console.print(Panel(banner, box=box.DOUBLE_EDGE, border_style="cyan", padding=(1, 2)))
         console.print()
 
-    async def _start_chat(self, user_text: str):
-        """Append user input and continue the inner loop."""
-        if not self.llm_service:
+    async def _start_chat(self, user_text: str) -> None:
+        """追加用户输入并继续内部循环。"""
+        if self._chat_loop_service is None:
             console.print("[warning]LLM service is not initialized; skipping chat.[/warning]")
             return
 
@@ -102,13 +110,13 @@ class BufferCLI:
         if self._chat_history is None:
             self._chat_start_time = now
             self._last_assistant_response_time = None
-            self._chat_history = self.llm_service.build_chat_context(user_text)
+            self._chat_history = self._chat_loop_service.build_chat_context(user_text)
         else:
             self._chat_history.append(
                 build_message(
                     role="user",
                     content=format_speaker_content(
-                        global_config.maisaka.user_name.strip() or "用户",
+                        global_config.maisaka.user_name.strip() or "User",
                         user_text,
                         now,
                     ),
@@ -117,7 +125,7 @@ class BufferCLI:
 
         await self._run_llm_loop(self._chat_history)
 
-    async def _run_llm_loop(self, chat_history: list[SessionMessage]):
+    async def _run_llm_loop(self, chat_history: list[SessionMessage]) -> None:
         """
         Main inner loop for the Maisaka planner.
 
@@ -126,12 +134,10 @@ class BufferCLI:
         - no_reply(): skip visible output and continue the loop
         - wait(seconds): wait for new user input
         - stop(): stop the current inner loop and return to idle
-
-        Per round:
-        1. Run enabled perception modules in parallel when the previous round used tools.
-        2. Call the planner model with the current history.
-        3. Append the assistant thought and execute any requested tools.
         """
+        if self._chat_loop_service is None:
+            return
+
         consecutive_errors = 0
         last_had_tool_calls = True
 
@@ -141,7 +147,7 @@ class BufferCLI:
                 status_text_parts = []
 
                 if global_config.maisaka.enable_knowledge_module:
-                    tasks.append(("knowledge", retrieve_relevant_knowledge(self.llm_service, chat_history)))
+                    tasks.append(("knowledge", retrieve_relevant_knowledge(self._chat_loop_service, chat_history)))
                     status_text_parts.append("knowledge")
 
                 with console.status(
@@ -183,13 +189,12 @@ class BufferCLI:
                             source="assistant",
                         )
                     )
-            else:
-                if global_config.maisaka.show_thinking:
-                    console.print("[muted]Skipping module analysis because the last round used no tools.[/muted]")
+            elif global_config.maisaka.show_thinking:
+                console.print("[muted]Skipping module analysis because the last round used no tools.[/muted]")
 
             with console.status("[info]AI is thinking...[/info]", spinner="dots"):
                 try:
-                    response = await self.llm_service.chat_loop_step(chat_history)
+                    response = await self._chat_loop_service.chat_loop_step(chat_history)
                     consecutive_errors = 0
                 except Exception as exc:
                     consecutive_errors += 1
@@ -217,83 +222,83 @@ class BufferCLI:
                 last_had_tool_calls = False
                 continue
 
-            if response.tool_calls:
-                should_stop = False
-                ctx = self._build_tool_context()
-
-                for tc in response.tool_calls:
-                    if tc.func_name == "stop":
-                        await handle_stop(tc, chat_history)
-                        should_stop = True
-
-                    elif tc.func_name == "reply":
-                        reply = await self._generate_visible_reply(chat_history, response.content)
-                        chat_history.append(
-                            build_message(
-                                role="tool",
-                                content="Visible reply generated and recorded.",
-                                source="tool",
-                                tool_call_id=tc.call_id,
-                            )
-                        )
-                        chat_history.append(
-                            build_message(
-                                role="user",
-                                content=format_speaker_content(
-                                    global_config.bot.nickname.strip() or "MaiSaka",
-                                    reply,
-                                    datetime.now(),
-                                ),
-                                source="guided_reply",
-                            )
-                        )
-
-                    elif tc.func_name == "no_reply":
-                        if global_config.maisaka.show_thinking:
-                            console.print("[muted]No visible reply this round.[/muted]")
-                        chat_history.append(
-                            build_message(
-                                role="tool",
-                                content="No visible reply was sent for this round.",
-                                source="tool",
-                                tool_call_id=tc.call_id,
-                            )
-                        )
-
-                    elif tc.func_name == "wait":
-                        tool_result = await handle_wait(tc, chat_history, ctx)
-                        if ctx.last_user_input_time != self._last_user_input_time:
-                            self._last_user_input_time = ctx.last_user_input_time
-                        if tool_result.startswith("[[QUIT]]"):
-                            should_stop = True
-
-                    elif self._mcp_manager and self._mcp_manager.is_mcp_tool(tc.func_name):
-                        await handle_mcp_tool(tc, chat_history, self._mcp_manager)
-
-                    else:
-                        await handle_unknown_tool(tc, chat_history)
-
-                if should_stop:
-                    console.print("[muted]Conversation paused. Waiting for new input...[/muted]\n")
-                    break
-
-                last_had_tool_calls = True
-            else:
+            if not response.tool_calls:
                 last_had_tool_calls = False
                 continue
 
-    async def _init_mcp(self):
-        """Initialize MCP servers and register exposed tools."""
+            should_stop = False
+            tool_context = self._build_tool_context()
+
+            for tool_call in response.tool_calls:
+                if tool_call.func_name == "stop":
+                    await handle_stop(tool_call, chat_history)
+                    should_stop = True
+
+                elif tool_call.func_name == "reply":
+                    reply = await self._generate_visible_reply(chat_history, response.content)
+                    chat_history.append(
+                        build_message(
+                            role="tool",
+                            content="Visible reply generated and recorded.",
+                            source="tool",
+                            tool_call_id=tool_call.call_id,
+                        )
+                    )
+                    chat_history.append(
+                        build_message(
+                            role="user",
+                            content=format_speaker_content(
+                                global_config.bot.nickname.strip() or "MaiSaka",
+                                reply,
+                                datetime.now(),
+                            ),
+                            source="guided_reply",
+                        )
+                    )
+
+                elif tool_call.func_name == "no_reply":
+                    if global_config.maisaka.show_thinking:
+                        console.print("[muted]No visible reply this round.[/muted]")
+                    chat_history.append(
+                        build_message(
+                            role="tool",
+                            content="No visible reply was sent for this round.",
+                            source="tool",
+                            tool_call_id=tool_call.call_id,
+                        )
+                    )
+
+                elif tool_call.func_name == "wait":
+                    tool_result = await handle_wait(tool_call, chat_history, tool_context)
+                    if tool_context.last_user_input_time != self._last_user_input_time:
+                        self._last_user_input_time = tool_context.last_user_input_time
+                    if tool_result.startswith("[[QUIT]]"):
+                        should_stop = True
+
+                elif self._mcp_manager and self._mcp_manager.is_mcp_tool(tool_call.func_name):
+                    await handle_mcp_tool(tool_call, chat_history, self._mcp_manager)
+
+                else:
+                    await handle_unknown_tool(tool_call, chat_history)
+
+            if should_stop:
+                console.print("[muted]Conversation paused. Waiting for new input...[/muted]\n")
+                break
+
+            last_had_tool_calls = True
+
+    async def _init_mcp(self) -> None:
+        """初始化 MCP 服务并注册暴露的工具。"""
         config_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "mcp_config.json",
         )
         self._mcp_manager = await MCPManager.from_config(config_path)
 
-        if self._mcp_manager and self.llm_service:
+        if self._mcp_manager and self._chat_loop_service:
             mcp_tools = self._mcp_manager.get_openai_tools()
             if mcp_tools:
-                self.llm_service.set_extra_tools(mcp_tools)
+                self._chat_loop_service.set_extra_tools(mcp_tools)
                 summary = self._mcp_manager.get_tool_summary()
                 console.print(
                     Panel(
@@ -305,12 +310,19 @@ class BufferCLI:
                 )
 
     async def _generate_visible_reply(self, chat_history: list[SessionMessage], latest_thought: str) -> str:
-        """Generate and emit a visible reply based on the latest thought."""
-        if not self.llm_service or not latest_thought:
+        """根据最新思考生成并输出可见回复。"""
+        if not latest_thought:
             return ""
 
         with console.status("[info]Generating visible reply...[/info]", spinner="dots"):
-            reply = await self.llm_service.generate_reply(latest_thought, chat_history)
+            success, result = await self._reply_generator.generate_reply_with_context(
+                reply_reason=latest_thought,
+                chat_history=chat_history,
+            )
+            if success and result.text_fragments:
+                reply = result.text_fragments[0]
+            else:
+                reply = "..."
 
         console.print(
             Panel(
@@ -323,8 +335,8 @@ class BufferCLI:
 
         return reply
 
-    async def run(self):
-        """Main interactive loop."""
+    async def run(self) -> None:
+        """主交互循环。"""
         if global_config.maisaka.enable_mcp:
             await self._init_mcp()
         else:

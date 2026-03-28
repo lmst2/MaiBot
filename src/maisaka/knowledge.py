@@ -42,7 +42,7 @@ def extract_category_ids_from_result(result: str) -> List[str]:
 
 
 async def retrieve_relevant_knowledge(
-    llm_service,
+    knowledge_analyzer,
     chat_history: List[SessionMessage],
 ) -> str:
     """Retrieve formatted knowledge snippets relevant to the current chat history."""
@@ -50,7 +50,7 @@ async def retrieve_relevant_knowledge(
     categories_summary = store.get_categories_summary()
 
     try:
-        category_ids = await llm_service.analyze_knowledge_need(chat_history, categories_summary)
+        category_ids = await knowledge_analyzer.analyze_knowledge_need(chat_history, categories_summary)
         if not category_ids:
             return ""
         return store.get_formatted_knowledge(category_ids)
