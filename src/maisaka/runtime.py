@@ -19,6 +19,7 @@ from src.learners.jargon_miner import JargonMiner
 from src.mcp_module import MCPManager
 
 from .chat_loop_service import MaisakaChatLoopService
+from .context_messages import LLMContextMessage
 from .reasoning_engine import MaisakaReasoningEngine
 
 logger = get_logger("maisaka_runtime")
@@ -40,7 +41,7 @@ class MaisakaHeartFlowChatting:
         session_name = chat_manager.get_session_name(session_id) or session_id
         self.log_prefix = f"[{session_name}]"
         self._chat_loop_service = MaisakaChatLoopService()
-        self._chat_history: list[SessionMessage] = []
+        self._chat_history: list[LLMContextMessage] = []
         self.history_loop: list[CycleDetail] = []
 
         # Keep all original messages for batching and later learning.
@@ -60,6 +61,8 @@ class MaisakaHeartFlowChatting:
         self._max_context_size = max(1, int(global_config.chat.max_context_size))
         self._agent_state: Literal["running", "wait", "stop"] = self._STATE_STOP
         self._wait_until: Optional[float] = None
+        self._pending_wait_tool_call_id: Optional[str] = None
+        self._planner_interrupt_flag: Optional[asyncio.Event] = None
 
         expr_use, jargon_learn, expr_learn = ExpressionConfigUtils.get_expression_config_for_chat(session_id)
         self._enable_expression_use = expr_use
@@ -78,14 +81,14 @@ class MaisakaHeartFlowChatting:
     async def start(self) -> None:
         """Start the runtime loop."""
         if self._running:
+            self._ensure_background_tasks_running()
             return
 
         if global_config.maisaka.enable_mcp:
             await self._init_mcp()
 
         self._running = True
-        self._internal_loop_task = asyncio.create_task(self._reasoning_engine.run_loop())
-        self._loop_task = asyncio.create_task(self._main_loop())
+        self._ensure_background_tasks_running()
         logger.info(f"{self.log_prefix} Maisaka runtime started")
 
     async def stop(self) -> None:
@@ -128,11 +131,47 @@ class MaisakaHeartFlowChatting:
 
     async def register_message(self, message: SessionMessage) -> None:
         """Cache a new message and wake the main loop."""
+        if self._running:
+            self._ensure_background_tasks_running()
         self.message_cache.append(message)
         self._source_messages_by_id[message.message_id] = message
+        if self._agent_state == self._STATE_RUNNING and self._planner_interrupt_flag is not None:
+            logger.info(
+                f"{self.log_prefix} 收到新消息，发起 planner 打断; "
+                f"msg_id={message.message_id} cache_size={len(self.message_cache)} "
+                f"timestamp={time.time():.3f}"
+            )
+            self._planner_interrupt_flag.set()
         if self._agent_state in (self._STATE_WAIT, self._STATE_STOP):
             self._agent_state = self._STATE_RUNNING
         self._new_message_event.set()
+
+    def _ensure_background_tasks_running(self) -> None:
+        """确保后台任务仍在运行，若崩溃则自动拉起。"""
+        if not self._running:
+            return
+
+        if self._internal_loop_task is None or self._internal_loop_task.done():
+            if self._internal_loop_task is not None and not self._internal_loop_task.cancelled():
+                try:
+                    exc = self._internal_loop_task.exception()
+                except Exception:
+                    exc = None
+                if exc is not None:
+                    logger.error(f"{self.log_prefix} internal loop task exited unexpectedly: {exc}")
+            self._internal_loop_task = asyncio.create_task(self._reasoning_engine.run_loop())
+            logger.warning(f"{self.log_prefix} restarted Maisaka internal loop task")
+
+        if self._loop_task is None or self._loop_task.done():
+            if self._loop_task is not None and not self._loop_task.cancelled():
+                try:
+                    exc = self._loop_task.exception()
+                except Exception:
+                    exc = None
+                if exc is not None:
+                    logger.error(f"{self.log_prefix} main loop task exited unexpectedly: {exc}")
+            self._loop_task = asyncio.create_task(self._main_loop())
+            logger.warning(f"{self.log_prefix} restarted Maisaka main loop task")
 
     async def _main_loop(self) -> None:
         try:
@@ -222,15 +261,17 @@ class MaisakaHeartFlowChatting:
             self._wait_until = None
             return "timeout"
 
-    def _enter_wait_state(self, seconds: Optional[float] = None) -> None:
+    def _enter_wait_state(self, seconds: Optional[float] = None, tool_call_id: Optional[str] = None) -> None:
         """Enter wait state."""
         self._agent_state = self._STATE_WAIT
         self._wait_until = None if seconds is None else time.time() + seconds
+        self._pending_wait_tool_call_id = tool_call_id
 
     def _enter_stop_state(self) -> None:
         """Enter stop state."""
         self._agent_state = self._STATE_STOP
         self._wait_until = None
+        self._pending_wait_tool_call_id = None
 
     async def _trigger_batch_learning(self, messages: list[SessionMessage]) -> None:
         """按同一批消息触发表达方式、黑话和 knowledge 学习。"""

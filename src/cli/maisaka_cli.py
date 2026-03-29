@@ -23,7 +23,13 @@ from src.config.config import config_manager, global_config
 from src.mcp_module import MCPManager
 
 from src.maisaka.chat_loop_service import MaisakaChatLoopService
-from src.maisaka.message_adapter import build_message, format_speaker_content, remove_last_perception
+from src.maisaka.context_messages import (
+    AssistantMessage,
+    LLMContextMessage,
+    SessionBackedMessage,
+    ToolResultMessage,
+)
+from src.maisaka.message_adapter import format_speaker_content
 from src.maisaka.tool_handlers import (
     ToolHandlerContext,
     handle_mcp_tool,
@@ -43,7 +49,7 @@ class BufferCLI:
         self._chat_loop_service: Optional[MaisakaChatLoopService] = None
         self._reply_generator = MaisakaReplyGenerator()
         self._reader = InputReader()
-        self._chat_history: Optional[list[SessionMessage]] = None
+        self._chat_history: Optional[list[LLMContextMessage]] = None
         self._knowledge_store = get_knowledge_store()
         self._knowledge_learner = KnowledgeLearner("maisaka_cli")
         self._knowledge_min_messages_for_extraction = 10
@@ -118,21 +124,77 @@ class BufferCLI:
             self._chat_start_time = now
             self._last_assistant_response_time = None
             self._chat_history = self._chat_loop_service.build_chat_context(user_text)
-            self._trigger_knowledge_learning([self._chat_history[-1]])
+            self._trigger_knowledge_learning([self._build_cli_session_message(user_text, now)])
         else:
             self._chat_history.append(
-                build_message(
-                    role="user",
-                    content=format_speaker_content(
-                        global_config.maisaka.user_name.strip() or "User",
-                        user_text,
-                        now,
-                    ),
+                self._build_cli_context_message(
+                    user_text=user_text,
+                    timestamp=now,
+                    source_kind="user",
                 )
             )
-            self._trigger_knowledge_learning([self._chat_history[-1]])
+            self._trigger_knowledge_learning([self._build_cli_session_message(user_text, now)])
 
         await self._run_llm_loop(self._chat_history)
+
+    @staticmethod
+    def _build_cli_context_message(
+        user_text: str,
+        timestamp: datetime,
+        source_kind: str = "user",
+        speaker_name: Optional[str] = None,
+    ) -> SessionBackedMessage:
+        """为 CLI 构造新的上下文消息。"""
+        resolved_speaker_name = speaker_name or global_config.maisaka.user_name.strip() or "User"
+        visible_text = format_speaker_content(
+            resolved_speaker_name,
+            user_text,
+            timestamp,
+        )
+        planner_prefix = (
+            f"[时间]{timestamp.strftime('%H:%M:%S')}\n"
+            f"[用户]{resolved_speaker_name}\n"
+            "[用户群昵称]\n"
+            "[msg_id]\n"
+            "[发言内容]"
+        )
+        from src.common.data_models.message_component_data_model import MessageSequence, TextComponent
+
+        return SessionBackedMessage(
+            raw_message=MessageSequence([TextComponent(f"{planner_prefix}{user_text}")]),
+            visible_text=visible_text,
+            timestamp=timestamp,
+            source_kind=source_kind,
+        )
+
+    @staticmethod
+    def _build_cli_session_message(user_text: str, timestamp: datetime) -> SessionMessage:
+        """为 CLI 的知识学习构造兼容 SessionMessage。"""
+        from src.common.data_models.mai_message_data_model import MessageInfo, UserInfo
+        from src.common.data_models.message_component_data_model import MessageSequence
+
+        message = SessionMessage(message_id=f"maisaka_cli_{int(timestamp.timestamp() * 1000)}", timestamp=timestamp, platform="maisaka")
+        message.message_info = MessageInfo(
+            user_info=UserInfo(
+                user_id="maisaka_user",
+                user_nickname=global_config.maisaka.user_name.strip() or "User",
+                user_cardname=None,
+            ),
+            group_info=None,
+            additional_config={},
+        )
+        message.session_id = "maisaka_cli"
+        message.raw_message = MessageSequence([])
+        visible_text = format_speaker_content(
+            global_config.maisaka.user_name.strip() or "User",
+            user_text,
+            timestamp,
+        )
+        message.raw_message.text(visible_text)
+        message.processed_plain_text = visible_text
+        message.display_message = visible_text
+        message.initialized = True
+        return message
 
     def _trigger_knowledge_learning(self, messages: list[SessionMessage]) -> None:
         """在 CLI 会话中按批次触发 knowledge 学习。"""
@@ -161,7 +223,7 @@ class BufferCLI:
         except Exception as exc:
             console.print(f"[warning]Knowledge learning failed: {exc}[/warning]")
 
-    async def _run_llm_loop(self, chat_history: list[SessionMessage]) -> None:
+    async def _run_llm_loop(self, chat_history: list[LLMContextMessage]) -> None:
         """
         Main inner loop for the Maisaka planner.
 
@@ -210,7 +272,8 @@ class BufferCLI:
                                 )
                             )
 
-                remove_last_perception(chat_history)
+                if chat_history and isinstance(chat_history[-1], AssistantMessage) and chat_history[-1].source == "perception":
+                    chat_history.pop()
 
                 perception_parts = []
                 if knowledge_analysis:
@@ -218,11 +281,10 @@ class BufferCLI:
 
                 if perception_parts:
                     chat_history.append(
-                        build_message(
-                            role="assistant",
+                        AssistantMessage(
                             content="\n\n".join(perception_parts),
-                            message_kind="perception",
-                            source="assistant",
+                            timestamp=datetime.now(),
+                            source_kind="perception",
                         )
                     )
             elif global_config.maisaka.show_thinking:
@@ -273,22 +335,19 @@ class BufferCLI:
                 elif tool_call.func_name == "reply":
                     reply = await self._generate_visible_reply(chat_history, response.content)
                     chat_history.append(
-                        build_message(
-                            role="tool",
+                        ToolResultMessage(
                             content="Visible reply generated and recorded.",
-                            source="tool",
+                            timestamp=datetime.now(),
                             tool_call_id=tool_call.call_id,
+                            tool_name=tool_call.func_name,
                         )
                     )
                     chat_history.append(
-                        build_message(
-                            role="user",
-                            content=format_speaker_content(
-                                global_config.bot.nickname.strip() or "MaiSaka",
-                                reply,
-                                datetime.now(),
-                            ),
-                            source="guided_reply",
+                        self._build_cli_context_message(
+                            user_text=reply,
+                            timestamp=datetime.now(),
+                            source_kind="guided_reply",
+                            speaker_name=global_config.bot.nickname.strip() or "MaiSaka",
                         )
                     )
 
@@ -296,11 +355,11 @@ class BufferCLI:
                     if global_config.maisaka.show_thinking:
                         console.print("[muted]No visible reply this round.[/muted]")
                     chat_history.append(
-                        build_message(
-                            role="tool",
+                        ToolResultMessage(
                             content="No visible reply was sent for this round.",
-                            source="tool",
+                            timestamp=datetime.now(),
                             tool_call_id=tool_call.call_id,
+                            tool_name=tool_call.func_name,
                         )
                     )
 
@@ -342,7 +401,7 @@ class BufferCLI:
                     )
                 )
 
-    async def _generate_visible_reply(self, chat_history: list[SessionMessage], latest_thought: str) -> str:
+    async def _generate_visible_reply(self, chat_history: list[LLMContextMessage], latest_thought: str) -> str:
         """根据最新思考生成并输出可见回复。"""
         if not latest_thought:
             return ""

@@ -22,6 +22,7 @@ from src.llm_models.exceptions import (
     EmptyResponseException,
     ModelAttemptFailed,
     NetworkConnectionError,
+    ReqAbortException,
     RespNotOkException,
     RespParseException,
 )
@@ -326,16 +327,7 @@ class LLMOrchestrator:
         del raise_when_empty
         self._refresh_task_config()
         start_time = time.time()
-        if self.request_type.startswith("maisaka_"):
-            logger.info(
-                f"LLMOrchestrator[{self.request_type}] 开始执行 generate_response_with_message_async "
-                f"(temperature={temperature}, max_tokens={max_tokens}, tools={len(tools or [])})"
-            )
 
-        if self.request_type.startswith("maisaka_"):
-            logger.info(
-                f"LLMOrchestrator[{self.request_type}] 正在根据 {len(tools or [])} 个工具构建内部工具选项"
-            )
         tool_built = self._build_tool_options(tools)
         if self.request_type.startswith("maisaka_"):
             logger.info(f"LLMOrchestrator[{self.request_type}] 已构建 {len(tool_built or [])} 个内部工具选项")
@@ -777,6 +769,9 @@ class LLMOrchestrator:
                 )
                 await asyncio.sleep(api_provider.retry_interval)
 
+            except ReqAbortException:
+                raise
+
             except Exception as e:
                 logger.error(traceback.format_exc())
 
@@ -880,6 +875,15 @@ class LLMOrchestrator:
                     total_tokens += response_usage.total_tokens
                 self.model_usage[model_info.name] = (total_tokens, penalty, usage_penalty - 1)
                 return LLMExecutionResult(api_response=response, model_info=model_info)
+
+            except ReqAbortException as e:
+                total_tokens, penalty, usage_penalty = self.model_usage[model_info.name]
+                self.model_usage[model_info.name] = (total_tokens, penalty, usage_penalty - 1)
+                if self.request_type.startswith("maisaka_"):
+                    logger.info(
+                        f"LLMOrchestrator[{self.request_type}] 模型 model={model_info.name} 的请求已被外部信号中断"
+                    )
+                raise e
 
             except ModelAttemptFailed as e:
                 last_exception = e.original_exception or e

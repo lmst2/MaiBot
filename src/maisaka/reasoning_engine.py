@@ -6,33 +6,32 @@ from typing import TYPE_CHECKING, Optional
 import asyncio
 import difflib
 import json
-import re
 import time
+import traceback
 
-from sqlmodel import select
 
 from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.chat.message_receive.message import SessionMessage
 from src.chat.replyer.replyer_manager import replyer_manager
-from src.chat.utils.utils import get_bot_account, process_llm_response
-from src.common.database.database import get_db_session
-from src.common.database.database_model import Jargon
-from src.common.data_models.mai_message_data_model import UserInfo
+from src.chat.utils.utils import process_llm_response
 from src.common.data_models.message_component_data_model import MessageSequence, TextComponent
 from src.common.logger import get_logger
 from src.config.config import global_config
 from src.learners.jargon_explainer import search_jargon
+from src.llm_models.exceptions import ReqAbortException
 from src.llm_models.payload_content.tool_option import ToolCall
 from src.services import database_service as database_api, send_service
 
+from .context_messages import (
+    AssistantMessage,
+    LLMContextMessage,
+    SessionBackedMessage,
+    ToolResultMessage,
+)
 from .message_adapter import (
-    build_message,
     build_visible_text_from_sequence,
     clone_message_sequence,
     format_speaker_content,
-    get_message_source,
-    get_message_text,
-    get_message_role,
 )
 from .tool_handlers import (
     handle_mcp_tool,
@@ -51,7 +50,6 @@ class MaisakaReasoningEngine:
     def __init__(self, runtime: "MaisakaHeartFlowChatting") -> None:
         self._runtime = runtime
         self._last_reasoning_content: str = ""
-        self._shown_jargons: set[str] = set()  # 已在参考消息中展示过的 jargon
 
     async def run_loop(self) -> None:
         """独立消费消息批次，并执行对应的内部思考轮次。"""
@@ -65,6 +63,7 @@ class MaisakaReasoningEngine:
 
                 self._runtime._agent_state = self._runtime._STATE_RUNNING
                 if cached_messages:
+                    self._append_wait_interrupted_message_if_needed()
                     await self._ingest_messages(cached_messages)
                     anchor_message = cached_messages[-1]
                 else:
@@ -76,26 +75,35 @@ class MaisakaReasoningEngine:
                         self._runtime._internal_turn_queue.task_done()
                         continue
                     logger.info(f"{self._runtime.log_prefix} wait 超时后开始新一轮思考")
-                    self._runtime._chat_history.append(self._build_wait_timeout_message(anchor_message))
+                    self._runtime._chat_history.append(self._build_wait_timeout_message())
                     self._trim_chat_history()
                 try:
                     for round_index in range(self._runtime._max_internal_rounds):
                         cycle_detail = self._start_cycle()
                         self._runtime._log_cycle_started(cycle_detail, round_index)
                         try:
-                            # 每次LLM生成前，动态添加参考消息到最新位置
-                            reference_added = self._append_jargon_reference_message()
                             planner_started_at = time.time()
-                            response = await self._runtime._chat_loop_service.chat_loop_step(self._runtime._chat_history)
+                            logger.info(
+                                f"{self._runtime.log_prefix} planner 开始: "
+                                f"round={round_index + 1} "
+                                f"history_size={len(self._runtime._chat_history)} "
+                                f"started_at={planner_started_at:.3f}"
+                            )
+                            interrupt_flag = asyncio.Event()
+                            self._runtime._planner_interrupt_flag = interrupt_flag
+                            self._runtime._chat_loop_service.set_interrupt_flag(interrupt_flag)
+                            try:
+                                response = await self._runtime._chat_loop_service.chat_loop_step(self._runtime._chat_history)
+                            finally:
+                                if self._runtime._planner_interrupt_flag is interrupt_flag:
+                                    self._runtime._planner_interrupt_flag = None
+                                self._runtime._chat_loop_service.set_interrupt_flag(None)
                             cycle_detail.time_records["planner"] = time.time() - planner_started_at
-
-                            # LLM调用后，移除刚才添加的参考消息（一次性使用）
-                            if reference_added and self._runtime._chat_history:
-                                # 从末尾往前查找并移除参考消息
-                                for i in range(len(self._runtime._chat_history) - 1, -1, -1):
-                                    if get_message_source(self._runtime._chat_history[i]) == "user_reference":
-                                        self._runtime._chat_history.pop(i)
-                                        break
+                            logger.info(
+                                f"{self._runtime.log_prefix} planner 完成: "
+                                f"round={round_index + 1} "
+                                f"elapsed={cycle_detail.time_records['planner']:.3f}s"
+                            )
 
                             reasoning_content = response.content or ""
                             if self._should_replace_reasoning(reasoning_content):
@@ -104,9 +112,6 @@ class MaisakaReasoningEngine:
                                 logger.info(f"{self._runtime.log_prefix} reasoning content replaced due to high similarity")
 
                             self._last_reasoning_content = reasoning_content
-                            response.raw_message.platform = anchor_message.platform
-                            response.raw_message.session_id = self._runtime.session_id
-                            response.raw_message.message_info.group_info = self._runtime._build_group_info(anchor_message)
                             self._runtime._chat_history.append(response.raw_message)
 
                             if response.tool_calls:
@@ -125,6 +130,16 @@ class MaisakaReasoningEngine:
                                 continue
 
                             break
+                        except ReqAbortException:
+                            interrupted_at = time.time()
+                            logger.info(
+                                f"{self._runtime.log_prefix} planner 打断成功: "
+                                f"round={round_index + 1} "
+                                f"started_at={planner_started_at:.3f} "
+                                f"interrupted_at={interrupted_at:.3f} "
+                                f"elapsed={interrupted_at - planner_started_at:.3f}s"
+                            )
+                            break
                         finally:
                             self._end_cycle(cycle_detail)
                 finally:
@@ -136,6 +151,7 @@ class MaisakaReasoningEngine:
             raise
         except Exception:
             logger.exception("%s Maisaka internal loop crashed", self._runtime.log_prefix)
+            logger.error(traceback.format_exc())
             raise
 
     def _get_timeout_anchor_message(self) -> Optional[SessionMessage]:
@@ -144,16 +160,31 @@ class MaisakaReasoningEngine:
             return self._runtime.message_cache[-1]
         return None
 
-    def _build_wait_timeout_message(self, anchor_message: SessionMessage) -> SessionMessage:
-        """构造 wait 超时后的工具结果消息，用于触发下一轮思考。"""
-        return build_message(
-            role="tool",
+    def _build_wait_timeout_message(self) -> ToolResultMessage:
+        """构造 wait 超时后的工具结果消息。"""
+        tool_call_id = self._runtime._pending_wait_tool_call_id or "wait_timeout"
+        self._runtime._pending_wait_tool_call_id = None
+        return ToolResultMessage(
             content="wait 已超时，期间没有收到新的用户输入。请基于现有上下文继续下一轮思考。",
-            source="tool",
-            platform=anchor_message.platform,
-            session_id=self._runtime.session_id,
-            group_info=self._runtime._build_group_info(anchor_message),
-            user_info=UserInfo(user_id="maisaka_tool", user_nickname="tool", user_cardname=None),
+            timestamp=datetime.now(),
+            tool_call_id=tool_call_id,
+            tool_name="wait",
+        )
+
+    def _append_wait_interrupted_message_if_needed(self) -> None:
+        """如果 wait 被新消息打断，则补一条对应的工具结果消息。"""
+        tool_call_id = self._runtime._pending_wait_tool_call_id
+        if not tool_call_id:
+            return
+
+        self._runtime._pending_wait_tool_call_id = None
+        self._runtime._chat_history.append(
+            ToolResultMessage(
+                content="wait 被新的用户输入打断，已继续处理最新消息。",
+                timestamp=datetime.now(),
+                tool_call_id=tool_call_id,
+                tool_name="wait",
+            )
         )
 
     async def _ingest_messages(self, messages: list[SessionMessage]) -> None:
@@ -164,17 +195,11 @@ class MaisakaReasoningEngine:
             if not user_sequence.components:
                 continue
 
-            history_message = build_message(
-                role="user",
-                content=visible_text,
-                source="user",
-                timestamp=message.timestamp,
-                platform=message.platform,
-                session_id=self._runtime.session_id,
-                group_info=self._runtime._build_group_info(message),
-                user_info=self._runtime._build_runtime_user_info(),
+            history_message = SessionBackedMessage.from_session_message(
+                message,
                 raw_message=user_sequence,
-                display_text=visible_text,
+                visible_text=visible_text,
+                source_kind="user",
             )
             self._insert_chat_history_message(history_message)
             self._trim_chat_history()
@@ -239,141 +264,10 @@ class MaisakaReasoningEngine:
         speaker_name = user_info.user_cardname or user_info.user_nickname or user_info.user_id
         return format_speaker_content(speaker_name, content, message.timestamp, message.message_id).strip()
 
-    def _insert_chat_history_message(self, message: SessionMessage) -> int:
-        """按时间顺序将消息插入聊天历史，同时保留 system 消息在最前。"""
-        if not self._runtime._chat_history:
-            self._runtime._chat_history.append(message)
-            return 0
-
-        insert_at = len(self._runtime._chat_history)
-        for index, existing_message in enumerate(self._runtime._chat_history):
-            if get_message_role(existing_message) == "system":
-                continue
-            if existing_message.timestamp > message.timestamp:
-                insert_at = index
-                break
-
-        self._runtime._chat_history.insert(insert_at, message)
-        return insert_at
-
-    def _append_jargon_reference_message(self) -> bool:
-        """每次LLM生成前，如果命中了黑话词条，则添加一条参考信息消息到聊天历史末尾。
-
-        Returns:
-            bool: 是否添加了参考消息
-        """
-        content = self._build_user_history_corpus()
-        if not content:
-            return False
-
-        matched_words = self._find_jargon_words_in_text(content)
-        if not matched_words:
-            return False
-
-        # 记录已展示的 jargon
-        for word in matched_words:
-            self._shown_jargons.add(word.lower())
-
-        reference_text = (
-            "[参考信息]\n"
-            f"{','.join(matched_words)}可能是jargon，可以使用query_jargon来查看其含义"
-        )
-        reference_sequence = MessageSequence([TextComponent(reference_text)])
-
-        # 使用当前时间作为时间戳
-        reference_message = build_message(
-            role="user",
-            content="",
-            source="user_reference",
-            timestamp=datetime.now(),
-            platform=self._runtime.chat_stream.platform,
-            session_id=self._runtime.session_id,
-            group_info=self._runtime._build_group_info(),
-            user_info=self._runtime._build_runtime_user_info(),
-            raw_message=reference_sequence,
-            display_text=reference_text,
-        )
-        self._runtime._chat_history.append(reference_message)
-        return True
-
-    def _build_user_history_corpus(self) -> str:
-        """拼接当前聊天记录内所有用户消息的正文，用于统一匹配黑话。"""
-        parts: list[str] = []
-        for history_message in self._runtime._chat_history:
-            if get_message_role(history_message) != "user":
-                continue
-            if get_message_source(history_message) != "user":
-                continue
-            text = (get_message_text(history_message) or "").strip()
-            if not text:
-                continue
-            parts.append(text)
-
-        return "\n".join(parts)
-
-    def _find_jargon_words_in_text(self, content: str) -> list[str]:
-        """匹配正文中出现的 jargon 词条。"""
-        lowered_content = content.lower()
-        matched_entries: list[tuple[int, int, int, str]] = []
-        seen_words: set[str] = set()
-
-        with get_db_session(auto_commit=False) as session:
-            query = (
-                select(Jargon)
-                .where(Jargon.is_jargon.is_(True))
-                .order_by(Jargon.count.desc())  # type: ignore[attr-defined]
-            )
-            jargons = session.exec(query).all()
-
-            for jargon in jargons:
-                jargon_content = str(jargon.content or "").strip()
-                if not jargon_content:
-                    continue
-                # meaning 为空的不匹配
-                if not str(jargon.meaning or "").strip():
-                    continue
-                normalized_content = jargon_content.lower()
-                if normalized_content in seen_words:
-                    continue
-                # 跳过已经展示过的 jargon
-                if normalized_content in self._shown_jargons:
-                    continue
-                if not self._is_visible_jargon(jargon):
-                    continue
-                match_position = self._get_jargon_match_position(jargon_content, lowered_content, content)
-                if match_position is None:
-                    continue
-
-                seen_words.add(normalized_content)
-                matched_entries.append((match_position, -len(jargon_content), -int(jargon.count or 0), jargon_content))
-
-        matched_entries.sort()
-        return [matched_content for _, _, _, matched_content in matched_entries[:8]]
-
-    def _is_visible_jargon(self, jargon: Jargon) -> bool:
-        """判断当前会话是否可见该 jargon。"""
-        if global_config.expression.all_global_jargon or bool(jargon.is_global):
-            return True
-
-        try:
-            session_id_dict = json.loads(jargon.session_id_dict or "{}")
-        except (TypeError, json.JSONDecodeError):
-            logger.warning(f"Failed to parse jargon.session_id_dict: jargon_id={jargon.id}")
-            return False
-        return self._runtime.session_id in session_id_dict
-
-    @staticmethod
-    def _get_jargon_match_position(jargon_content: str, lowered_content: str, original_content: str) -> Optional[int]:
-        """返回 jargon 在文本中的首次命中位置，未命中时返回 `None`。"""
-        if re.search(r"[\u4e00-\u9fff]", jargon_content):
-            match_index = original_content.lower().find(jargon_content.lower())
-            return match_index if match_index >= 0 else None
-
-        pattern = rf"\b{re.escape(jargon_content.lower())}\b"
-        match = re.search(pattern, lowered_content)
-        if match is None:
-            return None
-        return match.start()
+    def _insert_chat_history_message(self, message: LLMContextMessage) -> int:
+        """将消息按处理顺序追加到聊天历史末尾。"""
+        self._runtime._chat_history.append(message)
+        return len(self._runtime._chat_history) - 1
 
     def _start_cycle(self) -> CycleDetail:
         """开始一轮 Maisaka 思考循环。"""
@@ -397,10 +291,7 @@ class MaisakaReasoningEngine:
 
     def _trim_chat_history(self) -> None:
         """裁剪聊天历史，保证用户消息数量不超过配置限制。"""
-        counted_roles = {"user", "assistant"}
-        conversation_message_count = sum(
-            1 for message in self._runtime._chat_history if get_message_role(message) in counted_roles
-        )
+        conversation_message_count = sum(1 for message in self._runtime._chat_history if message.count_in_context)
         if conversation_message_count <= self._runtime._max_context_size:
             return
 
@@ -410,7 +301,7 @@ class MaisakaReasoningEngine:
         while conversation_message_count >= self._runtime._max_context_size and trimmed_history:
             removed_message = trimmed_history.pop(0)
             removed_count += 1
-            if get_message_role(removed_message) in counted_roles:
+            if removed_message.count_in_context:
                 conversation_message_count -= 1
 
         self._runtime._chat_history = trimmed_history
@@ -441,6 +332,11 @@ class MaisakaReasoningEngine:
             bool: 是否需要替换
         """
         if not self._last_reasoning_content or not current_content:
+            logger.info(
+                f"{self._runtime.log_prefix} reasoning similarity skipped: "
+                f"last_empty={not bool(self._last_reasoning_content)} "
+                f"current_empty={not bool(current_content)} similarity=0.00"
+            )
             return False
 
         similarity = self._calculate_similarity(current_content, self._last_reasoning_content)
@@ -495,13 +391,7 @@ class MaisakaReasoningEngine:
                 except (TypeError, ValueError):
                     wait_seconds = 30
                 wait_seconds = max(0, wait_seconds)
-                self._runtime._chat_history.append(
-                    self._build_tool_message(
-                        tool_call,
-                        f"Waiting for future input for up to {wait_seconds} seconds.",
-                    )
-                )
-                self._runtime._enter_wait_state(seconds=wait_seconds)
+                self._runtime._enter_wait_state(seconds=wait_seconds, tool_call_id=tool_call.call_id)
                 return True
 
             if tool_call.func_name == "stop":
@@ -743,33 +633,27 @@ class MaisakaReasoningEngine:
                 tool_reasoning=latest_thought,
             )
 
-        target_platform = target_message.platform or anchor_message.platform
         bot_name = global_config.bot.nickname.strip() or "MaiSaka"
-        bot_user_info = UserInfo(
-            user_id=get_bot_account(target_platform) or "maisaka_assistant",
-            user_nickname=bot_name,
-            user_cardname=None,
+        reply_timestamp = datetime.now()
+        planner_prefix = (
+            f"[时间]{reply_timestamp.strftime('%H:%M:%S')}\n"
+            f"[用户]{bot_name}\n"
+            "[用户群昵称]\n"
+            "[msg_id]\n"
+            "[发言内容]"
         )
-        history_message = build_message(
-            role="user",
-            content="",
-            source="guided_reply",
-            platform=target_platform,
-            session_id=self._runtime.session_id,
-            group_info=self._runtime._build_group_info(target_message),
-            user_info=bot_user_info,
-        )
-        history_message.raw_message = MessageSequence(
-            [TextComponent(f"{self._build_planner_user_prefix(history_message)}{combined_reply_text}")]
+        history_message = SessionBackedMessage(
+            raw_message=MessageSequence([TextComponent(f"{planner_prefix}{combined_reply_text}")]),
+            visible_text="",
+            timestamp=reply_timestamp,
+            source_kind="guided_reply",
         )
         visible_reply_text = format_speaker_content(
             bot_name,
             combined_reply_text,
-            history_message.timestamp,
-            history_message.message_id,
+            reply_timestamp,
         )
-        history_message.display_message = visible_reply_text
-        history_message.processed_plain_text = visible_reply_text
+        history_message.visible_text = visible_reply_text
         self._runtime._chat_history.append(history_message)
         return True
 
@@ -871,14 +755,10 @@ class MaisakaReasoningEngine:
                 self._build_tool_message(tool_call, "Failed to send emoji.")
             )
 
-    def _build_tool_message(self, tool_call: ToolCall, content: str) -> SessionMessage:
-        return build_message(
-            role="tool",
+    def _build_tool_message(self, tool_call: ToolCall, content: str) -> ToolResultMessage:
+        return ToolResultMessage(
             content=content,
-            source="tool",
+            timestamp=datetime.now(),
             tool_call_id=tool_call.call_id,
-            platform=self._runtime.chat_stream.platform,
-            session_id=self._runtime.session_id,
-            group_info=self._runtime._build_group_info(),
-            user_info=UserInfo(user_id="maisaka_tool", user_nickname="tool", user_cardname=None),
+            tool_name=tool_call.func_name,
         )

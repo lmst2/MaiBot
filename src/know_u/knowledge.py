@@ -11,10 +11,11 @@ from src.chat.message_receive.message import SessionMessage
 from src.chat.utils.utils import is_bot_self
 from src.common.data_models.llm_service_data_models import LLMGenerationOptions
 from src.common.logger import get_logger
+from src.maisaka.context_messages import AssistantMessage, LLMContextMessage, SessionBackedMessage, ToolResultMessage
 from src.services.llm_service import LLMServiceClient
 
 from src.know_u.knowledge_store import KNOWLEDGE_CATEGORIES, get_knowledge_store
-from src.maisaka.message_adapter import get_message_role, get_message_text, parse_speaker_content
+from src.maisaka.message_adapter import parse_speaker_content
 
 logger = get_logger("maisaka_knowledge")
 
@@ -53,7 +54,7 @@ def extract_category_ids_from_result(result: str) -> List[str]:
 
 async def retrieve_relevant_knowledge(
     knowledge_analyzer: Any,
-    chat_history: List[SessionMessage],
+    chat_history: List[LLMContextMessage],
 ) -> str:
     """Retrieve formatted knowledge snippets relevant to the current chat history."""
     store = get_knowledge_store()
@@ -156,14 +157,26 @@ class KnowledgeLearner:
         """
         lines: List[str] = []
         for message in self._messages_cache[-30:]:
-            if get_message_role(message) == "assistant":
+            if isinstance(message, (AssistantMessage, ToolResultMessage)):
                 continue
-            if get_message_role(message) == "tool":
-                continue
-            if is_bot_self(message.platform, message.message_info.user_info.user_id):
-                continue
+            if isinstance(message, SessionBackedMessage):
+                if message.original_message and is_bot_self(
+                    message.original_message.platform,
+                    message.original_message.message_info.user_info.user_id,
+                ):
+                    continue
+                raw_text = message.processed_plain_text.strip()
+                fallback_speaker = (
+                    message.original_message.message_info.user_info.user_nickname
+                    if message.original_message is not None
+                    else "用户"
+                )
+            else:
+                if is_bot_self(message.platform, message.message_info.user_info.user_id):
+                    continue
+                raw_text = message.processed_plain_text.strip()
+                fallback_speaker = message.message_info.user_info.user_nickname or "用户"
 
-            raw_text = get_message_text(message).strip()
             if not raw_text:
                 continue
 
@@ -172,7 +185,7 @@ class KnowledgeLearner:
             if not visible_text:
                 continue
 
-            speaker = speaker_name or message.message_info.user_info.user_nickname or "用户"
+            speaker = speaker_name or fallback_speaker
             lines.append(f"{speaker}: {visible_text}")
 
         return "\n".join(lines)

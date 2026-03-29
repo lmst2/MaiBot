@@ -8,7 +8,6 @@ import time
 from sqlmodel import select
 
 from src.chat.message_receive.chat_manager import BotChatSession
-from src.chat.message_receive.message import SessionMessage
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Expression
 from src.common.data_models.reply_generation_data_models import (
@@ -22,15 +21,11 @@ from src.config.config import global_config
 from src.core.types import ActionInfo
 from src.services.llm_service import LLMServiceClient
 
-from src.maisaka.message_adapter import (
-    get_message_kind,
-    get_message_role,
-    get_message_source,
-    get_message_text,
-    parse_speaker_content,
-)
+from src.chat.message_receive.message import SessionMessage
+from src.maisaka.context_messages import AssistantMessage, LLMContextMessage, ReferenceMessage, SessionBackedMessage, ToolResultMessage
+from src.maisaka.message_adapter import parse_speaker_content
 
-logger = get_logger("maisaka_replyer")
+logger = get_logger("replyer")
 
 
 @dataclass
@@ -96,16 +91,16 @@ class MaisakaReplyGenerator:
         return normalized
 
     @staticmethod
-    def _format_message_time(message: SessionMessage) -> str:
+    def _format_message_time(message: LLMContextMessage) -> str:
         return message.timestamp.strftime("%H:%M:%S")
 
     @staticmethod
-    def _extract_visible_assistant_reply(message: SessionMessage) -> str:
+    def _extract_visible_assistant_reply(message: AssistantMessage) -> str:
         del message
         return ""
 
-    def _extract_guided_bot_reply(self, message: SessionMessage) -> str:
-        speaker_name, body = parse_speaker_content(get_message_text(message).strip())
+    def _extract_guided_bot_reply(self, message: SessionBackedMessage) -> str:
+        speaker_name, body = parse_speaker_content(message.processed_plain_text.strip())
         bot_nickname = global_config.bot.nickname.strip() or "Bot"
         if speaker_name == bot_nickname:
             return self._normalize_content(body.strip())
@@ -134,25 +129,24 @@ class MaisakaReplyGenerator:
 
         return segments
 
-    def _format_chat_history(self, messages: List[SessionMessage]) -> str:
+    def _format_chat_history(self, messages: List[LLMContextMessage]) -> str:
         """格式化 replyer 使用的可见聊天记录。"""
         bot_nickname = global_config.bot.nickname.strip() or "Bot"
         parts: List[str] = []
 
         for message in messages:
-            role = get_message_role(message)
             timestamp = self._format_message_time(message)
 
-            if get_message_source(message) == "user_reference":
+            if isinstance(message, (ReferenceMessage, ToolResultMessage)):
                 continue
 
-            if role == "user":
+            if isinstance(message, SessionBackedMessage):
                 guided_reply = self._extract_guided_bot_reply(message)
                 if guided_reply:
                     parts.append(f"{timestamp} {bot_nickname}(you): {guided_reply}")
                     continue
 
-                raw_content = get_message_text(message)
+                raw_content = message.processed_plain_text
                 for speaker_name, content_body in self._split_user_message_segments(raw_content):
                     content = self._normalize_content(content_body)
                     if not content:
@@ -161,7 +155,7 @@ class MaisakaReplyGenerator:
                     parts.append(f"{timestamp} {visible_speaker}: {content}")
                 continue
 
-            if role == "assistant":
+            if isinstance(message, AssistantMessage):
                 visible_reply = self._extract_visible_assistant_reply(message)
                 if visible_reply:
                     parts.append(f"{timestamp} {bot_nickname}(you): {visible_reply}")
@@ -170,7 +164,7 @@ class MaisakaReplyGenerator:
 
     def _build_prompt(
         self,
-        chat_history: List[SessionMessage],
+        chat_history: List[LLMContextMessage],
         reply_reason: str,
         expression_habits: str = "",
     ) -> str:
@@ -182,6 +176,7 @@ class MaisakaReplyGenerator:
             system_prompt = load_prompt(
                 "maidairy_replyer",
                 bot_name=global_config.bot.nickname,
+                time_block=f"当前时间：{current_time}",
                 identity=self._personality_prompt,
                 reply_style=global_config.personality.reply_style,
             )
@@ -214,7 +209,7 @@ class MaisakaReplyGenerator:
 
     async def _build_reply_context(
         self,
-        chat_history: List[SessionMessage],
+        chat_history: List[LLMContextMessage],
         reply_message: Optional[SessionMessage],
         reply_reason: str,
         stream_id: Optional[str],
@@ -239,7 +234,7 @@ class MaisakaReplyGenerator:
     def _build_expression_habits(
         self,
         session_id: str,
-        chat_history: List[SessionMessage],
+        chat_history: List[LLMContextMessage],
         reply_message: Optional[SessionMessage],
         reply_reason: str,
     ) -> tuple[str, List[int]]:
@@ -301,7 +296,7 @@ class MaisakaReplyGenerator:
         think_level: int = 1,
         unknown_words: Optional[List[str]] = None,
         log_reply: bool = True,
-        chat_history: Optional[List[SessionMessage]] = None,
+        chat_history: Optional[List[LLMContextMessage]] = None,
         expression_habits: str = "",
         selected_expression_ids: Optional[List[int]] = None,
     ) -> Tuple[bool, ReplyGenerationResult]:
@@ -330,9 +325,7 @@ class MaisakaReplyGenerator:
         filtered_history = [
             message
             for message in chat_history
-            if get_message_role(message) != "system"
-            and get_message_kind(message) != "perception"
-            and get_message_source(message) != "user_reference"
+            if not isinstance(message, (ReferenceMessage, ToolResultMessage))
         ]
 
         logger.debug(f"Maisaka replyer: filtered_history size={len(filtered_history)}")

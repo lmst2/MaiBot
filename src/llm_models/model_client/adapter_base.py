@@ -3,6 +3,7 @@ from typing import Any, Callable, Coroutine, Generic, Tuple, TypeVar, cast
 
 import asyncio
 
+from src.common.logger import get_logger
 from src.config.model_configs import ModelInfo
 
 from .base_client import (
@@ -33,12 +34,14 @@ ProviderStreamResponseHandler = Callable[
 ProviderResponseParser = Callable[[RawResponseT], Tuple[APIResponse, UsageTuple | None]]
 """Provider 专用非流式响应解析函数类型。"""
 
+logger = get_logger("llm_adapter_base")
+
 
 async def await_task_with_interrupt(
     task: asyncio.Task[TaskResultT],
     interrupt_flag: asyncio.Event | None,
     *,
-    interval_seconds: float = 0.1,
+    interval_seconds: float = 0.02,
 ) -> TaskResultT:
     """在支持外部中断的前提下等待异步任务完成。
 
@@ -55,8 +58,11 @@ async def await_task_with_interrupt(
     """
     from src.llm_models.exceptions import ReqAbortException
 
+    started_at = asyncio.get_running_loop().time()
     while not task.done():
         if interrupt_flag and interrupt_flag.is_set():
+            elapsed = asyncio.get_running_loop().time() - started_at
+            logger.info(f"LLM 请求检测到中断信号，准备取消底层任务，elapsed={elapsed:.3f}s")
             task.cancel()
             raise ReqAbortException("请求被外部信号中断")
         await asyncio.sleep(interval_seconds)
