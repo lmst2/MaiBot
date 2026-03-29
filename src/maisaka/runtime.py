@@ -1,43 +1,30 @@
-﻿"""
-Maisaka runtime for non-CLI integrations.
-"""
+﻿"""Maisaka runtime for non-CLI integrations."""
+
+from pathlib import Path
+from typing import Literal, Optional
 
 import asyncio
 import time
-from datetime import datetime
-from pathlib import Path
-from typing import Literal, Optional
 
 from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.chat.message_receive.chat_manager import BotChatSession, chat_manager
 from src.chat.message_receive.message import SessionMessage
 from src.common.data_models.mai_message_data_model import GroupInfo, UserInfo
-from src.common.data_models.message_component_data_model import MessageSequence
 from src.common.logger import get_logger
+from src.common.utils.utils_config import ExpressionConfigUtils
 from src.config.config import global_config
-from src.llm_models.payload_content.tool_option import ToolCall
-from src.services import send_service
+from src.mcp_module import MCPManager
+from src.learners.expression_learner import ExpressionLearner
+from src.learners.jargon_miner import JargonMiner
 
 from .chat_loop_service import MaisakaChatLoopService
-from .mcp_client import MCPManager
-from .message_adapter import (
-    build_message,
-    build_visible_text_from_sequence,
-    clone_message_sequence,
-    format_speaker_content,
-    get_message_role,
-)
 from .reasoning_engine import MaisakaReasoningEngine
-from .tool_handlers import (
-    handle_mcp_tool,
-    handle_unknown_tool,
-)
 
 logger = get_logger("maisaka_runtime")
 
 
 class MaisakaHeartFlowChatting:
-    """Session-scoped Maisaka runtime that replaces the HFC planner and reply loop."""
+    """Session-scoped Maisaka runtime."""
 
     _STATE_RUNNING: Literal["running"] = "running"
     _STATE_WAIT: Literal["wait"] = "wait"
@@ -54,9 +41,12 @@ class MaisakaHeartFlowChatting:
         self._chat_loop_service = MaisakaChatLoopService()
         self._chat_history: list[SessionMessage] = []
         self.history_loop: list[CycleDetail] = []
+
+        # Keep all original messages for batching and later learning.
         self.message_cache: list[SessionMessage] = []
+        self._last_processed_index = 0
         self._internal_turn_queue: asyncio.Queue[list[SessionMessage]] = asyncio.Queue()
-        self._message_queue: asyncio.Queue[SessionMessage] = asyncio.Queue()
+
         self._mcp_manager: Optional[MCPManager] = None
         self._current_cycle_detail: Optional[CycleDetail] = None
         self._source_messages_by_id: dict[str, SessionMessage] = {}
@@ -69,6 +59,17 @@ class MaisakaHeartFlowChatting:
         self._max_context_size = max(1, int(global_config.chat.max_context_size))
         self._agent_state: Literal["running", "wait", "stop"] = self._STATE_STOP
         self._wait_until: Optional[float] = None
+
+        expr_use, jargon_learn, expr_learn = ExpressionConfigUtils.get_expression_config_for_chat(session_id)
+        self._enable_expression_use = expr_use
+        self._enable_expression_learning = expr_learn
+        self._enable_jargon_learning = jargon_learn
+        self._min_messages_for_extraction = 10
+        self._min_extraction_interval = 30
+        self._last_extraction_time = 0.0
+        self._expression_learner = ExpressionLearner(session_id)
+        self._jargon_miner = JargonMiner(session_id, session_name=session_name)
+
         self._reasoning_engine = MaisakaReasoningEngine(self)
 
     async def start(self) -> None:
@@ -82,7 +83,7 @@ class MaisakaHeartFlowChatting:
         self._running = True
         self._internal_loop_task = asyncio.create_task(self._reasoning_engine.run_loop())
         self._loop_task = asyncio.create_task(self._main_loop())
-        logger.info(f"{self.log_prefix} MaiSaka 启动")
+        logger.info(f"{self.log_prefix} Maisaka runtime started")
 
     async def stop(self) -> None:
         """Stop the runtime loop."""
@@ -91,9 +92,6 @@ class MaisakaHeartFlowChatting:
 
         self._running = False
         self._new_message_event.set()
-        self.message_cache.clear()
-        while not self._message_queue.empty():
-            _ = self._message_queue.get_nowait()
         while not self._internal_turn_queue.empty():
             _ = self._internal_turn_queue.get_nowait()
 
@@ -119,16 +117,15 @@ class MaisakaHeartFlowChatting:
             await self._mcp_manager.close()
             self._mcp_manager = None
 
-        logger.info(f"{self.log_prefix} MaiSaka runtime stopped")
+        logger.info(f"{self.log_prefix} Maisaka runtime stopped")
 
     def adjust_talk_frequency(self, frequency: float) -> None:
         """Compatibility shim for the existing manager API."""
         _ = frequency
 
     async def register_message(self, message: SessionMessage) -> None:
-        """Append a newly received message into the HFC-style message cache."""
+        """Cache a new message and wake the main loop."""
         self.message_cache.append(message)
-        await self._message_queue.put(message)
         self._source_messages_by_id[message.message_id] = message
         if self._agent_state in (self._STATE_WAIT, self._STATE_STOP):
             self._agent_state = self._STATE_RUNNING
@@ -137,7 +134,7 @@ class MaisakaHeartFlowChatting:
     async def _main_loop(self) -> None:
         try:
             while self._running:
-                if self._message_queue.empty():
+                if not self._has_pending_messages():
                     if self._agent_state == self._STATE_WAIT:
                         message_arrived = await self._wait_for_trigger()
                     else:
@@ -146,6 +143,7 @@ class MaisakaHeartFlowChatting:
                         message_arrived = self._running
                 else:
                     message_arrived = True
+
                 if not self._running:
                     return
                 if not message_arrived:
@@ -154,28 +152,54 @@ class MaisakaHeartFlowChatting:
 
                 self._new_message_event.clear()
 
-                # 加锁灌注消息
-                while not self._message_queue.empty():
-                    cached_messages = self._drain_message_cache()
-                    if cached_messages:
-                        await self._internal_turn_queue.put(cached_messages)
+                while self._has_pending_messages():
+                    cached_messages = self._collect_pending_messages()
+                    if not cached_messages:
+                        break
+                    await self._internal_turn_queue.put(cached_messages)
+                    asyncio.create_task(self._trigger_expression_learning(cached_messages))
         except asyncio.CancelledError:
-            logger.info(f"{self.log_prefix} MaiSaka runtime loop cancelled")
+            logger.info(f"{self.log_prefix} Maisaka runtime loop cancelled")
+
+    def _has_pending_messages(self) -> bool:
+        return self._last_processed_index < len(self.message_cache)
+
+    def _collect_pending_messages(self) -> list[SessionMessage]:
+        """Collect one batch of unprocessed messages from message_cache."""
+        start_index = self._last_processed_index
+        pending_messages = self.message_cache[start_index:]
+        if not pending_messages:
+            return []
+
+        unique_messages: list[SessionMessage] = []
+        seen_message_ids: set[str] = set()
+        for message in pending_messages:
+            message_id = message.message_id
+            if message_id in seen_message_ids:
+                continue
+            seen_message_ids.add(message_id)
+            unique_messages.append(message)
+
+        self._last_processed_index = len(self.message_cache)
+        logger.info(
+            f"{self.log_prefix} collected {len(unique_messages)} new messages "
+            f"from message_cache[{start_index}:{self._last_processed_index}]"
+        )
+        return unique_messages
 
     async def _wait_for_trigger(self) -> bool:
-        """等待外部触发。返回 True 表示有新消息事件，返回 False 表示等待超时。"""
+        """Return True on new message, False on timeout."""
         if self._agent_state != self._STATE_WAIT:
             await self._new_message_event.wait()
             return True
 
-        # 处理 wait 工具调用带来的等待窗口：超时后恢复 idle；有新消息则继续处理缓存消息
         if self._wait_until is None:
             await self._new_message_event.wait()
             return True
 
         timeout = self._wait_until - time.time()
         if timeout <= 0:
-            logger.info(f"{self.log_prefix} Maisaka 等待超时，继续查看新消息")
+            logger.info(f"{self.log_prefix} Maisaka wait timed out")
             self._enter_stop_state()
             self._wait_until = None
             return False
@@ -184,47 +208,67 @@ class MaisakaHeartFlowChatting:
             await asyncio.wait_for(self._new_message_event.wait(), timeout=timeout)
             return True
         except asyncio.TimeoutError:
-            logger.info(f"{self.log_prefix} Maisaka 等待超时，继续查看新消息")
+            logger.info(f"{self.log_prefix} Maisaka wait timed out")
             self._enter_stop_state()
             self._wait_until = None
             return False
 
     def _enter_wait_state(self, seconds: Optional[float] = None) -> None:
-        """进入等待状态，seconds 为 None 时表示一直等待直到新消息到达。"""
+        """Enter wait state."""
         self._agent_state = self._STATE_WAIT
         self._wait_until = None if seconds is None else time.time() + seconds
 
     def _enter_stop_state(self) -> None:
-        """进入停顿状态：仅等待新消息。"""
+        """Enter stop state."""
         self._agent_state = self._STATE_STOP
         self._wait_until = None
 
-    def _drain_message_cache(self) -> list[SessionMessage]:
-        """Drain the current message cache as one processing batch."""
-        drained_messages: list[SessionMessage] = []
-        seen_message_ids: set[str] = set()
+    async def _trigger_expression_learning(self, messages: list[SessionMessage]) -> None:
+        """Trigger expression learning from the newly collected batch."""
+        self._expression_learner.add_messages(messages)
 
-        def append_unique(message: SessionMessage) -> None:
-            message_id = message.message_id
-            if message_id in seen_message_ids:
-                return
-            seen_message_ids.add(message_id)
-            drained_messages.append(message)
+        if not self._enable_expression_learning:
+            logger.debug(f"{self.log_prefix} expression learning disabled, skip this batch")
+            return
 
-        for message in self.message_cache:
-            append_unique(message)
+        elapsed = time.time() - self._last_extraction_time
+        if elapsed < self._min_extraction_interval:
+            logger.debug(
+                f"{self.log_prefix} expression learning interval not reached: "
+                f"elapsed={elapsed:.2f}s threshold={self._min_extraction_interval}s"
+            )
+            return
 
-        self.message_cache.clear()
-        while not self._message_queue.empty():
-            try:
-                append_unique(self._message_queue.get_nowait())
-            except asyncio.QueueEmpty:
-                break
-        return drained_messages
+        cache_size = self._expression_learner.get_cache_size()
+        if cache_size < self._min_messages_for_extraction:
+            logger.debug(
+                f"{self.log_prefix} expression learning skipped due to cache size: "
+                f"learner_cache={cache_size} threshold={self._min_messages_for_extraction} "
+                f"message_cache_total={len(self.message_cache)}"
+            )
+            return
+
+        self._last_extraction_time = time.time()
+        logger.info(
+            f"{self.log_prefix} starting expression learning: "
+            f"new_batch={len(messages)} learner_cache={cache_size} "
+            f"message_cache_total={len(self.message_cache)} "
+            f"enable_jargon_learning={self._enable_jargon_learning}"
+        )
+
+        try:
+            jargon_miner = self._jargon_miner if self._enable_jargon_learning else None
+            learnt_style = await self._expression_learner.learn(jargon_miner)
+            if learnt_style:
+                logger.info(f"{self.log_prefix} expression learning finished")
+            else:
+                logger.debug(f"{self.log_prefix} expression learning finished without usable result")
+        except Exception:
+            logger.exception(f"{self.log_prefix} expression learning failed")
 
     async def _init_mcp(self) -> None:
-        """Initialize MCP tools for the runtime and inject them into the planner."""
-        config_path = Path(__file__).with_name("mcp_config.json")
+        """Initialize MCP tools and inject them into the planner."""
+        config_path = Path(__file__).resolve().parents[2] / "config" / "mcp_config.json"
         self._mcp_manager = await MCPManager.from_config(str(config_path))
         if self._mcp_manager is None:
             logger.info(f"{self.log_prefix} MCP manager is unavailable")
@@ -241,101 +285,6 @@ class MaisakaHeartFlowChatting:
             f"{self._mcp_manager.get_tool_summary()}"
         )
 
-    async def _ingest_messages(self, messages: list[SessionMessage]) -> None:
-        """处理传入消息列表，将其转换为历史消息并加入聊天历史缓存。"""
-        for message in messages:
-            # 构建用户消息序列
-            user_sequence = await self._build_message_sequence(message)
-            visible_text = build_visible_text_from_sequence(user_sequence).strip()
-            if not user_sequence.components:
-                continue
-
-            history_message = build_message(
-                role="user",
-                content=visible_text,
-                source="user",
-                timestamp=message.timestamp,
-                platform=message.platform,
-                session_id=self.session_id,
-                group_info=self._build_group_info(message),
-                user_info=self._build_runtime_user_info(),
-                raw_message=user_sequence,
-                display_text=visible_text,
-            )
-            self._chat_history.append(history_message)
-            self._trim_chat_history()
-
-    async def _build_message_sequence(self, message: SessionMessage) -> MessageSequence:
-        message_sequence = MessageSequence([])
-        user_info = message.message_info.user_info
-        speaker_name = user_info.user_cardname or user_info.user_nickname or user_info.user_id
-        message_sequence.text(format_speaker_content(speaker_name, "", message.timestamp, message.message_id))
-
-        appended_component = False
-        if global_config.maisaka.direct_image_input:
-            source_sequence = getattr(message, "maisaka_original_raw_message", message.raw_message)
-        else:
-            source_sequence = message.raw_message
-
-        for component in clone_message_sequence(source_sequence).components:
-            message_sequence.components.append(component)
-            appended_component = True
-
-        if not appended_component:
-            if not message.processed_plain_text:
-                await message.process()
-            content = (message.processed_plain_text or "").strip()
-            if content:
-                message_sequence.text(content)
-
-        return message_sequence
-
-
-    def _start_cycle(self) -> CycleDetail:
-        """Start a Maisaka thinking cycle."""
-        self._cycle_counter += 1
-        self._current_cycle_detail = CycleDetail(cycle_id=self._cycle_counter)
-        self._current_cycle_detail.thinking_id = f"maisaka_tid{round(time.time(), 2)}"
-        return self._current_cycle_detail
-
-    def _end_cycle(self, cycle_detail: CycleDetail, only_long_execution: bool = True) -> CycleDetail:
-        """End and record a Maisaka thinking cycle."""
-        cycle_detail.end_time = time.time()
-        self.history_loop.append(cycle_detail)
-
-        timer_strings = [
-            f"{name}: {duration:.2f}s"
-            for name, duration in cycle_detail.time_records.items()
-            if not only_long_execution or duration >= 0.1
-        ]
-        logger.info(
-            f"{self.log_prefix} MaiSaka cycle={cycle_detail.cycle_id} completed "
-            f"in {cycle_detail.end_time - cycle_detail.start_time:.2f}s; "
-            f"stages={', '.join(timer_strings) if timer_strings else 'none'}"
-        )
-        return cycle_detail
-
-    def _trim_chat_history(self) -> None:
-        """Trim the oldest history until the user-message count is below the configured limit."""
-        user_message_count = sum(1 for message in self._chat_history if get_message_role(message) == "user")
-        if user_message_count <= self._max_context_size:
-            return
-
-        trimmed_history = list(self._chat_history)
-        removed_count = 0
-
-        while user_message_count >= self._max_context_size and trimmed_history:
-            removed_message = trimmed_history.pop(0)
-            removed_count += 1
-            if get_message_role(removed_message) == "user":
-                user_message_count -= 1
-
-        self._chat_history = trimmed_history
-        logger.info(
-            f"{self.log_prefix} Trimmed {removed_count} history messages; "
-            f"remaining_user_messages={user_message_count}"
-        )
-
     def _build_runtime_user_info(self) -> UserInfo:
         if self.chat_stream.user_id:
             return UserInfo(
@@ -344,13 +293,6 @@ class MaisakaHeartFlowChatting:
                 user_cardname=None,
             )
         return UserInfo(user_id="maisaka_user", user_nickname="user", user_cardname=None)
-
-    def _build_runtime_bot_user_info(self) -> UserInfo:
-        return UserInfo(
-            user_id=str(global_config.bot.qq_account) if global_config.bot.qq_account else "maisaka_assistant",
-            user_nickname=global_config.bot.nickname.strip() or "MaiSaka",
-            user_cardname=None,
-        )
 
     def _build_group_info(self, message: Optional[SessionMessage] = None) -> Optional[GroupInfo]:
         group_info = None

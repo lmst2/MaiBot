@@ -3,6 +3,7 @@ MaiSaka CLI and conversation loop.
 """
 
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import asyncio
@@ -16,6 +17,7 @@ from rich.text import Text
 from src.chat.message_receive.message import SessionMessage
 from src.chat.replyer.maisaka_generator import MaisakaReplyGenerator
 from src.config.config import config_manager, global_config
+from src.mcp_module import MCPManager
 
 from .chat_loop_service import MaisakaChatLoopService
 from .console import console
@@ -23,7 +25,6 @@ from .input_reader import InputReader
 from .knowledge import retrieve_relevant_knowledge
 from .knowledge_store import get_knowledge_store
 from .message_adapter import build_message, format_speaker_content, remove_last_perception
-from .mcp_client import MCPManager
 from .tool_handlers import (
     ToolHandlerContext,
     handle_mcp_tool,
@@ -289,11 +290,8 @@ class BufferCLI:
 
     async def _init_mcp(self) -> None:
         """初始化 MCP 服务并注册暴露的工具。"""
-        config_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "mcp_config.json",
-        )
-        self._mcp_manager = await MCPManager.from_config(config_path)
+        config_path = Path(__file__).resolve().parents[2] / "config" / "mcp_config.json"
+        self._mcp_manager = await MCPManager.from_config(str(config_path))
 
         if self._mcp_manager and self._chat_loop_service:
             mcp_tools = self._mcp_manager.get_openai_tools()

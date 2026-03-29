@@ -29,7 +29,7 @@ logger = get_logger("maisaka_replyer")
 
 
 class MaisakaReplyGenerator:
-    """Maisaka 可见回复生成器。"""
+    """生成 Maisaka 的最终可见回复。"""
 
     def __init__(
         self,
@@ -45,7 +45,7 @@ class MaisakaReplyGenerator:
         self._personality_prompt = self._build_personality_prompt()
 
     def _build_personality_prompt(self) -> str:
-        """构建回复器使用的人设描述。"""
+        """构建 replyer 使用的人设描述。"""
         try:
             bot_name = global_config.bot.nickname
             alias_names = global_config.bot.alias_names
@@ -79,8 +79,7 @@ class MaisakaReplyGenerator:
 
     @staticmethod
     def _extract_visible_assistant_reply(message: SessionMessage) -> str:
-        if is_perception_message(message):
-            return ""
+        del message
         return ""
 
     def _extract_guided_bot_reply(self, message: SessionMessage) -> str:
@@ -91,11 +90,11 @@ class MaisakaReplyGenerator:
         return ""
 
     @staticmethod
-    def _split_user_message_segments(raw_content: str) -> list[tuple[Optional[str], str]]:
+    def _split_user_message_segments(raw_content: str) -> List[tuple[Optional[str], str]]:
         """按说话人拆分用户消息。"""
-        segments: list[tuple[Optional[str], str]] = []
+        segments: List[tuple[Optional[str], str]] = []
         current_speaker: Optional[str] = None
-        current_lines: list[str] = []
+        current_lines: List[str] = []
 
         for raw_line in raw_content.splitlines():
             speaker_name, content_body = parse_speaker_content(raw_line)
@@ -113,10 +112,10 @@ class MaisakaReplyGenerator:
 
         return segments
 
-    def _format_chat_history(self, messages: list[SessionMessage]) -> str:
-        """格式化回复器使用的可见聊天历史。"""
+    def _format_chat_history(self, messages: List[SessionMessage]) -> str:
+        """格式化 replyer 使用的可见聊天记录。"""
         bot_nickname = global_config.bot.nickname.strip() or "Bot"
-        parts: list[str] = []
+        parts: List[str] = []
 
         for message in messages:
             role = get_message_role(message)
@@ -144,7 +143,13 @@ class MaisakaReplyGenerator:
 
         return "\n".join(parts)
 
-    def _build_prompt(self, chat_history: List[SessionMessage], reply_reason: str) -> str:
+    def _build_prompt(
+        self,
+        chat_history: List[SessionMessage],
+        reply_reason: str,
+        expression_habits: str = "",
+        jargon_explanation: str = "",
+    ) -> str:
         """构建 Maisaka replyer 提示词。"""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         formatted_history = self._format_chat_history(chat_history)
@@ -157,14 +162,24 @@ class MaisakaReplyGenerator:
                 reply_style=global_config.personality.reply_style,
             )
         except Exception:
-            system_prompt = "你是一个友好的 AI 助手，请根据用户的想法生成自然的回复。"
+            system_prompt = "你是一个友好的 AI 助手，请根据聊天记录自然回复。"
 
-        user_prompt = (
-            f"当前时间：{current_time}\n\n"
-            f"【聊天记录】\n{formatted_history}\n\n"
-            f"【你的想法】\n{reply_reason}\n\n"
-            "现在，你说："
-        )
+        extra_sections: List[str] = []
+        if expression_habits.strip():
+            extra_sections.append(expression_habits.strip())
+        if jargon_explanation.strip():
+            extra_sections.append(jargon_explanation.strip())
+
+        user_sections = [
+            f"当前时间：{current_time}",
+            f"【聊天记录】\n{formatted_history}",
+        ]
+        if extra_sections:
+            user_sections.append("\n\n".join(extra_sections))
+        user_sections.append(f"【你的想法】\n{reply_reason}")
+        user_sections.append("现在，你说：")
+
+        user_prompt = "\n\n".join(user_sections)
         return f"System: {system_prompt}\n\nUser: {user_prompt}"
 
     async def generate_reply_with_context(
@@ -182,6 +197,9 @@ class MaisakaReplyGenerator:
         unknown_words: Optional[List[str]] = None,
         log_reply: bool = True,
         chat_history: Optional[List[SessionMessage]] = None,
+        expression_habits: str = "",
+        jargon_explanation: str = "",
+        selected_expression_ids: Optional[List[int]] = None,
     ) -> Tuple[bool, ReplyGenerationResult]:
         """结合上下文生成 Maisaka 的最终可见回复。"""
         del available_actions
@@ -195,14 +213,18 @@ class MaisakaReplyGenerator:
         del unknown_words
 
         result = ReplyGenerationResult()
-        if not reply_reason or chat_history is None:
-            result.error_message = "reply_reason or chat_history is empty"
+        result.selected_expression_ids = list(selected_expression_ids or [])
+
+        if chat_history is None:
+            result.error_message = "chat_history is empty"
             return False, result
 
         logger.info(
             f"Maisaka replyer start: stream_id={stream_id} reply_reason={reply_reason!r} "
             f"history_size={len(chat_history)} target_message_id="
-            f"{reply_message.message_id if reply_message else None}"
+            f"{reply_message.message_id if reply_message else None} "
+            f"expression_count={len(result.selected_expression_ids)} "
+            f"jargon_enabled={bool(jargon_explanation.strip())}"
         )
 
         filtered_history = [
@@ -210,7 +232,12 @@ class MaisakaReplyGenerator:
             for message in chat_history
             if get_message_role(message) != "system" and get_message_kind(message) != "perception"
         ]
-        prompt = self._build_prompt(filtered_history, reply_reason)
+        prompt = self._build_prompt(
+            chat_history=filtered_history,
+            reply_reason=reply_reason or "",
+            expression_habits=expression_habits,
+            jargon_explanation=jargon_explanation,
+        )
         result.completion.request_prompt = prompt
 
         if global_config.debug.show_replyer_prompt:
@@ -250,7 +277,8 @@ class MaisakaReplyGenerator:
 
         logger.info(
             f"Maisaka replyer success: response_text={response_text!r} "
-            f"overall_ms={result.metrics.overall_ms}"
+            f"overall_ms={result.metrics.overall_ms} "
+            f"selected_expression_ids={result.selected_expression_ids!r}"
         )
         result.text_fragments = [response_text]
         return True, result

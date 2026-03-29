@@ -1510,24 +1510,6 @@ class MaiSakaConfig(ConfigBase):
     __ui_icon__ = "message-circle"
     __ui_parent__ = "experimental"
 
-    enable_emotion_module: bool = Field(
-        default=True,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "heart",
-        },
-    )
-    """启用情绪感知模块"""
-
-    enable_cognition_module: bool = Field(
-        default=True,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "brain",
-        },
-    )
-    """启用认知分析模块"""
-
     enable_knowledge_module: bool = Field(
         default=True,
         json_schema_extra={
@@ -1545,33 +1527,6 @@ class MaiSakaConfig(ConfigBase):
         },
     )
     """启用 MCP (Model Context Protocol) 支持"""
-
-    enable_write_file: bool = Field(
-        default=True,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "file-plus",
-        },
-    )
-    """启用文件写入工具"""
-
-    enable_read_file: bool = Field(
-        default=True,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "file-text",
-        },
-    )
-    """启用文件读取工具"""
-
-    enable_list_files: bool = Field(
-        default=True,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "list",
-        },
-    )
-    """启用文件列表工具"""
 
     show_analyze_cognition_prompt: bool = Field(
         default=False,

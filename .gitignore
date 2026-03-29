@@ -278,6 +278,8 @@ logs
 .vscode
 
 /config/*
+config/mcp_config.json
+!config/mcp_config.json.template
 config/old/bot_config_20250405_212257.toml
 temp/
 

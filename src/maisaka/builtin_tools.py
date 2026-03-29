@@ -27,7 +27,10 @@ def create_builtin_tools() -> List[ToolOption]:
 
     reply_builder = ToolOptionBuilder()
     reply_builder.set_name("reply")
-    reply_builder.set_description("Generate and emit a visible reply based on the current thought. You must specify the target user msg_id to reply to.")
+    reply_builder.set_description(
+        "Generate and emit a visible reply based on the current thought. "
+        "You must specify the target user msg_id to reply to."
+    )
     reply_builder.add_param(
         name="msg_id",
         param_type=ToolParamType.STRING,
@@ -35,7 +38,37 @@ def create_builtin_tools() -> List[ToolOption]:
         required=True,
         enum_values=None,
     )
+    reply_builder.add_param(
+        name="quote",
+        param_type=ToolParamType.BOOLEAN,
+        description="Whether the visible reply should be sent as a quoted reply to the target msg_id.",
+        required=False,
+        enum_values=None,
+    )
+    reply_builder.add_param(
+        name="unknown_words",
+        param_type=ToolParamType.ARRAY,
+        description="Optional list of words or phrases that may need jargon lookup before replying.",
+        required=False,
+        enum_values=None,
+        items_schema={"type": "string"},
+    )
     tools.append(reply_builder.build())
+
+    query_jargon_builder = ToolOptionBuilder()
+    query_jargon_builder.set_name("query_jargon")
+    query_jargon_builder.set_description(
+        "Query the meanings of one or more jargon words in the current chat context."
+    )
+    query_jargon_builder.add_param(
+        name="words",
+        param_type=ToolParamType.ARRAY,
+        description="A list of words or phrases to query from the jargon store.",
+        required=True,
+        enum_values=None,
+        items_schema={"type": "string"},
+    )
+    tools.append(query_jargon_builder.build())
 
     no_reply_builder = ToolOptionBuilder()
     no_reply_builder.set_name("no_reply")

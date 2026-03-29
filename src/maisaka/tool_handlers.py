@@ -19,7 +19,7 @@ from .input_reader import InputReader
 from .message_adapter import build_message
 
 if TYPE_CHECKING:
-    from .mcp_client import MCPManager
+    from src.mcp_module import MCPManager
 
 
 MAI_FILES_DIR = Path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "mai_files"))
