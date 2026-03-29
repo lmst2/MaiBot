@@ -11,11 +11,11 @@ from src.chat.message_receive.message import SessionMessage
 from src.chat.utils.utils import is_bot_self
 from src.common.data_models.llm_service_data_models import LLMGenerationOptions
 from src.common.logger import get_logger
-from src.maisaka.context_messages import AssistantMessage, LLMContextMessage, SessionBackedMessage, ToolResultMessage
-from src.services.llm_service import LLMServiceClient
-
 from src.know_u.knowledge_store import KNOWLEDGE_CATEGORIES, get_knowledge_store
+from src.maisaka.context_messages import AssistantMessage, LLMContextMessage, SessionBackedMessage, ToolResultMessage
 from src.maisaka.message_adapter import parse_speaker_content
+from src.person_info.person_info import Person
+from src.services.llm_service import LLMServiceClient
 
 logger = get_logger("maisaka_knowledge")
 
@@ -130,13 +130,19 @@ class KnowledgeLearner:
                 if not category_id or not content:
                     continue
 
+                metadata = {
+                    "session_id": self._session_id,
+                    "source": "maisaka_learning",
+                }
+                for field_name in ("platform", "user_id", "user_nickname", "person_name"):
+                    field_value = str(item.get(field_name, "")).strip()
+                    if field_value:
+                        metadata[field_name] = field_value
+
                 if self._store.add_knowledge(
                     category_id=category_id,
                     content=content,
-                    metadata={
-                        "session_id": self._session_id,
-                        "source": "maisaka_learning",
-                    },
+                    metadata=metadata,
                 ):
                     added_count += 1
 
@@ -186,9 +192,44 @@ class KnowledgeLearner:
                 continue
 
             speaker = speaker_name or fallback_speaker
-            lines.append(f"{speaker}: {visible_text}")
+            user_metadata = self._extract_message_user_metadata(message)
+            metadata_parts = [
+                f"platform={user_metadata['platform'] or 'unknown'}",
+                f"user_id={user_metadata['user_id'] or 'unknown'}",
+                f"user_nickname={user_metadata['user_nickname'] or speaker}",
+                f"person_name={user_metadata['person_name'] or ''}",
+            ]
+            lines.append(
+                f"[用户信息] {'; '.join(metadata_parts)}\n"
+                f"[发言] {speaker}: {visible_text}"
+            )
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _extract_message_user_metadata(message: SessionMessage) -> Dict[str, str]:
+        """提取消息对应的用户元信息。"""
+        source_message = message.original_message if isinstance(message, SessionBackedMessage) else message
+        platform = str(getattr(source_message, "platform", "") or "").strip()
+        user_info = getattr(getattr(source_message, "message_info", None), "user_info", None)
+        user_id = str(getattr(user_info, "user_id", "") or "").strip()
+        user_nickname = str(getattr(user_info, "user_nickname", "") or "").strip()
+
+        person_name = ""
+        if platform and user_id:
+            try:
+                person = Person(platform=platform, user_id=user_id)
+                if person.is_known and person.person_name:
+                    person_name = str(person.person_name).strip()
+            except Exception:
+                person_name = ""
+
+        return {
+            "platform": platform,
+            "user_id": user_id,
+            "user_nickname": user_nickname,
+            "person_name": person_name,
+        }
 
     def _build_learning_prompt(self, chat_excerpt: str) -> str:
         """构建知识提取提示词。"""
@@ -246,6 +287,78 @@ class KnowledgeLearner:
                 {
                     "category_id": category_id,
                     "content": content,
+                }
+            )
+
+        return normalized_items
+
+    def _build_learning_prompt(self, chat_excerpt: str) -> str:
+        """构建知识提取提示词。"""
+        categories_text = "\n".join(
+            f"{category_id}. {category_name}" for category_id, category_name in KNOWLEDGE_CATEGORIES.items()
+        )
+        return (
+            "你是一个用户画像知识提取器，需要从聊天记录里提取稳定、可复用的用户事实。\n"
+            "聊天记录每条发言前都带有用户元信息，你必须明确判断这些特征属于哪个用户。\n"
+            "只提取用户明确表达或高置信度可归纳的信息，不要猜测，不要提取一次性情绪，不要重复表达。\n"
+            "如果没有可提取内容，返回空数组[]。\n"
+            "输出必须是 JSON 数组，每项格式为 "
+            '{"category_id":"分类编号","content":"简洁中文陈述","platform":"平台","user_id":"用户ID","user_nickname":"用户昵称","person_name":"人物名或空字符串"}。\n'
+            "其中 platform 和 user_id 必填；user_nickname 尽量填写；person_name 仅在用户信息中明确给出时填写，否则填空字符串。\n"
+            "同一条知识只能归属到一个用户，不要混合不同人的信息。\n"
+            "分类如下：\n"
+            f"{categories_text}\n\n"
+            "聊天记录：\n"
+            f"{chat_excerpt}"
+        )
+
+    def _parse_learning_result(self, result: str) -> List[Dict[str, str]]:
+        """解析模型返回的知识条目。"""
+        normalized = result.strip()
+        if not normalized:
+            return []
+
+        if "```" in normalized:
+            normalized = normalized.replace("```json", "").replace("```JSON", "").replace("```", "").strip()
+
+        try:
+            parsed = json.loads(normalized)
+        except json.JSONDecodeError:
+            logger.warning("Knowledge learning result is not valid JSON")
+            return []
+
+        if not isinstance(parsed, list):
+            return []
+
+        normalized_items: List[Dict[str, str]] = []
+        seen_pairs: set[tuple[str, str, str, str]] = set()
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+
+            category_id = str(item.get("category_id", "")).strip()
+            content = " ".join(str(item.get("content", "")).strip().split())
+            platform = str(item.get("platform", "")).strip()
+            user_id = str(item.get("user_id", "")).strip()
+            user_nickname = str(item.get("user_nickname", "")).strip()
+            person_name = str(item.get("person_name", "")).strip()
+            if category_id not in KNOWLEDGE_CATEGORIES:
+                continue
+            if not content or not platform or not user_id:
+                continue
+
+            pair = (category_id, content, platform, user_id)
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            normalized_items.append(
+                {
+                    "category_id": category_id,
+                    "content": content,
+                    "platform": platform,
+                    "user_id": user_id,
+                    "user_nickname": user_nickname,
+                    "person_name": person_name,
                 }
             )
 

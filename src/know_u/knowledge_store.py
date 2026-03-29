@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import json
 
-from sqlmodel import select
+from sqlmodel import col, select
 
 from src.common.database.database import DATABASE_URL, get_db_session
 from src.common.database.database_model import MaiKnowledge
@@ -164,15 +164,25 @@ class KnowledgeStore:
         if not normalized_content:
             return False
 
+        user_platform = str((metadata or {}).get("platform", "")).strip()
+        user_id = str((metadata or {}).get("user_id", "")).strip()
         with get_db_session(auto_commit=False) as session:
-            existing_record = session.exec(
+            existing_records = session.exec(
                 select(MaiKnowledge).where(
                     MaiKnowledge.category_id == category_id,
                     MaiKnowledge.normalized_content == normalized_content,
                 )
-            ).first()
-            if existing_record is not None:
-                return False
+            ).all()
+            for existing_record in existing_records:
+                existing_metadata = self._deserialize_metadata(existing_record.metadata_json)
+                existing_platform = str(existing_metadata.get("platform", "")).strip()
+                existing_user_id = str(existing_metadata.get("user_id", "")).strip()
+                if user_platform and user_id:
+                    if existing_platform == user_platform and existing_user_id == user_id:
+                        return False
+                    continue
+                if not existing_platform and not existing_user_id:
+                    return False
 
             session.add(
                 MaiKnowledge(
@@ -186,6 +196,80 @@ class KnowledgeStore:
             )
             session.commit()
         return True
+
+    def search_knowledge(
+        self,
+        keyword: str,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """按关键词搜索知识内容。"""
+        normalized_keyword = self._normalize_content(keyword)
+        if not normalized_keyword:
+            return []
+
+        limit_value = max(1, int(limit))
+        with get_db_session() as session:
+            records = session.exec(
+                select(MaiKnowledge)
+                .where(
+                    col(MaiKnowledge.content).contains(normalized_keyword)
+                    | col(MaiKnowledge.normalized_content).contains(normalized_keyword)
+                )
+                .order_by(MaiKnowledge.created_at.desc(), MaiKnowledge.id.desc())
+                .limit(limit_value)
+            ).all()
+
+        results: List[Dict[str, Any]] = []
+        for record in records:
+            item = self._build_item_dict(record)
+            item["category_id"] = record.category_id
+            item["category_name"] = self.get_category_name(record.category_id)
+            results.append(item)
+        return results
+
+    def get_knowledge_by_user(
+        self,
+        *,
+        platform: str = "",
+        user_id: str = "",
+        user_nickname: str = "",
+        person_name: str = "",
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """按用户元信息筛选知识条目。"""
+        platform = str(platform).strip()
+        user_id = str(user_id).strip()
+        user_nickname = str(user_nickname).strip()
+        person_name = str(person_name).strip()
+        if not any((platform, user_id, user_nickname, person_name)):
+            return []
+
+        limit_value = max(1, int(limit))
+        with get_db_session() as session:
+            records = session.exec(
+                select(MaiKnowledge).order_by(MaiKnowledge.created_at.desc(), MaiKnowledge.id.desc())
+            ).all()
+
+        results: List[Dict[str, Any]] = []
+        for record in records:
+            metadata = self._deserialize_metadata(record.metadata_json)
+            if user_id and str(metadata.get("user_id", "")).strip() != user_id:
+                continue
+            if platform and str(metadata.get("platform", "")).strip() != platform:
+                continue
+            if user_nickname and str(metadata.get("user_nickname", "")).strip() != user_nickname:
+                continue
+            if person_name and str(metadata.get("person_name", "")).strip() != person_name:
+                continue
+
+            item = self._build_item_dict(record)
+            item["category_id"] = record.category_id
+            item["category_name"] = self.get_category_name(record.category_id)
+            results.append(item)
+            if len(results) >= limit_value:
+                break
+
+        return results
 
     def get_category_knowledge(self, category_id: str) -> List[Dict[str, Any]]:
         """获取某个分类下的所有知识。"""

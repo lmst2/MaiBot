@@ -70,6 +70,27 @@ def create_builtin_tools() -> List[ToolOption]:
     )
     tools.append(query_jargon_builder.build())
 
+    query_person_info_builder = ToolOptionBuilder()
+    query_person_info_builder.set_name("query_person_info")
+    query_person_info_builder.set_description(
+        "Query profile and memory information about a specific person by person name, nickname, or user ID."
+    )
+    query_person_info_builder.add_param(
+        name="person_name",
+        param_type=ToolParamType.STRING,
+        description="The person's name, nickname, or user ID to search for.",
+        required=True,
+        enum_values=None,
+    )
+    query_person_info_builder.add_param(
+        name="limit",
+        param_type=ToolParamType.INTEGER,
+        description="Maximum number of matched person records to return. Defaults to 3.",
+        required=False,
+        enum_values=None,
+    )
+    tools.append(query_person_info_builder.build())
+
     no_reply_builder = ToolOptionBuilder()
     no_reply_builder.set_name("no_reply")
     no_reply_builder.set_description("Do not emit a visible reply this round and continue thinking.")

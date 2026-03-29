@@ -1,7 +1,7 @@
 """Maisaka 推理引擎。"""
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import asyncio
 import difflib
@@ -9,14 +9,18 @@ import json
 import time
 import traceback
 
+from sqlmodel import col, select
 
 from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.chat.message_receive.message import SessionMessage
 from src.chat.replyer.replyer_manager import replyer_manager
 from src.chat.utils.utils import process_llm_response
 from src.common.data_models.message_component_data_model import MessageSequence, TextComponent
+from src.common.database.database import get_db_session
+from src.common.database.database_model import PersonInfo
 from src.common.logger import get_logger
 from src.config.config import global_config
+from src.know_u.knowledge_store import get_knowledge_store
 from src.learners.jargon_explainer import search_jargon
 from src.llm_models.exceptions import ReqAbortException
 from src.llm_models.payload_content.tool_option import ToolCall
@@ -384,6 +388,10 @@ class MaisakaReasoningEngine:
                 await self._handle_query_jargon(tool_call)
                 continue
 
+            if tool_call.func_name == "query_person_info":
+                await self._handle_query_person_info(tool_call)
+                continue
+
             if tool_call.func_name == "wait":
                 seconds = (tool_call.args or {}).get("seconds", 30)
                 try:
@@ -477,6 +485,148 @@ class MaisakaReasoningEngine:
                 json.dumps({"results": results}, ensure_ascii=False),
             )
         )
+
+    async def _handle_query_person_info(self, tool_call: ToolCall) -> None:
+        """查询指定人物的档案和相关知识。"""
+        tool_args = tool_call.args or {}
+        raw_person_name = tool_args.get("person_name")
+        raw_limit = tool_args.get("limit", 3)
+
+        if not isinstance(raw_person_name, str):
+            self._runtime._chat_history.append(
+                self._build_tool_message(tool_call, "query_person_info requires a person_name string.")
+            )
+            return
+
+        person_name = raw_person_name.strip()
+        if not person_name:
+            self._runtime._chat_history.append(
+                self._build_tool_message(tool_call, "query_person_info requires a non-empty person_name.")
+            )
+            return
+
+        try:
+            limit = max(1, min(int(raw_limit), 10))
+        except (TypeError, ValueError):
+            limit = 3
+
+        logger.info(
+            f"{self._runtime.log_prefix} query_person_info triggered: "
+            f"person_name={person_name!r} limit={limit}"
+        )
+
+        persons = self._query_person_records(person_name, limit)
+        result = {
+            "query": person_name,
+            "persons": persons,
+            "related_knowledge": self._query_related_knowledge(person_name, persons, limit),
+        }
+
+        logger.info(
+            f"{self._runtime.log_prefix} query_person_info finished: "
+            f"persons={len(result['persons'])} related_knowledge={len(result['related_knowledge'])}"
+        )
+        self._runtime._chat_history.append(
+            self._build_tool_message(
+                tool_call,
+                json.dumps(result, ensure_ascii=False),
+            )
+        )
+
+    def _query_person_records(self, person_name: str, limit: int) -> list[dict[str, Any]]:
+        """按名称、昵称或用户 ID 查询人物档案。"""
+        with get_db_session() as session:
+            records = session.exec(
+                select(PersonInfo)
+                .where(
+                    col(PersonInfo.person_name).contains(person_name)
+                    | col(PersonInfo.user_nickname).contains(person_name)
+                    | col(PersonInfo.user_id).contains(person_name)
+                )
+                .order_by(col(PersonInfo.last_known_time).desc(), col(PersonInfo.id).desc())
+                .limit(limit)
+            ).all()
+
+        persons: list[dict[str, Any]] = []
+        for record in records:
+            memory_points: list[str] = []
+            if record.memory_points:
+                try:
+                    parsed_points = json.loads(record.memory_points)
+                    if isinstance(parsed_points, list):
+                        memory_points = [str(point).strip() for point in parsed_points if str(point).strip()]
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    memory_points = []
+
+            persons.append(
+                {
+                    "person_id": record.person_id,
+                    "person_name": record.person_name or "",
+                    "user_nickname": record.user_nickname,
+                    "user_id": record.user_id,
+                    "platform": record.platform,
+                    "name_reason": record.name_reason or "",
+                    "is_known": record.is_known,
+                    "know_counts": record.know_counts,
+                    "memory_points": memory_points[:20],
+                    "last_known_time": (
+                        record.last_known_time.isoformat() if record.last_known_time is not None else None
+                    ),
+                }
+            )
+
+        return persons
+
+    def _query_related_knowledge(
+        self,
+        person_name: str,
+        persons: list[dict[str, Any]],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """从 Maisaka knowledge 中补充检索与该人物相关的条目。"""
+        store = get_knowledge_store()
+        knowledge_items: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+
+        for person in persons:
+            matched_items = store.get_knowledge_by_user(
+                platform=str(person.get("platform", "")).strip(),
+                user_id=str(person.get("user_id", "")).strip(),
+                user_nickname=str(person.get("user_nickname", "")).strip(),
+                person_name=str(person.get("person_name", "")).strip(),
+                limit=max(limit, 5),
+            )
+            for item in matched_items:
+                item_id = str(item.get("id", "")).strip()
+                if item_id and item_id in seen_ids:
+                    continue
+                if item_id:
+                    seen_ids.add(item_id)
+                knowledge_items.append(item)
+
+        if not knowledge_items:
+            fallback_items = store.search_knowledge(person_name, limit=max(limit, 5))
+            for item in fallback_items:
+                item_id = str(item.get("id", "")).strip()
+                if item_id and item_id in seen_ids:
+                    continue
+                if item_id:
+                    seen_ids.add(item_id)
+                knowledge_items.append(item)
+
+        results: list[dict[str, Any]] = []
+        for item in knowledge_items:
+            results.append(
+                {
+                    "id": str(item.get("id", "")).strip(),
+                    "category_id": str(item.get("category_id", "")).strip(),
+                    "category_name": str(item.get("category_name", "")).strip(),
+                    "content": str(item.get("content", "")).strip(),
+                    "metadata": item.get("metadata", {}),
+                    "created_at": item.get("created_at"),
+                }
+            )
+        return results
 
     async def _handle_reply(
         self,
