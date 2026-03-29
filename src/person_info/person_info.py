@@ -24,7 +24,7 @@ from src.services.llm_service import LLMServiceClient
 logger = get_logger("person_info")
 
 relation_selection_model = LLMServiceClient(
-    task_name="tool_use", request_type="relation_selection"
+    task_name="utils", request_type="relation_selection"
 )
 
 

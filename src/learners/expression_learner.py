@@ -30,8 +30,8 @@ logger = get_logger("expressor")
 express_learn_model = LLMServiceClient(
     task_name="utils", request_type="expression.learner"
 )
-summary_model = LLMServiceClient(task_name="tool_use", request_type="expression.summary")
-check_model = LLMServiceClient(task_name="tool_use", request_type="expression.check")
+summary_model = LLMServiceClient(task_name="utils", request_type="expression.summary")
+check_model = LLMServiceClient(task_name="utils", request_type="expression.check")
 
 
 class ExpressionLearner:

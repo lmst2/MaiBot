@@ -12,7 +12,7 @@ from sqlmodel import col, select
 
 from src.common.logger import get_logger
 from src.common.database.database import get_db_session
-from src.common.database.database_model import OnlineTime, ModelUsage, Messages, ActionRecord
+from src.common.database.database_model import Messages, ModelUsage, OnlineTime, ToolRecord
 from src.manager.async_task_manager import AsyncTask
 from src.manager.local_store_manager import local_storage
 from src.config.config import global_config
@@ -648,7 +648,7 @@ class StatisticOutputTask(AsyncTask):
     def _collect_message_count_for_period(
         self,
         collect_period: list[tuple[str, datetime]],
-    ) -> StatPeriodMapping:
+    ) -> dict[str, dict[str, object]]:
         """
         收集指定时间段的消息统计数据
 
@@ -659,8 +659,13 @@ class StatisticOutputTask(AsyncTask):
 
         collect_period.sort(key=lambda x: x[1], reverse=True)
 
-        stats: StatPeriodMapping = {
-            period_key: StatisticOutputTask._build_stat_period_data() for period_key, _ in collect_period
+        stats: dict[str, dict[str, object]] = {
+            period_key: {
+                TOTAL_MSG_CNT: 0,
+                MSG_CNT_BY_CHAT: defaultdict(int),
+                TOTAL_REPLY_CNT: 0,
+            }
+            for period_key, _ in collect_period
         }
 
         query_start_timestamp = collect_period[-1][1]
@@ -710,24 +715,24 @@ class StatisticOutputTask(AsyncTask):
                         StatisticOutputTask._add_defaultdict_int(stats[period_key], MSG_CNT_BY_CHAT, chat_id, 1)
                     break
 
-        # 使用 ActionRecords 中的 reply 动作次数作为回复数基准
+        # 使用 ToolRecord 中的 reply 工具次数作为回复数基准
         try:
-            action_query_start_timestamp = collect_period[-1][1]
+            tool_query_start_timestamp = collect_period[-1][1]
             with get_db_session(auto_commit=False) as session:
-                statement = select(ActionRecord).where(col(ActionRecord.timestamp) >= action_query_start_timestamp)
-                actions = session.exec(statement).all()
-            for action in actions:
-                if action.action_name != "reply":
+                statement = select(ToolRecord).where(col(ToolRecord.timestamp) >= tool_query_start_timestamp)
+                tool_records = session.exec(statement).all()
+            for tool_record in tool_records:
+                if tool_record.tool_name != "reply":
                     continue
 
-                action_time_ts = action.timestamp.timestamp()
+                action_time_ts = tool_record.timestamp.timestamp()
                 for idx, (_, period_start_dt) in enumerate(collect_period):
                     if action_time_ts >= period_start_dt.timestamp():
                         for period_key, _ in collect_period[idx:]:
                             StatisticOutputTask._add_int_stat(stats[period_key], TOTAL_REPLY_CNT, 1)
                         break
         except Exception as e:
-            logger.warning(f"统计 reply 动作次数失败，将回复数视为 0，错误信息：{e}")
+            logger.warning(f"统计 reply 工具次数失败，将回复数视为 0，错误信息：{e}")
 
         return stats
 

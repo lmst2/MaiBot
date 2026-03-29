@@ -134,6 +134,27 @@ class ActionRecord(SQLModel, table=True):
     action_display_prompt: Optional[str] = Field(default=None)  # 最终输入到Prompt的内容
 
 
+class ToolRecord(SQLModel, table=True):
+    """存储工具调用记录"""
+
+    __tablename__ = "tool_records"  # type: ignore
+
+    id: Optional[int] = Field(default=None, primary_key=True)  # 自增主键
+
+    # 元信息
+    tool_id: str = Field(index=True, max_length=255)  # 工具调用ID
+    timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 记录时间戳
+    session_id: str = Field(index=True, max_length=255)  # 对应的 ChatSession session_id
+
+    # 调用信息
+    tool_name: str = Field(index=True, max_length=255)  # 工具名称
+    tool_reasoning: Optional[str] = Field(default=None)  # 工具调用推理过程
+    tool_data: Optional[str] = Field(default=None)  # 工具数据，JSON格式存储
+
+    tool_builtin_prompt: Optional[str] = Field(default=None)  # 内置工具提示
+    tool_display_prompt: Optional[str] = Field(default=None)  # 最终输入到 Prompt 的内容
+
+
 class CommandRecord(SQLModel, table=True):
     """记录命令执行情况"""
 

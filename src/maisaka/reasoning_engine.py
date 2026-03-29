@@ -1,12 +1,13 @@
 """Maisaka 推理引擎。"""
 
-import difflib
-import json
-import asyncio
-import re
-import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
+
+import asyncio
+import difflib
+import json
+import re
+import time
 
 from sqlmodel import select
 
@@ -21,13 +22,14 @@ from src.common.logger import get_logger
 from src.config.config import global_config
 from src.learners.jargon_explainer import search_jargon
 from src.llm_models.payload_content.tool_option import ToolCall
-from src.services import send_service
+from src.services import database_service as database_api, send_service
 
 from .message_adapter import (
     build_message,
     build_visible_text_from_sequence,
     clone_message_sequence,
     format_speaker_content,
+    get_message_source,
     get_message_text,
     get_message_role,
 )
@@ -69,6 +71,8 @@ class MaisakaReasoningEngine:
                         cycle_detail = self._start_cycle()
                         self._runtime._log_cycle_started(cycle_detail, round_index)
                         try:
+                            # 每次LLM生成前，动态添加参考消息到最新位置
+                            self._append_jargon_reference_message()
                             planner_started_at = time.time()
                             response = await self._runtime._chat_loop_service.chat_loop_step(self._runtime._chat_history)
                             cycle_detail.time_records["planner"] = time.time() - planner_started_at
@@ -134,10 +138,7 @@ class MaisakaReasoningEngine:
                 raw_message=user_sequence,
                 display_text=visible_text,
             )
-            insert_index = self._insert_chat_history_message(history_message)
-            reference_message = await self._build_jargon_reference_message(message)
-            if reference_message is not None:
-                self._runtime._chat_history.insert(insert_index + 1, reference_message)
+            self._insert_chat_history_message(history_message)
             self._trim_chat_history()
 
     async def _build_message_sequence(self, message: SessionMessage) -> tuple[MessageSequence, str]:
@@ -217,65 +218,84 @@ class MaisakaReasoningEngine:
         self._runtime._chat_history.insert(insert_at, message)
         return insert_at
 
-    async def _build_jargon_reference_message(self, message: SessionMessage) -> Optional[SessionMessage]:
-        """如果命中了黑话词条，则构建一条额外的参考信息消息。"""
-        content = (get_message_text(message) or "").strip()
+    def _append_jargon_reference_message(self) -> None:
+        """每次LLM生成前，如果命中了黑话词条，则添加一条参考信息消息到聊天历史末尾。"""
+        content = self._build_user_history_corpus()
         if not content:
-            if not message.processed_plain_text:
-                await message.process()
-            content = (message.processed_plain_text or "").strip()
-        if not content:
-            return None
+            return
 
         matched_words = self._find_jargon_words_in_text(content)
         if not matched_words:
-            return None
+            return
 
         reference_text = (
             "[参考信息]\n"
             f"{','.join(matched_words)}可能是jargon，可以使用query_jargon来查看其含义"
         )
         reference_sequence = MessageSequence([TextComponent(reference_text)])
-        return build_message(
+
+        # 使用当前时间作为时间戳
+        reference_message = build_message(
             role="user",
             content="",
             source="user_reference",
-            timestamp=message.timestamp,
-            platform=message.platform,
+            timestamp=datetime.now(),
+            platform=self._runtime.chat_stream.platform,
             session_id=self._runtime.session_id,
-            group_info=self._runtime._build_group_info(message),
+            group_info=self._runtime._build_group_info(),
             user_info=self._runtime._build_runtime_user_info(),
             raw_message=reference_sequence,
             display_text=reference_text,
         )
+        self._runtime._chat_history.append(reference_message)
+
+    def _build_user_history_corpus(self) -> str:
+        """拼接当前聊天记录内所有用户消息的正文，用于统一匹配黑话。"""
+        parts: list[str] = []
+        for history_message in self._runtime._chat_history:
+            if get_message_role(history_message) != "user":
+                continue
+            if get_message_source(history_message) != "user":
+                continue
+            text = (get_message_text(history_message) or "").strip()
+            if not text:
+                continue
+            parts.append(text)
+
+        return "\n".join(parts)
 
     def _find_jargon_words_in_text(self, content: str) -> list[str]:
         """匹配正文中出现的 jargon 词条。"""
         lowered_content = content.lower()
-        matches: list[str] = []
+        matched_entries: list[tuple[int, int, int, str]] = []
         seen_words: set[str] = set()
 
         with get_db_session(auto_commit=False) as session:
-            query = select(Jargon).where(Jargon.is_jargon.is_(True)).order_by(Jargon.count.desc()).limit(200)  # type: ignore[attr-defined]
+            query = (
+                select(Jargon)
+                .where(Jargon.is_jargon.is_(True))
+                .order_by(Jargon.count.desc())  # type: ignore[attr-defined]
+            )
             jargons = session.exec(query).all()
 
             for jargon in jargons:
                 jargon_content = str(jargon.content or "").strip()
                 if not jargon_content:
                     continue
-                if jargon_content in seen_words:
+                normalized_content = jargon_content.lower()
+                if normalized_content in seen_words:
                     continue
                 if not self._is_visible_jargon(jargon):
                     continue
-                if not self._jargon_matches_text(jargon_content, lowered_content, content):
+                match_position = self._get_jargon_match_position(jargon_content, lowered_content, content)
+                if match_position is None:
                     continue
 
-                seen_words.add(jargon_content)
-                matches.append(jargon_content)
-                if len(matches) >= 8:
-                    break
+                seen_words.add(normalized_content)
+                matched_entries.append((match_position, -len(jargon_content), -int(jargon.count or 0), jargon_content))
 
-        return matches
+        matched_entries.sort()
+        return [matched_content for _, _, _, matched_content in matched_entries[:8]]
 
     def _is_visible_jargon(self, jargon: Jargon) -> bool:
         """判断当前会话是否可见该 jargon。"""
@@ -290,13 +310,17 @@ class MaisakaReasoningEngine:
         return self._runtime.session_id in session_id_dict
 
     @staticmethod
-    def _jargon_matches_text(jargon_content: str, lowered_content: str, original_content: str) -> bool:
-        """判断词条是否命中消息正文。"""
+    def _get_jargon_match_position(jargon_content: str, lowered_content: str, original_content: str) -> Optional[int]:
+        """返回 jargon 在文本中的首次命中位置，未命中时返回 `None`。"""
         if re.search(r"[\u4e00-\u9fff]", jargon_content):
-            return jargon_content in original_content
+            match_index = original_content.lower().find(jargon_content.lower())
+            return match_index if match_index >= 0 else None
 
         pattern = rf"\b{re.escape(jargon_content.lower())}\b"
-        return re.search(pattern, lowered_content) is not None
+        match = re.search(pattern, lowered_content)
+        if match is None:
+            return None
+        return match.start()
 
     def _start_cycle(self) -> CycleDetail:
         """开始一轮 Maisaka 思考循环。"""
@@ -559,7 +583,6 @@ class MaisakaReasoningEngine:
                 chat_history=self._runtime._chat_history,
                 reply_message=target_message,
                 reply_reason=latest_thought,
-                unknown_words=unknown_words,
             )
         except Exception:
             logger.exception(
@@ -587,7 +610,6 @@ class MaisakaReasoningEngine:
                 unknown_words=unknown_words,
                 log_reply=False,
                 expression_habits=reply_context.expression_habits,
-                jargon_explanation=reply_context.jargon_explanation,
                 selected_expression_ids=reply_context.selected_expression_ids,
             )
         except Exception:
@@ -644,6 +666,25 @@ class MaisakaReasoningEngine:
         self._runtime._chat_history.append(self._build_tool_message(tool_call, tool_result))
         if not sent:
             return False
+
+        target_user_info = target_message.message_info.user_info
+        target_user_name = (
+            target_user_info.user_cardname
+            or target_user_info.user_nickname
+            or target_user_info.user_id
+        )
+        if self._runtime.chat_stream is not None:
+            await database_api.store_tool_info(
+                chat_stream=self._runtime.chat_stream,
+                display_prompt=f"你对{target_user_name}进行了回复：{reply_text}",
+                tool_data={
+                    "msg_id": target_message_id,
+                    "quote": quote_reply,
+                    "reply_text": reply_text,
+                },
+                tool_name="reply",
+                tool_reasoning=latest_thought,
+            )
 
         bot_name = global_config.bot.nickname.strip() or "MaiSaka"
         self._runtime._chat_history.append(

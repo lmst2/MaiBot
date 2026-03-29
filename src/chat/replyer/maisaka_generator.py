@@ -20,8 +20,8 @@ from src.services.llm_service import LLMServiceClient
 from src.maisaka.message_adapter import (
     get_message_kind,
     get_message_role,
+    get_message_source,
     get_message_text,
-    is_perception_message,
     parse_speaker_content,
 )
 
@@ -121,6 +121,9 @@ class MaisakaReplyGenerator:
             role = get_message_role(message)
             timestamp = self._format_message_time(message)
 
+            if get_message_source(message) == "user_reference":
+                continue
+
             if role == "user":
                 guided_reply = self._extract_guided_bot_reply(message)
                 if guided_reply:
@@ -148,7 +151,6 @@ class MaisakaReplyGenerator:
         chat_history: List[SessionMessage],
         reply_reason: str,
         expression_habits: str = "",
-        jargon_explanation: str = "",
     ) -> str:
         """构建 Maisaka replyer 提示词。"""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -167,8 +169,6 @@ class MaisakaReplyGenerator:
         extra_sections: List[str] = []
         if expression_habits.strip():
             extra_sections.append(expression_habits.strip())
-        if jargon_explanation.strip():
-            extra_sections.append(jargon_explanation.strip())
 
         user_sections = [
             f"当前时间：{current_time}",
@@ -198,7 +198,6 @@ class MaisakaReplyGenerator:
         log_reply: bool = True,
         chat_history: Optional[List[SessionMessage]] = None,
         expression_habits: str = "",
-        jargon_explanation: str = "",
         selected_expression_ids: Optional[List[int]] = None,
     ) -> Tuple[bool, ReplyGenerationResult]:
         """结合上下文生成 Maisaka 的最终可见回复。"""
@@ -223,20 +222,20 @@ class MaisakaReplyGenerator:
             f"Maisaka replyer start: stream_id={stream_id} reply_reason={reply_reason!r} "
             f"history_size={len(chat_history)} target_message_id="
             f"{reply_message.message_id if reply_message else None} "
-            f"expression_count={len(result.selected_expression_ids)} "
-            f"jargon_enabled={bool(jargon_explanation.strip())}"
+            f"expression_count={len(result.selected_expression_ids)}"
         )
 
         filtered_history = [
             message
             for message in chat_history
-            if get_message_role(message) != "system" and get_message_kind(message) != "perception"
+            if get_message_role(message) != "system"
+            and get_message_kind(message) != "perception"
+            and get_message_source(message) != "user_reference"
         ]
         prompt = self._build_prompt(
             chat_history=filtered_history,
             reply_reason=reply_reason or "",
             expression_habits=expression_habits,
-            jargon_explanation=jargon_explanation,
         )
         result.completion.request_prompt = prompt
 

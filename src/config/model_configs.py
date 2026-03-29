@@ -402,6 +402,15 @@ class ModelTaskConfig(ConfigBase):
         },
     )
     """首要回复模型配置, 还用于表达器和表达方式学习"""
+    
+    planner: TaskConfig = Field(
+        default_factory=TaskConfig,
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "map",
+        },
+    )
+    """规划模型配置"""
 
     vlm: TaskConfig = Field(
         default_factory=TaskConfig,
@@ -421,24 +430,6 @@ class ModelTaskConfig(ConfigBase):
     )
     """语音识别模型配置"""
 
-    tool_use: TaskConfig = Field(
-        default_factory=TaskConfig,
-        json_schema_extra={
-            "x-widget": "custom",
-            "x-icon": "tools",
-        },
-    )
-    """工具使用模型配置, 需要使用支持工具调用的模型"""
-
-    planner: TaskConfig = Field(
-        default_factory=TaskConfig,
-        json_schema_extra={
-            "x-widget": "custom",
-            "x-icon": "map",
-        },
-    )
-    """规划模型配置"""
-
     embedding: TaskConfig = Field(
         default_factory=TaskConfig,
         json_schema_extra={
@@ -447,21 +438,3 @@ class ModelTaskConfig(ConfigBase):
         },
     )
     """嵌入模型配置"""
-
-    lpmm_entity_extract: TaskConfig = Field(
-        default_factory=TaskConfig,
-        json_schema_extra={
-            "x-widget": "custom",
-            "x-icon": "filter",
-        },
-    )
-    """LPMM实体提取模型配置"""
-
-    lpmm_rdf_build: TaskConfig = Field(
-        default_factory=TaskConfig,
-        json_schema_extra={
-            "x-widget": "custom",
-            "x-icon": "network",
-        },
-    )
-    """LPMM RDF构建模型配置"""

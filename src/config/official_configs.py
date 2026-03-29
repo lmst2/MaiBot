@@ -234,17 +234,6 @@ class ChatConfig(ConfigBase):
     )
     """上下文长度"""
 
-    planner_smooth: float = Field(
-        default=3,
-        ge=0,
-        json_schema_extra={
-            "x-widget": "slider",
-            "x-icon": "gauge",
-            "step": 0.5,
-        },
-    )
-    """规划器平滑，增大数值会减小planner负荷，略微降低反应速度，推荐1-5，0为关闭，必须大于等于0"""
-
     think_mode: Literal["classic", "deep", "dynamic"] = Field(
         default="dynamic",
         json_schema_extra={
@@ -658,21 +647,6 @@ class ExpressionConfig(ConfigBase):
         },
     )
     """是否在回复前尝试对上下文中的黑话进行解释（关闭可减少一次LLM调用，仅影响回复前的黑话匹配与解释，不影响黑话学习）"""
-
-    jargon_mode: Literal["context", "planner"] = Field(
-        default="planner",
-        json_schema_extra={
-            "x-widget": "select",
-            "x-icon": "settings",
-        },
-    )
-    """
-    黑话解释来源模式
-    
-    可选：
-    - "context"：使用上下文自动匹配黑话
-    - "planner"：仅使用Planner在reply动作中给出的unknown_words列表
-    """
 
 
 class ToolConfig(ConfigBase):
@@ -1544,7 +1518,7 @@ class MaiSakaConfig(ConfigBase):
             "x-icon": "brain",
         },
     )
-    """鏄惁鍦?CLI 涓樉绀哄唴蹇冩€濊€冨拰瀹屾暣 Prompt"""
+    """是否显示MaiSaka思考过程"""
 
     user_name: str = Field(
         default="用户",
@@ -1553,7 +1527,7 @@ class MaiSakaConfig(ConfigBase):
             "x-icon": "user",
         },
     )
-    """MaiSaka 涓敤鎴风殑鏄剧ず鍚嶇О"""
+    """MaiSaka 使用的用户名称"""
 
     direct_image_input: bool = Field(
         default=True,
@@ -1562,7 +1536,7 @@ class MaiSakaConfig(ConfigBase):
             "x-icon": "image",
         },
     )
-    """æ˜¯å¦å°†å›¾ç‰‡ç›´æŽ¥ä½œä¸ºå¤šæ¨¡æ€æ¶ˆæ¯ä¼ å…¥ Maisaka ä¸»å¾ªçŽ¯ï¼Œè€Œä¸æ˜¯ä»…ä½¿ç”¨è½¬è¯‘æ–‡æœ¬"""
+    """是否直接输入图片"""
 
     merge_user_messages: bool = Field(
         default=True,
@@ -1571,7 +1545,7 @@ class MaiSakaConfig(ConfigBase):
             "x-icon": "merge",
         },
     )
-    """Whether Maisaka should merge newly received user utterances into a single user message per round"""
+    """是否将新接收的用户发言合并为单个用户消息"""
 
     max_internal_rounds: int = Field(
         default=6,
@@ -1581,7 +1555,7 @@ class MaiSakaConfig(ConfigBase):
             "x-icon": "repeat",
         },
     )
-    """Maximum number of internal planning rounds per inbound message."""
+    """每个入站消息的最大内部规划轮数"""
 
     terminal_image_preview: bool = Field(
         default=False,
@@ -1590,7 +1564,7 @@ class MaiSakaConfig(ConfigBase):
             "x-icon": "image",
         },
     )
-    """Whether Maisaka should render a low-resolution terminal preview for images in prompt display"""
+    """是否渲染低分辨率终端预览图片"""
 
     terminal_image_preview_width: int = Field(
         default=24,
@@ -1600,16 +1574,8 @@ class MaiSakaConfig(ConfigBase):
             "x-icon": "columns",
         },
     )
-    """Character width for Maisaka terminal image previews"""
+    """Maisaka终端图片预览的字符宽度"""
 
-    take_over_hfc: bool = Field(
-        default=False,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "git-branch",
-        },
-    )
-    """Enable Maisaka takeover for the Heart Flow Chat planner and reply pipeline"""
 
 class PluginRuntimeConfig(ConfigBase):
     """插件运行时配置类"""

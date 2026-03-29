@@ -19,7 +19,7 @@ logger = get_logger("expression_selector")
 class ExpressionSelector:
     def __init__(self):
         self.llm_model = LLMServiceClient(
-            task_name="tool_use", request_type="expression.selector"
+            task_name="utils", request_type="expression.selector"
         )
 
     def can_use_expression_for_chat(self, chat_id: str) -> bool:

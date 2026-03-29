@@ -76,7 +76,7 @@ def create_evaluation_prompt(situation: str, style: str) -> str:
     return prompt
 
 
-judge_llm = LLMServiceClient(task_name="tool_use", request_type="expression_check")
+judge_llm = LLMServiceClient(task_name="utils", request_type="expression_check")
 
 
 async def single_expression_check(situation: str, style: str) -> tuple[bool, str, str | None]:

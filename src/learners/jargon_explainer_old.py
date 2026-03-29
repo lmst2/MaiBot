@@ -25,7 +25,7 @@ class JargonExplainer:
     def __init__(self, chat_id: str) -> None:
         self.chat_id = chat_id
         self.llm = LLMServiceClient(
-            task_name="tool_use",
+            task_name="utils",
             request_type="jargon.explain",
         )
 

@@ -1,5 +1,69 @@
 {
-  "1": [],
+  "1": [
+    {
+      "id": "know_1_1774770946.623486",
+      "content": "备战中考",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:55:46.623486"
+    },
+    {
+      "id": "know_1_1774771765.051286",
+      "content": "性别为女性",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:09:25.051286"
+    },
+    {
+      "id": "know_1_1774771851.333504",
+      "content": "用户是I人（内向型人格）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:10:51.333504"
+    },
+    {
+      "id": "know_1_1774771894.517183",
+      "content": "用户名为小千，被他人称为“宝宝”，结合语境推测为女性",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:11:34.517183"
+    },
+    {
+      "id": "know_1_1774771923.859455",
+      "content": "小千是I人（内向型人格）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:12:03.859455"
+    },
+    {
+      "id": "know_1_1774771993.479732",
+      "content": "小千是女性",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:13:13.479732"
+    },
+    {
+      "id": "know_1_1774772079.496335",
+      "content": "用户名为小千，被他人称为“宝宝”，推测为女性或处于亲密社交语境中（注：性别非明确陈述，但基于昵称高频使用及语境，高置信度归纳为女性或女性化称呼偏好，若严格遵循“明确表达”则此项存疑。鉴于指令要求“高置信度可归纳”，且群内互动模式符合典型女性向昵称习惯，此处提取为倾向性事实）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:14:39.496335"
+    }
+  ],
   "2": [
     {
       "id": "know_2_1774768612.298128",
@@ -18,6 +82,78 @@
         "source": "maisaka_learning"
       },
       "created_at": "2026-03-29T15:17:25.029561"
+    },
+    {
+      "id": "know_2_1774771068.355999",
+      "content": "喜欢用夸张、幽默或古风修辞表达观点",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:57:48.355999"
+    },
+    {
+      "id": "know_2_1774771397.764996",
+      "content": "性格幽默，喜欢使用夸张比喻和古风表达",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:03:17.764996"
+    },
+    {
+      "id": "know_2_1774771471.03367",
+      "content": "幽默风趣，喜欢使用夸张比喻和玩梗",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:04:31.033670"
+    },
+    {
+      "id": "know_2_1774771765.052285",
+      "content": "性格不孤僻，社交圈较广",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:09:25.052285"
+    },
+    {
+      "id": "know_2_1774771851.33601",
+      "content": "用户表现出社恐倾向，喜欢回避社交互动",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:10:51.336010"
+    },
+    {
+      "id": "know_2_1774771894.520185",
+      "content": "性格偏向内向（I人），有社恐倾向，喜欢回避社交压力",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:11:34.520185"
+    },
+    {
+      "id": "know_2_1774771958.585244",
+      "content": "小千是内向型人格（I人）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:12:38.585244"
+    },
+    {
+      "id": "know_2_1774771993.481732",
+      "content": "小千性格内向（I人）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:13:13.481732"
     }
   ],
   "3": [],
@@ -41,6 +177,213 @@
         "source": "maisaka_learning"
       },
       "created_at": "2026-03-29T15:15:17.122405"
+    },
+    {
+      "id": "know_6_1774769406.247087",
+      "content": "喜欢动漫风格插画",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:30:06.247087"
+    },
+    {
+      "id": "know_6_1774770487.207364",
+      "content": "关注显卡硬件参数（如显存、型号）及深度学习/炼丹应用",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:48:07.207364"
+    },
+    {
+      "id": "know_6_1774770487.209372",
+      "content": "对游戏光影效果感兴趣",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:48:07.209372"
+    },
+    {
+      "id": "know_6_1774770603.063873",
+      "content": "喜欢玩《我的世界》和VRChat",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:50:03.063873"
+    },
+    {
+      "id": "know_6_1774770654.654349",
+      "content": "关注显卡硬件参数（如4090、48G显存、5090）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:50:54.654349"
+    },
+    {
+      "id": "know_6_1774770654.655356",
+      "content": "使用VRChat进行社交娱乐",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:50:54.655356"
+    },
+    {
+      "id": "know_6_1774770734.287947",
+      "content": "关注显卡硬件（如4090、3050）及AI炼丹技术",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:52:14.287947"
+    },
+    {
+      "id": "know_6_1774770734.289944",
+      "content": "玩《我的世界》并配置光影效果",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:52:14.289944"
+    },
+    {
+      "id": "know_6_1774770734.291944",
+      "content": "计划游玩VRChat",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:52:14.291944"
+    },
+    {
+      "id": "know_6_1774771033.111011",
+      "content": "喜欢玩VRChat",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:57:13.111011"
+    },
+    {
+      "id": "know_6_1774771068.358999",
+      "content": "关注VRChat等虚拟现实游戏及硬件性能话题",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:57:48.358999"
+    },
+    {
+      "id": "know_6_1774771233.980219",
+      "content": "使用VRChat（VRC）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:00:33.980219"
+    },
+    {
+      "id": "know_6_1774771397.766996",
+      "content": "对VRChat（VRC）及虚拟形象社交感兴趣",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:03:17.766996"
+    },
+    {
+      "id": "know_6_1774771471.03567",
+      "content": "对VRChat等虚拟社交游戏感兴趣",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:04:31.035670"
+    },
+    {
+      "id": "know_6_1774771894.521183",
+      "content": "熟悉二次元文化、动漫角色及互联网流行梗（Meme）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:11:34.521183"
+    },
+    {
+      "id": "know_6_1774771923.861534",
+      "content": "小千玩CS:GO游戏",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:12:03.861534"
+    },
+    {
+      "id": "know_6_1774771958.587243",
+      "content": "回声者_Echoderd喜欢玩CS:GO游戏",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:12:38.587243"
+    },
+    {
+      "id": "know_6_1774771993.483732",
+      "content": "小千喜欢二次元文化及动漫游戏圈梗",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:13:13.483732"
+    },
+    {
+      "id": "know_6_1774772079.499335",
+      "content": "熟悉并喜爱二次元文化、动漫角色及互联网梗图（如阴间美学、病娇系、黑长直萌妹等风格）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:14:39.499335"
+    },
+    {
+      "id": "know_6_1774772112.716455",
+      "content": "小千关注CS:GO游戏及中考备考话题",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:15:12.716455"
+    },
+    {
+      "id": "know_6_1774772154.873237",
+      "content": "用户玩CS:GO游戏",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:15:54.873237"
+    },
+    {
+      "id": "know_6_1774772186.438797",
+      "content": "玩CS:GO游戏",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:16:26.438797"
+    },
+    {
+      "id": "know_6_1774772730.867535",
+      "content": "熟悉《我的青春恋爱物语果然有问题》及二次元表情包文化",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:25:30.867535"
     }
   ],
   "7": [
@@ -61,9 +404,127 @@
         "source": "maisaka_learning"
       },
       "created_at": "2026-03-29T15:16:13.741823"
+    },
+    {
+      "id": "know_7_1774770603.062873",
+      "content": "备战中考",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:50:03.062873"
+    },
+    {
+      "id": "know_7_1774771471.036668",
+      "content": "正在备战中考的学生",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:04:31.036668"
+    },
+    {
+      "id": "know_7_1774771923.862535",
+      "content": "小千正在备战中考",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:12:03.862535"
+    },
+    {
+      "id": "know_7_1774771958.588749",
+      "content": "回声者_Echoderd正在备战中考",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:12:38.588749"
+    },
+    {
+      "id": "know_7_1774772112.714455",
+      "content": "小千使用AI模型进行对话",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:15:12.714455"
+    },
+    {
+      "id": "know_7_1774772154.870238",
+      "content": "用户正在备战中考",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:15:54.870238"
     }
   ],
-  "8": [],
+  "8": [
+    {
+      "id": "know_8_1774770946.624486",
+      "content": "日常逛游戏地图",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:55:46.624486"
+    },
+    {
+      "id": "know_8_1774771397.769034",
+      "content": "备考中考期间仍保持日常游戏娱乐习惯",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:03:17.769034"
+    },
+    {
+      "id": "know_8_1774771851.338018",
+      "content": "用户有备考中考的学习任务",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:10:51.338018"
+    },
+    {
+      "id": "know_8_1774771894.523189",
+      "content": "备考中（备战中考）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:11:34.523189"
+    },
+    {
+      "id": "know_8_1774771993.484733",
+      "content": "小千有打CS:GO的游戏习惯",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:13:13.484733"
+    },
+    {
+      "id": "know_8_1774772079.501334",
+      "content": "有在高压环境下（如中考前）进行游戏娱乐（CS:GO）的习惯，自称或认同“摆烂”的生活态度",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:14:39.501334"
+    },
+    {
+      "id": "know_8_1774772154.875743",
+      "content": "用户在备考期间有打游戏摸鱼的习惯",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:15:54.875743"
+    }
+  ],
   "9": [],
   "10": [
     {
@@ -119,8 +580,82 @@
         "source": "maisaka_learning"
       },
       "created_at": "2026-03-29T15:17:25.028561"
+    },
+    {
+      "id": "know_10_1774769406.249584",
+      "content": "沟通中常使用文言文或半文言表达",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:30:06.249584"
+    },
+    {
+      "id": "know_10_1774769406.251097",
+      "content": "习惯用反问句和夸张语气进行互动",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:30:06.251097"
+    },
+    {
+      "id": "know_10_1774770487.211056",
+      "content": "沟通风格幽默，常使用网络梗和夸张表达",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:48:07.211056"
+    },
+    {
+      "id": "know_10_1774771471.038677",
+      "content": "沟通风格轻松随意，善于接话和调侃",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:04:31.038677"
+    },
+    {
+      "id": "know_10_1774771765.053285",
+      "content": "沟通风格活泼，喜欢使用语气词和表情符号撒娇",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:09:25.053285"
+    },
+    {
+      "id": "know_10_1774772079.503333",
+      "content": "沟通风格幽默调侃，擅长用反话（如“烦到了”）和夸张修辞（如“耳朵起茧子”、“要报警了”）表达情绪",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:14:39.503333"
     }
   ],
-  "11": [],
-  "12": []
+  "11": [
+    {
+      "id": "know_11_1774771068.360999",
+      "content": "乐于接受并学习新的技术技巧（如加速器用法）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:57:48.360999"
+    }
+  ],
+  "12": [
+    {
+      "id": "know_12_1774770654.657355",
+      "content": "面对网络延迟问题倾向于寻找加速器解决方案",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:50:54.657355"
+    }
+  ]
 }

@@ -12,7 +12,7 @@ from src.common.logger import get_logger
 
 logger = get_logger("expression_utils")
 
-judge_llm = LLMServiceClient(task_name="tool_use", request_type="expression_check")
+judge_llm = LLMServiceClient(task_name="utils", request_type="expression_check")
 
 
 def _normalize_repair_json_result(repaired_result: Any) -> str:

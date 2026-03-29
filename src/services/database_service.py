@@ -11,7 +11,7 @@ from sqlmodel import SQLModel
 
 from src.chat.message_receive.chat_manager import BotChatSession
 from src.common.database.database import get_db_session
-from src.common.database.database_model import ActionRecord
+from src.common.database.database_model import ToolRecord
 from src.common.logger import get_logger
 
 logger = get_logger("database_service")
@@ -157,6 +157,39 @@ async def db_count(model_class: type[SQLModel], filters: Optional[dict[str, Any]
         return 0
 
 
+async def store_tool_info(
+    chat_stream: BotChatSession,
+    builtin_prompt: Optional[str] = None,
+    display_prompt: str = "",
+    tool_id: str = "",
+    tool_data: Optional[dict[str, Any]] = None,
+    tool_name: str = "",
+    tool_reasoning: str = "",
+) -> Optional[dict[str, Any]]:
+    try:
+        record_data = {
+            "tool_id": tool_id or str(int(time.time() * 1000000)),
+            "timestamp": datetime.now(),
+            "session_id": chat_stream.session_id,
+            "tool_name": tool_name,
+            "tool_data": json.dumps(tool_data or {}, ensure_ascii=False),
+            "tool_reasoning": tool_reasoning,
+            "tool_builtin_prompt": builtin_prompt,
+            "tool_display_prompt": display_prompt,
+        }
+
+        saved_record = await db_save(ToolRecord, data=record_data, key_field="tool_id", key_value=record_data["tool_id"])
+        if saved_record:
+            logger.debug(f"[DatabaseService] 成功存储工具信息: {tool_name} (ID: {record_data['tool_id']})")
+        else:
+            logger.error(f"[DatabaseService] 存储工具信息失败: {tool_name}")
+        return saved_record
+    except Exception as e:
+        logger.error(f"[DatabaseService] 存储工具信息时发生错误: {e}")
+        traceback.print_exc()
+        return None
+
+
 async def store_action_info(
     chat_stream: BotChatSession,
     builtin_prompt: Optional[str] = None,
@@ -166,27 +199,13 @@ async def store_action_info(
     action_name: str = "",
     action_reasoning: str = "",
 ) -> Optional[dict[str, Any]]:
-    try:
-        record_data = {
-            "action_id": thinking_id or str(int(time.time() * 1000000)),
-            "timestamp": datetime.now(),
-            "session_id": chat_stream.session_id,
-            "action_name": action_name,
-            "action_data": json.dumps(action_data or {}, ensure_ascii=False),
-            "action_reasoning": action_reasoning,
-            "action_builtin_prompt": builtin_prompt,
-            "action_display_prompt": display_prompt,
-        }
-
-        saved_record = await db_save(
-            ActionRecord, data=record_data, key_field="action_id", key_value=record_data["action_id"]
-        )
-        if saved_record:
-            logger.debug(f"[DatabaseService] 成功存储动作信息: {action_name} (ID: {record_data['action_id']})")
-        else:
-            logger.error(f"[DatabaseService] 存储动作信息失败: {action_name}")
-        return saved_record
-    except Exception as e:
-        logger.error(f"[DatabaseService] 存储动作信息时发生错误: {e}")
-        traceback.print_exc()
-        return None
+    """兼容旧接口，内部转发到 ``store_tool_info``。"""
+    return await store_tool_info(
+        chat_stream=chat_stream,
+        builtin_prompt=builtin_prompt,
+        display_prompt=display_prompt,
+        tool_id=thinking_id,
+        tool_data=action_data,
+        tool_name=action_name,
+        tool_reasoning=action_reasoning,
+    )

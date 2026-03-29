@@ -579,26 +579,26 @@ class MessageUtils:
             List[Tuple[float, str]]: 按时间排序的动作文本列表，每个元素为 (timestamp, action_text)
         """
         from src.common.database.database import get_db_session
-        from src.common.database.database_model import ActionRecord
+        from src.common.database.database_model import ToolRecord
 
         # 获取这个时间范围内的动作记录，并匹配session_id
         try:
             with get_db_session() as session:
                 actions_in_range = session.exec(
-                    select(ActionRecord)
-                    .where(col(ActionRecord.timestamp) >= datetime.fromtimestamp(min_time))
-                    .where(col(ActionRecord.timestamp) <= datetime.fromtimestamp(max_time))
-                    .where(col(ActionRecord.session_id) == session_id)
-                    .order_by(col(ActionRecord.timestamp))
+                    select(ToolRecord)
+                    .where(col(ToolRecord.timestamp) >= datetime.fromtimestamp(min_time))
+                    .where(col(ToolRecord.timestamp) <= datetime.fromtimestamp(max_time))
+                    .where(col(ToolRecord.session_id) == session_id)
+                    .order_by(col(ToolRecord.timestamp))
                 ).all()
 
             # 获取最新消息之后的第一个动作记录
             with get_db_session() as session:
                 action_after_latest = session.exec(
-                    select(ActionRecord)
-                    .where(col(ActionRecord.timestamp) > datetime.fromtimestamp(max_time))
-                    .where(col(ActionRecord.session_id) == session_id)
-                    .order_by(col(ActionRecord.timestamp))
+                    select(ToolRecord)
+                    .where(col(ToolRecord.timestamp) > datetime.fromtimestamp(max_time))
+                    .where(col(ToolRecord.session_id) == session_id)
+                    .order_by(col(ToolRecord.timestamp))
                     .limit(1)
                 ).all()
         except Exception as e:
@@ -611,7 +611,7 @@ class MessageUtils:
         # 构建动作文本列表
         action_messages: List[Tuple[float, str]] = []
         for action in actions:
-            if action_display_prompt := action.action_display_prompt or "":
+            if action_display_prompt := action.tool_display_prompt or "":
                 action_time = action.timestamp.timestamp()
                 action_messages.append((action_time, action_display_prompt))
 

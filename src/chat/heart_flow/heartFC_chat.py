@@ -198,7 +198,6 @@ class HeartFChatting:
         """判定和生成回复"""
         asyncio.create_task(self._trigger_expression_learning(self.message_cache))
         # TODO: 完成反思器之后的逻辑
-        start_time = time.time()
         current_cycle_detail = self._start_cycle()
         logger.info(f"{self.log_prefix} 开始第{self._cycle_counter}次思考")
 
@@ -207,10 +206,7 @@ class HeartFChatting:
         # TODO: 动作执行逻辑
 
         cycle_detail = self._end_cycle(current_cycle_detail)
-        if wait_time := global_config.chat.planner_smooth - (time.time() - start_time) > 0:
-            await asyncio.sleep(wait_time)
-        else:
-            await asyncio.sleep(0.1)  # 最小等待时间，避免过快循环
+        await asyncio.sleep(0.1)  # 最小等待时间，避免过快循环
         return True
 
     def _handle_loop_completion(self, task: asyncio.Task):

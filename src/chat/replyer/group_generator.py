@@ -577,29 +577,6 @@ class DefaultReplyer:
         duration = end_time - start_time
         return name, result, duration
 
-    async def _build_disabled_jargon_explanation(self) -> str:
-        """当关闭黑话解释时使用的占位协程，避免额外的LLM调用"""
-        return ""
-
-    async def _build_unknown_words_jargon(self, unknown_words: Optional[List[str]], chat_id: str) -> str:
-        """针对 Planner 提供的未知词语列表执行黑话检索"""
-        if not unknown_words:
-            return ""
-        # 清洗未知词语列表，只保留非空字符串
-        concepts: List[str] = []
-        for item in unknown_words:
-            if isinstance(item, str):
-                s = item.strip()
-                if s:
-                    concepts.append(s)
-        if not concepts:
-            return ""
-        try:
-            return await retrieve_concepts_with_jargon(concepts, chat_id)
-        except Exception as e:
-            logger.error(f"未知词语黑话检索失败: {e}")
-            return ""
-
     async def _build_jargon_explanation(
         self,
         chat_id: str,
@@ -609,19 +586,14 @@ class DefaultReplyer:
     ) -> str:
         """
         统一的黑话解释构建函数：
-        - 根据 enable_jargon_explanation / jargon_mode 决定具体策略
+        - 根据 enable_jargon_explanation 决定是否启用
         """
+        del unknown_words
         enable_jargon_explanation = getattr(global_config.expression, "enable_jargon_explanation", True)
         if not enable_jargon_explanation:
             return ""
 
-        jargon_mode = getattr(global_config.expression, "jargon_mode", "context")
-
-        # planner 模式：仅使用 Planner 的 unknown_words
-        if jargon_mode == "planner":
-            return await self._build_unknown_words_jargon(unknown_words, chat_id)
-
-        # 默认 / context 模式：使用上下文自动匹配黑话
+        # 使用上下文自动匹配黑话
         try:
             return await explain_jargon_in_context(chat_id, messages_short, chat_talking_prompt_short) or ""
         except Exception as e:
@@ -1209,7 +1181,7 @@ class DefaultReplyer:
             prompt = await prompt_manager.render_prompt(template_prompt)
             generation_result = await llm_api.generate(
                 llm_api.LLMServiceRequest(
-                    task_name="tool_use",
+                    task_name="utils",
                     request_type="replyer.lpmm_knowledge",
                     prompt=prompt,
                     tool_options=[search_knowledge_tool.get_tool_definition()],

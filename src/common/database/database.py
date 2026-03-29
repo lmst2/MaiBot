@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, TYPE_CHECKING
 
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel, Session, create_engine
@@ -57,6 +57,41 @@ SessionLocal = sessionmaker(
 _db_initialized = False
 
 
+def _migrate_action_records_to_tool_records() -> None:
+    """将旧的 ``action_records`` 历史数据迁移到 ``tool_records``。"""
+    migration_sql = text(
+        """
+        INSERT INTO tool_records (
+            tool_id,
+            timestamp,
+            session_id,
+            tool_name,
+            tool_reasoning,
+            tool_data,
+            tool_builtin_prompt,
+            tool_display_prompt
+        )
+        SELECT
+            action_id,
+            timestamp,
+            session_id,
+            action_name,
+            action_reasoning,
+            action_data,
+            action_builtin_prompt,
+            action_display_prompt
+        FROM action_records
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM tool_records
+            WHERE tool_records.tool_id = action_records.action_id
+        )
+        """
+    )
+    with engine.begin() as connection:
+        connection.execute(migration_sql)
+
+
 def initialize_database() -> None:
     global _db_initialized
     if _db_initialized:
@@ -65,6 +100,7 @@ def initialize_database() -> None:
     import src.common.database.database_model  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
+    _migrate_action_records_to_tool_records()
     _db_initialized = True
 
 

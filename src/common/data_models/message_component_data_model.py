@@ -348,17 +348,11 @@ class MessageSequence:
         if isinstance(item, TextComponent):
             return {"type": "text", "data": item.text}
         elif isinstance(item, ImageComponent):
-            if not item.content:
-                raise RuntimeError("ImageComponent content 未初始化")
-            return {"type": "image", "data": item.content, "hash": item.binary_hash}
+            return {"type": "image", "data": self._ensure_binary_component_content(item, "[图片]"), "hash": item.binary_hash}
         elif isinstance(item, EmojiComponent):
-            if not item.content:
-                raise RuntimeError("EmojiComponent content 未初始化")
-            return {"type": "emoji", "data": item.content, "hash": item.binary_hash}
+            return {"type": "emoji", "data": self._ensure_binary_component_content(item, "[表情包]"), "hash": item.binary_hash}
         elif isinstance(item, VoiceComponent):
-            if not item.content:
-                raise RuntimeError("VoiceComponent content 未初始化")
-            return {"type": "voice", "data": item.content, "hash": item.binary_hash}
+            return {"type": "voice", "data": self._ensure_binary_component_content(item, "[语音消息]"), "hash": item.binary_hash}
         elif isinstance(item, AtComponent):
             return {
                 "type": "at",
@@ -387,6 +381,14 @@ class MessageSequence:
         else:
             logger.warning(f"Unofficial component type: {type(item)}, defaulting to DictComponent")
             return {"type": "dict", "data": item.data}
+
+    @staticmethod
+    def _ensure_binary_component_content(item: ByteComponent, fallback_text: str) -> str:
+        """确保二进制组件在序列化时带有稳定的文本占位。"""
+        if item.content:
+            return item.content
+        item.content = fallback_text
+        return item.content
 
     @classmethod
     def _dict_2_item(cls, item: Dict[str, Any]) -> StandardMessageComponents:

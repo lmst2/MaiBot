@@ -271,7 +271,7 @@ async def _react_agent_solve_question(
         message_factory_fn: Callable[..., List[Message]] = _build_messages  # pyright: ignore[reportGeneralTypeIssues]
         generation_result = await llm_api.generate(
             llm_api.LLMServiceRequest(
-                task_name="tool_use",
+                task_name="utils",
                 request_type="memory.react",
                 message_factory=message_factory_fn,  # type: ignore[arg-type]
                 tool_options=tool_definitions,
@@ -681,7 +681,7 @@ async def _react_agent_solve_question(
 
         evaluation_result = await llm_api.generate(
             llm_api.LLMServiceRequest(
-                task_name="tool_use",
+                task_name="utils",
                 request_type="memory.react.final",
                 prompt=evaluation_prompt,
                 tool_options=[],
