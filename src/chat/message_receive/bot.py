@@ -303,7 +303,7 @@ class ChatBot:
             #     pass
 
             # 处理消息内容，识别表情包等二进制数据并转化为文本描述
-            if group_info is not None and global_config.maisaka.direct_image_input:
+            if global_config.maisaka.direct_image_input:
                 message.maisaka_original_raw_message = deepcopy(message.raw_message)  # type: ignore[attr-defined]
             # 入站主链优先保证消息尽快入队，避免图片、表情包、语音分析阻塞适配器超时。
             await message.process(
@@ -388,12 +388,10 @@ class ChatBot:
             #     await preprocess()
             async def preprocess():
                 if group_info is None:
-                    # logger.debug("[私聊]检测到私聊消息，路由到PFC系统")
-                    # MessageUtils.store_message_to_db(message)  # 存储消息到数据库
-                    # await self._create_pfc_chat(message)
-                    logger.critical("暂时禁用私聊")
+                    logger.debug("[私聊]检测到私聊消息，路由到 Maisaka")
+                    await self.heartflow_message_receiver.process_message(message)
                 else:
-                    logger.debug("[群聊]检测到群聊消息，路由到HeartFlow系统")
+                    logger.debug("[群聊]检测到群聊消息，路由到 Maisaka")
                     await self.heartflow_message_receiver.process_message(message)
 
             await preprocess()
