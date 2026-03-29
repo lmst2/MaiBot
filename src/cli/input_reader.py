@@ -1,12 +1,12 @@
 """
-MaiSaka - 异步输入读取器
-将阻塞的标准输入读取放到后台线程中，供 asyncio 循环安全消费。
+MaiSaka asynchronous stdin reader for CLI interaction.
 """
+
+from typing import Optional
 
 import asyncio
 import sys
 import threading
-from typing import Optional
 
 
 class InputReader:

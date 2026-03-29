@@ -1,4 +1,4 @@
-"""MaiSaka 终端输出组件。"""
+"""MaiSaka terminal console helpers."""
 
 from rich.console import Console
 from rich.theme import Theme

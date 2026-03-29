@@ -13,9 +13,10 @@ from src.common.data_models.mai_message_data_model import GroupInfo, UserInfo
 from src.common.logger import get_logger
 from src.common.utils.utils_config import ExpressionConfigUtils
 from src.config.config import global_config
-from src.mcp_module import MCPManager
+from src.know_u.knowledge import KnowledgeLearner
 from src.learners.expression_learner import ExpressionLearner
 from src.learners.jargon_miner import JargonMiner
+from src.mcp_module import MCPManager
 
 from .chat_loop_service import MaisakaChatLoopService
 from .reasoning_engine import MaisakaReasoningEngine
@@ -66,9 +67,11 @@ class MaisakaHeartFlowChatting:
         self._enable_jargon_learning = jargon_learn
         self._min_messages_for_extraction = 10
         self._min_extraction_interval = 30
-        self._last_extraction_time = 0.0
+        self._last_expression_extraction_time = 0.0
+        self._last_knowledge_extraction_time = 0.0
         self._expression_learner = ExpressionLearner(session_id)
         self._jargon_miner = JargonMiner(session_id, session_name=session_name)
+        self._knowledge_learner = KnowledgeLearner(session_id)
 
         self._reasoning_engine = MaisakaReasoningEngine(self)
 
@@ -157,7 +160,7 @@ class MaisakaHeartFlowChatting:
                     if not cached_messages:
                         break
                     await self._internal_turn_queue.put(cached_messages)
-                    asyncio.create_task(self._trigger_expression_learning(cached_messages))
+                    asyncio.create_task(self._trigger_batch_learning(cached_messages))
         except asyncio.CancelledError:
             logger.info(f"{self.log_prefix} Maisaka runtime loop cancelled")
 
@@ -223,6 +226,18 @@ class MaisakaHeartFlowChatting:
         self._agent_state = self._STATE_STOP
         self._wait_until = None
 
+    async def _trigger_batch_learning(self, messages: list[SessionMessage]) -> None:
+        """按同一批消息触发表达方式、黑话和 knowledge 学习。"""
+        expression_result, knowledge_result = await asyncio.gather(
+            self._trigger_expression_learning(messages),
+            self._trigger_knowledge_learning(messages),
+            return_exceptions=True,
+        )
+        if isinstance(expression_result, Exception):
+            logger.error(f"{self.log_prefix} expression learning task crashed: {expression_result}")
+        if isinstance(knowledge_result, Exception):
+            logger.error(f"{self.log_prefix} knowledge learning task crashed: {knowledge_result}")
+
     async def _trigger_expression_learning(self, messages: list[SessionMessage]) -> None:
         """Trigger expression learning from the newly collected batch."""
         self._expression_learner.add_messages(messages)
@@ -231,7 +246,7 @@ class MaisakaHeartFlowChatting:
             logger.debug(f"{self.log_prefix} expression learning disabled, skip this batch")
             return
 
-        elapsed = time.time() - self._last_extraction_time
+        elapsed = time.time() - self._last_expression_extraction_time
         if elapsed < self._min_extraction_interval:
             logger.debug(
                 f"{self.log_prefix} expression learning interval not reached: "
@@ -248,7 +263,7 @@ class MaisakaHeartFlowChatting:
             )
             return
 
-        self._last_extraction_time = time.time()
+        self._last_expression_extraction_time = time.time()
         logger.info(
             f"{self.log_prefix} starting expression learning: "
             f"new_batch={len(messages)} learner_cache={cache_size} "
@@ -265,6 +280,47 @@ class MaisakaHeartFlowChatting:
                 logger.debug(f"{self.log_prefix} expression learning finished without usable result")
         except Exception:
             logger.exception(f"{self.log_prefix} expression learning failed")
+
+    async def _trigger_knowledge_learning(self, messages: list[SessionMessage]) -> None:
+        """Trigger knowledge learning from the newly collected batch."""
+        self._knowledge_learner.add_messages(messages)
+
+        if not global_config.maisaka.enable_knowledge_module:
+            logger.debug(f"{self.log_prefix} knowledge learning disabled, skip this batch")
+            return
+
+        elapsed = time.time() - self._last_knowledge_extraction_time
+        if elapsed < self._min_extraction_interval:
+            logger.debug(
+                f"{self.log_prefix} knowledge learning interval not reached: "
+                f"elapsed={elapsed:.2f}s threshold={self._min_extraction_interval}s"
+            )
+            return
+
+        cache_size = self._knowledge_learner.get_cache_size()
+        if cache_size < self._min_messages_for_extraction:
+            logger.debug(
+                f"{self.log_prefix} knowledge learning skipped due to cache size: "
+                f"learner_cache={cache_size} threshold={self._min_messages_for_extraction} "
+                f"message_cache_total={len(self.message_cache)}"
+            )
+            return
+
+        self._last_knowledge_extraction_time = time.time()
+        logger.info(
+            f"{self.log_prefix} starting knowledge learning: "
+            f"new_batch={len(messages)} learner_cache={cache_size} "
+            f"message_cache_total={len(self.message_cache)}"
+        )
+
+        try:
+            added_count = await self._knowledge_learner.learn()
+            if added_count > 0:
+                logger.info(f"{self.log_prefix} knowledge learning finished: added={added_count}")
+            else:
+                logger.debug(f"{self.log_prefix} knowledge learning finished without usable result")
+        except Exception:
+            logger.exception(f"{self.log_prefix} knowledge learning failed")
 
     async def _init_mcp(self) -> None:
         """Initialize MCP tools and inject them into the planner."""

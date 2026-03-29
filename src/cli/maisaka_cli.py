@@ -8,30 +8,32 @@ from typing import Optional
 
 import asyncio
 import os
+import time
 
 from rich import box
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
+from src.know_u.knowledge import KnowledgeLearner, retrieve_relevant_knowledge
+from src.know_u.knowledge_store import get_knowledge_store
 from src.chat.message_receive.message import SessionMessage
 from src.chat.replyer.maisaka_generator import MaisakaReplyGenerator
 from src.config.config import config_manager, global_config
 from src.mcp_module import MCPManager
 
-from .chat_loop_service import MaisakaChatLoopService
-from .console import console
-from .input_reader import InputReader
-from .knowledge import retrieve_relevant_knowledge
-from .knowledge_store import get_knowledge_store
-from .message_adapter import build_message, format_speaker_content, remove_last_perception
-from .tool_handlers import (
+from src.maisaka.chat_loop_service import MaisakaChatLoopService
+from src.maisaka.message_adapter import build_message, format_speaker_content, remove_last_perception
+from src.maisaka.tool_handlers import (
     ToolHandlerContext,
     handle_mcp_tool,
     handle_stop,
     handle_unknown_tool,
     handle_wait,
 )
+
+from .console import console
+from .input_reader import InputReader
 
 
 class BufferCLI:
@@ -43,6 +45,10 @@ class BufferCLI:
         self._reader = InputReader()
         self._chat_history: Optional[list[SessionMessage]] = None
         self._knowledge_store = get_knowledge_store()
+        self._knowledge_learner = KnowledgeLearner("maisaka_cli")
+        self._knowledge_min_messages_for_extraction = 10
+        self._knowledge_min_extraction_interval = 30
+        self._last_knowledge_extraction_time = 0.0
 
         knowledge_stats = self._knowledge_store.get_stats()
         if knowledge_stats["total_items"] > 0:
@@ -112,6 +118,7 @@ class BufferCLI:
             self._chat_start_time = now
             self._last_assistant_response_time = None
             self._chat_history = self._chat_loop_service.build_chat_context(user_text)
+            self._trigger_knowledge_learning([self._chat_history[-1]])
         else:
             self._chat_history.append(
                 build_message(
@@ -123,8 +130,36 @@ class BufferCLI:
                     ),
                 )
             )
+            self._trigger_knowledge_learning([self._chat_history[-1]])
 
         await self._run_llm_loop(self._chat_history)
+
+    def _trigger_knowledge_learning(self, messages: list[SessionMessage]) -> None:
+        """在 CLI 会话中按批次触发 knowledge 学习。"""
+        if not global_config.maisaka.enable_knowledge_module:
+            return
+
+        self._knowledge_learner.add_messages(messages)
+
+        elapsed = time.monotonic() - self._last_knowledge_extraction_time
+        if elapsed < self._knowledge_min_extraction_interval:
+            return
+
+        cache_size = self._knowledge_learner.get_cache_size()
+        if cache_size < self._knowledge_min_messages_for_extraction:
+            return
+
+        self._last_knowledge_extraction_time = time.monotonic()
+        asyncio.create_task(self._run_knowledge_learning())
+
+    async def _run_knowledge_learning(self) -> None:
+        """后台执行 knowledge 学习，避免阻塞主对话。"""
+        try:
+            added_count = await self._knowledge_learner.learn()
+            if added_count > 0 and global_config.maisaka.show_thinking:
+                console.print(f"[muted]Knowledge learning added {added_count} item(s).[/muted]")
+        except Exception as exc:
+            console.print(f"[warning]Knowledge learning failed: {exc}[/warning]")
 
     async def _run_llm_loop(self, chat_history: list[SessionMessage]) -> None:
         """

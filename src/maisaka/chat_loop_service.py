@@ -15,18 +15,18 @@ from rich.pretty import Pretty
 from rich.text import Text
 
 from src.chat.message_receive.message import SessionMessage
+from src.cli.console import console
 from src.common.data_models.llm_service_data_models import LLMGenerationOptions
 from src.common.logger import get_logger
 from src.common.prompt_i18n import load_prompt
 from src.config.config import global_config
+from src.know_u.knowledge import extract_category_ids_from_result
 from src.llm_models.model_client.base_client import BaseClient
 from src.llm_models.payload_content.message import Message, MessageBuilder, RoleType
 from src.llm_models.payload_content.tool_option import ToolCall, ToolDefinitionInput, ToolOption, normalize_tool_options
 from src.services.llm_service import LLMServiceClient
 
 from .builtin_tools import get_builtin_tools
-from .console import console
-from .knowledge import extract_category_ids_from_result
 from .message_adapter import (
     build_message,
     format_speaker_content,

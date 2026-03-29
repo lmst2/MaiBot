@@ -27,7 +27,7 @@ from typing import Optional
 import json
 import os
 
-from src.maisaka.console import console
+from src.cli.console import console
 
 
 DEFAULT_MCP_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "mcp_config.json"

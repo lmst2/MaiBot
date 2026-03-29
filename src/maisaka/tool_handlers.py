@@ -12,10 +12,10 @@ import os
 from rich.panel import Panel
 
 from src.chat.message_receive.message import SessionMessage
+from src.cli.console import console
+from src.cli.input_reader import InputReader
 from src.llm_models.payload_content.tool_option import ToolCall
 
-from .console import console
-from .input_reader import InputReader
 from .message_adapter import build_message
 
 if TYPE_CHECKING:
