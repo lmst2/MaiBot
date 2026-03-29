@@ -1,5 +1,6 @@
 """Maisaka 推理引擎。"""
 
+import difflib
 import json
 import asyncio
 import re
@@ -48,6 +49,7 @@ class MaisakaReasoningEngine:
     def __init__(self, runtime: "MaisakaHeartFlowChatting") -> None:
         self._runtime = runtime
         self._reply_context_builder = MaisakaReplyContextBuilder(runtime.session_id)
+        self._last_reasoning_content: str = ""
 
     async def run_loop(self) -> None:
         """独立消费消息批次，并执行对应的内部思考轮次。"""
@@ -71,6 +73,13 @@ class MaisakaReasoningEngine:
                             response = await self._runtime._chat_loop_service.chat_loop_step(self._runtime._chat_history)
                             cycle_detail.time_records["planner"] = time.time() - planner_started_at
 
+                            reasoning_content = response.content or ""
+                            if self._should_replace_reasoning(reasoning_content):
+                                response.content = "让我根据新情况重新思考："
+                                response.raw_message.content = "让我根据新情况重新思考："
+                                logger.info(f"{self._runtime.log_prefix} reasoning content replaced due to high similarity")
+
+                            self._last_reasoning_content = reasoning_content
                             response.raw_message.platform = anchor_message.platform
                             response.raw_message.session_id = self._runtime.session_id
                             response.raw_message.message_info.group_info = self._runtime._build_group_info(anchor_message)
@@ -330,6 +339,37 @@ class MaisakaReasoningEngine:
         self._runtime._chat_history = trimmed_history
         self._runtime._log_history_trimmed(removed_count, conversation_message_count)
 
+    @staticmethod
+    def _calculate_similarity(text1: str, text2: str) -> float:
+        """计算两个文本之间的相似度。
+
+        Args:
+            text1: 第一个文本
+            text2: 第二个文本
+
+        Returns:
+            float: 相似度值，范围 0-1，1 表示完全相同
+        """
+        return difflib.SequenceMatcher(None, text1, text2).ratio()
+
+    def _should_replace_reasoning(self, current_content: str) -> bool:
+        """判断是否需要替换推理内容。
+
+        当当前推理内容与上一次相似度大于90%时，返回True。
+
+        Args:
+            current_content: 当前的推理内容
+
+        Returns:
+            bool: 是否需要替换
+        """
+        if not self._last_reasoning_content or not current_content:
+            return False
+
+        similarity = self._calculate_similarity(current_content, self._last_reasoning_content)
+        logger.info(f"{self._runtime.log_prefix} reasoning similarity: {similarity:.2f}")
+        return similarity > 0.9
+
     async def _handle_tool_calls(
         self,
         tool_calls: list[ToolCall],
@@ -381,6 +421,10 @@ class MaisakaReasoningEngine:
                 )
                 self._runtime._enter_stop_state()
                 return True
+
+            if tool_call.func_name == "send_emoji":
+                await self._handle_send_emoji(tool_call, anchor_message)
+                continue
 
             if self._runtime._mcp_manager and self._runtime._mcp_manager.is_mcp_tool(tool_call.func_name):
                 await handle_mcp_tool(tool_call, self._runtime._chat_history, self._runtime._mcp_manager)
@@ -614,6 +658,104 @@ class MaisakaReasoningEngine:
             )
         )
         return True
+
+    async def _handle_send_emoji(self, tool_call: ToolCall, anchor_message: SessionMessage) -> None:
+        """处理发送表情包的工具调用。
+
+        Args:
+            tool_call: 工具调用对象
+            anchor_message: 锚点消息
+        """
+        from src.chat.emoji_system.emoji_manager import emoji_manager
+        from src.common.utils.utils_image import ImageUtils
+        import random
+
+        tool_args = tool_call.args or {}
+        emotion = str(tool_args.get("emotion") or "").strip()
+
+        logger.info(f"{self._runtime.log_prefix} send_emoji tool triggered: emotion={emotion!r}")
+
+        # 获取表情包列表
+        if not emoji_manager.emojis:
+            self._runtime._chat_history.append(
+                self._build_tool_message(tool_call, "No emojis available in the emoji library.")
+            )
+            return
+
+        # 根据情感选择表情包
+        selected_emoji = None
+        if emotion:
+            # 尝试找到匹配情感的表情包
+            matching_emojis = [
+                emoji for emoji in emoji_manager.emojis
+                if emotion.lower() in (e.lower() for e in emoji.emotion)
+            ]
+            if matching_emojis:
+                selected_emoji = random.choice(matching_emojis)
+                logger.info(
+                    f"{self._runtime.log_prefix} found {len(matching_emojis)} emojis matching emotion '{emotion}', "
+                    f"selected: {selected_emoji.description}"
+                )
+
+        # 如果没有找到匹配的情感表情包，随机选择一个
+        if selected_emoji is None:
+            selected_emoji = random.choice(emoji_manager.emojis)
+            logger.info(
+                f"{self._runtime.log_prefix} no emoji matched emotion '{emotion}', "
+                f"randomly selected: {selected_emoji.description}"
+            )
+
+        # 更新表情包使用次数
+        emoji_manager.update_emoji_usage(selected_emoji)
+
+        # 获取表情包的 base64 数据
+        try:
+            emoji_base64 = ImageUtils.image_path_to_base64(str(selected_emoji.full_path))
+            if not emoji_base64:
+                raise ValueError("Failed to convert emoji image to base64")
+        except Exception as exc:
+            logger.error(
+                f"{self._runtime.log_prefix} failed to convert emoji to base64: {exc}"
+            )
+            self._runtime._chat_history.append(
+                self._build_tool_message(tool_call, f"Failed to send emoji: {exc}")
+            )
+            return
+
+        # 发送表情包
+        try:
+            sent = await send_service.emoji_to_stream(
+                emoji_base64=emoji_base64,
+                stream_id=self._runtime.session_id,
+                storage_message=True,
+                set_reply=False,
+                reply_message=None,
+            )
+        except Exception as exc:
+            logger.exception(
+                f"{self._runtime.log_prefix} send_service.emoji_to_stream crashed: {exc}"
+            )
+            self._runtime._chat_history.append(
+                self._build_tool_message(tool_call, f"Emoji send crashed: {exc}")
+            )
+            return
+
+        if sent:
+            logger.info(
+                f"{self._runtime.log_prefix} emoji sent successfully: "
+                f"description={selected_emoji.description!r} emotion={selected_emoji.emotion}"
+            )
+            self._runtime._chat_history.append(
+                self._build_tool_message(
+                    tool_call,
+                    f"Sent emoji: {selected_emoji.description} (emotion: {', '.join(selected_emoji.emotion)})"
+                )
+            )
+        else:
+            logger.warning(f"{self._runtime.log_prefix} emoji send failed")
+            self._runtime._chat_history.append(
+                self._build_tool_message(tool_call, "Failed to send emoji.")
+            )
 
     def _build_tool_message(self, tool_call: ToolCall, content: str) -> SessionMessage:
         return build_message(

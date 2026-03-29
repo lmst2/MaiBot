@@ -80,6 +80,21 @@ def create_builtin_tools() -> List[ToolOption]:
     stop_builder.set_description("Stop the current inner loop and return control to the outer chat flow.")
     tools.append(stop_builder.build())
 
+    send_emoji_builder = ToolOptionBuilder()
+    send_emoji_builder.set_name("send_emoji")
+    send_emoji_builder.set_description(
+        "Send an emoji sticker to help express emotions. "
+        "You should specify the emotion type to select an appropriate emoji."
+    )
+    send_emoji_builder.add_param(
+        name="emotion",
+        param_type=ToolParamType.STRING,
+        description="The emotion type for selecting an appropriate emoji (e.g., 'happy', 'sad', 'angry', 'surprised', etc.).",
+        required=False,
+        enum_values=None,
+    )
+    tools.append(send_emoji_builder.build())
+
     return tools
 
 

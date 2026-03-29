@@ -62,10 +62,6 @@ class DefaultReplyer:
         self.chat_stream = chat_stream
         self.is_group_chat, self.chat_target_info = get_chat_type_and_target_info(self.chat_stream.session_id)
 
-        from src.chat.tool_executor import ToolExecutor
-
-        self.tool_executor = ToolExecutor(chat_id=self.chat_stream.session_id, enable_cache=True, cache_ttl=3)
-
     async def generate_reply_with_context(
         self,
         extra_info: str = "",
@@ -399,6 +395,11 @@ class DefaultReplyer:
         return f"{expression_habits_title}\n{expression_habits_block}", selected_ids
 
     async def build_tool_info(self, chat_history: str, sender: str, target: str, enable_tool: bool = True) -> str:
+        del chat_history
+        del sender
+        del target
+        del enable_tool
+        return ""
         """构建工具信息块
 
         Args:
@@ -415,9 +416,7 @@ class DefaultReplyer:
 
         try:
             # 使用工具执行器获取信息
-            tool_results, _, _ = await self.tool_executor.execute_from_chat_message(
-                sender=sender, target_message=target, chat_history=chat_history, return_details=False
-            )
+            tool_results = []
 
             if tool_results:
                 tool_info_str = "以下是你通过工具获取到的实时信息：\n"
@@ -1173,6 +1172,10 @@ class DefaultReplyer:
         return content, reasoning_content, model_name, tool_calls
 
     async def get_prompt_info(self, message: str, sender: str, target: str):
+        del message
+        del sender
+        del target
+        return ""
         related_info = ""
         start_time = time.time()
         try:
@@ -1218,7 +1221,7 @@ class DefaultReplyer:
             # logger.info(f"工具调用: {tool_calls}")
 
             if tool_calls:
-                result = await self.tool_executor.execute_tool_call(tool_calls[0])
+                result = None
                 end_time = time.time()
                 if not result or not result.get("content"):
                     logger.debug("从LPMM知识库获取知识失败，返回空知识...")

@@ -1,0 +1,126 @@
+{
+  "1": [],
+  "2": [
+    {
+      "id": "know_2_1774768612.298128",
+      "content": "性格自信，常以“真理在我这边”自居",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:16:52.298128"
+    },
+    {
+      "id": "know_2_1774768645.029561",
+      "content": "性格自信且带有自嘲精神，喜欢用轻松调侃的方式应对他人评价",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:17:25.029561"
+    }
+  ],
+  "3": [],
+  "4": [],
+  "5": [],
+  "6": [
+    {
+      "id": "know_6_1774768486.451792",
+      "content": "正在搭建 RAG 测试集",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:14:46.451792"
+    },
+    {
+      "id": "know_6_1774768517.122405",
+      "content": "熟悉 NapCat、RAG 等技术工具及互联网梗文化",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:15:17.122405"
+    }
+  ],
+  "7": [
+    {
+      "id": "know_7_1774768517.120403",
+      "content": "从事 RAG 测试集搭建或相关技术工作",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:15:17.120403"
+    },
+    {
+      "id": "know_7_1774768573.741823",
+      "content": "从事 RAG（检索增强生成）测试集搭建相关工作",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:16:13.741823"
+    }
+  ],
+  "8": [],
+  "9": [],
+  "10": [
+    {
+      "id": "know_10_1774768486.452792",
+      "content": "沟通风格带有调侃和自信，习惯用反问句表达观点",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:14:46.452792"
+    },
+    {
+      "id": "know_10_1774768517.121403",
+      "content": "沟通风格带有较强的好胜心和防御性，习惯用反问和调侃回应质疑",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:15:17.121403"
+    },
+    {
+      "id": "know_10_1774768573.742824",
+      "content": "沟通风格幽默，擅长使用逻辑闭环和反问句式进行辩论或调侃",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:16:13.742824"
+    },
+    {
+      "id": "know_10_1774768612.299126",
+      "content": "沟通风格幽默风趣，擅长使用网络梗和表情包互动",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:16:52.299126"
+    },
+    {
+      "id": "know_10_1774768612.299845",
+      "content": "偶尔会文绉绉地表达（自称“文青病犯了”），但能迅速切换回口语化",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:16:52.299845"
+    },
+    {
+      "id": "know_10_1774768645.028561",
+      "content": "沟通风格幽默风趣，偶尔会文青病发作使用古风表达",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T15:17:25.028561"
+    }
+  ],
+  "11": [],
+  "12": []
+}
