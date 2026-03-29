@@ -46,7 +46,7 @@ class MaisakaHeartFlowChatting:
         # Keep all original messages for batching and later learning.
         self.message_cache: list[SessionMessage] = []
         self._last_processed_index = 0
-        self._internal_turn_queue: asyncio.Queue[list[SessionMessage]] = asyncio.Queue()
+        self._internal_turn_queue: asyncio.Queue[Optional[list[SessionMessage]]] = asyncio.Queue()
 
         self._mcp_manager: Optional[MCPManager] = None
         self._current_cycle_detail: Optional[CycleDetail] = None
@@ -139,21 +139,27 @@ class MaisakaHeartFlowChatting:
             while self._running:
                 if not self._has_pending_messages():
                     if self._agent_state == self._STATE_WAIT:
-                        message_arrived = await self._wait_for_trigger()
+                        trigger_reason = await self._wait_for_trigger()
                     else:
                         self._new_message_event.clear()
                         await self._new_message_event.wait()
-                        message_arrived = self._running
+                        trigger_reason: Literal["message", "timeout", "stop"] = "message" if self._running else "stop"
                 else:
-                    message_arrived = True
+                    trigger_reason = "message"
 
                 if not self._running:
                     return
-                if not message_arrived:
+                if trigger_reason == "stop":
                     self._agent_state = self._STATE_STOP
                     continue
 
                 self._new_message_event.clear()
+
+                if trigger_reason == "timeout":
+                    # wait 超时后继续下一轮内部思考，但不要重复注入旧消息。
+                    logger.info(f"{self.log_prefix} wait 超时后投递继续思考触发")
+                    await self._internal_turn_queue.put(None)
+                    continue
 
                 while self._has_pending_messages():
                     cached_messages = self._collect_pending_messages()
@@ -190,31 +196,31 @@ class MaisakaHeartFlowChatting:
         )
         return unique_messages
 
-    async def _wait_for_trigger(self) -> bool:
-        """Return True on new message, False on timeout."""
+    async def _wait_for_trigger(self) -> Literal["message", "timeout", "stop"]:
+        """等待 wait 状态的触发结果。"""
         if self._agent_state != self._STATE_WAIT:
             await self._new_message_event.wait()
-            return True
+            return "message"
 
         if self._wait_until is None:
             await self._new_message_event.wait()
-            return True
+            return "message"
 
         timeout = self._wait_until - time.time()
         if timeout <= 0:
             logger.info(f"{self.log_prefix} Maisaka wait timed out")
-            self._enter_stop_state()
+            self._agent_state = self._STATE_RUNNING
             self._wait_until = None
-            return False
+            return "timeout"
 
         try:
             await asyncio.wait_for(self._new_message_event.wait(), timeout=timeout)
-            return True
+            return "message"
         except asyncio.TimeoutError:
             logger.info(f"{self.log_prefix} Maisaka wait timed out")
-            self._enter_stop_state()
+            self._agent_state = self._STATE_RUNNING
             self._wait_until = None
-            return False
+            return "timeout"
 
     def _enter_wait_state(self, seconds: Optional[float] = None) -> None:
         """Enter wait state."""

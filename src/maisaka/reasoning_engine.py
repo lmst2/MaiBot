@@ -14,7 +14,7 @@ from sqlmodel import select
 from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.chat.message_receive.message import SessionMessage
 from src.chat.replyer.replyer_manager import replyer_manager
-from src.chat.utils.utils import get_bot_account
+from src.chat.utils.utils import get_bot_account, process_llm_response
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Jargon
 from src.common.data_models.mai_message_data_model import UserInfo
@@ -58,14 +58,26 @@ class MaisakaReasoningEngine:
         try:
             while self._runtime._running:
                 cached_messages = await self._runtime._internal_turn_queue.get()
-                if not cached_messages:
+                timeout_triggered = cached_messages is None
+                if not timeout_triggered and not cached_messages:
                     self._runtime._internal_turn_queue.task_done()
                     continue
 
                 self._runtime._agent_state = self._runtime._STATE_RUNNING
-                await self._ingest_messages(cached_messages)
-
-                anchor_message = cached_messages[-1]
+                if cached_messages:
+                    await self._ingest_messages(cached_messages)
+                    anchor_message = cached_messages[-1]
+                else:
+                    anchor_message = self._get_timeout_anchor_message()
+                    if anchor_message is None:
+                        logger.warning(
+                            f"{self._runtime.log_prefix} wait 超时后缺少可复用的锚点消息，跳过本轮继续思考"
+                        )
+                        self._runtime._internal_turn_queue.task_done()
+                        continue
+                    logger.info(f"{self._runtime.log_prefix} wait 超时后开始新一轮思考")
+                    self._runtime._chat_history.append(self._build_wait_timeout_message(anchor_message))
+                    self._trim_chat_history()
                 try:
                     for round_index in range(self._runtime._max_internal_rounds):
                         cycle_detail = self._start_cycle()
@@ -125,6 +137,24 @@ class MaisakaReasoningEngine:
         except Exception:
             logger.exception("%s Maisaka internal loop crashed", self._runtime.log_prefix)
             raise
+
+    def _get_timeout_anchor_message(self) -> Optional[SessionMessage]:
+        """在 wait 超时后复用最近一条真实用户消息作为锚点。"""
+        if self._runtime.message_cache:
+            return self._runtime.message_cache[-1]
+        return None
+
+    def _build_wait_timeout_message(self, anchor_message: SessionMessage) -> SessionMessage:
+        """构造 wait 超时后的工具结果消息，用于触发下一轮思考。"""
+        return build_message(
+            role="tool",
+            content="wait 已超时，期间没有收到新的用户输入。请基于现有上下文继续下一轮思考。",
+            source="tool",
+            platform=anchor_message.platform,
+            session_id=self._runtime.session_id,
+            group_info=self._runtime._build_group_info(anchor_message),
+            user_info=UserInfo(user_id="maisaka_tool", user_nickname="tool", user_cardname=None),
+        )
 
     async def _ingest_messages(self, messages: list[SessionMessage]) -> None:
         """处理传入消息列表，将其转换为历史消息并加入聊天历史缓存。"""
@@ -417,6 +447,19 @@ class MaisakaReasoningEngine:
         logger.info(f"{self._runtime.log_prefix} reasoning similarity: {similarity:.2f}")
         return similarity > 0.9
 
+    @staticmethod
+    def _post_process_reply_text(reply_text: str) -> list[str]:
+        """沿用旧回复链的文本后处理，执行分段与错别字注入。"""
+        processed_segments: list[str] = []
+        for segment in process_llm_response(reply_text):
+            normalized_segment = segment.strip()
+            if normalized_segment:
+                processed_segments.append(normalized_segment)
+
+        if processed_segments:
+            return processed_segments
+        return [reply_text.strip()]
+
     async def _handle_tool_calls(
         self,
         tool_calls: list[ToolCall],
@@ -426,8 +469,10 @@ class MaisakaReasoningEngine:
         for tool_call in tool_calls:
             if tool_call.func_name == "reply":
                 reply_sent = await self._handle_reply(tool_call, latest_thought, anchor_message)
-                if reply_sent:
-                    return True
+                if not reply_sent:
+                    logger.warning(
+                        f"{self._runtime.log_prefix} reply tool did not produce a visible message, continuing loop"
+                    )
                 continue
 
             if tool_call.func_name == "no_reply":
@@ -634,19 +679,31 @@ class MaisakaReasoningEngine:
             )
             return False
 
+        reply_segments = self._post_process_reply_text(reply_text)
+        combined_reply_text = "".join(reply_segments)
+        logger.info(
+            f"{self._runtime.log_prefix} reply post process finished: "
+            f"target_msg_id={target_message_id} segment_count={len(reply_segments)} "
+            f"segments={reply_segments!r}"
+        )
+
         logger.info(
             f"{self._runtime.log_prefix} sending guided reply: "
-            f"target_msg_id={target_message_id} quote={quote_reply} reply_text={reply_text!r}"
+            f"target_msg_id={target_message_id} quote={quote_reply} reply_segments={reply_segments!r}"
         )
         try:
-            sent = await send_service.text_to_stream(
-                text=reply_text,
-                stream_id=self._runtime.session_id,
-                set_reply=quote_reply,
-                reply_message=target_message if quote_reply else None,
-                selected_expressions=reply_result.selected_expression_ids or None,
-                typing=False,
-            )
+            sent = False
+            for index, segment in enumerate(reply_segments):
+                sent = await send_service.text_to_stream(
+                    text=segment,
+                    stream_id=self._runtime.session_id,
+                    set_reply=quote_reply if index == 0 else False,
+                    reply_message=target_message if quote_reply and index == 0 else None,
+                    selected_expressions=reply_result.selected_expression_ids or None,
+                    typing=index > 0,
+                )
+                if not sent:
+                    break
         except Exception:
             logger.exception(
                 f"{self._runtime.log_prefix} send_service.text_to_stream crashed "
@@ -675,11 +732,12 @@ class MaisakaReasoningEngine:
         if self._runtime.chat_stream is not None:
             await database_api.store_tool_info(
                 chat_stream=self._runtime.chat_stream,
-                display_prompt=f"你对{target_user_name}进行了回复：{reply_text}",
+                display_prompt=f"你对{target_user_name}进行了回复：{combined_reply_text}",
                 tool_data={
                     "msg_id": target_message_id,
                     "quote": quote_reply,
-                    "reply_text": reply_text,
+                    "reply_text": combined_reply_text,
+                    "reply_segments": reply_segments,
                 },
                 tool_name="reply",
                 tool_reasoning=latest_thought,
@@ -693,17 +751,25 @@ class MaisakaReasoningEngine:
             user_cardname=None,
         )
         history_message = build_message(
-            role="assistant",
-            content=reply_text,
+            role="user",
+            content="",
             source="guided_reply",
             platform=target_platform,
             session_id=self._runtime.session_id,
             group_info=self._runtime._build_group_info(target_message),
             user_info=bot_user_info,
         )
-        structured_visible_text = f"{self._build_planner_user_prefix(history_message)}{reply_text}"
-        history_message.display_message = structured_visible_text
-        history_message.processed_plain_text = structured_visible_text
+        history_message.raw_message = MessageSequence(
+            [TextComponent(f"{self._build_planner_user_prefix(history_message)}{combined_reply_text}")]
+        )
+        visible_reply_text = format_speaker_content(
+            bot_name,
+            combined_reply_text,
+            history_message.timestamp,
+            history_message.message_id,
+        )
+        history_message.display_message = visible_reply_text
+        history_message.processed_plain_text = visible_reply_text
         self._runtime._chat_history.append(history_message)
         return True
 

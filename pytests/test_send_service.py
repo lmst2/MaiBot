@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 import pytest
 
 from src.chat.message_receive.chat_manager import BotChatSession
+from src.common.data_models.message_component_data_model import MessageSequence, TextComponent
 from src.services import send_service
 
 
@@ -13,42 +14,18 @@ class _FakePlatformIOManager:
     """用于测试的 Platform IO 管理器假对象。"""
 
     def __init__(self, delivery_batch: Any) -> None:
-        """初始化假 Platform IO 管理器。
-
-        Args:
-            delivery_batch: 发送时返回的批量回执。
-        """
         self._delivery_batch = delivery_batch
         self.ensure_calls = 0
         self.sent_messages: List[Dict[str, Any]] = []
 
     async def ensure_send_pipeline_ready(self) -> None:
-        """记录发送管线准备调用次数。"""
         self.ensure_calls += 1
 
     def build_route_key_from_message(self, message: Any) -> Any:
-        """根据消息构造假的路由键。
-
-        Args:
-            message: 待发送的内部消息对象。
-
-        Returns:
-            Any: 简化后的路由键对象。
-        """
         del message
         return SimpleNamespace(platform="qq")
 
     async def send_message(self, message: Any, route_key: Any, metadata: Dict[str, Any]) -> Any:
-        """记录发送请求并返回预设回执。
-
-        Args:
-            message: 待发送的内部消息对象。
-            route_key: 本次发送使用的路由键。
-            metadata: 发送元数据。
-
-        Returns:
-            Any: 预设的批量发送回执。
-        """
         self.sent_messages.append(
             {
                 "message": message,
@@ -59,12 +36,7 @@ class _FakePlatformIOManager:
         return self._delivery_batch
 
 
-def _build_target_stream() -> BotChatSession:
-    """构造一个最小可用的目标会话对象。
-
-    Returns:
-        BotChatSession: 测试用会话对象。
-    """
+def _build_private_stream() -> BotChatSession:
     return BotChatSession(
         session_id="test-session",
         platform="qq",
@@ -73,14 +45,21 @@ def _build_target_stream() -> BotChatSession:
     )
 
 
+def _build_group_stream() -> BotChatSession:
+    return BotChatSession(
+        session_id="group-session",
+        platform="qq",
+        user_id="target-user",
+        group_id="target-group",
+    )
+
+
 def test_inherit_platform_io_route_metadata_falls_back_to_bot_account(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """没有上下文消息时，也应回填当前平台账号用于账号级路由命中。"""
-
     monkeypatch.setattr(send_service, "get_bot_account", lambda platform: "bot-qq" if platform == "qq" else "")
 
-    metadata = send_service._inherit_platform_io_route_metadata(_build_target_stream())
+    metadata = send_service._inherit_platform_io_route_metadata(_build_private_stream())
 
     assert metadata["platform_io_account_id"] == "bot-qq"
     assert metadata["platform_io_target_user_id"] == "target-user"
@@ -88,7 +67,6 @@ def test_inherit_platform_io_route_metadata_falls_back_to_bot_account(
 
 @pytest.mark.asyncio
 async def test_text_to_stream_delegates_to_platform_io(monkeypatch: pytest.MonkeyPatch) -> None:
-    """send service 应将发送职责统一交给 Platform IO。"""
     fake_manager = _FakePlatformIOManager(
         delivery_batch=SimpleNamespace(
             has_success=True,
@@ -104,7 +82,7 @@ async def test_text_to_stream_delegates_to_platform_io(monkeypatch: pytest.Monke
     monkeypatch.setattr(
         send_service._chat_manager,
         "get_session_by_session_id",
-        lambda stream_id: _build_target_stream() if stream_id == "test-session" else None,
+        lambda stream_id: _build_private_stream() if stream_id == "test-session" else None,
     )
     monkeypatch.setattr(
         send_service.MessageUtils,
@@ -123,7 +101,6 @@ async def test_text_to_stream_delegates_to_platform_io(monkeypatch: pytest.Monke
 
 @pytest.mark.asyncio
 async def test_text_to_stream_returns_false_when_platform_io_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Platform IO 批量发送全部失败时，应直接向上返回失败。"""
     fake_manager = _FakePlatformIOManager(
         delivery_batch=SimpleNamespace(
             has_success=False,
@@ -144,7 +121,7 @@ async def test_text_to_stream_returns_false_when_platform_io_fails(monkeypatch: 
     monkeypatch.setattr(
         send_service._chat_manager,
         "get_session_by_session_id",
-        lambda stream_id: _build_target_stream() if stream_id == "test-session" else None,
+        lambda stream_id: _build_private_stream() if stream_id == "test-session" else None,
     )
 
     result = await send_service.text_to_stream(text="发送失败", stream_id="test-session")
@@ -152,3 +129,63 @@ async def test_text_to_stream_returns_false_when_platform_io_fails(monkeypatch: 
     assert result is False
     assert fake_manager.ensure_calls == 1
     assert len(fake_manager.sent_messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_private_outbound_message_preserves_bot_sender_and_receiver_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(send_service, "get_bot_account", lambda platform: "bot-qq")
+    monkeypatch.setattr(
+        send_service._chat_manager,
+        "get_session_by_session_id",
+        lambda stream_id: _build_private_stream() if stream_id == "test-session" else None,
+    )
+
+    outbound_message = send_service._build_outbound_session_message(
+        message_sequence=MessageSequence(components=[TextComponent(text="你好")]),
+        stream_id="test-session",
+        display_message="你好",
+    )
+
+    assert outbound_message is not None
+    maim_message = await outbound_message.to_maim_message()
+
+    assert maim_message.message_info.user_info is not None
+    assert maim_message.message_info.user_info.user_id == "bot-qq"
+    assert maim_message.message_info.group_info is None
+    assert maim_message.message_info.sender_info is not None
+    assert maim_message.message_info.sender_info.user_info is not None
+    assert maim_message.message_info.sender_info.user_info.user_id == "bot-qq"
+    assert maim_message.message_info.receiver_info is not None
+    assert maim_message.message_info.receiver_info.user_info is not None
+    assert maim_message.message_info.receiver_info.user_info.user_id == "target-user"
+
+
+@pytest.mark.asyncio
+async def test_group_outbound_message_preserves_bot_sender_and_target_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(send_service, "get_bot_account", lambda platform: "bot-qq")
+    monkeypatch.setattr(
+        send_service._chat_manager,
+        "get_session_by_session_id",
+        lambda stream_id: _build_group_stream() if stream_id == "group-session" else None,
+    )
+
+    outbound_message = send_service._build_outbound_session_message(
+        message_sequence=MessageSequence(components=[TextComponent(text="大家好")]),
+        stream_id="group-session",
+        display_message="大家好",
+    )
+
+    assert outbound_message is not None
+    maim_message = await outbound_message.to_maim_message()
+
+    assert maim_message.message_info.user_info is not None
+    assert maim_message.message_info.user_info.user_id == "bot-qq"
+    assert maim_message.message_info.group_info is not None
+    assert maim_message.message_info.group_info.group_id == "target-group"
+    assert maim_message.message_info.receiver_info is not None
+    assert maim_message.message_info.receiver_info.group_info is not None
+    assert maim_message.message_info.receiver_info.group_info.group_id == "target-group"
