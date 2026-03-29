@@ -5,8 +5,9 @@ MaiSaka - MCP 管理器
 
 from typing import Optional
 
-from ..console import console
-from .config import MCPServerConfig, load_mcp_config
+from src.maisaka.console import console
+
+from .config import DEFAULT_MCP_CONFIG_PATH, MCPServerConfig, load_mcp_config
 from .connection import MCPConnection, MCP_AVAILABLE
 
 # 内置工具名称集合 —— MCP 工具不允许与这些名称冲突
@@ -43,7 +44,7 @@ class MCPManager:
     @classmethod
     async def from_config(
         cls,
-        config_path: str = "mcp_config.json",
+        config_path: str = str(DEFAULT_MCP_CONFIG_PATH),
     ) -> Optional["MCPManager"]:
         """
         从配置文件创建并初始化 MCPManager。

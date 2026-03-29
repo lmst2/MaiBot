@@ -6,7 +6,8 @@ MaiSaka - 单个 MCP 服务器连接管理
 from contextlib import AsyncExitStack
 from typing import Any, Optional
 
-from ..console import console
+from src.maisaka.console import console
+
 from .config import MCPServerConfig
 
 # ──────────────────── MCP SDK 可选导入 ────────────────────

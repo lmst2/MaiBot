@@ -1,6 +1,6 @@
 """
-MaiSaka - MCP 配置加载与验证
-从 mcp_config.json 读取 MCP 服务器定义，解析为结构化配置对象。
+MCP 配置加载与验证。
+从 config/mcp_config.json 读取 MCP 服务器定义，解析为结构化配置对象。
 
 配置格式示例:
 {
@@ -21,12 +21,16 @@ MaiSaka - MCP 配置加载与验证
 - url: SSE 传输（连接远程服务器）
 """
 
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
 import json
 import os
-from dataclasses import dataclass, field
-from typing import Optional
 
-from ..console import console
+from src.maisaka.console import console
+
+
+DEFAULT_MCP_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "mcp_config.json"
 
 
 @dataclass
@@ -54,7 +58,7 @@ class MCPServerConfig:
         return "unknown"
 
 
-def load_mcp_config(config_path: str = "mcp_config.json") -> list[MCPServerConfig]:
+def load_mcp_config(config_path: str = str(DEFAULT_MCP_CONFIG_PATH)) -> list[MCPServerConfig]:
     """
     从配置文件加载 MCP 服务器列表。
 
@@ -76,7 +80,7 @@ def load_mcp_config(config_path: str = "mcp_config.json") -> list[MCPServerConfi
 
     mcp_servers = data.get("mcpServers", {})
     if not isinstance(mcp_servers, dict):
-        console.print("[warning]⚠️ mcp_config.json 中 mcpServers 格式无效[/warning]")
+        console.print("[warning]⚠️ MCP 配置中的 mcpServers 格式无效[/warning]")
         return []
 
     configs: list[MCPServerConfig] = []
