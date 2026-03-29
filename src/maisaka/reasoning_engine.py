@@ -14,6 +14,7 @@ from sqlmodel import select
 from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.chat.message_receive.message import SessionMessage
 from src.chat.replyer.replyer_manager import replyer_manager
+from src.chat.utils.utils import get_bot_account
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Jargon
 from src.common.data_models.mai_message_data_model import UserInfo
@@ -33,7 +34,6 @@ from .message_adapter import (
     get_message_text,
     get_message_role,
 )
-from .reply_context_builder import MaisakaReplyContextBuilder
 from .tool_handlers import (
     handle_mcp_tool,
     handle_unknown_tool,
@@ -50,8 +50,8 @@ class MaisakaReasoningEngine:
 
     def __init__(self, runtime: "MaisakaHeartFlowChatting") -> None:
         self._runtime = runtime
-        self._reply_context_builder = MaisakaReplyContextBuilder(runtime.session_id)
         self._last_reasoning_content: str = ""
+        self._shown_jargons: set[str] = set()  # 已在参考消息中展示过的 jargon
 
     async def run_loop(self) -> None:
         """独立消费消息批次，并执行对应的内部思考轮次。"""
@@ -72,10 +72,18 @@ class MaisakaReasoningEngine:
                         self._runtime._log_cycle_started(cycle_detail, round_index)
                         try:
                             # 每次LLM生成前，动态添加参考消息到最新位置
-                            self._append_jargon_reference_message()
+                            reference_added = self._append_jargon_reference_message()
                             planner_started_at = time.time()
                             response = await self._runtime._chat_loop_service.chat_loop_step(self._runtime._chat_history)
                             cycle_detail.time_records["planner"] = time.time() - planner_started_at
+
+                            # LLM调用后，移除刚才添加的参考消息（一次性使用）
+                            if reference_added and self._runtime._chat_history:
+                                # 从末尾往前查找并移除参考消息
+                                for i in range(len(self._runtime._chat_history) - 1, -1, -1):
+                                    if get_message_source(self._runtime._chat_history[i]) == "user_reference":
+                                        self._runtime._chat_history.pop(i)
+                                        break
 
                             reasoning_content = response.content or ""
                             if self._should_replace_reasoning(reasoning_content):
@@ -218,15 +226,23 @@ class MaisakaReasoningEngine:
         self._runtime._chat_history.insert(insert_at, message)
         return insert_at
 
-    def _append_jargon_reference_message(self) -> None:
-        """每次LLM生成前，如果命中了黑话词条，则添加一条参考信息消息到聊天历史末尾。"""
+    def _append_jargon_reference_message(self) -> bool:
+        """每次LLM生成前，如果命中了黑话词条，则添加一条参考信息消息到聊天历史末尾。
+
+        Returns:
+            bool: 是否添加了参考消息
+        """
         content = self._build_user_history_corpus()
         if not content:
-            return
+            return False
 
         matched_words = self._find_jargon_words_in_text(content)
         if not matched_words:
-            return
+            return False
+
+        # 记录已展示的 jargon
+        for word in matched_words:
+            self._shown_jargons.add(word.lower())
 
         reference_text = (
             "[参考信息]\n"
@@ -248,6 +264,7 @@ class MaisakaReasoningEngine:
             display_text=reference_text,
         )
         self._runtime._chat_history.append(reference_message)
+        return True
 
     def _build_user_history_corpus(self) -> str:
         """拼接当前聊天记录内所有用户消息的正文，用于统一匹配黑话。"""
@@ -282,8 +299,14 @@ class MaisakaReasoningEngine:
                 jargon_content = str(jargon.content or "").strip()
                 if not jargon_content:
                     continue
+                # meaning 为空的不匹配
+                if not str(jargon.meaning or "").strip():
+                    continue
                 normalized_content = jargon_content.lower()
                 if normalized_content in seen_words:
+                    continue
+                # 跳过已经展示过的 jargon
+                if normalized_content in self._shown_jargons:
                     continue
                 if not self._is_visible_jargon(jargon):
                     continue
@@ -573,34 +596,8 @@ class MaisakaReasoningEngine:
             return False
 
         logger.info(f"{self._runtime.log_prefix} acquired Maisaka reply generator successfully")
-        logger.info(
-            f"{self._runtime.log_prefix} building reply context: "
-            f"target_msg_id={target_message_id} unknown_words={unknown_words!r}"
-        )
 
-        try:
-            reply_context = await self._reply_context_builder.build(
-                chat_history=self._runtime._chat_history,
-                reply_message=target_message,
-                reply_reason=latest_thought,
-            )
-        except Exception:
-            logger.exception(
-                f"{self._runtime.log_prefix} reply context builder crashed: "
-                f"target_msg_id={target_message_id}"
-            )
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "Reply context preparation crashed.")
-            )
-            return False
-
-        logger.info(
-            f"{self._runtime.log_prefix} reply context built: "
-            f"target_msg_id={target_message_id} "
-            f"selected_expression_ids={reply_context.selected_expression_ids!r} "
-            f"has_jargon_explanation={bool(reply_context.jargon_explanation.strip())}"
-        )
-
+        logger.info(f"{self._runtime.log_prefix} calling generate_reply_with_context: target_msg_id={target_message_id}")
         try:
             success, reply_result = await replyer.generate_reply_with_context(
                 reply_reason=latest_thought,
@@ -609,11 +606,13 @@ class MaisakaReasoningEngine:
                 chat_history=self._runtime._chat_history,
                 unknown_words=unknown_words,
                 log_reply=False,
-                expression_habits=reply_context.expression_habits,
-                selected_expression_ids=reply_context.selected_expression_ids,
             )
-        except Exception:
-            logger.exception(f"{self._runtime.log_prefix} reply generator crashed: target_msg_id={target_message_id}")
+        except Exception as exc:
+            import traceback
+            logger.error(
+                f"{self._runtime.log_prefix} reply generator crashed: target_msg_id={target_message_id} "
+                f"exc_type={type(exc).__name__} exc_msg={str(exc)}\n{traceback.format_exc()}"
+            )
             self._runtime._chat_history.append(
                 self._build_tool_message(tool_call, "Visible reply generation crashed.")
             )
@@ -686,18 +685,26 @@ class MaisakaReasoningEngine:
                 tool_reasoning=latest_thought,
             )
 
+        target_platform = target_message.platform or anchor_message.platform
         bot_name = global_config.bot.nickname.strip() or "MaiSaka"
-        self._runtime._chat_history.append(
-            build_message(
-                role="user",
-                content=format_speaker_content(bot_name, reply_text, datetime.now()),
-                source="guided_reply",
-                platform=target_message.platform or anchor_message.platform,
-                session_id=self._runtime.session_id,
-                group_info=self._runtime._build_group_info(target_message),
-                user_info=self._runtime._build_runtime_user_info(),
-            )
+        bot_user_info = UserInfo(
+            user_id=get_bot_account(target_platform) or "maisaka_assistant",
+            user_nickname=bot_name,
+            user_cardname=None,
         )
+        history_message = build_message(
+            role="assistant",
+            content=reply_text,
+            source="guided_reply",
+            platform=target_platform,
+            session_id=self._runtime.session_id,
+            group_info=self._runtime._build_group_info(target_message),
+            user_info=bot_user_info,
+        )
+        structured_visible_text = f"{self._build_planner_user_prefix(history_message)}{reply_text}"
+        history_message.display_message = structured_visible_text
+        history_message.processed_plain_text = structured_visible_text
+        self._runtime._chat_history.append(history_message)
         return True
 
     async def _handle_send_emoji(self, tool_call: ToolCall, anchor_message: SessionMessage) -> None:

@@ -62,6 +62,24 @@
         "source": "maisaka_learning"
       },
       "created_at": "2026-03-29T16:14:39.496335"
+    },
+    {
+      "id": "know_1_1774773435.68612",
+      "content": "用户名为小千",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:37:15.686120"
+    },
+    {
+      "id": "know_1_1774773676.69252",
+      "content": "用户自称猫娘（二次元人设）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:41:16.692520"
     }
   ],
   "2": [
@@ -156,7 +174,17 @@
       "created_at": "2026-03-29T16:13:13.481732"
     }
   ],
-  "3": [],
+  "3": [
+    {
+      "id": "know_3_1774773676.695521",
+      "content": "喜欢冰淇淋",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:41:16.695521"
+    }
+  ],
   "4": [],
   "5": [],
   "6": [
@@ -384,6 +412,78 @@
         "source": "maisaka_learning"
       },
       "created_at": "2026-03-29T16:25:30.867535"
+    },
+    {
+      "id": "know_6_1774773338.849271",
+      "content": "熟悉《原神》等二次元游戏及网络梗文化",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:35:38.849271"
+    },
+    {
+      "id": "know_6_1774773371.406209",
+      "content": "关注高分屏字体显示效果",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:36:11.406209"
+    },
+    {
+      "id": "know_6_1774773401.48921",
+      "content": "熟悉电脑显示技术（如高分屏字体选择）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:36:41.489210"
+    },
+    {
+      "id": "know_6_1774773435.688119",
+      "content": "关注高分屏显示效果与字体选择（无衬线/衬线体）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:37:15.688119"
+    },
+    {
+      "id": "know_6_1774773608.256103",
+      "content": "关注屏幕字体与分辨率（无衬线/有衬线）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:40:08.256103"
+    },
+    {
+      "id": "know_6_1774773645.671546",
+      "content": "关注屏幕分辨率与字体显示效果（高分屏/无衬线体）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:40:45.671546"
+    },
+    {
+      "id": "know_6_1774773676.698035",
+      "content": "关注字体设计（无衬线体）",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:41:16.698035"
+    },
+    {
+      "id": "know_6_1774773740.83822",
+      "content": "喜欢二次元文化及 VTuber 风格内容",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:42:20.838220"
     }
   ],
   "7": [
@@ -458,6 +558,33 @@
         "source": "maisaka_learning"
       },
       "created_at": "2026-03-29T16:15:54.870238"
+    },
+    {
+      "id": "know_7_1774773185.194069",
+      "content": "使用 NapCat 框架",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:33:05.194069"
+    },
+    {
+      "id": "know_7_1774773338.851275",
+      "content": "使用 NapCat 框架，具备技术平台认知能力",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:35:38.851275"
+    },
+    {
+      "id": "know_7_1774773371.403696",
+      "content": "熟悉 NapCat 框架",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:36:11.403696"
     }
   ],
   "8": [
@@ -523,6 +650,24 @@
         "source": "maisaka_learning"
       },
       "created_at": "2026-03-29T16:15:54.875743"
+    },
+    {
+      "id": "know_8_1774773435.690121",
+      "content": "习惯使用表情包表达情绪或进行网络互动",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:37:15.690121"
+    },
+    {
+      "id": "know_8_1774773676.701034",
+      "content": "备战中考",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:41:16.701034"
     }
   ],
   "9": [],
@@ -634,6 +779,69 @@
         "source": "maisaka_learning"
       },
       "created_at": "2026-03-29T16:14:39.503333"
+    },
+    {
+      "id": "know_10_1774773338.853274",
+      "content": "沟通风格幽默风趣，擅长玩梗与自嘲",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:35:38.853274"
+    },
+    {
+      "id": "know_10_1774773371.408719",
+      "content": "喜欢用幽默调侃的方式回应他人",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:36:11.408719"
+    },
+    {
+      "id": "know_10_1774773401.491209",
+      "content": "沟通风格幽默风趣，擅长玩梗和角色扮演",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:36:41.491209"
+    },
+    {
+      "id": "know_10_1774773435.693121",
+      "content": "沟通风格幽默、喜欢玩梗和自嘲，擅长接话茬",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:37:15.693121"
+    },
+    {
+      "id": "know_10_1774773532.488374",
+      "content": "沟通风格幽默，喜欢使用网络梗和表情包活跃气氛",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:38:52.488374"
+    },
+    {
+      "id": "know_10_1774773532.490959",
+      "content": "在争论中倾向于据理力争，并自嘲或调侃对方阅读理解能力",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:38:52.490959"
+    },
+    {
+      "id": "know_10_1774773569.709356",
+      "content": "喜欢用幽默、夸张和自嘲的方式活跃气氛",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:39:29.709356"
     }
   ],
   "11": [
@@ -656,6 +864,24 @@
         "source": "maisaka_learning"
       },
       "created_at": "2026-03-29T15:50:54.657355"
+    },
+    {
+      "id": "know_12_1774773185.196068",
+      "content": "备战中考",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:33:05.196068"
+    },
+    {
+      "id": "know_12_1774773740.836223",
+      "content": "面对压力或冲突时，倾向于通过撒娇、耍赖和寻求盟友支持来应对",
+      "metadata": {
+        "session_id": "628336b082552269377e9d0648e26c60",
+        "source": "maisaka_learning"
+      },
+      "created_at": "2026-03-29T16:42:20.836223"
     }
   ]
 }

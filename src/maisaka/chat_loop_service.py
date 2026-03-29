@@ -30,6 +30,7 @@ from .builtin_tools import get_builtin_tools
 from .message_adapter import (
     build_message,
     format_speaker_content,
+    get_message_role,
     to_llm_message,
 )
 
@@ -303,6 +304,7 @@ class MaisakaChatLoopService:
 
     async def chat_loop_step(self, chat_history: List[SessionMessage]) -> ChatResponse:
         await self.ensure_chat_prompt_loaded()
+        selected_history, selection_reason = self._select_llm_context_messages(chat_history)
 
         def message_factory(_client: BaseClient) -> List[Message]:
             messages: List[Message] = []
@@ -310,7 +312,7 @@ class MaisakaChatLoopService:
             system_msg.add_text_content(self._chat_system_prompt)
             messages.append(system_msg.build())
 
-            for msg in chat_history:
+            for msg in selected_history:
                 llm_message = to_llm_message(msg)
                 if llm_message is not None:
                     messages.append(llm_message)
@@ -333,6 +335,7 @@ class MaisakaChatLoopService:
                 Panel(
                     Group(*ordered_panels),
                     title="MaiSaka LLM Request - chat_loop_step",
+                    subtitle=selection_reason,
                     border_style="cyan",
                     padding=(0, 1),
                 )
@@ -372,6 +375,38 @@ class MaisakaChatLoopService:
             content=generation_result.response,
             tool_calls=generation_result.tool_calls or [],
             raw_message=raw_message,
+        )
+
+    @staticmethod
+    def _select_llm_context_messages(chat_history: List[SessionMessage]) -> tuple[List[SessionMessage], str]:
+        """选择真正发送给 LLM 的上下文消息。"""
+        max_context_size = max(1, int(global_config.chat.max_context_size))
+        counted_roles = {"user", "assistant"}
+        selected_indices: List[int] = []
+        counted_message_count = 0
+
+        for index in range(len(chat_history) - 1, -1, -1):
+            message = chat_history[index]
+            if to_llm_message(message) is None:
+                continue
+
+            selected_indices.append(index)
+            if get_message_role(message) in counted_roles:
+                counted_message_count += 1
+                if counted_message_count >= max_context_size:
+                    break
+
+        if not selected_indices:
+            return [], f"上下文判定：最近 {max_context_size} 条 user/assistant（当前 0 条）"
+
+        selected_indices.reverse()
+        selected_history = [chat_history[index] for index in selected_indices]
+        return (
+            selected_history,
+            (
+                f"上下文判定：最近 {max_context_size} 条 user/assistant；"
+                f"展示并发送窗口内消息 {len(selected_history)} 条"
+            ),
         )
 
     @staticmethod
