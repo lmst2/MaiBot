@@ -58,9 +58,9 @@ class BufferCLI:
 
         knowledge_stats = self._knowledge_store.get_stats()
         if knowledge_stats["total_items"] > 0:
-            console.print(f"[success][OK] Knowledge store: {knowledge_stats['total_items']} item(s)[/success]")
+            console.print(f"[success]知识库中已有 {knowledge_stats['total_items']} 条数据[/success]")
         else:
-            console.print("[muted][OK] Knowledge store: initialized with no data[/muted]")
+            console.print("[muted]知识库已初始化，当前没有数据[/muted]")
 
         self._chat_start_time: Optional[datetime] = None
         self._last_user_input_time: Optional[datetime] = None
@@ -78,7 +78,7 @@ class BufferCLI:
         self._chat_loop_service = MaisakaChatLoopService()
 
         model_name = self._get_current_model_name()
-        console.print(f"[success][OK] LLM service initialized[/success] [muted](model: {model_name})[/muted]")
+        console.print(f"[success]大模型服务已初始化[/success] [muted](模型: {model_name})[/muted]")
 
     @staticmethod
     def _get_current_model_name() -> str:
@@ -89,7 +89,7 @@ class BufferCLI:
                 return model_task_config.planner.model_list[0]
         except Exception:
             pass
-        return "unconfigured"
+        return "未配置"
 
     def _build_tool_context(self) -> ToolHandlerContext:
         """构建工具处理的共享上下文。"""
@@ -105,7 +105,7 @@ class BufferCLI:
         banner = Text()
         banner.append("MaiSaka", style="bold cyan")
         banner.append(" v2.0\n", style="muted")
-        banner.append("Type to chat | Ctrl+C to exit", style="muted")
+        banner.append("输入内容开始对话 | Ctrl+C 退出", style="muted")
 
         console.print(Panel(banner, box=box.DOUBLE_EDGE, border_style="cyan", padding=(1, 2)))
         console.print()
@@ -113,7 +113,7 @@ class BufferCLI:
     async def _start_chat(self, user_text: str) -> None:
         """追加用户输入并继续内部循环。"""
         if self._chat_loop_service is None:
-            console.print("[warning]LLM service is not initialized; skipping chat.[/warning]")
+            console.print("[warning]大模型服务尚未初始化，已跳过本次对话。[/warning]")
             return
 
         now = datetime.now()
@@ -145,7 +145,7 @@ class BufferCLI:
         speaker_name: Optional[str] = None,
     ) -> SessionBackedMessage:
         """为 CLI 构造新的上下文消息。"""
-        resolved_speaker_name = speaker_name or global_config.maisaka.user_name.strip() or "User"
+        resolved_speaker_name = speaker_name or global_config.maisaka.user_name.strip() or "用户"
         visible_text = format_speaker_content(
             resolved_speaker_name,
             user_text,
@@ -177,7 +177,7 @@ class BufferCLI:
         message.message_info = MessageInfo(
             user_info=UserInfo(
                 user_id="maisaka_user",
-                user_nickname=global_config.maisaka.user_name.strip() or "User",
+                user_nickname=global_config.maisaka.user_name.strip() or "用户",
                 user_cardname=None,
             ),
             group_info=None,
@@ -186,7 +186,7 @@ class BufferCLI:
         message.session_id = "maisaka_cli"
         message.raw_message = MessageSequence([])
         visible_text = format_speaker_content(
-            global_config.maisaka.user_name.strip() or "User",
+            global_config.maisaka.user_name.strip() or "用户",
             user_text,
             timestamp,
         )
@@ -219,9 +219,9 @@ class BufferCLI:
         try:
             added_count = await self._knowledge_learner.learn()
             if added_count > 0 and global_config.maisaka.show_thinking:
-                console.print(f"[muted]Knowledge learning added {added_count} item(s).[/muted]")
+                console.print(f"[muted]知识学习已完成，新增 {added_count} 条数据。[/muted]")
         except Exception as exc:
-            console.print(f"[warning]Knowledge learning failed: {exc}[/warning]")
+            console.print(f"[warning]知识学习失败：{exc}[/warning]")
 
     async def _run_llm_loop(self, chat_history: list[LLMContextMessage]) -> None:
         """
@@ -246,10 +246,10 @@ class BufferCLI:
 
                 if global_config.maisaka.enable_knowledge_module:
                     tasks.append(("knowledge", retrieve_relevant_knowledge(self._chat_loop_service, chat_history)))
-                    status_text_parts.append("knowledge")
+                    status_text_parts.append("知识库")
 
                 with console.status(
-                    f"[info]{' + '.join(status_text_parts)} analyzing...[/info]",
+                    f"[info]{' + '.join(status_text_parts)} 分析中...[/info]",
                     spinner="dots",
                 ):
                     results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
@@ -258,14 +258,14 @@ class BufferCLI:
                 if global_config.maisaka.enable_knowledge_module:
                     knowledge_result = results[0] if results else None
                     if isinstance(knowledge_result, Exception):
-                        console.print(f"[warning]Knowledge analysis failed: {knowledge_result}[/warning]")
+                        console.print(f"[warning]知识分析失败：{knowledge_result}[/warning]")
                     elif knowledge_result:
                         knowledge_analysis = knowledge_result
                         if global_config.maisaka.show_thinking:
                             console.print(
                                 Panel(
                                     Markdown(knowledge_analysis),
-                                    title="Knowledge",
+                                    title="知识",
                                     border_style="bright_magenta",
                                     padding=(0, 1),
                                     style="dim",
@@ -277,7 +277,7 @@ class BufferCLI:
 
                 perception_parts = []
                 if knowledge_analysis:
-                    perception_parts.append(f"Knowledge\n{knowledge_analysis}")
+                    perception_parts.append(f"知识库\n{knowledge_analysis}")
 
                 if perception_parts:
                     chat_history.append(
@@ -288,17 +288,17 @@ class BufferCLI:
                         )
                     )
             elif global_config.maisaka.show_thinking:
-                console.print("[muted]Skipping module analysis because the last round used no tools.[/muted]")
+                console.print("[muted]上一轮没有使用工具，本轮跳过模块分析。[/muted]")
 
-            with console.status("[info]AI is thinking...[/info]", spinner="dots"):
+            with console.status("[info]正在思考...[/info]", spinner="dots"):
                 try:
                     response = await self._chat_loop_service.chat_loop_step(chat_history)
                     consecutive_errors = 0
                 except Exception as exc:
                     consecutive_errors += 1
-                    console.print(f"[error]LLM call failed: {exc}[/error]")
+                    console.print(f"[error]大模型调用失败：{exc}[/error]")
                     if consecutive_errors >= 3:
-                        console.print("[error]Too many consecutive errors. Exiting chat.[/error]\n")
+                        console.print("[error]连续失败次数过多，结束对话。[/error]\n")
                         break
                     continue
 
@@ -309,7 +309,7 @@ class BufferCLI:
                 console.print(
                     Panel(
                         Markdown(response.content),
-                        title="Thought",
+                        title="思考",
                         border_style="dim",
                         padding=(1, 2),
                         style="dim",
@@ -336,7 +336,7 @@ class BufferCLI:
                     reply = await self._generate_visible_reply(chat_history, response.content)
                     chat_history.append(
                         ToolResultMessage(
-                            content="Visible reply generated and recorded.",
+                            content="已生成并记录可见回复。",
                             timestamp=datetime.now(),
                             tool_call_id=tool_call.call_id,
                             tool_name=tool_call.func_name,
@@ -353,10 +353,10 @@ class BufferCLI:
 
                 elif tool_call.func_name == "no_reply":
                     if global_config.maisaka.show_thinking:
-                        console.print("[muted]No visible reply this round.[/muted]")
+                        console.print("[muted]本轮未发送可见回复。[/muted]")
                     chat_history.append(
                         ToolResultMessage(
-                            content="No visible reply was sent for this round.",
+                            content="本轮未发送可见回复。",
                             timestamp=datetime.now(),
                             tool_call_id=tool_call.call_id,
                             tool_name=tool_call.func_name,
@@ -377,7 +377,7 @@ class BufferCLI:
                     await handle_unknown_tool(tool_call, chat_history)
 
             if should_stop:
-                console.print("[muted]Conversation paused. Waiting for new input...[/muted]\n")
+                console.print("[muted]对话已暂停，等待新的输入...[/muted]\n")
                 break
 
             last_had_tool_calls = True
@@ -394,8 +394,8 @@ class BufferCLI:
                 summary = self._mcp_manager.get_tool_summary()
                 console.print(
                     Panel(
-                        f"Loaded {len(mcp_tools)} MCP tool(s):\n{summary}",
-                        title="MCP Tools",
+                        f"已加载 {len(mcp_tools)} 个 MCP 工具：\n{summary}",
+                        title="MCP 工具",
                         border_style="green",
                         padding=(0, 1),
                     )
@@ -406,7 +406,7 @@ class BufferCLI:
         if not latest_thought:
             return ""
 
-        with console.status("[info]Generating visible reply...[/info]", spinner="dots"):
+        with console.status("[info]正在生成可见回复...[/info]", spinner="dots"):
             success, result = await self._reply_generator.generate_reply_with_context(
                 reply_reason=latest_thought,
                 chat_history=chat_history,
@@ -432,7 +432,7 @@ class BufferCLI:
         if global_config.maisaka.enable_mcp:
             await self._init_mcp()
         else:
-            console.print("[muted]MCP is disabled (ENABLE_MCP=false)[/muted]")
+            console.print("[muted]MCP 已禁用（ENABLE_MCP=false）[/muted]")
 
         self._reader.start(asyncio.get_event_loop())
         self._show_banner()
@@ -443,7 +443,7 @@ class BufferCLI:
                 raw_input = await self._reader.get_line()
 
                 if raw_input is None:
-                    console.print("\n[muted]Goodbye![/muted]")
+                    console.print("\n[muted]再见！[/muted]")
                     break
 
                 raw_input = raw_input.strip()

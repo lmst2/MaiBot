@@ -36,7 +36,7 @@ class MaisakaHeartFlowChatting:
         self.session_id = session_id
         self.chat_stream: Optional[BotChatSession] = chat_manager.get_session_by_session_id(session_id)
         if self.chat_stream is None:
-            raise ValueError(f"Session not found for Maisaka runtime: {session_id}")
+            raise ValueError(f"未找到会话 {session_id} 对应的 Maisaka 运行时")
 
         session_name = chat_manager.get_session_name(session_id) or session_id
         self.log_prefix = f"[{session_name}]"
@@ -89,7 +89,7 @@ class MaisakaHeartFlowChatting:
 
         self._running = True
         self._ensure_background_tasks_running()
-        logger.info(f"{self.log_prefix} Maisaka runtime started")
+        logger.info(f"{self.log_prefix} Maisaka 运行时已启动")
 
     async def stop(self) -> None:
         """Stop the runtime loop."""
@@ -123,7 +123,7 @@ class MaisakaHeartFlowChatting:
             await self._mcp_manager.close()
             self._mcp_manager = None
 
-        logger.info(f"{self.log_prefix} Maisaka runtime stopped")
+        logger.info(f"{self.log_prefix} Maisaka 运行时已停止")
 
     def adjust_talk_frequency(self, frequency: float) -> None:
         """Compatibility shim for the existing manager API."""
@@ -137,9 +137,9 @@ class MaisakaHeartFlowChatting:
         self._source_messages_by_id[message.message_id] = message
         if self._agent_state == self._STATE_RUNNING and self._planner_interrupt_flag is not None:
             logger.info(
-                f"{self.log_prefix} 收到新消息，发起 planner 打断; "
-                f"msg_id={message.message_id} cache_size={len(self.message_cache)} "
-                f"timestamp={time.time():.3f}"
+                f"{self.log_prefix} 收到新消息，发起规划器打断; "
+                f"消息编号={message.message_id} 缓存条数={len(self.message_cache)} "
+                f"时间戳={time.time():.3f}"
             )
             self._planner_interrupt_flag.set()
         if self._agent_state in (self._STATE_WAIT, self._STATE_STOP):
@@ -158,9 +158,9 @@ class MaisakaHeartFlowChatting:
                 except Exception:
                     exc = None
                 if exc is not None:
-                    logger.error(f"{self.log_prefix} internal loop task exited unexpectedly: {exc}")
+                    logger.error(f"{self.log_prefix} 内部循环任务异常退出: {exc}")
             self._internal_loop_task = asyncio.create_task(self._reasoning_engine.run_loop())
-            logger.warning(f"{self.log_prefix} restarted Maisaka internal loop task")
+            logger.warning(f"{self.log_prefix} 已重新拉起 Maisaka 内部循环任务")
 
         if self._loop_task is None or self._loop_task.done():
             if self._loop_task is not None and not self._loop_task.cancelled():
@@ -169,9 +169,9 @@ class MaisakaHeartFlowChatting:
                 except Exception:
                     exc = None
                 if exc is not None:
-                    logger.error(f"{self.log_prefix} main loop task exited unexpectedly: {exc}")
+                    logger.error(f"{self.log_prefix} 主循环任务异常退出: {exc}")
             self._loop_task = asyncio.create_task(self._main_loop())
-            logger.warning(f"{self.log_prefix} restarted Maisaka main loop task")
+            logger.warning(f"{self.log_prefix} 已重新拉起 Maisaka 主循环任务")
 
     async def _main_loop(self) -> None:
         try:
@@ -195,8 +195,8 @@ class MaisakaHeartFlowChatting:
                 self._new_message_event.clear()
 
                 if trigger_reason == "timeout":
-                    # wait 超时后继续下一轮内部思考，但不要重复注入旧消息。
-                    logger.info(f"{self.log_prefix} wait 超时后投递继续思考触发")
+                    # 等待超时后继续下一轮内部思考，但不要重复注入旧消息。
+                    logger.info(f"{self.log_prefix} 等待超时后已投递继续思考触发信号")
                     await self._internal_turn_queue.put(None)
                     continue
 
@@ -207,7 +207,7 @@ class MaisakaHeartFlowChatting:
                     await self._internal_turn_queue.put(cached_messages)
                     asyncio.create_task(self._trigger_batch_learning(cached_messages))
         except asyncio.CancelledError:
-            logger.info(f"{self.log_prefix} Maisaka runtime loop cancelled")
+            logger.info(f"{self.log_prefix} Maisaka 运行时主循环已取消")
 
     def _has_pending_messages(self) -> bool:
         return self._last_processed_index < len(self.message_cache)
@@ -230,8 +230,8 @@ class MaisakaHeartFlowChatting:
 
         self._last_processed_index = len(self.message_cache)
         logger.info(
-            f"{self.log_prefix} collected {len(unique_messages)} new messages "
-            f"from message_cache[{start_index}:{self._last_processed_index}]"
+            f"{self.log_prefix} 已从消息缓存区[{start_index}:{self._last_processed_index}] "
+            f"收集 {len(unique_messages)} 条新消息"
         )
         return unique_messages
 
@@ -247,7 +247,7 @@ class MaisakaHeartFlowChatting:
 
         timeout = self._wait_until - time.time()
         if timeout <= 0:
-            logger.info(f"{self.log_prefix} Maisaka wait timed out")
+            logger.info(f"{self.log_prefix} Maisaka 等待已超时")
             self._agent_state = self._STATE_RUNNING
             self._wait_until = None
             return "timeout"
@@ -256,7 +256,7 @@ class MaisakaHeartFlowChatting:
             await asyncio.wait_for(self._new_message_event.wait(), timeout=timeout)
             return "message"
         except asyncio.TimeoutError:
-            logger.info(f"{self.log_prefix} Maisaka wait timed out")
+            logger.info(f"{self.log_prefix} Maisaka 等待已超时")
             self._agent_state = self._STATE_RUNNING
             self._wait_until = None
             return "timeout"
@@ -281,110 +281,110 @@ class MaisakaHeartFlowChatting:
             return_exceptions=True,
         )
         if isinstance(expression_result, Exception):
-            logger.error(f"{self.log_prefix} expression learning task crashed: {expression_result}")
+            logger.error(f"{self.log_prefix} 表达学习任务异常退出: {expression_result}")
         if isinstance(knowledge_result, Exception):
-            logger.error(f"{self.log_prefix} knowledge learning task crashed: {knowledge_result}")
+            logger.error(f"{self.log_prefix} 知识学习任务异常退出: {knowledge_result}")
 
     async def _trigger_expression_learning(self, messages: list[SessionMessage]) -> None:
         """Trigger expression learning from the newly collected batch."""
         self._expression_learner.add_messages(messages)
 
         if not self._enable_expression_learning:
-            logger.debug(f"{self.log_prefix} expression learning disabled, skip this batch")
+            logger.debug(f"{self.log_prefix} 表达学习未启用，跳过当前批次")
             return
 
         elapsed = time.time() - self._last_expression_extraction_time
         if elapsed < self._min_extraction_interval:
             logger.debug(
-                f"{self.log_prefix} expression learning interval not reached: "
-                f"elapsed={elapsed:.2f}s threshold={self._min_extraction_interval}s"
+                f"{self.log_prefix} 表达学习尚未达到触发间隔: "
+                f"已过={elapsed:.2f} 秒 阈值={self._min_extraction_interval} 秒"
             )
             return
 
         cache_size = self._expression_learner.get_cache_size()
         if cache_size < self._min_messages_for_extraction:
             logger.debug(
-                f"{self.log_prefix} expression learning skipped due to cache size: "
-                f"learner_cache={cache_size} threshold={self._min_messages_for_extraction} "
-                f"message_cache_total={len(self.message_cache)}"
+                f"{self.log_prefix} 表达学习因缓存数量不足而跳过: "
+                f"学习器缓存={cache_size} 阈值={self._min_messages_for_extraction} "
+                f"消息总缓存={len(self.message_cache)}"
             )
             return
 
         self._last_expression_extraction_time = time.time()
         logger.info(
-            f"{self.log_prefix} starting expression learning: "
-            f"new_batch={len(messages)} learner_cache={cache_size} "
-            f"message_cache_total={len(self.message_cache)} "
-            f"enable_jargon_learning={self._enable_jargon_learning}"
+            f"{self.log_prefix} 开始表达学习: "
+            f"新批次消息数={len(messages)} 学习器缓存={cache_size} "
+            f"消息总缓存={len(self.message_cache)} "
+            f"启用黑话学习={self._enable_jargon_learning}"
         )
 
         try:
             jargon_miner = self._jargon_miner if self._enable_jargon_learning else None
             learnt_style = await self._expression_learner.learn(jargon_miner)
             if learnt_style:
-                logger.info(f"{self.log_prefix} expression learning finished")
+                logger.info(f"{self.log_prefix} 表达学习已完成")
             else:
-                logger.debug(f"{self.log_prefix} expression learning finished without usable result")
+                logger.debug(f"{self.log_prefix} 表达学习已完成，但没有可用结果")
         except Exception:
-            logger.exception(f"{self.log_prefix} expression learning failed")
+            logger.exception(f"{self.log_prefix} 表达学习失败")
 
     async def _trigger_knowledge_learning(self, messages: list[SessionMessage]) -> None:
         """Trigger knowledge learning from the newly collected batch."""
         self._knowledge_learner.add_messages(messages)
 
         if not global_config.maisaka.enable_knowledge_module:
-            logger.debug(f"{self.log_prefix} knowledge learning disabled, skip this batch")
+            logger.debug(f"{self.log_prefix} 知识学习未启用，跳过当前批次")
             return
 
         elapsed = time.time() - self._last_knowledge_extraction_time
         if elapsed < self._min_extraction_interval:
             logger.debug(
-                f"{self.log_prefix} knowledge learning interval not reached: "
-                f"elapsed={elapsed:.2f}s threshold={self._min_extraction_interval}s"
+                f"{self.log_prefix} 知识学习尚未达到触发间隔: "
+                f"已过={elapsed:.2f} 秒 阈值={self._min_extraction_interval} 秒"
             )
             return
 
         cache_size = self._knowledge_learner.get_cache_size()
         if cache_size < self._min_messages_for_extraction:
             logger.debug(
-                f"{self.log_prefix} knowledge learning skipped due to cache size: "
-                f"learner_cache={cache_size} threshold={self._min_messages_for_extraction} "
-                f"message_cache_total={len(self.message_cache)}"
+                f"{self.log_prefix} 知识学习因缓存数量不足而跳过: "
+                f"学习器缓存={cache_size} 阈值={self._min_messages_for_extraction} "
+                f"消息总缓存={len(self.message_cache)}"
             )
             return
 
         self._last_knowledge_extraction_time = time.time()
         logger.info(
-            f"{self.log_prefix} starting knowledge learning: "
-            f"new_batch={len(messages)} learner_cache={cache_size} "
-            f"message_cache_total={len(self.message_cache)}"
+            f"{self.log_prefix} 开始知识学习: "
+            f"新批次消息数={len(messages)} 学习器缓存={cache_size} "
+            f"消息总缓存={len(self.message_cache)}"
         )
 
         try:
             added_count = await self._knowledge_learner.learn()
             if added_count > 0:
-                logger.info(f"{self.log_prefix} knowledge learning finished: added={added_count}")
+                logger.info(f"{self.log_prefix} 知识学习已完成: 新增条目数={added_count}")
             else:
-                logger.debug(f"{self.log_prefix} knowledge learning finished without usable result")
+                logger.debug(f"{self.log_prefix} 知识学习已完成，但没有可用结果")
         except Exception:
-            logger.exception(f"{self.log_prefix} knowledge learning failed")
+            logger.exception(f"{self.log_prefix} 知识学习失败")
 
     async def _init_mcp(self) -> None:
         """Initialize MCP tools and inject them into the planner."""
         config_path = Path(__file__).resolve().parents[2] / "config" / "mcp_config.json"
         self._mcp_manager = await MCPManager.from_config(str(config_path))
         if self._mcp_manager is None:
-            logger.info(f"{self.log_prefix} MCP manager is unavailable")
+            logger.info(f"{self.log_prefix} MCP 管理器不可用")
             return
 
         mcp_tools = self._mcp_manager.get_openai_tools()
         if not mcp_tools:
-            logger.info(f"{self.log_prefix} No MCP tools were exposed to Maisaka")
+            logger.info(f"{self.log_prefix} 没有可供 Maisaka 使用的 MCP 工具")
             return
 
         self._chat_loop_service.set_extra_tools(mcp_tools)
         logger.info(
-            f"{self.log_prefix} Loaded {len(mcp_tools)} MCP tools into Maisaka:\n"
+            f"{self.log_prefix} 已向 Maisaka 加载 {len(mcp_tools)} 个 MCP 工具:\n"
             f"{self._mcp_manager.get_tool_summary()}"
         )
 
@@ -392,10 +392,10 @@ class MaisakaHeartFlowChatting:
         if self.chat_stream.user_id:
             return UserInfo(
                 user_id=self.chat_stream.user_id,
-                user_nickname=global_config.maisaka.user_name.strip() or "User",
+                user_nickname=global_config.maisaka.user_name.strip() or "用户",
                 user_cardname=None,
             )
-        return UserInfo(user_id="maisaka_user", user_nickname="user", user_cardname=None)
+        return UserInfo(user_id="maisaka_user", user_nickname="用户", user_cardname=None)
 
     def _build_group_info(self, message: Optional[SessionMessage] = None) -> Optional[GroupInfo]:
         group_info = None
@@ -411,23 +411,23 @@ class MaisakaHeartFlowChatting:
 
     def _log_cycle_started(self, cycle_detail: CycleDetail, round_index: int) -> None:
         logger.info(
-            f"{self.log_prefix} MaiSaka cycle={cycle_detail.cycle_id} "
-            f"round={round_index + 1}/{self._max_internal_rounds} "
-            f"context_size={len(self._chat_history)}"
+            f"{self.log_prefix} MaiSaka 轮次开始: 循环编号={cycle_detail.cycle_id} "
+            f"回合={round_index + 1}/{self._max_internal_rounds} "
+            f"上下文消息数={len(self._chat_history)}"
         )
 
     def _log_cycle_completed(self, cycle_detail: CycleDetail, timer_strings: list[str]) -> None:
         logger.info(
-            f"{self.log_prefix} MaiSaka cycle={cycle_detail.cycle_id} completed "
-            f"in {cycle_detail.end_time - cycle_detail.start_time:.2f}s; "
-            f"stages={', '.join(timer_strings) if timer_strings else 'none'}"
+            f"{self.log_prefix} MaiSaka 轮次结束: 循环编号={cycle_detail.cycle_id} "
+            f"总耗时={cycle_detail.end_time - cycle_detail.start_time:.2f} 秒; "
+            f"阶段耗时={', '.join(timer_strings) if timer_strings else '无'}"
         )
 
     def _log_history_trimmed(self, removed_count: int, user_message_count: int) -> None:
         logger.info(
-            f"{self.log_prefix} Trimmed {removed_count} history messages; "
-            f"remaining_user_messages={user_message_count}"
+            f"{self.log_prefix} 已裁剪 {removed_count} 条历史消息; "
+            f"剩余计入上下文的消息数={user_message_count}"
         )
 
     def _log_internal_loop_cancelled(self) -> None:
-        logger.info(f"{self.log_prefix} Maisaka internal loop cancelled")
+        logger.info(f"{self.log_prefix} Maisaka 内部循环已取消")

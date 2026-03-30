@@ -66,7 +66,7 @@ async def retrieve_relevant_knowledge(
             return ""
         return store.get_formatted_knowledge(category_ids)
     except Exception:
-        logger.exception("Failed to retrieve relevant knowledge")
+        logger.exception("检索相关知识失败")
         return ""
 
 
@@ -115,12 +115,12 @@ class KnowledgeLearner:
                     ),
                 )
             except Exception:
-                logger.exception("Knowledge learning model call failed")
+                logger.exception("知识学习模型调用失败")
                 return 0
 
             knowledge_items = self._parse_learning_result(result.response or "")
             if not knowledge_items:
-                logger.debug("Knowledge learning finished without extracted entries")
+                logger.debug("知识学习已完成，但未提取到有效条目")
                 return 0
 
             added_count = 0
@@ -148,11 +148,11 @@ class KnowledgeLearner:
 
             if added_count > 0:
                 logger.info(
-                    f"Maisaka knowledge learning finished: session_id={self._session_id} added={added_count}"
+                    f"Maisaka 知识学习已完成: 会话标识={self._session_id} 新增条数={added_count}"
                 )
             else:
                 logger.debug(
-                    f"Maisaka knowledge learning finished without new entries: session_id={self._session_id}"
+                    f"Maisaka 知识学习已完成，但没有新增条目: 会话标识={self._session_id}"
                 )
 
             return added_count

@@ -74,11 +74,11 @@ class MaisakaReasoningEngine:
                     anchor_message = self._get_timeout_anchor_message()
                     if anchor_message is None:
                         logger.warning(
-                            f"{self._runtime.log_prefix} wait 超时后缺少可复用的锚点消息，跳过本轮继续思考"
+                            f"{self._runtime.log_prefix} 等待超时后缺少可复用的锚点消息，跳过本轮继续思考"
                         )
                         self._runtime._internal_turn_queue.task_done()
                         continue
-                    logger.info(f"{self._runtime.log_prefix} wait 超时后开始新一轮思考")
+                    logger.info(f"{self._runtime.log_prefix} 等待超时后开始新一轮思考")
                     self._runtime._chat_history.append(self._build_wait_timeout_message())
                     self._trim_chat_history()
                 try:
@@ -88,10 +88,10 @@ class MaisakaReasoningEngine:
                         try:
                             planner_started_at = time.time()
                             logger.info(
-                                f"{self._runtime.log_prefix} planner 开始: "
-                                f"round={round_index + 1} "
-                                f"history_size={len(self._runtime._chat_history)} "
-                                f"started_at={planner_started_at:.3f}"
+                                f"{self._runtime.log_prefix} 规划器开始执行: "
+                                f"回合={round_index + 1} "
+                                f"历史消息数={len(self._runtime._chat_history)} "
+                                f"开始时间={planner_started_at:.3f}"
                             )
                             interrupt_flag = asyncio.Event()
                             self._runtime._planner_interrupt_flag = interrupt_flag
@@ -104,16 +104,16 @@ class MaisakaReasoningEngine:
                                 self._runtime._chat_loop_service.set_interrupt_flag(None)
                             cycle_detail.time_records["planner"] = time.time() - planner_started_at
                             logger.info(
-                                f"{self._runtime.log_prefix} planner 完成: "
-                                f"round={round_index + 1} "
-                                f"elapsed={cycle_detail.time_records['planner']:.3f}s"
+                                f"{self._runtime.log_prefix} 规划器执行完成: "
+                                f"回合={round_index + 1} "
+                                f"耗时={cycle_detail.time_records['planner']:.3f} 秒"
                             )
 
                             reasoning_content = response.content or ""
                             if self._should_replace_reasoning(reasoning_content):
                                 response.content = "让我根据新情况重新思考："
                                 response.raw_message.content = "让我根据新情况重新思考："
-                                logger.info(f"{self._runtime.log_prefix} reasoning content replaced due to high similarity")
+                                logger.info(f"{self._runtime.log_prefix} 当前思考与上一轮过于相似，已替换为重新思考提示")
 
                             self._last_reasoning_content = reasoning_content
                             self._runtime._chat_history.append(response.raw_message)
@@ -137,11 +137,11 @@ class MaisakaReasoningEngine:
                         except ReqAbortException:
                             interrupted_at = time.time()
                             logger.info(
-                                f"{self._runtime.log_prefix} planner 打断成功: "
-                                f"round={round_index + 1} "
-                                f"started_at={planner_started_at:.3f} "
-                                f"interrupted_at={interrupted_at:.3f} "
-                                f"elapsed={interrupted_at - planner_started_at:.3f}s"
+                                f"{self._runtime.log_prefix} 规划器打断成功: "
+                                f"回合={round_index + 1} "
+                                f"开始时间={planner_started_at:.3f} "
+                                f"打断时间={interrupted_at:.3f} "
+                                f"耗时={interrupted_at - planner_started_at:.3f} 秒"
                             )
                             break
                         finally:
@@ -154,7 +154,7 @@ class MaisakaReasoningEngine:
             self._runtime._log_internal_loop_cancelled()
             raise
         except Exception:
-            logger.exception("%s Maisaka internal loop crashed", self._runtime.log_prefix)
+            logger.exception(f"{self._runtime.log_prefix} Maisaka 内部循环发生异常")
             logger.error(traceback.format_exc())
             raise
 
@@ -169,7 +169,7 @@ class MaisakaReasoningEngine:
         tool_call_id = self._runtime._pending_wait_tool_call_id or "wait_timeout"
         self._runtime._pending_wait_tool_call_id = None
         return ToolResultMessage(
-            content="wait 已超时，期间没有收到新的用户输入。请基于现有上下文继续下一轮思考。",
+            content="等待已超时，期间没有收到新的用户输入。请基于现有上下文继续下一轮思考。",
             timestamp=datetime.now(),
             tool_call_id=tool_call_id,
             tool_name="wait",
@@ -184,7 +184,7 @@ class MaisakaReasoningEngine:
         self._runtime._pending_wait_tool_call_id = None
         self._runtime._chat_history.append(
             ToolResultMessage(
-                content="wait 被新的用户输入打断，已继续处理最新消息。",
+                content="等待过程被新的用户输入打断，已继续处理最新消息。",
                 timestamp=datetime.now(),
                 tool_call_id=tool_call_id,
                 tool_name="wait",
@@ -337,14 +337,14 @@ class MaisakaReasoningEngine:
         """
         if not self._last_reasoning_content or not current_content:
             logger.info(
-                f"{self._runtime.log_prefix} reasoning similarity skipped: "
-                f"last_empty={not bool(self._last_reasoning_content)} "
-                f"current_empty={not bool(current_content)} similarity=0.00"
+                f"{self._runtime.log_prefix} 跳过思考相似度判定: "
+                f"上一轮为空={not bool(self._last_reasoning_content)} "
+                f"当前为空={not bool(current_content)} 相似度=0.00"
             )
             return False
 
         similarity = self._calculate_similarity(current_content, self._last_reasoning_content)
-        logger.info(f"{self._runtime.log_prefix} reasoning similarity: {similarity:.2f}")
+        logger.info(f"{self._runtime.log_prefix} 思考内容相似度: {similarity:.2f}")
         return similarity > 0.9
 
     @staticmethod
@@ -371,7 +371,7 @@ class MaisakaReasoningEngine:
                 reply_sent = await self._handle_reply(tool_call, latest_thought, anchor_message)
                 if not reply_sent:
                     logger.warning(
-                        f"{self._runtime.log_prefix} reply tool did not produce a visible message, continuing loop"
+                        f"{self._runtime.log_prefix} 回复工具未生成可见消息，将继续下一轮循环"
                     )
                 continue
 
@@ -379,7 +379,7 @@ class MaisakaReasoningEngine:
                 self._runtime._chat_history.append(
                     self._build_tool_message(
                         tool_call,
-                        "No visible reply was sent for this round.",
+                        "本轮未发送可见回复。",
                     )
                 )
                 continue
@@ -406,7 +406,7 @@ class MaisakaReasoningEngine:
                 self._runtime._chat_history.append(
                     self._build_tool_message(
                         tool_call,
-                        "Conversation loop paused until a new message arrives.",
+                        "当前对话循环已暂停，等待新消息到来。",
                     )
                 )
                 self._runtime._enter_stop_state()
@@ -430,7 +430,7 @@ class MaisakaReasoningEngine:
 
         if not isinstance(raw_words, list):
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "query_jargon requires a words array.")
+                self._build_tool_message(tool_call, "查询黑话工具需要提供 `words` 数组参数。")
             )
             return
 
@@ -447,11 +447,11 @@ class MaisakaReasoningEngine:
 
         if not words:
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "query_jargon requires at least one non-empty word.")
+                self._build_tool_message(tool_call, "查询黑话工具至少需要一个非空词条。")
             )
             return
 
-        logger.info(f"{self._runtime.log_prefix} query_jargon triggered: words={words!r}")
+        logger.info(f"{self._runtime.log_prefix} 已触发黑话查询: 词条={words!r}")
 
         results: list[dict[str, object]] = []
         for word in words:
@@ -478,7 +478,7 @@ class MaisakaReasoningEngine:
                 }
             )
 
-        logger.info(f"{self._runtime.log_prefix} query_jargon finished: results={results!r}")
+        logger.info(f"{self._runtime.log_prefix} 黑话查询完成: 结果={results!r}")
         self._runtime._chat_history.append(
             self._build_tool_message(
                 tool_call,
@@ -494,14 +494,14 @@ class MaisakaReasoningEngine:
 
         if not isinstance(raw_person_name, str):
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "query_person_info requires a person_name string.")
+                self._build_tool_message(tool_call, "查询人物信息工具需要提供字符串类型的 `person_name` 参数。")
             )
             return
 
         person_name = raw_person_name.strip()
         if not person_name:
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "query_person_info requires a non-empty person_name.")
+                self._build_tool_message(tool_call, "查询人物信息工具需要提供非空的 `person_name` 参数。")
             )
             return
 
@@ -511,8 +511,8 @@ class MaisakaReasoningEngine:
             limit = 3
 
         logger.info(
-            f"{self._runtime.log_prefix} query_person_info triggered: "
-            f"person_name={person_name!r} limit={limit}"
+            f"{self._runtime.log_prefix} 已触发人物信息查询: "
+            f"人物名={person_name!r} 限制条数={limit}"
         )
 
         persons = self._query_person_records(person_name, limit)
@@ -523,8 +523,8 @@ class MaisakaReasoningEngine:
         }
 
         logger.info(
-            f"{self._runtime.log_prefix} query_person_info finished: "
-            f"persons={len(result['persons'])} related_knowledge={len(result['related_knowledge'])}"
+            f"{self._runtime.log_prefix} 人物信息查询完成: "
+            f"人物记录数={len(result['persons'])} 相关知识数={len(result['related_knowledge'])}"
         )
         self._runtime._chat_history.append(
             self._build_tool_message(
@@ -641,22 +641,22 @@ class MaisakaReasoningEngine:
         unknown_words = raw_unknown_words if isinstance(raw_unknown_words, list) else None
         if not target_message_id:
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "reply requires a valid msg_id argument.")
+                self._build_tool_message(tool_call, "回复工具需要提供有效的 `msg_id` 参数。")
             )
             return False
 
         target_message = self._runtime._source_messages_by_id.get(target_message_id)
         if target_message is None:
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, f"reply target msg_id not found: {target_message_id}")
+                self._build_tool_message(tool_call, f"未找到要回复的目标消息，msg_id={target_message_id}")
             )
             return False
 
         logger.info(
-            f"{self._runtime.log_prefix} reply tool triggered: "
-            f"target_msg_id={target_message_id} quote={quote_reply} latest_thought={latest_thought!r}"
+            f"{self._runtime.log_prefix} 已触发回复工具: "
+            f"目标消息编号={target_message_id} 引用回复={quote_reply} 最新思考={latest_thought!r}"
         )
-        logger.info(f"{self._runtime.log_prefix} acquiring Maisaka reply generator")
+        logger.info(f"{self._runtime.log_prefix} 正在获取 Maisaka 回复生成器")
         try:
             replyer = replyer_manager.get_replyer(
                 chat_stream=self._runtime.chat_stream,
@@ -665,24 +665,24 @@ class MaisakaReasoningEngine:
             )
         except Exception:
             logger.exception(
-                f"{self._runtime.log_prefix} replyer_manager.get_replyer crashed: "
-                f"target_msg_id={target_message_id}"
+                f"{self._runtime.log_prefix} 获取回复生成器时发生异常: "
+                f"目标消息编号={target_message_id}"
             )
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "Maisaka reply generator acquisition crashed.")
+                self._build_tool_message(tool_call, "获取 Maisaka 回复生成器时发生异常。")
             )
             return False
 
         if replyer is None:
-            logger.error(f"{self._runtime.log_prefix} failed to acquire Maisaka reply generator")
+            logger.error(f"{self._runtime.log_prefix} 获取 Maisaka 回复生成器失败")
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "Maisaka reply generator is unavailable.")
+                self._build_tool_message(tool_call, "Maisaka 回复生成器当前不可用。")
             )
             return False
 
-        logger.info(f"{self._runtime.log_prefix} acquired Maisaka reply generator successfully")
+        logger.info(f"{self._runtime.log_prefix} 已成功获取 Maisaka 回复生成器")
 
-        logger.info(f"{self._runtime.log_prefix} calling generate_reply_with_context: target_msg_id={target_message_id}")
+        logger.info(f"{self._runtime.log_prefix} 正在调用回复生成接口: 目标消息编号={target_message_id}")
         try:
             success, reply_result = await replyer.generate_reply_with_context(
                 reply_reason=latest_thought,
@@ -695,41 +695,41 @@ class MaisakaReasoningEngine:
         except Exception as exc:
             import traceback
             logger.error(
-                f"{self._runtime.log_prefix} reply generator crashed: target_msg_id={target_message_id} "
-                f"exc_type={type(exc).__name__} exc_msg={str(exc)}\n{traceback.format_exc()}"
+                f"{self._runtime.log_prefix} 回复生成器执行异常: 目标消息编号={target_message_id} "
+                f"异常类型={type(exc).__name__} 异常信息={str(exc)}\n{traceback.format_exc()}"
             )
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "Visible reply generation crashed.")
+                self._build_tool_message(tool_call, "生成可见回复时发生异常。")
             )
             return False
 
         logger.info(
-            f"{self._runtime.log_prefix} reply generator finished: "
-            f"success={success} response_text={reply_result.completion.response_text!r} "
-            f"error={reply_result.error_message!r}"
+            f"{self._runtime.log_prefix} 回复生成完成: "
+            f"成功={success} 回复文本={reply_result.completion.response_text!r} "
+            f"错误信息={reply_result.error_message!r}"
         )
         reply_text = reply_result.completion.response_text.strip() if success else ""
         if not reply_text:
             logger.warning(
-                f"{self._runtime.log_prefix} reply generator returned empty text: "
-                f"target_msg_id={target_message_id} error={reply_result.error_message!r}"
+                f"{self._runtime.log_prefix} 回复生成器返回空文本: "
+                f"目标消息编号={target_message_id} 错误信息={reply_result.error_message!r}"
             )
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "Visible reply generation failed.")
+                self._build_tool_message(tool_call, "生成可见回复失败。")
             )
             return False
 
         reply_segments = self._post_process_reply_text(reply_text)
         combined_reply_text = "".join(reply_segments)
         logger.info(
-            f"{self._runtime.log_prefix} reply post process finished: "
-            f"target_msg_id={target_message_id} segment_count={len(reply_segments)} "
-            f"segments={reply_segments!r}"
+            f"{self._runtime.log_prefix} 回复后处理完成: "
+            f"目标消息编号={target_message_id} 分段数={len(reply_segments)} "
+            f"分段内容={reply_segments!r}"
         )
 
         logger.info(
-            f"{self._runtime.log_prefix} sending guided reply: "
-            f"target_msg_id={target_message_id} quote={quote_reply} reply_segments={reply_segments!r}"
+            f"{self._runtime.log_prefix} 正在发送引导回复: "
+            f"目标消息编号={target_message_id} 引用回复={quote_reply} 回复分段={reply_segments!r}"
         )
         try:
             sent = False
@@ -746,19 +746,18 @@ class MaisakaReasoningEngine:
                     break
         except Exception:
             logger.exception(
-                f"{self._runtime.log_prefix} send_service.text_to_stream crashed "
-                f"for target_msg_id={target_message_id}"
+                f"{self._runtime.log_prefix} 发送文字消息时发生异常，目标消息编号={target_message_id}"
             )
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "Visible reply send crashed.")
+                self._build_tool_message(tool_call, "发送可见回复时发生异常。")
             )
             return False
 
         logger.info(
-            f"{self._runtime.log_prefix} guided reply send result: "
-            f"target_msg_id={target_message_id} sent={sent}"
+            f"{self._runtime.log_prefix} 引导回复发送结果: "
+            f"目标消息编号={target_message_id} 发送成功={sent}"
         )
-        tool_result = "Visible reply generated and sent." if sent else "Visible reply generation succeeded but send failed."
+        tool_result = "可见回复已生成并发送。" if sent else "可见回复生成成功，但发送失败。"
         self._runtime._chat_history.append(self._build_tool_message(tool_call, tool_result))
         if not sent:
             return False
@@ -821,12 +820,12 @@ class MaisakaReasoningEngine:
         tool_args = tool_call.args or {}
         emotion = str(tool_args.get("emotion") or "").strip()
 
-        logger.info(f"{self._runtime.log_prefix} send_emoji tool triggered: emotion={emotion!r}")
+        logger.info(f"{self._runtime.log_prefix} 已触发表情包发送工具: 情绪={emotion!r}")
 
         # 获取表情包列表
         if not emoji_manager.emojis:
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "No emojis available in the emoji library.")
+                self._build_tool_message(tool_call, "当前表情包库中没有可用表情。")
             )
             return
 
@@ -841,16 +840,16 @@ class MaisakaReasoningEngine:
             if matching_emojis:
                 selected_emoji = random.choice(matching_emojis)
                 logger.info(
-                    f"{self._runtime.log_prefix} found {len(matching_emojis)} emojis matching emotion '{emotion}', "
-                    f"selected: {selected_emoji.description}"
+                    f"{self._runtime.log_prefix} 找到 {len(matching_emojis)} 个匹配情绪 {emotion!r} 的表情包，"
+                    f"已选择：{selected_emoji.description}"
                 )
 
         # 如果没有找到匹配的情感表情包，随机选择一个
         if selected_emoji is None:
             selected_emoji = random.choice(emoji_manager.emojis)
             logger.info(
-                f"{self._runtime.log_prefix} no emoji matched emotion '{emotion}', "
-                f"randomly selected: {selected_emoji.description}"
+                f"{self._runtime.log_prefix} 没有表情包匹配情绪 {emotion!r}，"
+                f"已随机选择：{selected_emoji.description}"
             )
 
         # 更新表情包使用次数
@@ -860,13 +859,13 @@ class MaisakaReasoningEngine:
         try:
             emoji_base64 = ImageUtils.image_path_to_base64(str(selected_emoji.full_path))
             if not emoji_base64:
-                raise ValueError("Failed to convert emoji image to base64")
+                raise ValueError("表情图片转换为 base64 失败")
         except Exception as exc:
             logger.error(
-                f"{self._runtime.log_prefix} failed to convert emoji to base64: {exc}"
+                f"{self._runtime.log_prefix} 表情图片转换为 base64 失败: {exc}"
             )
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, f"Failed to send emoji: {exc}")
+                self._build_tool_message(tool_call, f"发送表情包失败：{exc}")
             )
             return
 
@@ -881,28 +880,28 @@ class MaisakaReasoningEngine:
             )
         except Exception as exc:
             logger.exception(
-                f"{self._runtime.log_prefix} send_service.emoji_to_stream crashed: {exc}"
+                f"{self._runtime.log_prefix} 发送表情包时发生异常: {exc}"
             )
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, f"Emoji send crashed: {exc}")
+                self._build_tool_message(tool_call, f"发送表情包时发生异常：{exc}")
             )
             return
 
         if sent:
             logger.info(
-                f"{self._runtime.log_prefix} emoji sent successfully: "
-                f"description={selected_emoji.description!r} emotion={selected_emoji.emotion}"
+                f"{self._runtime.log_prefix} 表情包发送成功: "
+                f"描述={selected_emoji.description!r} 情绪标签={selected_emoji.emotion}"
             )
             self._runtime._chat_history.append(
                 self._build_tool_message(
                     tool_call,
-                    f"Sent emoji: {selected_emoji.description} (emotion: {', '.join(selected_emoji.emotion)})"
+                    f"已发送表情包：{selected_emoji.description}（情绪：{', '.join(selected_emoji.emotion)}）"
                 )
             )
         else:
-            logger.warning(f"{self._runtime.log_prefix} emoji send failed")
+            logger.warning(f"{self._runtime.log_prefix} 表情包发送失败")
             self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "Failed to send emoji.")
+                self._build_tool_message(tool_call, "发送表情包失败。")
             )
 
     def _build_tool_message(self, tool_call: ToolCall, content: str) -> ToolResultMessage:

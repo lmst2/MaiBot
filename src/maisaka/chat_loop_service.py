@@ -166,6 +166,18 @@ class MaisakaChatLoopService:
         return "bold white on bright_black"
 
     @staticmethod
+    def _get_role_badge_label(role: str) -> str:
+        if role == "system":
+            return "系统"
+        if role == "user":
+            return "用户"
+        if role == "assistant":
+            return "助手"
+        if role == "tool":
+            return "工具"
+        return "未知"
+
+    @staticmethod
     def _build_terminal_image_preview(image_base64: str) -> Optional[str]:
         ascii_chars = " .:-=+*#%@"
 
@@ -209,7 +221,7 @@ class MaisakaChatLoopService:
                         approx_size = max(0, len(image_base64) * 3 // 4)
                         size_text = f"{approx_size / 1024:.1f} KB" if approx_size >= 1024 else f"{approx_size} B"
                         preview_parts: List[object] = [
-                            Text(f"image/{image_format}  {size_text}\nbase64 omitted", style="magenta")
+                            Text(f"图片格式 image/{image_format}  {size_text}\nbase64 内容已省略", style="magenta")
                         ]
                         if global_config.maisaka.terminal_image_preview:
                             preview_text = cls._build_terminal_image_preview(image_base64)
@@ -252,7 +264,7 @@ class MaisakaChatLoopService:
 
     def _render_tool_call_panel(self, tool_call: Any, index: int, parent_index: int) -> Panel:
         title = Text.assemble(
-            Text(" TOOL CALL ", style="bold white on magenta"),
+            Text(" 工具调用 ", style="bold white on magenta"),
             Text(f"  #{parent_index}.{index}", style="muted"),
         )
         return Panel(
@@ -274,26 +286,26 @@ class MaisakaChatLoopService:
 
         role = raw_role.value if hasattr(raw_role, "value") else str(raw_role)
         title = Text.assemble(
-            Text(f" {role.upper()} ", style=self._get_role_badge_style(role)),
+            Text(f" {self._get_role_badge_label(role)} ", style=self._get_role_badge_style(role)),
             Text(f"  #{index}", style="muted"),
         )
 
         parts: List[object] = []
         if content not in (None, "", []):
-            parts.append(Text(" message ", style="bold cyan"))
+            parts.append(Text(" 消息 ", style="bold cyan"))
             parts.append(self._render_message_content(content))
 
         if tool_call_id:
             parts.append(
                 Text.assemble(
-                    Text(" tool_call_id ", style="bold magenta"),
+                    Text(" 工具调用编号 ", style="bold magenta"),
                     Text(" "),
                     Text(str(tool_call_id), style="magenta"),
                 )
             )
 
         if not parts:
-            parts.append(Text("[empty message]", style="muted"))
+            parts.append(Text("[空消息]", style="muted"))
 
         return Panel(
             Group(*parts),
@@ -334,7 +346,7 @@ class MaisakaChatLoopService:
             console.print(
                 Panel(
                     Group(*ordered_panels),
-                    title="MaiSaka LLM Request - chat_loop_step",
+                    title="MaiSaka 大模型请求 - 对话单步",
                     subtitle=selection_reason,
                     border_style="cyan",
                     padding=(0, 1),
@@ -343,11 +355,11 @@ class MaisakaChatLoopService:
 
         request_started_at = perf_counter()
         logger.info(
-            "planner 请求开始: "
-            f"selected_history={len(selected_history)} "
-            f"llm_messages={len(built_messages)} "
-            f"tool_count={len(all_tools)} "
-            f"interrupt_enabled={self._interrupt_flag is not None}"
+            "规划器请求开始: "
+            f"已选上下文消息数={len(selected_history)} "
+            f"大模型消息数={len(built_messages)} "
+            f"工具数={len(all_tools)} "
+            f"启用打断={self._interrupt_flag is not None}"
         )
         generation_result = await self._llm_chat.generate_response_with_messages(
             message_factory=message_factory,
@@ -359,19 +371,19 @@ class MaisakaChatLoopService:
             ),
         )
         request_elapsed = perf_counter() - request_started_at
-        logger.info(f"planner 请求完成，elapsed={request_elapsed:.3f}s")
+        logger.info(f"规划器请求完成，耗时={request_elapsed:.3f} 秒")
 
         tool_call_summaries = [
             {
-                "id": getattr(tool_call, "call_id", getattr(tool_call, "id", None)),
-                "name": getattr(tool_call, "func_name", getattr(tool_call, "name", None)),
-                "args": getattr(tool_call, "args", getattr(tool_call, "arguments", None)),
+                "调用编号": getattr(tool_call, "call_id", getattr(tool_call, "id", None)),
+                "工具名": getattr(tool_call, "func_name", getattr(tool_call, "name", None)),
+                "参数": getattr(tool_call, "args", getattr(tool_call, "arguments", None)),
             }
             for tool_call in (generation_result.tool_calls or [])
         ]
         logger.info(
-            f"Maisaka planner returned content={generation_result.response or ''!r} "
-            f"tool_calls={tool_call_summaries}"
+            f"Maisaka 规划器返回结果: 内容={generation_result.response or ''!r} "
+            f"工具调用={tool_call_summaries}"
         )
 
         raw_message = AssistantMessage(

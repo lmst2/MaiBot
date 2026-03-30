@@ -80,7 +80,7 @@ class MaisakaReplyGenerator:
 
             return f"你的名字是{bot_name}{bot_aliases}，你{prompt_personality};"
         except Exception as exc:
-            logger.warning(f"Failed to build Maisaka personality prompt: {exc}")
+            logger.warning(f"构建 Maisaka 人设提示词失败: {exc}")
             return "你的名字是麦麦，你是一个活泼可爱的 AI 助手。"
 
     @staticmethod
@@ -217,7 +217,7 @@ class MaisakaReplyGenerator:
         """在 replyer 内部构建表达习惯和黑话解释。"""
         session_id = self._resolve_session_id(stream_id)
         if not session_id:
-            logger.warning("Failed to build Maisaka reply context: session_id is missing")
+            logger.warning("构建 Maisaka 回复上下文失败：缺少会话标识")
             return MaisakaReplyContext()
 
         expression_habits, selected_expression_ids = self._build_expression_habits(
@@ -256,8 +256,8 @@ class MaisakaReplyGenerator:
 
         block = "【表达习惯参考】\n" + "\n".join(lines)
         logger.info(
-            f"Built Maisaka expression habits: session_id={session_id} "
-            f"count={len(selected_ids)} ids={selected_ids!r}"
+            f"已构建 Maisaka 表达习惯: 会话标识={session_id} "
+            f"数量={len(selected_ids)} 表达编号={selected_ids!r}"
         )
         return block, selected_ids
 
@@ -313,12 +313,12 @@ class MaisakaReplyGenerator:
 
         result = ReplyGenerationResult()
         if chat_history is None:
-            result.error_message = "chat_history is empty"
+            result.error_message = "聊天历史为空"
             return False, result
 
         logger.info(
-            f"Maisaka replyer start: stream_id={stream_id} reply_reason={reply_reason!r} "
-            f"history_size={len(chat_history)} target_message_id="
+            f"Maisaka 回复器开始生成: 会话流标识={stream_id} 回复原因={reply_reason!r} "
+            f"历史消息数={len(chat_history)} 目标消息编号="
             f"{reply_message.message_id if reply_message else None}"
         )
 
@@ -328,12 +328,12 @@ class MaisakaReplyGenerator:
             if not isinstance(message, (ReferenceMessage, ToolResultMessage))
         ]
 
-        logger.debug(f"Maisaka replyer: filtered_history size={len(filtered_history)}")
+        logger.debug(f"Maisaka 回复器过滤后历史消息数={len(filtered_history)}")
 
         # Validate that express_model is properly initialized
         if self.express_model is None:
-            logger.error("Maisaka replyer: express_model is None!")
-            result.error_message = "express_model is not initialized"
+            logger.error("Maisaka 回复器的回复模型未初始化")
+            result.error_message = "回复模型尚未初始化"
             return False, result
 
         try:
@@ -345,8 +345,8 @@ class MaisakaReplyGenerator:
             )
         except Exception as exc:
             import traceback
-            logger.error(f"Maisaka replyer: _build_reply_context failed: {exc}\n{traceback.format_exc()}")
-            result.error_message = f"_build_reply_context failed: {exc}"
+            logger.error(f"Maisaka 回复器构建回复上下文失败: {exc}\n{traceback.format_exc()}")
+            result.error_message = f"构建回复上下文失败: {exc}"
             return False, result
 
         merged_expression_habits = expression_habits.strip() or reply_context.expression_habits
@@ -357,8 +357,8 @@ class MaisakaReplyGenerator:
         )
 
         logger.info(
-            f"Maisaka reply context built: stream_id={stream_id} "
-            f"selected_expression_ids={result.selected_expression_ids!r}"
+            f"Maisaka 回复上下文构建完成: 会话流标识={stream_id} "
+            f"已选表达编号={result.selected_expression_ids!r}"
         )
 
         try:
@@ -369,20 +369,20 @@ class MaisakaReplyGenerator:
             )
         except Exception as exc:
             import traceback
-            logger.error(f"Maisaka replyer: _build_prompt failed: {exc}\n{traceback.format_exc()}")
-            result.error_message = f"_build_prompt failed: {exc}"
+            logger.error(f"Maisaka 回复器构建提示词失败: {exc}\n{traceback.format_exc()}")
+            result.error_message = f"构建提示词失败: {exc}"
             return False, result
 
         result.completion.request_prompt = prompt
 
         if global_config.debug.show_replyer_prompt:
-            logger.info(f"\nMaisaka replyer prompt:\n{prompt}\n")
+            logger.info(f"\nMaisaka 回复器提示词：\n{prompt}\n")
 
         started_at = time.perf_counter()
         try:
             generation_result = await self.express_model.generate_response(prompt)
         except Exception as exc:
-            logger.exception("Maisaka replyer call failed")
+            logger.exception("Maisaka 回复器调用失败")
             result.error_message = str(exc)
             result.metrics = GenerationMetrics(
                 overall_ms=round((time.perf_counter() - started_at) * 1000, 2),
@@ -403,17 +403,17 @@ class MaisakaReplyGenerator:
         )
 
         if global_config.debug.show_replyer_reasoning and result.completion.reasoning_text:
-            logger.info(f"Maisaka replyer reasoning:\n{result.completion.reasoning_text}")
+            logger.info(f"Maisaka 回复器思考内容：\n{result.completion.reasoning_text}")
 
         if not result.success:
-            result.error_message = "replyer returned empty content"
-            logger.warning("Maisaka replyer returned empty content")
+            result.error_message = "回复器返回了空内容"
+            logger.warning("Maisaka 回复器返回了空内容")
             return False, result
 
         logger.info(
-            f"Maisaka replyer success: response_text={response_text!r} "
-            f"overall_ms={result.metrics.overall_ms} "
-            f"selected_expression_ids={result.selected_expression_ids!r}"
+            f"Maisaka 回复器生成成功: 回复文本={response_text!r} "
+            f"总耗时毫秒={result.metrics.overall_ms} "
+            f"已选表达编号={result.selected_expression_ids!r}"
         )
         result.text_fragments = [response_text]
         return True, result

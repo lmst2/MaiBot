@@ -102,7 +102,7 @@ async def handle_mcp_tool(tc: ToolCall, chat_history: list[LLMContextMessage], m
     console.print(
         Panel(
             display_text,
-            title=f"MCP: {tc.func_name}",
+            title=f"MCP 工具：{tc.func_name}",
             border_style="bright_green",
             padding=(0, 1),
         )
