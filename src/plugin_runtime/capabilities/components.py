@@ -29,6 +29,19 @@ class _RuntimeComponentManagerProtocol(Protocol):
 
     def _build_api_unavailable_error(self, entry: "APIEntry") -> str: ...
 
+    def _collect_api_reference_matches(
+        self,
+        caller_plugin_id: str,
+        normalized_api_name: str,
+        normalized_version: str,
+    ) -> tuple[List[tuple["PluginSupervisor", "APIEntry"]], List[tuple["PluginSupervisor", "APIEntry"]], bool]: ...
+
+    def _collect_api_toggle_reference_matches(
+        self,
+        normalized_name: str,
+        normalized_version: str,
+    ) -> List[tuple["PluginSupervisor", "APIEntry"]]: ...
+
     def _get_supervisor_for_plugin(self, plugin_id: str) -> Optional["PluginSupervisor"]: ...
 
     def _resolve_api_target(
@@ -136,7 +149,10 @@ class RuntimeComponentCapabilityMixin:
             str: 统一转为大写后的组件类型名。
         """
 
-        return str(component_type or "").strip().upper()
+        normalized_component_type = str(component_type or "").strip().upper()
+        if normalized_component_type == "ACTION":
+            return "TOOL"
+        return normalized_component_type
 
     @classmethod
     def _is_api_component_type(cls, component_type: str) -> bool:

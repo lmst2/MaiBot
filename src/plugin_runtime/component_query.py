@@ -1,14 +1,21 @@
 """插件运行时统一组件查询服务。
 
 该模块统一从插件运行时的 Host ComponentRegistry 中聚合只读视图，
-供 HFC/PFC、Planner、ToolExecutor 和运行时能力层查询与调用。
+供 HFC、ToolExecutor 和运行时能力层查询与调用。
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Optional, Tuple, cast
 
 from src.common.logger import get_logger
+from src.core.tooling import (
+    ToolExecutionContext,
+    ToolExecutionResult,
+    ToolInvocation,
+    ToolSpec,
+    build_tool_detailed_description,
+)
 from src.core.types import ActionActivationType, ActionInfo, CommandInfo, ComponentInfo, ComponentType, ToolInfo
 from src.llm_models.payload_content.tool_option import normalize_tool_option
 
@@ -240,10 +247,36 @@ class ComponentQueryService:
 
         return ToolInfo(
             name=entry.name,
-            description=entry.description,
+            description=entry.brief_description or entry.description,
             enabled=bool(entry.enabled),
             plugin_name=entry.plugin_id,
             parameters_schema=ComponentQueryService._build_tool_parameters_schema(entry),
+        )
+
+    @staticmethod
+    def _build_tool_spec(entry: "ToolEntry") -> ToolSpec:
+        """将运行时 Tool 条目转换为统一工具声明。
+
+        Args:
+            entry: 插件运行时中的 Tool 条目。
+
+        Returns:
+            ToolSpec: 统一工具声明。
+        """
+
+        parameters_schema = ComponentQueryService._build_tool_parameters_schema(entry)
+        return ToolSpec(
+            name=entry.name,
+            brief_description=entry.brief_description or entry.description or f"工具 {entry.name}",
+            detailed_description=entry.detailed_description or build_tool_detailed_description(parameters_schema),
+            parameters_schema=parameters_schema,
+            provider_name=entry.plugin_id,
+            provider_type="plugin",
+            metadata={
+                "plugin_id": entry.plugin_id,
+                "invoke_method": entry.invoke_method,
+                "legacy_component_type": entry.legacy_component_type,
+            },
         )
 
     @staticmethod
@@ -475,7 +508,12 @@ class ComponentQueryService:
         return _executor
 
     @staticmethod
-    def _build_tool_executor(supervisor: "PluginSupervisor", plugin_id: str, component_name: str) -> ToolExecutor:
+    def _build_tool_executor(
+        supervisor: "PluginSupervisor",
+        plugin_id: str,
+        component_name: str,
+        invoke_method: str = "plugin.invoke_tool",
+    ) -> ToolExecutor:
         """构造工具执行 RPC 闭包。
 
         Args:
@@ -499,7 +537,7 @@ class ComponentQueryService:
 
             try:
                 response = await supervisor.invoke_plugin(
-                    method="plugin.invoke_tool",
+                    method=invoke_method,
                     plugin_id=plugin_id,
                     component_name=component_name,
                     args=function_args,
@@ -615,7 +653,162 @@ class ComponentQueryService:
         if matched_entry is None:
             return None
         supervisor, entry = matched_entry
-        return self._build_tool_executor(supervisor, entry.plugin_id, entry.name)
+        tool_entry = cast("ToolEntry", entry)
+        return self._build_tool_executor(supervisor, tool_entry.plugin_id, tool_entry.name, tool_entry.invoke_method)
+
+    def get_llm_available_tool_specs(self) -> Dict[str, ToolSpec]:
+        """获取当前可供 LLM 使用的统一工具声明集合。
+
+        Returns:
+            Dict[str, ToolSpec]: 工具名到工具声明的映射。
+        """
+
+        collected_specs: Dict[str, ToolSpec] = {}
+        for _supervisor, entry in self._iter_component_entries(ComponentType.TOOL):
+            if entry.name in collected_specs:
+                self._log_duplicate_component(ComponentType.TOOL, entry.name)
+                continue
+            collected_specs[entry.name] = self._build_tool_spec(entry)  # type: ignore[arg-type]
+        return collected_specs
+
+    @staticmethod
+    def _build_tool_invocation_payload(
+        entry: "ToolEntry",
+        invocation: ToolInvocation,
+        context: Optional[ToolExecutionContext],
+    ) -> Dict[str, Any]:
+        """构造插件工具执行时发送给 Runner 的参数。
+
+        Args:
+            entry: 目标工具条目。
+            invocation: 统一工具调用请求。
+            context: 统一工具执行上下文。
+
+        Returns:
+            Dict[str, Any]: 发往 Runner 的参数字典。
+        """
+
+        payload = dict(invocation.arguments)
+        if entry.invoke_method == "plugin.invoke_action":
+            stream_id = context.stream_id if context is not None else invocation.stream_id
+            reasoning = context.reasoning if context is not None else invocation.reasoning
+            payload = {
+                **payload,
+                "stream_id": stream_id,
+                "chat_id": stream_id,
+                "reasoning": reasoning,
+                "action_data": dict(invocation.arguments),
+            }
+        return payload
+
+    @staticmethod
+    def _parse_tool_invoke_result(
+        entry: "ToolEntry",
+        result: Any,
+    ) -> ToolExecutionResult:
+        """将插件组件返回值转换为统一工具执行结果。
+
+        Args:
+            entry: 目标工具条目。
+            result: 插件组件原始返回值。
+
+        Returns:
+            ToolExecutionResult: 统一执行结果。
+        """
+
+        if isinstance(result, dict):
+            success = bool(result.get("success", True))
+            content = str(result.get("content", result.get("message", "")) or "").strip()
+            error_message = ""
+            if not success:
+                error_message = str(result.get("error", result.get("message", "插件工具执行失败")) or "").strip()
+            return ToolExecutionResult(
+                tool_name=entry.name,
+                success=success,
+                content=content,
+                error_message=error_message,
+                structured_content=result,
+                metadata={"plugin_id": entry.plugin_id},
+            )
+
+        if isinstance(result, (list, tuple)) and result:
+            if isinstance(result[0], bool):
+                success = bool(result[0])
+                message = "" if len(result) < 2 or result[1] is None else str(result[1]).strip()
+                return ToolExecutionResult(
+                    tool_name=entry.name,
+                    success=success,
+                    content=message if success else "",
+                    error_message="" if success else message,
+                    structured_content=list(result),
+                    metadata={"plugin_id": entry.plugin_id},
+                )
+
+        normalized_content = "" if result is None else str(result).strip()
+        return ToolExecutionResult(
+            tool_name=entry.name,
+            success=True,
+            content=normalized_content,
+            structured_content=result,
+            metadata={"plugin_id": entry.plugin_id},
+        )
+
+    async def invoke_tool_as_tool(
+        self,
+        invocation: ToolInvocation,
+        context: Optional[ToolExecutionContext] = None,
+    ) -> ToolExecutionResult:
+        """按统一工具语义执行插件工具。
+
+        Args:
+            invocation: 统一工具调用请求。
+            context: 执行上下文。
+
+        Returns:
+            ToolExecutionResult: 统一工具执行结果。
+        """
+
+        matched_entry = self._get_unique_component_entry(ComponentType.TOOL, invocation.tool_name)
+        if matched_entry is None:
+            return ToolExecutionResult(
+                tool_name=invocation.tool_name,
+                success=False,
+                error_message=f"未找到插件工具：{invocation.tool_name}",
+            )
+
+        supervisor, entry = matched_entry
+        tool_entry = cast("ToolEntry", entry)
+        invoke_payload = self._build_tool_invocation_payload(tool_entry, invocation, context)
+
+        try:
+            response = await supervisor.invoke_plugin(
+                method=tool_entry.invoke_method,
+                plugin_id=tool_entry.plugin_id,
+                component_name=tool_entry.name,
+                args=invoke_payload,
+                timeout_ms=30000,
+            )
+        except Exception as exc:
+            logger.error(f"运行时工具 {tool_entry.plugin_id}.{tool_entry.name} 执行失败: {exc}", exc_info=True)
+            return ToolExecutionResult(
+                tool_name=tool_entry.name,
+                success=False,
+                error_message=str(exc),
+                metadata={"plugin_id": tool_entry.plugin_id},
+            )
+
+        payload = response.payload if isinstance(response.payload, dict) else {}
+        transport_success = bool(payload.get("success", False))
+        result = payload.get("result")
+        if not transport_success:
+            return ToolExecutionResult(
+                tool_name=tool_entry.name,
+                success=False,
+                error_message="" if result is None else str(result),
+                structured_content=result,
+                metadata={"plugin_id": tool_entry.plugin_id},
+            )
+        return self._parse_tool_invoke_result(tool_entry, result)
 
     def get_llm_available_tools(self) -> Dict[str, ToolInfo]:
         """获取当前可供 LLM 选择的工具集合。

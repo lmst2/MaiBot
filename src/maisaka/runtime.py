@@ -1,7 +1,7 @@
-﻿"""Maisaka runtime for non-CLI integrations."""
+﻿"""Maisaka 非 CLI 运行时。"""
 
 from pathlib import Path
-from typing import Literal, Optional, cast
+from typing import Literal, Optional
 
 import asyncio
 import time
@@ -13,21 +13,24 @@ from src.common.data_models.mai_message_data_model import GroupInfo, UserInfo
 from src.common.logger import get_logger
 from src.common.utils.utils_config import ExpressionConfigUtils
 from src.config.config import global_config
+from src.core.tooling import ToolRegistry
 from src.know_u.knowledge import KnowledgeLearner
 from src.learners.expression_learner import ExpressionLearner
 from src.learners.jargon_miner import JargonMiner
-from src.llm_models.payload_content.tool_option import ToolDefinitionInput
 from src.mcp_module import MCPManager
+from src.mcp_module.provider import MCPToolProvider
+from src.plugin_runtime.tool_provider import PluginToolProvider
 
 from .chat_loop_service import MaisakaChatLoopService
 from .context_messages import LLMContextMessage
 from .reasoning_engine import MaisakaReasoningEngine
+from .tool_provider import MaisakaBuiltinToolProvider
 
 logger = get_logger("maisaka_runtime")
 
 
 class MaisakaHeartFlowChatting:
-    """Session-scoped Maisaka runtime."""
+    """会话级别的 Maisaka 运行时。"""
 
     _STATE_RUNNING: Literal["running"] = "running"
     _STATE_WAIT: Literal["wait"] = "wait"
@@ -79,9 +82,11 @@ class MaisakaHeartFlowChatting:
         self._knowledge_learner = KnowledgeLearner(session_id)
 
         self._reasoning_engine = MaisakaReasoningEngine(self)
+        self._tool_registry = ToolRegistry()
+        self._register_tool_providers()
 
     async def start(self) -> None:
-        """Start the runtime loop."""
+        """启动运行时主循环。"""
         if self._running:
             self._ensure_background_tasks_running()
             return
@@ -94,7 +99,7 @@ class MaisakaHeartFlowChatting:
         logger.info(f"{self.log_prefix} Maisaka 运行时已启动")
 
     async def stop(self) -> None:
-        """Stop the runtime loop."""
+        """停止运行时主循环。"""
         if not self._running:
             return
 
@@ -121,18 +126,17 @@ class MaisakaHeartFlowChatting:
             finally:
                 self._internal_loop_task = None
 
-        if self._mcp_manager is not None:
-            await self._mcp_manager.close()
-            self._mcp_manager = None
+        await self._tool_registry.close()
+        self._mcp_manager = None
 
         logger.info(f"{self.log_prefix} Maisaka 运行时已停止")
 
     def adjust_talk_frequency(self, frequency: float) -> None:
-        """Compatibility shim for the existing manager API."""
+        """兼容现有管理器接口的占位方法。"""
         _ = frequency
 
     async def register_message(self, message: SessionMessage) -> None:
-        """Cache a new message and wake the main loop."""
+        """缓存一条新消息并唤醒主循环。"""
         if self._running:
             self._ensure_background_tasks_running()
         self.message_cache.append(message)
@@ -175,6 +179,15 @@ class MaisakaHeartFlowChatting:
             self._loop_task = asyncio.create_task(self._main_loop())
             logger.warning(f"{self.log_prefix} 已重新拉起 Maisaka 主循环任务")
 
+    def _register_tool_providers(self) -> None:
+        """注册 Maisaka 运行时默认启用的工具 Provider。"""
+
+        self._tool_registry.register_provider(
+            MaisakaBuiltinToolProvider(self._reasoning_engine.build_builtin_tool_handlers())
+        )
+        self._tool_registry.register_provider(PluginToolProvider())
+        self._chat_loop_service.set_tool_registry(self._tool_registry)
+
     async def _main_loop(self) -> None:
         try:
             while self._running:
@@ -215,7 +228,7 @@ class MaisakaHeartFlowChatting:
         return self._last_processed_index < len(self.message_cache)
 
     def _collect_pending_messages(self) -> list[SessionMessage]:
-        """Collect one batch of unprocessed messages from message_cache."""
+        """从消息缓存中收集一批尚未处理的消息。"""
         start_index = self._last_processed_index
         pending_messages = self.message_cache[start_index:]
         if not pending_messages:
@@ -264,13 +277,13 @@ class MaisakaHeartFlowChatting:
             return "timeout"
 
     def _enter_wait_state(self, seconds: Optional[float] = None, tool_call_id: Optional[str] = None) -> None:
-        """Enter wait state."""
+        """切换到等待状态。"""
         self._agent_state = self._STATE_WAIT
         self._wait_until = None if seconds is None else time.time() + seconds
         self._pending_wait_tool_call_id = tool_call_id
 
     def _enter_stop_state(self) -> None:
-        """Enter stop state."""
+        """切换到停止状态。"""
         self._agent_state = self._STATE_STOP
         self._wait_until = None
         self._pending_wait_tool_call_id = None
@@ -288,7 +301,7 @@ class MaisakaHeartFlowChatting:
             logger.error(f"{self.log_prefix} 知识学习任务异常退出: {knowledge_result}")
 
     async def _trigger_expression_learning(self, messages: list[SessionMessage]) -> None:
-        """Trigger expression learning from the newly collected batch."""
+        """基于新收集的一批消息触发表达学习。"""
         self._expression_learner.add_messages(messages)
 
         if not self._enable_expression_learning:
@@ -331,7 +344,7 @@ class MaisakaHeartFlowChatting:
             logger.exception(f"{self.log_prefix} 表达学习失败")
 
     async def _trigger_knowledge_learning(self, messages: list[SessionMessage]) -> None:
-        """Trigger knowledge learning from the newly collected batch."""
+        """基于新收集的一批消息触发知识学习。"""
         self._knowledge_learner.add_messages(messages)
 
         if not global_config.maisaka.enable_knowledge_module:
@@ -372,22 +385,21 @@ class MaisakaHeartFlowChatting:
             logger.exception(f"{self.log_prefix} 知识学习失败")
 
     async def _init_mcp(self) -> None:
-        """Initialize MCP tools and inject them into the planner."""
+        """初始化 MCP 工具并注册到统一工具层。"""
         config_path = Path(__file__).resolve().parents[2] / "config" / "mcp_config.json"
         self._mcp_manager = await MCPManager.from_config(str(config_path))
         if self._mcp_manager is None:
             logger.info(f"{self.log_prefix} MCP 管理器不可用")
             return
 
-        mcp_tools = self._mcp_manager.get_openai_tools()
-        if not mcp_tools:
+        mcp_tool_specs = self._mcp_manager.get_tool_specs()
+        if not mcp_tool_specs:
             logger.info(f"{self.log_prefix} 没有可供 Maisaka 使用的 MCP 工具")
             return
 
-        mcp_tool_definitions = [cast(ToolDefinitionInput, tool) for tool in mcp_tools]
-        self._chat_loop_service.set_extra_tools(mcp_tool_definitions)
+        self._tool_registry.register_provider(MCPToolProvider(self._mcp_manager))
         logger.info(
-            f"{self.log_prefix} 已向 Maisaka 加载 {len(mcp_tools)} 个 MCP 工具:\n"
+            f"{self.log_prefix} 已向 Maisaka 加载 {len(mcp_tool_specs)} 个 MCP 工具:\n"
             f"{self._mcp_manager.get_tool_summary()}"
         )
 

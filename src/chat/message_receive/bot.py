@@ -14,7 +14,6 @@ from src.common.utils.utils_session import SessionUtils
 from src.config.config import global_config
 from src.platform_io.route_key_factory import RouteKeyFactory
 
-# from src.chat.brain_chat.PFC.pfc_manager import PFCManager
 from src.core.announcement_manager import global_announcement_manager
 from src.plugin_runtime.component_query import component_query_service
 
@@ -31,35 +30,19 @@ logger = get_logger("chat")
 
 
 class ChatBot:
-    def __init__(self):
+    def __init__(self) -> None:
+        """初始化聊天机器人入口。"""
+
         self.bot = None  # bot 实例引用
         self._started = False
-        self.heartflow_message_receiver = HeartFCMessageReceiver()  # 新增
-        # self.pfc_manager = PFCManager.get_instance()  # PFC管理器 # TODO: PFC恢复
+        self.heartflow_message_receiver = HeartFCMessageReceiver()
 
-    async def _ensure_started(self):
-        """确保所有任务已启动"""
+    async def _ensure_started(self) -> None:
+        """确保所有后台任务已启动。"""
         if not self._started:
             logger.debug("确保ChatBot所有任务已启动")
 
             self._started = True
-
-    async def _create_pfc_chat(self, message: SessionMessage):
-        """创建或获取PFC对话实例
-
-        Args:
-            message: 消息对象
-        """
-        try:
-            chat_id = message.session_id
-            private_name = str(message.message_info.user_info.user_nickname)
-
-            logger.debug(f"[私聊][{private_name}]创建或获取PFC对话: {chat_id}")
-            await self.pfc_manager.get_or_create_conversation(chat_id, private_name)
-
-        except Exception as e:
-            logger.error(f"创建PFC聊天失败: {e}")
-            logger.error(traceback.format_exc())
 
     async def _process_commands(self, message: SessionMessage) -> tuple[bool, Optional[str], bool]:
         """使用统一组件注册表处理命令。
@@ -177,11 +160,12 @@ class ChatBot:
             recalled: Dict[str, Any] = {}
             recalled_id = None
 
-            if getattr(seg, "type", None) == "notify" and isinstance(getattr(seg, "data", None), dict):
-                sub_type = seg.data.get("sub_type")
-                scene = seg.data.get("scene")
-                msg_id = seg.data.get("message_id")
-                recalled = seg.data.get("recalled_user_info") or {}
+            seg_data = getattr(seg, "data", None)
+            if getattr(seg, "type", None) == "notify" and isinstance(seg_data, dict):
+                sub_type = seg_data.get("sub_type")
+                scene = seg_data.get("scene")
+                msg_id = seg_data.get("message_id")
+                recalled = seg_data.get("recalled_user_info") or {}
                 if isinstance(recalled, dict):
                     recalled_id = recalled.get("user_id")
 
@@ -369,23 +353,6 @@ class ChatBot:
             # else:
             #     template_group_name = None
 
-            # async def preprocess():
-            #     # 根据聊天类型路由消息
-            #     if group_info is None:
-            #         # 私聊消息 -> PFC系统
-            #         logger.debug("[私聊]检测到私聊消息，路由到PFC系统")
-            #         await MessageStorage.store_message(message, chat)
-            #         await self._create_pfc_chat(message)
-            #     else:
-            #         # 群聊消息 -> HeartFlow系统
-            #         logger.debug("[群聊]检测到群聊消息，路由到HeartFlow系统")
-            #         await self.heartflow_message_receiver.process_message(message)
-
-            # if template_group_name:
-            #     async with global_prompt_manager.async_message_scope(template_group_name):
-            #         await preprocess()
-            # else:
-            #     await preprocess()
             async def preprocess():
                 if group_info is None:
                     logger.debug("[私聊]检测到私聊消息，路由到 Maisaka")

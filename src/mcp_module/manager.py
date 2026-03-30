@@ -3,9 +3,15 @@ MaiSaka - MCP 管理器
 管理所有 MCP 服务器连接，提供统一的工具发现与调用接口。
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from src.cli.console import console
+from src.core.tooling import (
+    ToolExecutionResult,
+    ToolInvocation,
+    ToolSpec,
+    build_tool_detailed_description,
+)
 
 from .config import DEFAULT_MCP_CONFIG_PATH, MCPServerConfig, load_mcp_config
 from .connection import MCPConnection, MCP_AVAILABLE
@@ -74,7 +80,7 @@ class MCPManager:
 
     # ──────── 连接管理 ────────
 
-    async def _connect_all(self, configs: list[MCPServerConfig]):
+    async def _connect_all(self, configs: list[MCPServerConfig]) -> None:
         """连接所有配置的 MCP 服务器，跳过失败的连接。"""
         for cfg in configs:
             conn = MCPConnection(cfg)
@@ -112,44 +118,75 @@ class MCPManager:
 
     # ──────── 工具发现 ────────
 
-    def get_openai_tools(self) -> list[dict]:
-        """
-        将所有已注册的 MCP 工具转换为 OpenAI function calling 格式。
+    def _build_tool_parameters_schema(self, tool: Any) -> dict[str, Any] | None:
+        """构造单个 MCP 工具的对象级参数 Schema。
+
+        Args:
+            tool: MCP SDK 返回的原始工具对象。
 
         Returns:
-            OpenAI tools 格式的工具定义列表。
+            dict[str, Any] | None: 参数 Schema。
         """
-        tools: list[dict] = []
 
+        parameters_schema = (
+            dict(tool.inputSchema)
+            if hasattr(tool, "inputSchema") and tool.inputSchema
+            else {"type": "object", "properties": {}}
+        )
+        parameters_schema.pop("$schema", None)
+        return parameters_schema
+
+    def get_tool_specs(self) -> list[ToolSpec]:
+        """获取全部已注册 MCP 工具的统一声明。
+
+        Returns:
+            list[ToolSpec]: MCP 工具声明列表。
+        """
+
+        tool_specs: list[ToolSpec] = []
         for server_name, conn in self._connections.items():
             for tool in conn.tools:
-                # 只包含成功注册的工具
                 if tool.name not in self._tool_to_server:
                     continue
                 if self._tool_to_server[tool.name] != server_name:
                     continue
 
-                # MCP inputSchema → OpenAI parameters
-                parameters = (
-                    dict(tool.inputSchema)
-                    if hasattr(tool, "inputSchema") and tool.inputSchema
-                    else {"type": "object", "properties": {}}
+                parameters_schema = self._build_tool_parameters_schema(tool)
+                brief_description = str(tool.description or f"来自 {server_name} 的 MCP 工具").strip()
+                tool_specs.append(
+                    ToolSpec(
+                        name=str(tool.name),
+                        brief_description=brief_description,
+                        detailed_description=build_tool_detailed_description(
+                            parameters_schema,
+                            fallback_description=f"工具来源：MCP 服务 {server_name}。",
+                        ),
+                        parameters_schema=parameters_schema,
+                        provider_name="mcp",
+                        provider_type="mcp",
+                        metadata={"server_name": server_name},
+                    )
                 )
-                # 移除 $schema 字段（部分 MCP 服务器会带上，OpenAI 不接受）
-                parameters.pop("$schema", None)
+        return tool_specs
 
-                tools.append(
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": tool.name,
-                            "description": (tool.description or f"MCP tool from {server_name}"),
-                            "parameters": parameters,
-                        },
-                    }
-                )
+    def get_openai_tools(self) -> list[dict[str, Any]]:
+        """获取兼容旧模型层的 MCP 工具定义。
 
-        return tools
+        Returns:
+            list[dict[str, Any]]: OpenAI function tool 格式列表。
+        """
+
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool_spec.name,
+                    "description": tool_spec.build_llm_description(),
+                    "parameters": tool_spec.parameters_schema or {"type": "object", "properties": {}},
+                },
+            }
+            for tool_spec in self.get_tool_specs()
+        ]
 
     # ──────── 工具调用 ────────
 
@@ -157,28 +194,46 @@ class MCPManager:
         """判断工具名是否为已注册的 MCP 工具。"""
         return tool_name in self._tool_to_server
 
-    async def call_tool(self, tool_name: str, arguments: dict) -> str:
-        """
-        调用指定的 MCP 工具。
-
-        自动路由到正确的 MCP 服务器。
+    async def call_tool_invocation(self, invocation: ToolInvocation) -> ToolExecutionResult:
+        """执行统一的 MCP 工具调用。
 
         Args:
-            tool_name:  工具名称
-            arguments:  工具参数
+            invocation: 统一工具调用请求。
 
         Returns:
-            工具执行结果文本。
+            ToolExecutionResult: 统一工具执行结果。
         """
+
+        tool_name = invocation.tool_name
         server_name = self._tool_to_server.get(tool_name)
         if not server_name or server_name not in self._connections:
-            return f"MCP 工具 '{tool_name}' 未找到"
+            return ToolExecutionResult(
+                tool_name=tool_name,
+                success=False,
+                error_message=f"MCP 工具 '{tool_name}' 未找到",
+            )
 
         conn = self._connections[server_name]
-        try:
-            return await conn.call_tool(tool_name, arguments)
-        except Exception as e:
-            return f"MCP 工具 '{tool_name}' 执行失败: {e}"
+        return await conn.call_tool(tool_name, invocation.arguments)
+
+    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
+        """兼容旧接口，返回 MCP 工具的文本结果。
+
+        Args:
+            tool_name: 工具名称。
+            arguments: 工具参数。
+
+        Returns:
+            str: 工具结果文本。
+        """
+
+        result = await self.call_tool_invocation(
+            ToolInvocation(
+                tool_name=tool_name,
+                arguments=arguments,
+            )
+        )
+        return result.get_history_content()
 
     # ──────── 信息展示 ────────
 
@@ -207,7 +262,7 @@ class MCPManager:
 
     # ──────── 生命周期 ────────
 
-    async def close(self):
+    async def close(self) -> None:
         """关闭所有 MCP 服务器连接。"""
         for conn in self._connections.values():
             await conn.close()

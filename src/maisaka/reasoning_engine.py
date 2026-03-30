@@ -20,6 +20,7 @@ from src.common.database.database import get_db_session
 from src.common.database.database_model import PersonInfo
 from src.common.logger import get_logger
 from src.config.config import global_config
+from src.core.tooling import ToolExecutionContext, ToolExecutionResult, ToolInvocation
 from src.know_u.knowledge_store import get_knowledge_store
 from src.learners.jargon_explainer import search_jargon
 from src.llm_models.exceptions import ReqAbortException
@@ -37,13 +38,10 @@ from .message_adapter import (
     clone_message_sequence,
     format_speaker_content,
 )
-from .tool_handlers import (
-    handle_mcp_tool,
-    handle_unknown_tool,
-)
 
 if TYPE_CHECKING:
     from .runtime import MaisakaHeartFlowChatting
+    from .tool_provider import BuiltinToolHandler
 
 logger = get_logger("maisaka_reasoning_engine")
 
@@ -54,6 +52,23 @@ class MaisakaReasoningEngine:
     def __init__(self, runtime: "MaisakaHeartFlowChatting") -> None:
         self._runtime = runtime
         self._last_reasoning_content: str = ""
+
+    def build_builtin_tool_handlers(self) -> dict[str, "BuiltinToolHandler"]:
+        """构造 Maisaka 内置工具处理器映射。
+
+        Returns:
+            dict[str, BuiltinToolHandler]: 工具名到处理器的映射。
+        """
+
+        return {
+            "reply": self._invoke_reply_tool,
+            "no_reply": self._invoke_no_reply_tool,
+            "query_jargon": self._invoke_query_jargon_tool,
+            "query_person_info": self._invoke_query_person_info_tool,
+            "wait": self._invoke_wait_tool,
+            "stop": self._invoke_stop_tool,
+            "send_emoji": self._invoke_send_emoji_tool,
+        }
 
     async def run_loop(self) -> None:
         """独立消费消息批次，并执行对应的内部思考轮次。"""
@@ -360,79 +375,287 @@ class MaisakaReasoningEngine:
             return processed_segments
         return [reply_text.strip()]
 
+    def _build_tool_invocation(self, tool_call: ToolCall, latest_thought: str) -> ToolInvocation:
+        """将模型输出的工具调用转换为统一调用对象。
+
+        Args:
+            tool_call: 模型返回的工具调用。
+            latest_thought: 当前轮的最新思考文本。
+
+        Returns:
+            ToolInvocation: 统一工具调用对象。
+        """
+
+        return ToolInvocation(
+            tool_name=tool_call.func_name,
+            arguments=dict(tool_call.args or {}),
+            call_id=tool_call.call_id,
+            session_id=self._runtime.session_id,
+            stream_id=self._runtime.session_id,
+            reasoning=latest_thought,
+        )
+
+    def _build_tool_execution_context(
+        self,
+        latest_thought: str,
+        anchor_message: SessionMessage,
+    ) -> ToolExecutionContext:
+        """构造统一工具执行上下文。
+
+        Args:
+            latest_thought: 当前轮的最新思考文本。
+            anchor_message: 当前轮的锚点消息。
+
+        Returns:
+            ToolExecutionContext: 统一工具执行上下文。
+        """
+
+        return ToolExecutionContext(
+            session_id=self._runtime.session_id,
+            stream_id=self._runtime.session_id,
+            reasoning=latest_thought,
+            metadata={"anchor_message": anchor_message},
+        )
+
+    def _append_tool_execution_result(self, tool_call: ToolCall, result: ToolExecutionResult) -> None:
+        """将统一工具执行结果写回 Maisaka 历史。
+
+        Args:
+            tool_call: 原始工具调用对象。
+            result: 统一工具执行结果。
+        """
+
+        history_content = result.get_history_content()
+        if not history_content:
+            history_content = "工具执行成功。" if result.success else f"工具 {tool_call.func_name} 执行失败。"
+
+        self._runtime._chat_history.append(
+            ToolResultMessage(
+                content=history_content,
+                timestamp=datetime.now(),
+                tool_call_id=tool_call.call_id,
+                tool_name=tool_call.func_name,
+            )
+        )
+
+    @staticmethod
+    def _build_tool_call_from_invocation(invocation: ToolInvocation) -> ToolCall:
+        """将统一工具调用对象恢复为 `ToolCall` 兼容对象。
+
+        Args:
+            invocation: 统一工具调用对象。
+
+        Returns:
+            ToolCall: 兼容旧内部逻辑的工具调用对象。
+        """
+
+        return ToolCall(
+            call_id=invocation.call_id or f"{invocation.tool_name}_call",
+            func_name=invocation.tool_name,
+            args=dict(invocation.arguments),
+        )
+
+    @staticmethod
+    def _build_tool_success_result(
+        tool_name: str,
+        content: str = "",
+        structured_content: Any = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> ToolExecutionResult:
+        """构造统一工具成功结果。
+
+        Args:
+            tool_name: 工具名称。
+            content: 结果文本。
+            structured_content: 结构化结果。
+            metadata: 附加元数据。
+
+        Returns:
+            ToolExecutionResult: 统一工具成功结果。
+        """
+
+        return ToolExecutionResult(
+            tool_name=tool_name,
+            success=True,
+            content=content,
+            structured_content=structured_content,
+            metadata=dict(metadata or {}),
+        )
+
+    @staticmethod
+    def _build_tool_failure_result(
+        tool_name: str,
+        error_message: str,
+        structured_content: Any = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> ToolExecutionResult:
+        """构造统一工具失败结果。
+
+        Args:
+            tool_name: 工具名称。
+            error_message: 错误信息。
+            structured_content: 结构化结果。
+            metadata: 附加元数据。
+
+        Returns:
+            ToolExecutionResult: 统一工具失败结果。
+        """
+
+        return ToolExecutionResult(
+            tool_name=tool_name,
+            success=False,
+            error_message=error_message,
+            structured_content=structured_content,
+            metadata=dict(metadata or {}),
+        )
+
+    async def _invoke_reply_tool(
+        self,
+        invocation: ToolInvocation,
+        context: Optional[ToolExecutionContext] = None,
+    ) -> ToolExecutionResult:
+        """执行 reply 内置工具。"""
+
+        latest_thought = context.reasoning if context is not None else invocation.reasoning
+        return await self._handle_reply(self._build_tool_call_from_invocation(invocation), latest_thought)
+
+    async def _invoke_no_reply_tool(
+        self,
+        invocation: ToolInvocation,
+        context: Optional[ToolExecutionContext] = None,
+    ) -> ToolExecutionResult:
+        """执行 no_reply 内置工具。"""
+
+        del context
+        return self._build_tool_success_result(invocation.tool_name, "本轮未发送可见回复。")
+
+    async def _invoke_query_jargon_tool(
+        self,
+        invocation: ToolInvocation,
+        context: Optional[ToolExecutionContext] = None,
+    ) -> ToolExecutionResult:
+        """执行 query_jargon 内置工具。"""
+
+        del context
+        return await self._handle_query_jargon(self._build_tool_call_from_invocation(invocation))
+
+    async def _invoke_query_person_info_tool(
+        self,
+        invocation: ToolInvocation,
+        context: Optional[ToolExecutionContext] = None,
+    ) -> ToolExecutionResult:
+        """执行 query_person_info 内置工具。"""
+
+        del context
+        return await self._handle_query_person_info(self._build_tool_call_from_invocation(invocation))
+
+    async def _invoke_wait_tool(
+        self,
+        invocation: ToolInvocation,
+        context: Optional[ToolExecutionContext] = None,
+    ) -> ToolExecutionResult:
+        """执行 wait 内置工具。"""
+
+        del context
+        seconds = invocation.arguments.get("seconds", 30)
+        try:
+            wait_seconds = int(seconds)
+        except (TypeError, ValueError):
+            wait_seconds = 30
+        wait_seconds = max(0, wait_seconds)
+        self._runtime._enter_wait_state(seconds=wait_seconds, tool_call_id=invocation.call_id)
+        return self._build_tool_success_result(
+            invocation.tool_name,
+            f"当前对话循环进入等待状态，最长等待 {wait_seconds} 秒。",
+            metadata={"pause_execution": True},
+        )
+
+    async def _invoke_stop_tool(
+        self,
+        invocation: ToolInvocation,
+        context: Optional[ToolExecutionContext] = None,
+    ) -> ToolExecutionResult:
+        """执行 stop 内置工具。"""
+
+        del context
+        self._runtime._enter_stop_state()
+        return self._build_tool_success_result(
+            invocation.tool_name,
+            "当前对话循环已暂停，等待新消息到来。",
+            metadata={"pause_execution": True},
+        )
+
+    async def _invoke_send_emoji_tool(
+        self,
+        invocation: ToolInvocation,
+        context: Optional[ToolExecutionContext] = None,
+    ) -> ToolExecutionResult:
+        """执行 send_emoji 内置工具。"""
+
+        del context
+        return await self._handle_send_emoji(self._build_tool_call_from_invocation(invocation))
+
     async def _handle_tool_calls(
         self,
         tool_calls: list[ToolCall],
         latest_thought: str,
         anchor_message: SessionMessage,
     ) -> bool:
+        """执行一批统一工具调用。
+
+        Args:
+            tool_calls: 模型返回的工具调用列表。
+            latest_thought: 当前轮的最新思考文本。
+            anchor_message: 当前轮的锚点消息。
+
+        Returns:
+            bool: 是否需要暂停当前思考循环。
+        """
+
+        if self._runtime._tool_registry is None:
+            for tool_call in tool_calls:
+                self._append_tool_execution_result(
+                    tool_call,
+                    ToolExecutionResult(
+                        tool_name=tool_call.func_name,
+                        success=False,
+                        error_message="统一工具注册表尚未初始化。",
+                    ),
+                )
+            return False
+
+        execution_context = self._build_tool_execution_context(latest_thought, anchor_message)
         for tool_call in tool_calls:
-            if tool_call.func_name == "reply":
-                reply_sent = await self._handle_reply(tool_call, latest_thought, anchor_message)
-                if not reply_sent:
-                    logger.warning(
-                        f"{self._runtime.log_prefix} 回复工具未生成可见消息，将继续下一轮循环"
-                    )
-                continue
+            invocation = self._build_tool_invocation(tool_call, latest_thought)
+            result = await self._runtime._tool_registry.invoke(invocation, execution_context)
+            self._append_tool_execution_result(tool_call, result)
 
-            if tool_call.func_name == "no_reply":
-                self._runtime._chat_history.append(
-                    self._build_tool_message(
-                        tool_call,
-                        "本轮未发送可见回复。",
-                    )
-                )
-                continue
+            if not result.success and tool_call.func_name == "reply":
+                logger.warning(f"{self._runtime.log_prefix} 回复工具未生成可见消息，将继续下一轮循环")
 
-            if tool_call.func_name == "query_jargon":
-                await self._handle_query_jargon(tool_call)
-                continue
-
-            if tool_call.func_name == "query_person_info":
-                await self._handle_query_person_info(tool_call)
-                continue
-
-            if tool_call.func_name == "wait":
-                seconds = (tool_call.args or {}).get("seconds", 30)
-                try:
-                    wait_seconds = int(seconds)
-                except (TypeError, ValueError):
-                    wait_seconds = 30
-                wait_seconds = max(0, wait_seconds)
-                self._runtime._enter_wait_state(seconds=wait_seconds, tool_call_id=tool_call.call_id)
+            if bool(result.metadata.get("pause_execution", False)):
                 return True
-
-            if tool_call.func_name == "stop":
-                self._runtime._chat_history.append(
-                    self._build_tool_message(
-                        tool_call,
-                        "当前对话循环已暂停，等待新消息到来。",
-                    )
-                )
-                self._runtime._enter_stop_state()
-                return True
-
-            if tool_call.func_name == "send_emoji":
-                await self._handle_send_emoji(tool_call, anchor_message)
-                continue
-
-            if self._runtime._mcp_manager and self._runtime._mcp_manager.is_mcp_tool(tool_call.func_name):
-                await handle_mcp_tool(tool_call, self._runtime._chat_history, self._runtime._mcp_manager)
-                continue
-
-            await handle_unknown_tool(tool_call, self._runtime._chat_history)
 
         return False
 
-    async def _handle_query_jargon(self, tool_call: ToolCall) -> None:
+    async def _handle_query_jargon(self, tool_call: ToolCall) -> ToolExecutionResult:
+        """查询黑话解释并返回统一工具结果。
+
+        Args:
+            tool_call: 当前工具调用。
+
+        Returns:
+            ToolExecutionResult: 统一工具执行结果。
+        """
+
         tool_args = tool_call.args or {}
         raw_words = tool_args.get("words")
 
         if not isinstance(raw_words, list):
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "查询黑话工具需要提供 `words` 数组参数。")
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                "查询黑话工具需要提供 `words` 数组参数。",
             )
-            return
 
         words: list[str] = []
         seen_words: set[str] = set()
@@ -446,10 +669,10 @@ class MaisakaReasoningEngine:
             words.append(word)
 
         if not words:
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "查询黑话工具至少需要一个非空词条。")
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                "查询黑话工具至少需要一个非空词条。",
             )
-            return
 
         logger.info(f"{self._runtime.log_prefix} 已触发黑话查询: 词条={words!r}")
 
@@ -479,31 +702,38 @@ class MaisakaReasoningEngine:
             )
 
         logger.info(f"{self._runtime.log_prefix} 黑话查询完成: 结果={results!r}")
-        self._runtime._chat_history.append(
-            self._build_tool_message(
-                tool_call,
-                json.dumps({"results": results}, ensure_ascii=False),
-            )
+        return self._build_tool_success_result(
+            tool_call.func_name,
+            json.dumps({"results": results}, ensure_ascii=False),
+            structured_content={"results": results},
         )
 
-    async def _handle_query_person_info(self, tool_call: ToolCall) -> None:
-        """查询指定人物的档案和相关知识。"""
+    async def _handle_query_person_info(self, tool_call: ToolCall) -> ToolExecutionResult:
+        """查询指定人物的档案和相关知识。
+
+        Args:
+            tool_call: 当前工具调用。
+
+        Returns:
+            ToolExecutionResult: 统一工具执行结果。
+        """
+
         tool_args = tool_call.args or {}
         raw_person_name = tool_args.get("person_name")
         raw_limit = tool_args.get("limit", 3)
 
         if not isinstance(raw_person_name, str):
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "查询人物信息工具需要提供字符串类型的 `person_name` 参数。")
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                "查询人物信息工具需要提供字符串类型的 `person_name` 参数。",
             )
-            return
 
         person_name = raw_person_name.strip()
         if not person_name:
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "查询人物信息工具需要提供非空的 `person_name` 参数。")
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                "查询人物信息工具需要提供非空的 `person_name` 参数。",
             )
-            return
 
         try:
             limit = max(1, min(int(raw_limit), 10))
@@ -526,11 +756,10 @@ class MaisakaReasoningEngine:
             f"{self._runtime.log_prefix} 人物信息查询完成: "
             f"人物记录数={len(result['persons'])} 相关知识数={len(result['related_knowledge'])}"
         )
-        self._runtime._chat_history.append(
-            self._build_tool_message(
-                tool_call,
-                json.dumps(result, ensure_ascii=False),
-            )
+        return self._build_tool_success_result(
+            tool_call.func_name,
+            json.dumps(result, ensure_ascii=False),
+            structured_content=result,
         )
 
     def _query_person_records(self, person_name: str, limit: int) -> list[dict[str, Any]]:
@@ -632,25 +861,34 @@ class MaisakaReasoningEngine:
         self,
         tool_call: ToolCall,
         latest_thought: str,
-        anchor_message: SessionMessage,
-    ) -> bool:
+    ) -> ToolExecutionResult:
+        """执行 reply 工具并生成可见回复。
+
+        Args:
+            tool_call: 当前工具调用。
+            latest_thought: 当前轮的最新思考文本。
+
+        Returns:
+            ToolExecutionResult: 统一工具执行结果。
+        """
+
         tool_args = tool_call.args or {}
         target_message_id = str(tool_args.get("msg_id") or "").strip()
         quote_reply = bool(tool_args.get("quote", True))
         raw_unknown_words = tool_args.get("unknown_words")
         unknown_words = raw_unknown_words if isinstance(raw_unknown_words, list) else None
         if not target_message_id:
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "回复工具需要提供有效的 `msg_id` 参数。")
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                "回复工具需要提供有效的 `msg_id` 参数。",
             )
-            return False
 
         target_message = self._runtime._source_messages_by_id.get(target_message_id)
         if target_message is None:
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, f"未找到要回复的目标消息，msg_id={target_message_id}")
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                f"未找到要回复的目标消息，msg_id={target_message_id}",
             )
-            return False
 
         logger.info(
             f"{self._runtime.log_prefix} 已触发回复工具: "
@@ -668,17 +906,17 @@ class MaisakaReasoningEngine:
                 f"{self._runtime.log_prefix} 获取回复生成器时发生异常: "
                 f"目标消息编号={target_message_id}"
             )
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "获取 Maisaka 回复生成器时发生异常。")
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                "获取 Maisaka 回复生成器时发生异常。",
             )
-            return False
 
         if replyer is None:
             logger.error(f"{self._runtime.log_prefix} 获取 Maisaka 回复生成器失败")
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "Maisaka 回复生成器当前不可用。")
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                "Maisaka 回复生成器当前不可用。",
             )
-            return False
 
         from src.chat.replyer.maisaka_generator import MaisakaReplyGenerator
 
@@ -701,10 +939,10 @@ class MaisakaReasoningEngine:
                 f"{self._runtime.log_prefix} 回复生成器执行异常: 目标消息编号={target_message_id} "
                 f"异常类型={type(exc).__name__} 异常信息={str(exc)}\n{traceback.format_exc()}"
             )
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "生成可见回复时发生异常。")
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                "生成可见回复时发生异常。",
             )
-            return False
 
         logger.info(
             f"{self._runtime.log_prefix} 回复生成完成: "
@@ -717,10 +955,10 @@ class MaisakaReasoningEngine:
                 f"{self._runtime.log_prefix} 回复生成器返回空文本: "
                 f"目标消息编号={target_message_id} 错误信息={reply_result.error_message!r}"
             )
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "生成可见回复失败。")
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                "生成可见回复失败。",
             )
-            return False
 
         reply_segments = self._post_process_reply_text(reply_text)
         combined_reply_text = "".join(reply_segments)
@@ -751,19 +989,25 @@ class MaisakaReasoningEngine:
             logger.exception(
                 f"{self._runtime.log_prefix} 发送文字消息时发生异常，目标消息编号={target_message_id}"
             )
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "发送可见回复时发生异常。")
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                "发送可见回复时发生异常。",
             )
-            return False
 
         logger.info(
             f"{self._runtime.log_prefix} 引导回复发送结果: "
             f"目标消息编号={target_message_id} 发送成功={sent}"
         )
-        tool_result = "可见回复已生成并发送。" if sent else "可见回复生成成功，但发送失败。"
-        self._runtime._chat_history.append(self._build_tool_message(tool_call, tool_result))
         if not sent:
-            return False
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                "可见回复生成成功，但发送失败。",
+                structured_content={
+                    "msg_id": target_message_id,
+                    "quote": quote_reply,
+                    "reply_segments": reply_segments,
+                },
+            )
 
         target_user_info = target_message.message_info.user_info
         target_user_name = (
@@ -807,14 +1051,26 @@ class MaisakaReasoningEngine:
         )
         history_message.visible_text = visible_reply_text
         self._runtime._chat_history.append(history_message)
-        return True
+        return self._build_tool_success_result(
+            tool_call.func_name,
+            "可见回复已生成并发送。",
+            structured_content={
+                "msg_id": target_message_id,
+                "quote": quote_reply,
+                "reply_text": combined_reply_text,
+                "reply_segments": reply_segments,
+                "target_user_name": target_user_name,
+            },
+        )
 
-    async def _handle_send_emoji(self, tool_call: ToolCall, anchor_message: SessionMessage) -> None:
+    async def _handle_send_emoji(self, tool_call: ToolCall) -> ToolExecutionResult:
         """处理发送表情包的工具调用。
 
         Args:
-            tool_call: 工具调用对象
-            anchor_message: 锚点消息
+            tool_call: 工具调用对象。
+
+        Returns:
+            ToolExecutionResult: 统一工具执行结果。
         """
         from src.chat.emoji_system.emoji_manager import emoji_manager
         from src.common.utils.utils_image import ImageUtils
@@ -827,10 +1083,10 @@ class MaisakaReasoningEngine:
 
         # 获取表情包列表
         if not emoji_manager.emojis:
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "当前表情包库中没有可用表情。")
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                "当前表情包库中没有可用表情。",
             )
-            return
 
         # 根据情感选择表情包
         selected_emoji = None
@@ -867,10 +1123,10 @@ class MaisakaReasoningEngine:
             logger.error(
                 f"{self._runtime.log_prefix} 表情图片转换为 base64 失败: {exc}"
             )
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, f"发送表情包失败：{exc}")
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                f"发送表情包失败：{exc}",
             )
-            return
 
         # 发送表情包
         try:
@@ -885,32 +1141,26 @@ class MaisakaReasoningEngine:
             logger.exception(
                 f"{self._runtime.log_prefix} 发送表情包时发生异常: {exc}"
             )
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, f"发送表情包时发生异常：{exc}")
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                f"发送表情包时发生异常：{exc}",
             )
-            return
 
         if sent:
             logger.info(
                 f"{self._runtime.log_prefix} 表情包发送成功: "
                 f"描述={selected_emoji.description!r} 情绪标签={selected_emoji.emotion}"
             )
-            self._runtime._chat_history.append(
-                self._build_tool_message(
-                    tool_call,
-                    f"已发送表情包：{selected_emoji.description}（情绪：{', '.join(selected_emoji.emotion)}）"
-                )
+            return self._build_tool_success_result(
+                tool_call.func_name,
+                f"已发送表情包：{selected_emoji.description}（情绪：{', '.join(selected_emoji.emotion)}）",
+                structured_content={
+                    "description": selected_emoji.description,
+                    "emotion": list(selected_emoji.emotion),
+                },
             )
-        else:
-            logger.warning(f"{self._runtime.log_prefix} 表情包发送失败")
-            self._runtime._chat_history.append(
-                self._build_tool_message(tool_call, "发送表情包失败。")
-            )
-
-    def _build_tool_message(self, tool_call: ToolCall, content: str) -> ToolResultMessage:
-        return ToolResultMessage(
-            content=content,
-            timestamp=datetime.now(),
-            tool_call_id=tool_call.call_id,
-            tool_name=tool_call.func_name,
+        logger.warning(f"{self._runtime.log_prefix} 表情包发送失败")
+        return self._build_tool_failure_result(
+            tool_call.func_name,
+            "发送表情包失败。",
         )

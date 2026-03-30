@@ -6,6 +6,8 @@ MaiSaka - 单个 MCP 服务器连接管理
 from contextlib import AsyncExitStack
 from typing import Any, Optional
 
+from src.core.tooling import ToolExecutionResult
+
 from src.cli.console import console
 
 from .config import MCPServerConfig
@@ -79,6 +81,8 @@ class MCPConnection:
                 return False
 
             # 创建并初始化 MCP 会话
+            if ClientSession is None:
+                raise RuntimeError("当前环境未安装可用的 MCP ClientSession")
             self.session = await self._exit_stack.enter_async_context(ClientSession(read_stream, write_stream))
             await self.session.initialize()
 
@@ -95,6 +99,11 @@ class MCPConnection:
 
     async def _connect_stdio(self):
         """建立 Stdio 传输连接。"""
+        if StdioServerParameters is None or stdio_client is None:
+            raise RuntimeError("当前环境未安装可用的 MCP stdio 客户端")
+        if not self.config.command:
+            raise ValueError(f"MCP 服务器 '{self.config.name}' 缺少 stdio command 配置")
+
         params = StdioServerParameters(
             command=self.config.command,
             args=self.config.args,
@@ -106,39 +115,63 @@ class MCPConnection:
         """建立 SSE 传输连接。"""
         if not SSE_AVAILABLE:
             raise ImportError("SSE 传输需要额外依赖，请运行: pip install mcp[sse]")
+        if sse_client is None:
+            raise RuntimeError("当前环境未安装可用的 MCP SSE 客户端")
+        if not self.config.url:
+            raise ValueError(f"MCP 服务器 '{self.config.name}' 缺少 SSE url 配置")
         return await self._exit_stack.enter_async_context(sse_client(url=self.config.url, headers=self.config.headers))
 
-    async def call_tool(self, tool_name: str, arguments: dict) -> str:
-        """
-        调用 MCP 工具并返回结果文本。
+    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> ToolExecutionResult:
+        """调用 MCP 工具并返回统一执行结果。
 
         Args:
-            tool_name:  工具名称
-            arguments:  工具参数字典
+            tool_name: 工具名称。
+            arguments: 工具参数字典。
 
         Returns:
-            工具执行结果的文本表示。
+            ToolExecutionResult: 统一执行结果。
         """
+
         if not self.session:
-            return f"MCP 服务器 '{self.config.name}' 未连接"
+            return ToolExecutionResult(
+                tool_name=tool_name,
+                success=False,
+                error_message=f"MCP 服务器 '{self.config.name}' 未连接",
+            )
 
-        result = await self.session.call_tool(tool_name, arguments=arguments)
+        try:
+            result = await self.session.call_tool(tool_name, arguments=arguments)
+        except Exception as exc:
+            return ToolExecutionResult(
+                tool_name=tool_name,
+                success=False,
+                error_message=f"MCP 工具 '{tool_name}' 执行失败: {exc}",
+                metadata={"server_name": self.config.name},
+            )
 
-        # 将结果内容转换为文本
-        parts: list[str] = []
+        text_parts: list[str] = []
+        binary_parts: list[dict[str, Any]] = []
         for content in result.content:
             if hasattr(content, "text"):
-                parts.append(content.text)
+                text_parts.append(str(content.text))
             elif hasattr(content, "data"):
-                # 二进制/图片内容，展示类型信息
                 content_type = getattr(content, "mimeType", "unknown")
-                parts.append(f"[{content_type} 二进制内容]")
+                binary_parts.append({"mime_type": content_type, "type": "binary"})
+                text_parts.append(f"[{content_type} 二进制内容]")
             elif hasattr(content, "type"):
-                parts.append(f"[{content.type} 内容]")
+                text_parts.append(f"[{content.type} 内容]")
 
-        return "\n".join(parts) if parts else "工具执行成功（无输出）"
+        return ToolExecutionResult(
+            tool_name=tool_name,
+            success=True,
+            content="\n".join(text_parts) if text_parts else "工具执行成功（无输出）",
+            metadata={
+                "server_name": self.config.name,
+                "binary_parts": binary_parts,
+            },
+        )
 
-    async def close(self):
+    async def close(self) -> None:
         """关闭连接并释放资源。"""
         try:
             await self._exit_stack.aclose()

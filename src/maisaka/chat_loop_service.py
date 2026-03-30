@@ -1,5 +1,7 @@
-from dataclasses import dataclass
+"""Maisaka 对话循环服务。"""
+
 from base64 import b64decode
+from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
 from time import perf_counter
@@ -20,6 +22,7 @@ from src.common.data_models.message_component_data_model import MessageSequence,
 from src.common.logger import get_logger
 from src.common.prompt_i18n import load_prompt
 from src.config.config import global_config
+from src.core.tooling import ToolRegistry
 from src.know_u.knowledge import extract_category_ids_from_result
 from src.llm_models.model_client.base_client import BaseClient
 from src.llm_models.payload_content.message import Message, MessageBuilder, RoleType
@@ -52,10 +55,19 @@ class MaisakaChatLoopService:
         temperature: float = 0.5,
         max_tokens: int = 2048,
     ) -> None:
+        """初始化 Maisaka 对话循环服务。
+
+        Args:
+            chat_system_prompt: 可选的系统提示词。
+            temperature: 规划器温度参数。
+            max_tokens: 规划器最大输出长度。
+        """
+
         self._temperature = temperature
         self._max_tokens = max_tokens
         self._extra_tools: List[ToolOption] = []
         self._interrupt_flag: asyncio.Event | None = None
+        self._tool_registry: ToolRegistry | None = None
         self._prompts_loaded = False
         self._prompt_load_lock = asyncio.Lock()
         self._personality_prompt = self._build_personality_prompt()
@@ -67,9 +79,13 @@ class MaisakaChatLoopService:
 
     @property
     def personality_prompt(self) -> str:
+        """返回当前人格提示词。"""
+
         return self._personality_prompt
 
     def _build_personality_prompt(self) -> str:
+        """构造人格提示词。"""
+
         try:
             bot_name = global_config.bot.nickname
             if global_config.bot.alias_names:
@@ -92,6 +108,12 @@ class MaisakaChatLoopService:
             return "Your name is MaiMai; persona: lively and cute AI assistant."
 
     async def ensure_chat_prompt_loaded(self, tools_section: str = "") -> None:
+        """确保主聊天提示词已经加载完成。
+
+        Args:
+            tools_section: 额外注入到提示词中的工具说明片段。
+        """
+
         if self._prompts_loaded:
             return
 
@@ -112,7 +134,22 @@ class MaisakaChatLoopService:
             self._prompts_loaded = True
 
     def set_extra_tools(self, tools: List[ToolDefinitionInput]) -> None:
+        """设置额外工具定义。
+
+        Args:
+            tools: 兼容旧接口的额外工具定义列表。
+        """
+
         self._extra_tools = normalize_tool_options(tools) or []
+
+    def set_tool_registry(self, tool_registry: ToolRegistry | None) -> None:
+        """设置统一工具注册表。
+
+        Args:
+            tool_registry: 统一工具注册表；传入 ``None`` 时退回旧工具列表模式。
+        """
+
+        self._tool_registry = tool_registry
 
     def set_interrupt_flag(self, interrupt_flag: asyncio.Event | None) -> None:
         """设置当前 planner 请求使用的中断标记。"""
@@ -329,6 +366,15 @@ class MaisakaChatLoopService:
         )
 
     async def chat_loop_step(self, chat_history: List[LLMContextMessage]) -> ChatResponse:
+        """执行一轮 Maisaka 规划器请求。
+
+        Args:
+            chat_history: 当前对话历史。
+
+        Returns:
+            ChatResponse: 本轮规划器返回结果。
+        """
+
         await self.ensure_chat_prompt_loaded()
         selected_history, selection_reason = self._select_llm_context_messages(chat_history)
 
@@ -336,7 +382,11 @@ class MaisakaChatLoopService:
             del _client
             return self._build_request_messages(selected_history)
 
-        all_tools: List[ToolDefinitionInput] = [*get_builtin_tools(), *self._extra_tools]
+        all_tools: List[ToolDefinitionInput]
+        if self._tool_registry is not None:
+            all_tools = await self._tool_registry.get_llm_definitions()
+        else:
+            all_tools = [*get_builtin_tools(), *self._extra_tools]
         built_messages = self._build_request_messages(selected_history)
 
         ordered_panels: List[Panel] = []
