@@ -1,7 +1,7 @@
 """Maisaka 推理引擎。"""
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import asyncio
 import difflib
@@ -85,8 +85,8 @@ class MaisakaReasoningEngine:
                     for round_index in range(self._runtime._max_internal_rounds):
                         cycle_detail = self._start_cycle()
                         self._runtime._log_cycle_started(cycle_detail, round_index)
+                        planner_started_at = time.time()
                         try:
-                            planner_started_at = time.time()
                             logger.info(
                                 f"{self._runtime.log_prefix} 规划器开始执行: "
                                 f"回合={round_index + 1} "
@@ -680,6 +680,9 @@ class MaisakaReasoningEngine:
             )
             return False
 
+        from src.chat.replyer.maisaka_generator import MaisakaReplyGenerator
+
+        replyer = cast(MaisakaReplyGenerator, replyer)
         logger.info(f"{self._runtime.log_prefix} 已成功获取 Maisaka 回复生成器")
 
         logger.info(f"{self._runtime.log_prefix} 正在调用回复生成接口: 目标消息编号={target_message_id}")

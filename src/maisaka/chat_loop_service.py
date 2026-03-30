@@ -9,7 +9,7 @@ import asyncio
 import random
 
 from PIL import Image as PILImage
-from rich.console import Group
+from rich.console import Group, RenderableType
 from rich.panel import Panel
 from rich.pretty import Pretty
 from rich.text import Text
@@ -118,6 +118,20 @@ class MaisakaChatLoopService:
         """设置当前 planner 请求使用的中断标记。"""
         self._interrupt_flag = interrupt_flag
 
+    def _build_request_messages(self, selected_history: List[LLMContextMessage]) -> List[Message]:
+        """构造发给大模型的消息列表。"""
+        messages: List[Message] = []
+        system_msg = MessageBuilder().set_role(RoleType.System)
+        system_msg.add_text_content(self._chat_system_prompt)
+        messages.append(system_msg.build())
+
+        for msg in selected_history:
+            llm_message = msg.to_llm_message()
+            if llm_message is not None:
+                messages.append(llm_message)
+
+        return messages
+
     async def analyze_knowledge_need(
         self,
         chat_history: List[LLMContextMessage],
@@ -192,7 +206,7 @@ class MaisakaChatLoopService:
                 preview_width = max(8, int(global_config.maisaka.terminal_image_preview_width))
                 preview_height = max(1, int(height * (preview_width / width) * 0.5))
                 resized = grayscale.resize((preview_width, preview_height))
-                pixels = list(resized.getdata())
+                pixels = list(resized.tobytes())
         except Exception:
             return None
 
@@ -205,12 +219,12 @@ class MaisakaChatLoopService:
         return "\n".join(rows)
 
     @classmethod
-    def _render_message_content(cls, content: Any) -> object:
+    def _render_message_content(cls, content: Any) -> RenderableType:
         if isinstance(content, str):
             return Text(content)
 
         if isinstance(content, list):
-            parts: List[object] = []
+            parts: List[RenderableType] = []
             for item in content:
                 if isinstance(item, str):
                     parts.append(Text(item))
@@ -220,7 +234,7 @@ class MaisakaChatLoopService:
                     if isinstance(image_format, str) and isinstance(image_base64, str):
                         approx_size = max(0, len(image_base64) * 3 // 4)
                         size_text = f"{approx_size / 1024:.1f} KB" if approx_size >= 1024 else f"{approx_size} B"
-                        preview_parts: List[object] = [
+                        preview_parts: List[RenderableType] = [
                             Text(f"图片格式 image/{image_format}  {size_text}\nbase64 内容已省略", style="magenta")
                         ]
                         if global_config.maisaka.terminal_image_preview:
@@ -284,13 +298,13 @@ class MaisakaChatLoopService:
             content = getattr(message, "content", None)
             tool_call_id = getattr(message, "tool_call_id", None)
 
-        role = raw_role.value if hasattr(raw_role, "value") else str(raw_role)
+        role = raw_role.value if isinstance(raw_role, RoleType) else str(raw_role)
         title = Text.assemble(
             Text(f" {self._get_role_badge_label(role)} ", style=self._get_role_badge_style(role)),
             Text(f"  #{index}", style="muted"),
         )
 
-        parts: List[object] = []
+        parts: List[RenderableType] = []
         if content not in (None, "", []):
             parts.append(Text(" 消息 ", style="bold cyan"))
             parts.append(self._render_message_content(content))
@@ -319,20 +333,11 @@ class MaisakaChatLoopService:
         selected_history, selection_reason = self._select_llm_context_messages(chat_history)
 
         def message_factory(_client: BaseClient) -> List[Message]:
-            messages: List[Message] = []
-            system_msg = MessageBuilder().set_role(RoleType.System)
-            system_msg.add_text_content(self._chat_system_prompt)
-            messages.append(system_msg.build())
+            del _client
+            return self._build_request_messages(selected_history)
 
-            for msg in selected_history:
-                llm_message = msg.to_llm_message()
-                if llm_message is not None:
-                    messages.append(llm_message)
-
-            return messages
-
-        all_tools = [*get_builtin_tools(), *self._extra_tools]
-        built_messages = message_factory(None)
+        all_tools: List[ToolDefinitionInput] = [*get_builtin_tools(), *self._extra_tools]
+        built_messages = self._build_request_messages(selected_history)
 
         ordered_panels: List[Panel] = []
         for index, msg in enumerate(built_messages, start=1):

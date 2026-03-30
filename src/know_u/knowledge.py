@@ -260,7 +260,7 @@ class KnowledgeLearner:
         try:
             parsed = json.loads(normalized)
         except json.JSONDecodeError:
-            logger.warning("Knowledge learning result is not valid JSON")
+            logger.warning("知识学习结果不是有效的 JSON")
             return []
 
         if not isinstance(parsed, list):
@@ -324,7 +324,7 @@ class KnowledgeLearner:
         try:
             parsed = json.loads(normalized)
         except json.JSONDecodeError:
-            logger.warning("Knowledge learning result is not valid JSON")
+            logger.warning("知识学习结果不是有效的 JSON")
             return []
 
         if not isinstance(parsed, list):

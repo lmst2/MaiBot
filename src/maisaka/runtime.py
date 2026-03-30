@@ -1,7 +1,7 @@
 ﻿"""Maisaka runtime for non-CLI integrations."""
 
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, Optional, cast
 
 import asyncio
 import time
@@ -16,6 +16,7 @@ from src.config.config import global_config
 from src.know_u.knowledge import KnowledgeLearner
 from src.learners.expression_learner import ExpressionLearner
 from src.learners.jargon_miner import JargonMiner
+from src.llm_models.payload_content.tool_option import ToolDefinitionInput
 from src.mcp_module import MCPManager
 
 from .chat_loop_service import MaisakaChatLoopService
@@ -34,9 +35,10 @@ class MaisakaHeartFlowChatting:
 
     def __init__(self, session_id: str):
         self.session_id = session_id
-        self.chat_stream: Optional[BotChatSession] = chat_manager.get_session_by_session_id(session_id)
-        if self.chat_stream is None:
+        chat_stream = chat_manager.get_session_by_session_id(session_id)
+        if chat_stream is None:
             raise ValueError(f"未找到会话 {session_id} 对应的 Maisaka 运行时")
+        self.chat_stream: BotChatSession = chat_stream
 
         session_name = chat_manager.get_session_name(session_id) or session_id
         self.log_prefix = f"[{session_name}]"
@@ -382,7 +384,8 @@ class MaisakaHeartFlowChatting:
             logger.info(f"{self.log_prefix} 没有可供 Maisaka 使用的 MCP 工具")
             return
 
-        self._chat_loop_service.set_extra_tools(mcp_tools)
+        mcp_tool_definitions = [cast(ToolDefinitionInput, tool) for tool in mcp_tools]
+        self._chat_loop_service.set_extra_tools(mcp_tool_definitions)
         logger.info(
             f"{self.log_prefix} 已向 Maisaka 加载 {len(mcp_tools)} 个 MCP 工具:\n"
             f"{self._mcp_manager.get_tool_summary()}"
@@ -417,9 +420,10 @@ class MaisakaHeartFlowChatting:
         )
 
     def _log_cycle_completed(self, cycle_detail: CycleDetail, timer_strings: list[str]) -> None:
+        end_time = cycle_detail.end_time if cycle_detail.end_time is not None else cycle_detail.start_time
         logger.info(
             f"{self.log_prefix} MaiSaka 轮次结束: 循环编号={cycle_detail.cycle_id} "
-            f"总耗时={cycle_detail.end_time - cycle_detail.start_time:.2f} 秒; "
+            f"总耗时={end_time - cycle_detail.start_time:.2f} 秒; "
             f"阶段耗时={', '.join(timer_strings) if timer_strings else '无'}"
         )
 
