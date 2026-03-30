@@ -1,6 +1,5 @@
 ﻿"""Maisaka 非 CLI 运行时。"""
 
-from pathlib import Path
 from typing import Literal, Optional
 
 import asyncio
@@ -91,7 +90,7 @@ class MaisakaHeartFlowChatting:
             self._ensure_background_tasks_running()
             return
 
-        if global_config.maisaka.enable_mcp:
+        if global_config.mcp.enable:
             await self._init_mcp()
 
         self._running = True
@@ -386,8 +385,7 @@ class MaisakaHeartFlowChatting:
 
     async def _init_mcp(self) -> None:
         """初始化 MCP 工具并注册到统一工具层。"""
-        config_path = Path(__file__).resolve().parents[2] / "config" / "mcp_config.json"
-        self._mcp_manager = await MCPManager.from_config(str(config_path))
+        self._mcp_manager = await MCPManager.from_app_config(global_config.mcp)
         if self._mcp_manager is None:
             logger.info(f"{self.log_prefix} MCP 管理器不可用")
             return

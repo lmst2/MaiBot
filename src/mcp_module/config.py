@@ -1,56 +1,36 @@
-"""
-MCP 配置加载与验证。
-从 config/mcp_config.json 读取 MCP 服务器定义，解析为结构化配置对象。
+"""MCP 运行时配置转换。
 
-配置格式示例:
-{
-    "mcpServers": {
-        "filesystem": {
-            "command": "npx",
-            "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:/Users"],
-            "env": {}
-        },
-        "remote-api": {
-            "url": "http://localhost:8080/sse",
-            "headers": {"Authorization": "Bearer xxx"}
-        }
-    }
-}
-
-- command + args: Stdio 传输（启动子进程）
-- url: SSE 传输（连接远程服务器）
+负责将主程序官方配置中的 MCP 配置转换为运行时使用的结构化对象。
 """
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional
-import json
-import os
+from typing import TYPE_CHECKING
 
-from src.cli.console import console
+if TYPE_CHECKING:
+    from src.config.official_configs import MCPConfig
 
 
-DEFAULT_MCP_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "mcp_config.json"
-
-
-@dataclass
-class MCPServerConfig:
-    """单个 MCP 服务器配置。"""
+@dataclass(slots=True)
+class MCPServerRuntimeConfig:
+    """单个 MCP 服务器的运行时配置。"""
 
     name: str
-
-    # ── Stdio 传输 ──
-    command: Optional[str] = None
+    command: str = ""
     args: list[str] = field(default_factory=list)
-    env: Optional[dict[str, str]] = None
-
-    # ── SSE 传输 ──
-    url: Optional[str] = None
+    env: dict[str, str] = field(default_factory=dict)
+    url: str = ""
     headers: dict[str, str] = field(default_factory=dict)
 
     @property
     def transport_type(self) -> str:
-        """返回传输类型: 'stdio' / 'sse' / 'unknown'。"""
+        """返回当前服务器的传输类型。
+
+        Returns:
+            str: ``stdio``、``sse`` 或 ``unknown``。
+        """
+
         if self.command:
             return "stdio"
         if self.url:
@@ -58,50 +38,33 @@ class MCPServerConfig:
         return "unknown"
 
 
-def load_mcp_config(config_path: str = str(DEFAULT_MCP_CONFIG_PATH)) -> list[MCPServerConfig]:
-    """
-    从配置文件加载 MCP 服务器列表。
+def build_mcp_server_runtime_configs(mcp_config: "MCPConfig") -> list[MCPServerRuntimeConfig]:
+    """将官方 MCP 配置转换为运行时配置列表。
 
     Args:
-        config_path: 配置文件路径
+        mcp_config: 主程序中的 MCP 官方配置对象。
 
     Returns:
-        解析后的 MCPServerConfig 列表；文件不存在或为空时返回空列表。
+        list[MCPServerRuntimeConfig]: 启用且配置完整的 MCP 服务器列表。
     """
-    if not os.path.isfile(config_path):
+
+    if not mcp_config.enable:
         return []
 
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
-        console.print(f"[warning]⚠️ 读取 MCP 配置失败: {e}[/warning]")
-        return []
-
-    mcp_servers = data.get("mcpServers", {})
-    if not isinstance(mcp_servers, dict):
-        console.print("[warning]⚠️ MCP 配置中的 mcpServers 格式无效[/warning]")
-        return []
-
-    configs: list[MCPServerConfig] = []
-    for name, cfg in mcp_servers.items():
-        if not isinstance(cfg, dict):
-            console.print(f"[warning]⚠️ MCP 服务器 '{name}' 配置格式无效，已跳过[/warning]")
+    runtime_configs: list[MCPServerRuntimeConfig] = []
+    for server in mcp_config.servers:
+        if not server.enabled:
             continue
 
-        server = MCPServerConfig(
-            name=name,
-            command=cfg.get("command"),
-            args=cfg.get("args", []),
-            env=cfg.get("env"),
-            url=cfg.get("url"),
-            headers=cfg.get("headers", {}),
+        runtime_configs.append(
+            MCPServerRuntimeConfig(
+                name=server.name.strip(),
+                command=server.command.strip(),
+                args=[str(argument) for argument in server.args],
+                env={str(key): str(value) for key, value in server.env.items()},
+                url=server.url.strip(),
+                headers={str(key): str(value) for key, value in server.headers.items()},
+            )
         )
 
-        if server.transport_type == "unknown":
-            console.print(f"[warning]⚠️ MCP 服务器 '{name}' 缺少 command 或 url，已跳过[/warning]")
-            continue
-
-        configs.append(server)
-
-    return configs
+    return runtime_configs

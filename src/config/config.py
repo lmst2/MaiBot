@@ -1,6 +1,6 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence, TypeVar
+from typing import Any, Callable, Mapping, Sequence, TypeVar, cast
 
 import asyncio
 import copy
@@ -27,6 +27,7 @@ from .official_configs import (
     LPMMKnowledgeConfig,
     MaiSakaConfig,
     MaimMessageConfig,
+    MCPConfig,
     PluginRuntimeConfig,
     MemoryConfig,
     MessageReceiveConfig,
@@ -56,7 +57,7 @@ CONFIG_DIR: Path = PROJECT_ROOT / "config"
 BOT_CONFIG_PATH: Path = (CONFIG_DIR / "bot_config.toml").resolve().absolute()
 MODEL_CONFIG_PATH: Path = (CONFIG_DIR / "model_config.toml").resolve().absolute()
 MMC_VERSION: str = "1.0.0"
-CONFIG_VERSION: str = "8.1.11"
+CONFIG_VERSION: str = "8.2.0"
 MODEL_CONFIG_VERSION: str = "1.13.1"
 
 logger = get_logger("config")
@@ -133,6 +134,9 @@ class Config(ConfigBase):
 
     maisaka: MaiSakaConfig = Field(default_factory=MaiSakaConfig)
     """MaiSaka对话系统配置类"""
+
+    mcp: MCPConfig = Field(default_factory=MCPConfig)
+    """MCP 配置类"""
 
     plugin_runtime: PluginRuntimeConfig = Field(default_factory=PluginRuntimeConfig)
     """插件运行时配置类"""
@@ -332,7 +336,12 @@ class ConfigManager:
             changed_scopes: 本次热重载命中的配置范围。
         """
 
-        result = callback(changed_scopes) if self._callback_accepts_scopes(callback) else callback()
+        if self._callback_accepts_scopes(callback):
+            callback_with_scopes = cast(Callable[[Sequence[str]], object], callback)
+            result = callback_with_scopes(changed_scopes)
+        else:
+            callback_without_scopes = cast(Callable[[], object], callback)
+            result = callback_without_scopes()
         if asyncio.iscoroutine(result):
             await result
 

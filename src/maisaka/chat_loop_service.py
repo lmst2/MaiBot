@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
 from time import perf_counter
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import asyncio
 import random
@@ -133,14 +133,14 @@ class MaisakaChatLoopService:
 
             self._prompts_loaded = True
 
-    def set_extra_tools(self, tools: List[ToolDefinitionInput]) -> None:
+    def set_extra_tools(self, tools: Sequence[ToolDefinitionInput]) -> None:
         """设置额外工具定义。
 
         Args:
             tools: 兼容旧接口的额外工具定义列表。
         """
 
-        self._extra_tools = normalize_tool_options(tools) or []
+        self._extra_tools = normalize_tool_options(list(tools)) or []
 
     def set_tool_registry(self, tool_registry: ToolRegistry | None) -> None:
         """设置统一工具注册表。

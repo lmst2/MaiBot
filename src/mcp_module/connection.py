@@ -10,12 +10,12 @@ from src.core.tooling import ToolExecutionResult
 
 from src.cli.console import console
 
-from .config import MCPServerConfig
+from .config import MCPServerRuntimeConfig
 
 # ──────────────────── MCP SDK 可选导入 ────────────────────
 #
 # mcp 是可选依赖。如果未安装，MCP_AVAILABLE = False，
-# MCPManager.from_config() 会检测到并返回 None，不影响主程序运行。
+# MCPManager.from_app_config() 会检测到并返回 None，不影响主程序运行。
 
 try:
     from mcp import ClientSession
@@ -44,15 +44,20 @@ except ImportError:
 
 
 class MCPConnection:
-    """
-    管理单个 MCP 服务器的连接生命周期。
+    """管理单个 MCP 服务器的连接生命周期。
 
     支持两种传输方式：
     - Stdio: 启动子进程，通过 stdin/stdout 通信
     - SSE: 连接远程 HTTP SSE 端点
     """
 
-    def __init__(self, config: MCPServerConfig):
+    def __init__(self, config: MCPServerRuntimeConfig) -> None:
+        """初始化单个 MCP 连接。
+
+        Args:
+            config: 当前服务器的运行时配置。
+        """
+
         self.config = config
         self.session: Optional[Any] = None  # mcp.ClientSession
         self.tools: list = []  # mcp Tool objects

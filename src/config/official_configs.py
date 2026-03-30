@@ -1,6 +1,7 @@
-from .config_base import ConfigBase, Field
 import re
-from typing import Optional, Literal
+from typing import Literal, Optional
+
+from .config_base import ConfigBase, Field
 
 """
 须知：
@@ -1493,15 +1494,6 @@ class MaiSakaConfig(ConfigBase):
     )
     """启用知识库模块"""
 
-    enable_mcp: bool = Field(
-        default=True,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "zap",
-        },
-    )
-    """启用 MCP (Model Context Protocol) 支持"""
-
     show_analyze_cognition_prompt: bool = Field(
         default=False,
         json_schema_extra={
@@ -1575,6 +1567,128 @@ class MaiSakaConfig(ConfigBase):
         },
     )
     """Maisaka终端图片预览的字符宽度"""
+
+
+class MCPServerItemConfig(ConfigBase):
+    """单个 MCP 服务器配置。"""
+
+    name: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "tag",
+        },
+    )
+    """服务器名称，必须唯一"""
+
+    enabled: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "power",
+        },
+    )
+    """是否启用当前 MCP 服务器"""
+
+    transport: Literal["stdio", "sse"] = Field(
+        default="stdio",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "shuffle",
+        },
+    )
+    """传输方式，可选 stdio 或 sse"""
+
+    command: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "terminal",
+        },
+    )
+    """stdio 模式下启动服务器的命令"""
+
+    args: list[str] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "list",
+        },
+    )
+    """stdio 模式下的命令参数列表"""
+
+    env: dict[str, str] = Field(
+        default_factory=lambda: {},
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "variable",
+        },
+    )
+    """stdio 模式下附加的环境变量"""
+
+    url: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "link",
+        },
+    )
+    """sse 模式下的服务地址"""
+
+    headers: dict[str, str] = Field(
+        default_factory=lambda: {},
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "file-json",
+        },
+    )
+    """sse 模式下附加的请求头"""
+
+    def model_post_init(self, context: Optional[dict] = None) -> None:
+        """验证 MCP 服务器配置。"""
+
+        if not self.name.strip():
+            raise ValueError("MCPServerItemConfig.name 不能为空")
+
+        if self.transport == "stdio" and not self.command.strip():
+            raise ValueError(f"MCP 服务器 {self.name} 使用 stdio 时必须填写 command")
+
+        if self.transport == "sse" and not self.url.strip():
+            raise ValueError(f"MCP 服务器 {self.name} 使用 sse 时必须填写 url")
+
+        return super().model_post_init(context)
+
+
+class MCPConfig(ConfigBase):
+    """MCP 总配置。"""
+
+    __ui_parent__ = "maisaka"
+
+    enable: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "zap",
+        },
+    )
+    """是否启用 MCP（Model Context Protocol）"""
+
+    servers: list[MCPServerItemConfig] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "server",
+        },
+    )
+    """_wrap_MCP 服务器配置列表"""
+
+    def model_post_init(self, context: Optional[dict] = None) -> None:
+        """验证 MCP 总配置。"""
+
+        server_names = [server.name.strip() for server in self.servers if server.name.strip()]
+        if len(server_names) != len(set(server_names)):
+            raise ValueError("MCP 配置中的服务器名称不能重复")
+        return super().model_post_init(context)
 
 
 class PluginRuntimeConfig(ConfigBase):

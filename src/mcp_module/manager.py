@@ -3,7 +3,7 @@ MaiSaka - MCP 管理器
 管理所有 MCP 服务器连接，提供统一的工具发现与调用接口。
 """
 
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from src.cli.console import console
 from src.core.tooling import (
@@ -13,8 +13,11 @@ from src.core.tooling import (
     build_tool_detailed_description,
 )
 
-from .config import DEFAULT_MCP_CONFIG_PATH, MCPServerConfig, load_mcp_config
+from .config import MCPServerRuntimeConfig, build_mcp_server_runtime_configs
 from .connection import MCPConnection, MCP_AVAILABLE
+
+if TYPE_CHECKING:
+    from src.config.official_configs import MCPConfig
 
 # 内置工具名称集合 —— MCP 工具不允许与这些名称冲突
 BUILTIN_TOOL_NAMES = frozenset(
@@ -31,37 +34,38 @@ BUILTIN_TOOL_NAMES = frozenset(
 
 
 class MCPManager:
-    """
-    MCP 服务器连接管理器。
+    """MCP 服务器连接管理器。
 
     职责：
-    - 根据配置文件连接所有 MCP 服务器
+    - 根据主程序官方配置连接所有 MCP 服务器
     - 将 MCP 工具转换为 OpenAI function calling 格式
     - 路由工具调用到正确的 MCP 服务器
     - 统一管理连接生命周期
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """初始化 MCP 管理器。"""
+
         self._connections: dict[str, MCPConnection] = {}  # server_name → connection
         self._tool_to_server: dict[str, str] = {}  # tool_name → server_name
 
     # ──────── 工厂方法 ────────
 
     @classmethod
-    async def from_config(
+    async def from_app_config(
         cls,
-        config_path: str = str(DEFAULT_MCP_CONFIG_PATH),
+        mcp_config: "MCPConfig",
     ) -> Optional["MCPManager"]:
         """
-        从配置文件创建并初始化 MCPManager。
+        从官方配置创建并初始化 MCPManager。
 
         Args:
-            config_path: mcp_config.json 文件路径
+            mcp_config: 主程序中的 MCP 配置对象。
 
         Returns:
-            初始化完成的 MCPManager；无配置或全部连接失败时返回 None。
+            初始化完成的 MCPManager；无可用配置或全部连接失败时返回 None。
         """
-        configs = load_mcp_config(config_path)
+        configs = build_mcp_server_runtime_configs(mcp_config)
         if not configs:
             return None
 
@@ -80,7 +84,7 @@ class MCPManager:
 
     # ──────── 连接管理 ────────
 
-    async def _connect_all(self, configs: list[MCPServerConfig]) -> None:
+    async def _connect_all(self, configs: list[MCPServerRuntimeConfig]) -> None:
         """连接所有配置的 MCP 服务器，跳过失败的连接。"""
         for cfg in configs:
             conn = MCPConnection(cfg)

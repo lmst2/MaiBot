@@ -3,7 +3,6 @@ MaiSaka CLI and conversation loop.
 """
 
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 import asyncio
@@ -259,7 +258,7 @@ class BufferCLI:
                     knowledge_result = results[0] if results else None
                     if isinstance(knowledge_result, Exception):
                         console.print(f"[warning]知识分析失败：{knowledge_result}[/warning]")
-                    elif knowledge_result:
+                    elif isinstance(knowledge_result, str) and knowledge_result.strip():
                         knowledge_analysis = knowledge_result
                         if global_config.maisaka.show_thinking:
                             console.print(
@@ -333,7 +332,7 @@ class BufferCLI:
                     should_stop = True
 
                 elif tool_call.func_name == "reply":
-                    reply = await self._generate_visible_reply(chat_history, response.content)
+                    reply = await self._generate_visible_reply(chat_history, response.content or "")
                     chat_history.append(
                         ToolResultMessage(
                             content="已生成并记录可见回复。",
@@ -384,8 +383,7 @@ class BufferCLI:
 
     async def _init_mcp(self) -> None:
         """初始化 MCP 服务并注册暴露的工具。"""
-        config_path = Path(__file__).resolve().parents[2] / "config" / "mcp_config.json"
-        self._mcp_manager = await MCPManager.from_config(str(config_path))
+        self._mcp_manager = await MCPManager.from_app_config(global_config.mcp)
 
         if self._mcp_manager and self._chat_loop_service:
             mcp_tools = self._mcp_manager.get_openai_tools()
@@ -429,10 +427,10 @@ class BufferCLI:
 
     async def run(self) -> None:
         """主交互循环。"""
-        if global_config.maisaka.enable_mcp:
+        if global_config.mcp.enable:
             await self._init_mcp()
         else:
-            console.print("[muted]MCP 已禁用（ENABLE_MCP=false）[/muted]")
+            console.print("[muted]MCP 已禁用（mcp.enable=false）[/muted]")
 
         self._reader.start(asyncio.get_event_loop())
         self._show_banner()
