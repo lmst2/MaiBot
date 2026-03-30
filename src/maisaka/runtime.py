@@ -17,6 +17,7 @@ from src.know_u.knowledge import KnowledgeLearner
 from src.learners.expression_learner import ExpressionLearner
 from src.learners.jargon_miner import JargonMiner
 from src.mcp_module import MCPManager
+from src.mcp_module.host_llm_bridge import MCPHostLLMBridge
 from src.mcp_module.provider import MCPToolProvider
 from src.plugin_runtime.tool_provider import PluginToolProvider
 
@@ -54,6 +55,7 @@ class MaisakaHeartFlowChatting:
         self._internal_turn_queue: asyncio.Queue[Optional[list[SessionMessage]]] = asyncio.Queue()
 
         self._mcp_manager: Optional[MCPManager] = None
+        self._mcp_host_bridge: Optional[MCPHostLLMBridge] = None
         self._current_cycle_detail: Optional[CycleDetail] = None
         self._source_messages_by_id: dict[str, SessionMessage] = {}
         self._running = False
@@ -127,6 +129,7 @@ class MaisakaHeartFlowChatting:
 
         await self._tool_registry.close()
         self._mcp_manager = None
+        self._mcp_host_bridge = None
 
         logger.info(f"{self.log_prefix} Maisaka 运行时已停止")
 
@@ -385,7 +388,13 @@ class MaisakaHeartFlowChatting:
 
     async def _init_mcp(self) -> None:
         """初始化 MCP 工具并注册到统一工具层。"""
-        self._mcp_manager = await MCPManager.from_app_config(global_config.mcp)
+        self._mcp_host_bridge = MCPHostLLMBridge(
+            sampling_task_name=global_config.mcp.client.sampling.task_name,
+        )
+        self._mcp_manager = await MCPManager.from_app_config(
+            global_config.mcp,
+            host_callbacks=self._mcp_host_bridge.build_callbacks(),
+        )
         if self._mcp_manager is None:
             logger.info(f"{self.log_prefix} MCP 管理器不可用")
             return
@@ -397,8 +406,8 @@ class MaisakaHeartFlowChatting:
 
         self._tool_registry.register_provider(MCPToolProvider(self._mcp_manager))
         logger.info(
-            f"{self.log_prefix} 已向 Maisaka 加载 {len(mcp_tool_specs)} 个 MCP 工具:\n"
-            f"{self._mcp_manager.get_tool_summary()}"
+            f"{self.log_prefix} 已向 Maisaka 加载 {len(mcp_tool_specs)} 个 MCP 工具。\n"
+            f"{self._mcp_manager.get_feature_summary()}"
         )
 
     def _build_runtime_user_info(self) -> UserInfo:

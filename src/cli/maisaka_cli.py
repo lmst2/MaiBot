@@ -20,6 +20,7 @@ from src.chat.message_receive.message import SessionMessage
 from src.chat.replyer.maisaka_generator import MaisakaReplyGenerator
 from src.config.config import config_manager, global_config
 from src.mcp_module import MCPManager
+from src.mcp_module.host_llm_bridge import MCPHostLLMBridge
 
 from src.maisaka.chat_loop_service import MaisakaChatLoopService
 from src.maisaka.context_messages import (
@@ -66,6 +67,7 @@ class BufferCLI:
         self._last_assistant_response_time: Optional[datetime] = None
         self._user_input_times: list[datetime] = []
         self._mcp_manager: Optional[MCPManager] = None
+        self._mcp_host_bridge: Optional[MCPHostLLMBridge] = None
         self._init_llm()
 
     def _init_llm(self) -> None:
@@ -383,17 +385,23 @@ class BufferCLI:
 
     async def _init_mcp(self) -> None:
         """初始化 MCP 服务并注册暴露的工具。"""
-        self._mcp_manager = await MCPManager.from_app_config(global_config.mcp)
+        self._mcp_host_bridge = MCPHostLLMBridge(
+            sampling_task_name=global_config.mcp.client.sampling.task_name,
+        )
+        self._mcp_manager = await MCPManager.from_app_config(
+            global_config.mcp,
+            host_callbacks=self._mcp_host_bridge.build_callbacks(),
+        )
 
         if self._mcp_manager and self._chat_loop_service:
             mcp_tools = self._mcp_manager.get_openai_tools()
             if mcp_tools:
                 self._chat_loop_service.set_extra_tools(mcp_tools)
-                summary = self._mcp_manager.get_tool_summary()
+                summary = self._mcp_manager.get_feature_summary()
                 console.print(
                     Panel(
-                        f"已加载 {len(mcp_tools)} 个 MCP 工具：\n{summary}",
-                        title="MCP 工具",
+                        f"已加载 {len(mcp_tools)} 个 MCP 工具。\n{summary}",
+                        title="MCP 能力",
                         border_style="green",
                         padding=(0, 1),
                     )
@@ -452,3 +460,4 @@ class BufferCLI:
         finally:
             if self._mcp_manager:
                 await self._mcp_manager.close()
+            self._mcp_host_bridge = None

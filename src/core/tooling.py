@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Protocol, runtime_checkable
 import json
+from typing import Any, Dict, Literal, Optional, Protocol, runtime_checkable
 
 from src.common.logger import get_logger
 from src.llm_models.payload_content.tool_option import ToolDefinitionInput
@@ -100,16 +100,78 @@ def build_tool_detailed_description(
 
 
 @dataclass(slots=True)
+class ToolIcon:
+    """统一工具图标信息。"""
+
+    src: str
+    mime_type: str = ""
+    sizes: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ToolAnnotation:
+    """统一工具注解信息。"""
+
+    audience: list[str] = field(default_factory=list)
+    priority: float | None = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ToolContentItem:
+    """统一工具内容项。"""
+
+    content_type: Literal["text", "image", "audio", "resource_link", "resource", "binary", "unknown"]
+    text: str = ""
+    data: str = ""
+    mime_type: str = ""
+    uri: str = ""
+    name: str = ""
+    description: str = ""
+    annotation: ToolAnnotation | None = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def build_history_text(self) -> str:
+        """生成适合写入历史消息的文本摘要。
+
+        Returns:
+            str: 当前内容项对应的历史摘要文本。
+        """
+
+        if self.content_type == "text" and self.text.strip():
+            return self.text.strip()
+        if self.content_type == "image":
+            return f"[图片内容 {self.mime_type or 'unknown'}]"
+        if self.content_type == "audio":
+            return f"[音频内容 {self.mime_type or 'unknown'}]"
+        if self.content_type == "resource_link":
+            label = self.name or self.uri or "资源链接"
+            return f"[资源链接] {label}"
+        if self.content_type == "resource":
+            if self.text.strip():
+                return self.text.strip()
+            label = self.name or self.uri or "嵌入资源"
+            return f"[嵌入资源] {label}"
+        if self.content_type == "binary":
+            return f"[二进制内容 {self.mime_type or 'unknown'}]"
+        return f"[{self.content_type} 内容]"
+
+
+@dataclass(slots=True)
 class ToolSpec:
     """统一工具声明。"""
 
     name: str
     brief_description: str
     detailed_description: str = ""
+    title: str = ""
     parameters_schema: Dict[str, Any] | None = None
+    output_schema: Dict[str, Any] | None = None
     provider_name: str = ""
     provider_type: str = ""
     enabled: bool = True
+    icons: list[ToolIcon] = field(default_factory=list)
+    annotation: ToolAnnotation | None = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def build_llm_description(self) -> str:
@@ -172,6 +234,7 @@ class ToolExecutionResult:
     content: str = ""
     error_message: str = ""
     structured_content: Any = None
+    content_items: list[ToolContentItem] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def get_history_content(self) -> str:
@@ -183,6 +246,10 @@ class ToolExecutionResult:
 
         if self.content.strip():
             return self.content.strip()
+        if self.content_items:
+            parts = [item.build_history_text() for item in self.content_items if item.build_history_text().strip()]
+            if parts:
+                return "\n".join(parts).strip()
         if self.structured_content is not None:
             if isinstance(self.structured_content, str):
                 return self.structured_content.strip()
@@ -221,6 +288,8 @@ class ToolRegistry:
     """统一工具注册表。"""
 
     def __init__(self) -> None:
+        """初始化统一工具注册表。"""
+
         self._providers: list[ToolProvider] = []
 
     def register_provider(self, provider: ToolProvider) -> None:

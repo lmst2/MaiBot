@@ -1,7 +1,9 @@
 """
 MaiSaka - MCP 管理器
-管理所有 MCP 服务器连接，提供统一的工具发现与调用接口。
+管理所有 MCP 服务器连接，提供统一的工具、Prompt 与 Resource 访问入口。
 """
+
+from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -13,8 +15,26 @@ from src.core.tooling import (
     build_tool_detailed_description,
 )
 
-from .config import MCPServerRuntimeConfig, build_mcp_server_runtime_configs
+from .config import (
+    MCPClientRuntimeConfig,
+    MCPServerRuntimeConfig,
+    build_mcp_client_runtime_config,
+    build_mcp_server_runtime_configs,
+)
 from .connection import MCPConnection, MCP_AVAILABLE
+from .hooks import MCPHostCallbacks
+from .models import (
+    MCPPromptResult,
+    MCPPromptSpec,
+    MCPResourceReadResult,
+    MCPResourceSpec,
+    MCPResourceTemplateSpec,
+    build_prompt_spec,
+    build_resource_spec,
+    build_resource_template_spec,
+    build_tool_annotation,
+    build_tool_icon,
+)
 
 if TYPE_CHECKING:
     from src.config.official_configs import MCPConfig
@@ -34,37 +54,44 @@ BUILTIN_TOOL_NAMES = frozenset(
 
 
 class MCPManager:
-    """MCP 服务器连接管理器。
+    """MCP 服务器连接管理器。"""
 
-    职责：
-    - 根据主程序官方配置连接所有 MCP 服务器
-    - 将 MCP 工具转换为 OpenAI function calling 格式
-    - 路由工具调用到正确的 MCP 服务器
-    - 统一管理连接生命周期
-    """
+    def __init__(
+        self,
+        client_config: MCPClientRuntimeConfig,
+        host_callbacks: Optional[MCPHostCallbacks] = None,
+    ) -> None:
+        """初始化 MCP 管理器。
 
-    def __init__(self) -> None:
-        """初始化 MCP 管理器。"""
+        Args:
+            client_config: MCP 客户端宿主能力运行时配置。
+            host_callbacks: 宿主侧能力回调集合。
+        """
 
-        self._connections: dict[str, MCPConnection] = {}  # server_name → connection
-        self._tool_to_server: dict[str, str] = {}  # tool_name → server_name
-
-    # ──────── 工厂方法 ────────
+        self._client_config = client_config
+        self._host_callbacks = host_callbacks or MCPHostCallbacks()
+        self._connections: dict[str, MCPConnection] = {}
+        self._tool_to_server: dict[str, str] = {}
+        self._prompt_to_server: dict[str, str] = {}
+        self._resource_to_server: dict[str, str] = {}
+        self._resource_template_to_server: dict[str, str] = {}
 
     @classmethod
     async def from_app_config(
         cls,
         mcp_config: "MCPConfig",
+        host_callbacks: Optional[MCPHostCallbacks] = None,
     ) -> Optional["MCPManager"]:
-        """
-        从官方配置创建并初始化 MCPManager。
+        """从官方配置创建并初始化 `MCPManager`。
 
         Args:
             mcp_config: 主程序中的 MCP 配置对象。
+            host_callbacks: 宿主侧能力回调集合。
 
         Returns:
-            初始化完成的 MCPManager；无可用配置或全部连接失败时返回 None。
+            Optional[MCPManager]: 初始化完成的管理器；无可用配置或全部连接失败时返回 ``None``。
         """
+
         configs = build_mcp_server_runtime_configs(mcp_config)
         if not configs:
             return None
@@ -73,7 +100,10 @@ class MCPManager:
             console.print("[warning]⚠️ 发现 MCP 配置但未安装 mcp SDK，请运行: pip install mcp[/warning]")
             return None
 
-        manager = cls()
+        manager = cls(
+            client_config=build_mcp_client_runtime_config(mcp_config),
+            host_callbacks=host_callbacks,
+        )
         await manager._connect_all(configs)
 
         if not manager._connections:
@@ -82,48 +112,141 @@ class MCPManager:
 
         return manager
 
-    # ──────── 连接管理 ────────
-
     async def _connect_all(self, configs: list[MCPServerRuntimeConfig]) -> None:
-        """连接所有配置的 MCP 服务器，跳过失败的连接。"""
-        for cfg in configs:
-            conn = MCPConnection(cfg)
-            success = await conn.connect()
+        """连接全部已配置的 MCP 服务器。
+
+        Args:
+            configs: 服务器运行时配置列表。
+
+        Returns:
+            None
+        """
+
+        for config in configs:
+            connection = MCPConnection(config, self._client_config, self._host_callbacks)
+            success = await connection.connect()
             if not success:
                 continue
 
-            self._connections[cfg.name] = conn
-
-            # 注册工具，检查冲突
-            registered = 0
-            for tool in conn.tools:
-                tool_name = tool.name
-
-                if tool_name in BUILTIN_TOOL_NAMES:
-                    console.print(
-                        f"[warning]⚠️ MCP 工具 '{tool_name}' (来自 {cfg.name}) 与内置工具冲突，已跳过[/warning]"
-                    )
-                    continue
-
-                if tool_name in self._tool_to_server:
-                    existing_server = self._tool_to_server[tool_name]
-                    console.print(
-                        f"[warning]⚠️ MCP 工具 '{tool_name}' "
-                        f"(来自 {cfg.name}) 与 {existing_server} 冲突，已跳过[/warning]"
-                    )
-                    continue
-
-                self._tool_to_server[tool_name] = cfg.name
-                registered += 1
-
+            self._connections[config.name] = connection
+            registered_tool_count = self._register_tools(config.name, connection)
+            registered_prompt_count = self._register_prompts(config.name, connection)
+            registered_resource_count = self._register_resources(config.name, connection)
+            registered_template_count = self._register_resource_templates(config.name, connection)
             console.print(
-                f"[success]✓ MCP 服务器 '{cfg.name}' 已连接[/success] [muted]({registered} 个工具已注册)[/muted]"
+                "[success]✓ MCP 服务器 "
+                f"'{config.name}' 已连接[/success] "
+                f"[muted](工具 {registered_tool_count} / Prompt {registered_prompt_count} / "
+                f"资源 {registered_resource_count} / 模板 {registered_template_count})[/muted]"
             )
 
-    # ──────── 工具发现 ────────
+    def _register_tools(self, server_name: str, connection: MCPConnection) -> int:
+        """注册单个服务器暴露的 MCP 工具。
+
+        Args:
+            server_name: 服务器名称。
+            connection: 对应连接对象。
+
+        Returns:
+            int: 成功注册的工具数量。
+        """
+
+        registered_count = 0
+        for tool in connection.tools:
+            tool_name = str(tool.name)
+
+            if tool_name in BUILTIN_TOOL_NAMES:
+                console.print(
+                    f"[warning]⚠️ MCP 工具 '{tool_name}' (来自 {server_name}) 与内置工具冲突，已跳过[/warning]"
+                )
+                continue
+
+            if tool_name in self._tool_to_server:
+                existing_server = self._tool_to_server[tool_name]
+                console.print(
+                    f"[warning]⚠️ MCP 工具 '{tool_name}' (来自 {server_name}) 与 {existing_server} 冲突，已跳过[/warning]"
+                )
+                continue
+
+            self._tool_to_server[tool_name] = server_name
+            registered_count += 1
+        return registered_count
+
+    def _register_prompts(self, server_name: str, connection: MCPConnection) -> int:
+        """注册单个服务器暴露的 MCP Prompt。
+
+        Args:
+            server_name: 服务器名称。
+            connection: 对应连接对象。
+
+        Returns:
+            int: 成功注册的 Prompt 数量。
+        """
+
+        registered_count = 0
+        for prompt in connection.prompts:
+            prompt_name = str(prompt.name)
+            if prompt_name in self._prompt_to_server:
+                existing_server = self._prompt_to_server[prompt_name]
+                console.print(
+                    f"[warning]⚠️ MCP Prompt '{prompt_name}' (来自 {server_name}) 与 {existing_server} 冲突，已跳过[/warning]"
+                )
+                continue
+            self._prompt_to_server[prompt_name] = server_name
+            registered_count += 1
+        return registered_count
+
+    def _register_resources(self, server_name: str, connection: MCPConnection) -> int:
+        """注册单个服务器暴露的 MCP Resource。
+
+        Args:
+            server_name: 服务器名称。
+            connection: 对应连接对象。
+
+        Returns:
+            int: 成功注册的 Resource 数量。
+        """
+
+        registered_count = 0
+        for resource in connection.resources:
+            resource_uri = str(resource.uri)
+            if resource_uri in self._resource_to_server:
+                existing_server = self._resource_to_server[resource_uri]
+                console.print(
+                    f"[warning]⚠️ MCP Resource '{resource_uri}' (来自 {server_name}) 与 {existing_server} 冲突，已跳过[/warning]"
+                )
+                continue
+            self._resource_to_server[resource_uri] = server_name
+            registered_count += 1
+        return registered_count
+
+    def _register_resource_templates(self, server_name: str, connection: MCPConnection) -> int:
+        """注册单个服务器暴露的 MCP Resource Template。
+
+        Args:
+            server_name: 服务器名称。
+            connection: 对应连接对象。
+
+        Returns:
+            int: 成功注册的模板数量。
+        """
+
+        registered_count = 0
+        for resource_template in connection.resource_templates:
+            uri_template = str(resource_template.uriTemplate)
+            if uri_template in self._resource_template_to_server:
+                existing_server = self._resource_template_to_server[uri_template]
+                console.print(
+                    "[warning]⚠️ MCP Resource Template "
+                    f"'{uri_template}' (来自 {server_name}) 与 {existing_server} 冲突，已跳过[/warning]"
+                )
+                continue
+            self._resource_template_to_server[uri_template] = server_name
+            registered_count += 1
+        return registered_count
 
     def _build_tool_parameters_schema(self, tool: Any) -> dict[str, Any] | None:
-        """构造单个 MCP 工具的对象级参数 Schema。
+        """构造单个 MCP 工具的参数 Schema。
 
         Args:
             tool: MCP SDK 返回的原始工具对象。
@@ -140,6 +263,21 @@ class MCPManager:
         parameters_schema.pop("$schema", None)
         return parameters_schema
 
+    def _build_tool_output_schema(self, tool: Any) -> dict[str, Any] | None:
+        """构造单个 MCP 工具的输出 Schema。
+
+        Args:
+            tool: MCP SDK 返回的原始工具对象。
+
+        Returns:
+            dict[str, Any] | None: 输出 Schema。
+        """
+
+        output_schema = dict(tool.outputSchema) if hasattr(tool, "outputSchema") and tool.outputSchema else None
+        if isinstance(output_schema, dict):
+            output_schema.pop("$schema", None)
+        return output_schema
+
     def get_tool_specs(self) -> list[ToolSpec]:
         """获取全部已注册 MCP 工具的统一声明。
 
@@ -148,30 +286,78 @@ class MCPManager:
         """
 
         tool_specs: list[ToolSpec] = []
-        for server_name, conn in self._connections.items():
-            for tool in conn.tools:
-                if tool.name not in self._tool_to_server:
-                    continue
-                if self._tool_to_server[tool.name] != server_name:
+        for server_name, connection in self._connections.items():
+            for tool in connection.tools:
+                if self._tool_to_server.get(tool.name) != server_name:
                     continue
 
                 parameters_schema = self._build_tool_parameters_schema(tool)
+                output_schema = self._build_tool_output_schema(tool)
                 brief_description = str(tool.description or f"来自 {server_name} 的 MCP 工具").strip()
                 tool_specs.append(
                     ToolSpec(
                         name=str(tool.name),
+                        title=str(getattr(tool, "title", "") or ""),
                         brief_description=brief_description,
                         detailed_description=build_tool_detailed_description(
                             parameters_schema,
                             fallback_description=f"工具来源：MCP 服务 {server_name}。",
                         ),
                         parameters_schema=parameters_schema,
+                        output_schema=output_schema,
                         provider_name="mcp",
                         provider_type="mcp",
-                        metadata={"server_name": server_name},
+                        icons=[build_tool_icon(item) for item in getattr(tool, "icons", []) or []],
+                        annotation=build_tool_annotation(getattr(tool, "annotations", None)),
+                        metadata={"server_name": server_name} | getattr(tool, "meta", {}),
                     )
                 )
         return tool_specs
+
+    def get_prompt_specs(self) -> list[MCPPromptSpec]:
+        """获取全部已注册 MCP Prompt 声明。
+
+        Returns:
+            list[MCPPromptSpec]: Prompt 声明列表。
+        """
+
+        prompt_specs: list[MCPPromptSpec] = []
+        for server_name, connection in self._connections.items():
+            for prompt in connection.prompts:
+                if self._prompt_to_server.get(prompt.name) != server_name:
+                    continue
+                prompt_specs.append(build_prompt_spec(prompt, server_name))
+        return prompt_specs
+
+    def get_resource_specs(self) -> list[MCPResourceSpec]:
+        """获取全部已注册 MCP Resource 声明。
+
+        Returns:
+            list[MCPResourceSpec]: Resource 声明列表。
+        """
+
+        resource_specs: list[MCPResourceSpec] = []
+        for server_name, connection in self._connections.items():
+            for resource in connection.resources:
+                if self._resource_to_server.get(resource.uri) != server_name:
+                    continue
+                resource_specs.append(build_resource_spec(resource, server_name))
+        return resource_specs
+
+    def get_resource_template_specs(self) -> list[MCPResourceTemplateSpec]:
+        """获取全部已注册 MCP Resource Template 声明。
+
+        Returns:
+            list[MCPResourceTemplateSpec]: Resource Template 声明列表。
+        """
+
+        resource_template_specs: list[MCPResourceTemplateSpec] = []
+        for server_name, connection in self._connections.items():
+            for resource_template in connection.resource_templates:
+                if self._resource_template_to_server.get(resource_template.uriTemplate) != server_name:
+                    continue
+                resource_template_specs.append(build_resource_template_spec(resource_template, server_name))
+        return resource_template_specs
 
     def get_openai_tools(self) -> list[dict[str, Any]]:
         """获取兼容旧模型层的 MCP 工具定义。
@@ -192,11 +378,41 @@ class MCPManager:
             for tool_spec in self.get_tool_specs()
         ]
 
-    # ──────── 工具调用 ────────
-
     def is_mcp_tool(self, tool_name: str) -> bool:
-        """判断工具名是否为已注册的 MCP 工具。"""
+        """判断给定名称是否为已注册 MCP 工具。
+
+        Args:
+            tool_name: 工具名称。
+
+        Returns:
+            bool: 是否存在。
+        """
+
         return tool_name in self._tool_to_server
+
+    def is_mcp_prompt(self, prompt_name: str) -> bool:
+        """判断给定名称是否为已注册 MCP Prompt。
+
+        Args:
+            prompt_name: Prompt 名称。
+
+        Returns:
+            bool: 是否存在。
+        """
+
+        return prompt_name in self._prompt_to_server
+
+    def is_mcp_resource(self, uri: str) -> bool:
+        """判断给定 URI 是否为已注册 MCP Resource。
+
+        Args:
+            uri: 资源 URI。
+
+        Returns:
+            bool: 是否存在。
+        """
+
+        return uri in self._resource_to_server
 
     async def call_tool_invocation(self, invocation: ToolInvocation) -> ToolExecutionResult:
         """执行统一的 MCP 工具调用。
@@ -217,8 +433,8 @@ class MCPManager:
                 error_message=f"MCP 工具 '{tool_name}' 未找到",
             )
 
-        conn = self._connections[server_name]
-        return await conn.call_tool(tool_name, invocation.arguments)
+        connection = self._connections[server_name]
+        return await connection.call_tool(tool_name, invocation.arguments)
 
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
         """兼容旧接口，返回 MCP 工具的文本结果。
@@ -239,36 +455,137 @@ class MCPManager:
         )
         return result.get_history_content()
 
-    # ──────── 信息展示 ────────
+    async def get_prompt(
+        self,
+        prompt_name: str,
+        arguments: Optional[dict[str, str]] = None,
+    ) -> MCPPromptResult:
+        """读取指定 Prompt 的内容。
+
+        Args:
+            prompt_name: Prompt 名称。
+            arguments: Prompt 参数字典。
+
+        Returns:
+            MCPPromptResult: Prompt 获取结果。
+        """
+
+        server_name = self._prompt_to_server.get(prompt_name)
+        if not server_name or server_name not in self._connections:
+            raise KeyError(f"MCP Prompt '{prompt_name}' 未找到")
+
+        connection = self._connections[server_name]
+        return await connection.get_prompt(prompt_name, arguments=arguments)
+
+    async def read_resource(self, uri: str) -> MCPResourceReadResult:
+        """读取指定 Resource 的内容。
+
+        Args:
+            uri: 资源 URI。
+
+        Returns:
+            MCPResourceReadResult: 资源读取结果。
+        """
+
+        server_name = self._resource_to_server.get(uri)
+        if not server_name or server_name not in self._connections:
+            raise KeyError(f"MCP Resource '{uri}' 未找到")
+
+        connection = self._connections[server_name]
+        return await connection.read_resource(uri)
 
     def get_tool_summary(self) -> str:
-        """获取所有已注册 MCP 工具的摘要信息。"""
+        """获取所有已注册 MCP 工具的摘要信息。
+
+        Returns:
+            str: 工具摘要文本。
+        """
+
         parts: list[str] = []
-        for server_name, conn in self._connections.items():
+        for server_name, connection in self._connections.items():
             tool_names = [
-                t.name
-                for t in conn.tools
-                if t.name in self._tool_to_server and self._tool_to_server[t.name] == server_name
+                str(tool.name)
+                for tool in connection.tools
+                if self._tool_to_server.get(tool.name) == server_name
             ]
             if tool_names:
                 parts.append(f"  • {server_name}: {', '.join(tool_names)}")
         return "\n".join(parts)
 
+    def get_feature_summary(self) -> str:
+        """获取所有服务器能力的总体摘要。
+
+        Returns:
+            str: 多行摘要文本。
+        """
+
+        parts: list[str] = []
+        for server_name, connection in self._connections.items():
+            tool_count = sum(1 for tool in connection.tools if self._tool_to_server.get(tool.name) == server_name)
+            prompt_count = sum(
+                1 for prompt in connection.prompts if self._prompt_to_server.get(prompt.name) == server_name
+            )
+            resource_count = sum(
+                1 for resource in connection.resources if self._resource_to_server.get(resource.uri) == server_name
+            )
+            template_count = sum(
+                1
+                for resource_template in connection.resource_templates
+                if self._resource_template_to_server.get(resource_template.uriTemplate) == server_name
+            )
+            parts.append(
+                f"  • {server_name}: 工具 {tool_count} / Prompt {prompt_count} / "
+                f"资源 {resource_count} / 模板 {template_count}"
+            )
+        return "\n".join(parts)
+
     @property
     def server_count(self) -> int:
-        """已连接的 MCP 服务器数量。"""
+        """返回已连接 MCP 服务器数量。
+
+        Returns:
+            int: 服务器数量。
+        """
+
         return len(self._connections)
 
     @property
     def tool_count(self) -> int:
-        """已注册的 MCP 工具总数。"""
+        """返回已注册 MCP 工具总数。
+
+        Returns:
+            int: 工具数量。
+        """
+
         return len(self._tool_to_server)
 
-    # ──────── 生命周期 ────────
+    @property
+    def prompt_count(self) -> int:
+        """返回已注册 MCP Prompt 总数。
+
+        Returns:
+            int: Prompt 数量。
+        """
+
+        return len(self._prompt_to_server)
+
+    @property
+    def resource_count(self) -> int:
+        """返回已注册 MCP Resource 总数。
+
+        Returns:
+            int: Resource 数量。
+        """
+
+        return len(self._resource_to_server)
 
     async def close(self) -> None:
         """关闭所有 MCP 服务器连接。"""
-        for conn in self._connections.values():
-            await conn.close()
+
+        for connection in self._connections.values():
+            await connection.close()
         self._connections.clear()
         self._tool_to_server.clear()
+        self._prompt_to_server.clear()
+        self._resource_to_server.clear()
+        self._resource_template_to_server.clear()
