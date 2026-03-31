@@ -172,31 +172,51 @@ class MigrationExecutionContext:
 
     def start_progress(
         self,
-        total: int,
+        total_tables: int,
+        total_records: int,
         description: str = "总迁移进度",
-        unit_name: str = "表",
+        table_unit_name: str = "表",
+        record_unit_name: str = "记录",
     ) -> None:
         """启动当前迁移步骤的进度展示。
 
         Args:
-            total: 当前步骤需要处理的总项目数。
+            total_tables: 当前步骤需要处理的总表数。
+            total_records: 当前步骤需要处理的总记录数。
             description: 进度描述文本。
-            unit_name: 进度单位名称。
+            table_unit_name: 表级进度单位名称。
+            record_unit_name: 记录级进度单位名称。
         """
         if self.progress_reporter is None:
             return
-        self.progress_reporter.start(total=total, description=description, unit_name=unit_name)
+        self.progress_reporter.start(
+            total_records=total_records,
+            total_tables=total_tables,
+            description=description,
+            table_unit_name=table_unit_name,
+            record_unit_name=record_unit_name,
+        )
 
-    def advance_progress(self, advance: int = 1, item_name: Optional[str] = None) -> None:
+    def advance_progress(
+        self,
+        records: int = 0,
+        completed_tables: int = 0,
+        item_name: Optional[str] = None,
+    ) -> None:
         """推进当前迁移步骤的进度展示。
 
         Args:
-            advance: 本次推进的步数。
+            records: 本次推进的记录数。
+            completed_tables: 本次完成的表数。
             item_name: 当前完成的项目名称。
         """
         if self.progress_reporter is None:
             return
-        self.progress_reporter.advance(advance=advance, item_name=item_name)
+        self.progress_reporter.advance(
+            records=records,
+            completed_tables=completed_tables,
+            item_name=item_name,
+        )
 
 
 MigrationHandler = Callable[[MigrationExecutionContext], None]

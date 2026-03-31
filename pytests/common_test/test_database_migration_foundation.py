@@ -68,7 +68,7 @@ class FakeMigrationProgressReporter(BaseMigrationProgressReporter):
 
     def __init__(self) -> None:
         """初始化测试用进度上报器。"""
-        self.events: List[Tuple[str, Optional[int], Optional[str], Optional[str]]] = []
+        self.events: List[Tuple[str, Optional[int], Optional[int], Optional[str]]] = []
 
     def open(self) -> None:
         """记录打开事件。"""
@@ -80,27 +80,38 @@ class FakeMigrationProgressReporter(BaseMigrationProgressReporter):
 
     def start(
         self,
-        total: int,
+        total_records: int,
+        total_tables: int,
         description: str = "总迁移进度",
-        unit_name: str = "表",
+        table_unit_name: str = "表",
+        record_unit_name: str = "记录",
     ) -> None:
         """记录启动事件。
 
         Args:
-            total: 任务总数。
+            total_records: 任务记录总数。
+            total_tables: 任务表总数。
             description: 任务描述。
-            unit_name: 进度单位名称。
+            table_unit_name: 表级进度单位名称。
+            record_unit_name: 记录级进度单位名称。
         """
-        self.events.append(("start", total, description, unit_name))
+        del table_unit_name, record_unit_name
+        self.events.append(("start", total_records, total_tables, description))
 
-    def advance(self, advance: int = 1, item_name: Optional[str] = None) -> None:
+    def advance(
+        self,
+        records: int = 0,
+        completed_tables: int = 0,
+        item_name: Optional[str] = None,
+    ) -> None:
         """记录推进事件。
 
         Args:
-            advance: 推进步数。
+            records: 推进的记录数。
+            completed_tables: 已完成的表数。
             item_name: 当前完成的项目名称。
         """
-        self.events.append(("advance", advance, item_name, None))
+        self.events.append(("advance", records, completed_tables, item_name))
 
 
 def _create_sqlite_engine(database_file: Path) -> Engine:
@@ -550,10 +561,10 @@ def test_manager_can_report_step_progress(tmp_path: Path) -> None:
         Args:
             context: 当前迁移步骤执行上下文。
         """
-        context.start_progress(total=3, description="总迁移进度", unit_name="表")
-        context.advance_progress(item_name="chat_sessions")
-        context.advance_progress(item_name="mai_messages")
-        context.advance_progress(item_name="tool_records")
+        context.start_progress(total_tables=3, total_records=30, description="总迁移进度")
+        context.advance_progress(records=10, completed_tables=1, item_name="chat_sessions")
+        context.advance_progress(records=10, completed_tables=1, item_name="mai_messages")
+        context.advance_progress(records=10, completed_tables=1, item_name="tool_records")
         context.connection.execute(text("CREATE TABLE progress_records (id INTEGER PRIMARY KEY, value TEXT NOT NULL)"))
 
     with engine.begin() as connection:
@@ -582,10 +593,10 @@ def test_manager_can_report_step_progress(tmp_path: Path) -> None:
     assert len(reporter_instances) == 1
     assert reporter_instances[0].events == [
         ("open", None, None, None),
-        ("start", 3, "总迁移进度", "表"),
-        ("advance", 1, "chat_sessions", None),
-        ("advance", 1, "mai_messages", None),
-        ("advance", 1, "tool_records", None),
+        ("start", 30, 3, "总迁移进度"),
+        ("advance", 10, 1, "chat_sessions"),
+        ("advance", 10, 1, "mai_messages"),
+        ("advance", 10, 1, "tool_records"),
         ("close", None, None, None),
     ]
 
@@ -842,11 +853,12 @@ def test_legacy_v1_migration_reports_table_progress(tmp_path: Path) -> None:
     reporter_events = reporter_instances[0].events
 
     assert reporter_events[0] == ("open", None, None, None)
-    assert reporter_events[1] == ("start", 12, "总迁移进度", "表")
+    assert reporter_events[1] == ("start", 6, 12, "总迁移进度")
     assert reporter_events[-1] == ("close", None, None, None)
-    assert reporter_events.count(("advance", 1, "chat_sessions", None)) == 1
-    assert reporter_events.count(("advance", 1, "thinking_questions", None)) == 1
-    assert len([event for event in reporter_events if event[0] == "advance"]) == 12
+    assert reporter_events.count(("advance", 1, 0, None)) == 6
+    assert reporter_events.count(("advance", 0, 1, "chat_sessions")) == 1
+    assert reporter_events.count(("advance", 0, 1, "thinking_questions")) == 1
+    assert len([event for event in reporter_events if event[0] == "advance"]) == 18
 
 
 def test_initialize_database_calls_bootstrapper_before_create_all(
