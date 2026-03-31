@@ -1,17 +1,22 @@
-from rich.traceback import install
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator, TYPE_CHECKING
+from typing import ContextManager, Generator, TYPE_CHECKING
 
+from rich.traceback import install
 from sqlalchemy import event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import SQLModel, Session, create_engine
 
+from src.common.database.migrations import create_database_migration_bootstrapper
+from src.common.logger import get_logger
+
 if TYPE_CHECKING:
     from sqlite3 import Connection as SQLite3Connection
 
 install(extra_lines=3)
+
+logger = get_logger("database")
 
 
 # 定义数据库文件路径
@@ -53,6 +58,7 @@ SessionLocal = sessionmaker(
     bind=engine,
     class_=Session,
 )
+_migration_bootstrapper = create_database_migration_bootstrapper(engine)
 
 _db_initialized = False
 
@@ -93,14 +99,29 @@ def _migrate_action_records_to_tool_records() -> None:
 
 
 def initialize_database() -> None:
+    """初始化数据库连接、结构与启动期迁移。
+
+    当前初始化流程遵循以下顺序：
+        1. 确保数据库目录存在；
+        2. 加载 SQLModel 模型定义；
+        3. 执行已注册的启动期迁移；
+        4. 兜底执行 ``create_all`` 确保当前模型定义已建表；
+        5. 执行项目现有的轻量数据补迁移逻辑。
+    """
     global _db_initialized
     if _db_initialized:
         return
     _DB_DIR.mkdir(parents=True, exist_ok=True)
     import src.common.database.database_model  # noqa: F401
 
+    migration_state = _migration_bootstrapper.prepare_database()
+    logger.info(
+        "数据库迁移准备完成，"
+        f" 当前版本={migration_state.resolved_version.version}，目标版本={migration_state.target_version}"
+    )
     SQLModel.metadata.create_all(engine)
     _migrate_action_records_to_tool_records()
+    _migration_bootstrapper.finalize_database(migration_state)
     _db_initialized = True
 
 
@@ -150,8 +171,12 @@ def get_db_session(auto_commit: bool = True) -> Generator[Session, None, None]:
         session.close()
 
 
-def get_db_session_manual():
-    """获取数据库会话的上下文管理器 (手动提交模式)。"""
+def get_db_session_manual() -> ContextManager[Session]:
+    """获取数据库会话的上下文管理器 (手动提交模式)。
+
+    Returns:
+        ContextManager[Session]: 手动提交模式的数据库会话上下文管理器。
+    """
     return get_db_session(auto_commit=False)
 
 
