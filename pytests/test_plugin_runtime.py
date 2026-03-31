@@ -1298,142 +1298,12 @@ class TestDependencyResolution:
         assert "test.demo-plugin" in loader.failed_plugins
         assert "on_unload" in loader.failed_plugins["test.demo-plugin"]
 
-    def test_isolate_sys_path_preserves_plugin_dirs(self):
-        import builtins
-        import importlib
-
-        from src.plugin_runtime.runner import runner_main
-
-        plugin_root = os.path.normpath("/tmp/maibot-plugin-root")
-        original_import = builtins.__import__
-        original_import_module = importlib.import_module
-        original_path = list(sys.path)
-        original_meta_path = list(sys.meta_path)
-
-        try:
-            if plugin_root in sys.path:
-                sys.path.remove(plugin_root)
-
-            runner_main._isolate_sys_path([plugin_root])
-
-            assert plugin_root in sys.path
-        finally:
-            builtins.__import__ = original_import
-            importlib.import_module = original_import_module
-            sys.path[:] = original_path
-            sys.meta_path[:] = original_meta_path
-
-    def test_isolate_sys_path_blocks_disallowed_src_imports(self):
-        import builtins
-        import importlib
-
-        from src.plugin_runtime.runner import runner_main
-
-        original_import = builtins.__import__
-        original_import_module = importlib.import_module
-        original_path = list(sys.path)
-        original_meta_path = list(sys.meta_path)
-        sys.modules.pop("src.forbidden_demo", None)
-
-        try:
-            runner_main._isolate_sys_path([])
-            plugin_globals = {
-                "__name__": "_maibot_plugin_demo",
-                "__package__": "_maibot_plugin_demo",
-                "importlib": importlib,
-            }
-
-            with pytest.raises(ImportError, match="不允许导入主程序模块"):
-                exec('importlib.import_module("src.forbidden_demo")', plugin_globals)
-        finally:
-            builtins.__import__ = original_import
-            importlib.import_module = original_import_module
-            sys.path[:] = original_path
-            sys.meta_path[:] = original_meta_path
-            sys.modules.pop("src.forbidden_demo", None)
-
-    def test_isolate_sys_path_blocks_preloaded_runtime_modules(self):
-        import builtins
-        import importlib
-
-        from src.plugin_runtime.runner import runner_main
-
-        original_import = builtins.__import__
-        original_import_module = importlib.import_module
-        original_path = list(sys.path)
-        original_meta_path = list(sys.meta_path)
-
-        try:
-            runner_main._isolate_sys_path([])
-            plugin_globals = {
-                "__name__": "_maibot_plugin_demo",
-                "__package__": "_maibot_plugin_demo",
-                "importlib": importlib,
-            }
-
-            with pytest.raises(ImportError, match="rpc_client"):
-                exec('importlib.import_module("src.plugin_runtime.runner.rpc_client")', plugin_globals)
-        finally:
-            builtins.__import__ = original_import
-            importlib.import_module = original_import_module
-            sys.path[:] = original_path
-            sys.meta_path[:] = original_meta_path
-
-    def test_isolate_sys_path_keeps_legacy_logger_import_available(self):
-        import builtins
-        import importlib
-
-        from src.plugin_runtime.runner import runner_main
-
-        original_import = builtins.__import__
-        original_import_module = importlib.import_module
-        original_path = list(sys.path)
-        original_meta_path = list(sys.meta_path)
-
-        try:
-            runner_main._isolate_sys_path([])
-            plugin_globals = {
-                "__name__": "_maibot_plugin_demo",
-                "__package__": "_maibot_plugin_demo",
-                "importlib": importlib,
-            }
-
-            exec('logger_module = importlib.import_module("src.common.logger")', plugin_globals)
-            logger_module = plugin_globals["logger_module"]
-            assert callable(logger_module.get_logger)
-        finally:
-            builtins.__import__ = original_import
-            importlib.import_module = original_import_module
-            sys.path[:] = original_path
-            sys.meta_path[:] = original_meta_path
-
-    def test_isolate_sys_path_keeps_runtime_imports_working(self):
-        import builtins
-        import importlib
-
-        from src.plugin_runtime.runner import runner_main
-
-        original_import = builtins.__import__
-        original_import_module = importlib.import_module
-        original_path = list(sys.path)
-        original_meta_path = list(sys.meta_path)
-
-        try:
-            runner_main._isolate_sys_path([])
-
-            uds_module = importlib.import_module("src.plugin_runtime.transport.uds")
-            assert hasattr(uds_module, "UDSTransportClient")
-        finally:
-            builtins.__import__ = original_import
-            importlib.import_module = original_import_module
-            sys.path[:] = original_path
-            sys.meta_path[:] = original_meta_path
-
     @pytest.mark.asyncio
     async def test_async_main_removes_sensitive_runtime_env_vars(self, monkeypatch):
         from src.plugin_runtime.runner import runner_main
 
         captured = {}
+        original_path = list(sys.path)
 
         class FakeRunner:
             def __init__(
@@ -1457,7 +1327,6 @@ class TestDependencyResolution:
         monkeypatch.setenv(runner_main.ENV_PLUGIN_DIRS, "/tmp/plugins")
         monkeypatch.setenv(runner_main.ENV_EXTERNAL_PLUGIN_IDS, '{"demo.plugin":"1.0.0"}')
         monkeypatch.setattr(runner_main, "_install_shutdown_signal_handlers", lambda callback: None)
-        monkeypatch.setattr(runner_main, "_isolate_sys_path", lambda plugin_dirs: None)
         monkeypatch.setattr(runner_main, "PluginRunner", FakeRunner)
 
         await runner_main._async_main()
@@ -1466,6 +1335,7 @@ class TestDependencyResolution:
         assert captured["session_token"] == "secret-token"
         assert captured["plugin_dirs"] == ["/tmp/plugins"]
         assert captured["external_available_plugins"] == {"demo.plugin": "1.0.0"}
+        assert sys.path == original_path
 
 
 # ─── Host-side ComponentRegistry 测试 ──────────────────────
