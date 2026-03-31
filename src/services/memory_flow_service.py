@@ -9,10 +9,10 @@ from json_repair import repair_json
 from src.chat.utils.utils import is_bot_self
 from src.common.message_repository import find_messages
 from src.common.logger import get_logger
-from src.config.config import global_config, model_config
-from src.llm_models.utils_model import LLMRequest
+from src.config.config import global_config
 from src.memory_system.chat_history_summarizer import ChatHistorySummarizer
 from src.person_info.person_info import Person, get_person_id, store_person_memory_from_answer
+from src.services.llm_service import LLMServiceClient
 
 logger = get_logger("memory_flow_service")
 
@@ -55,10 +55,7 @@ class PersonFactWritebackService:
         self._queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=256)
         self._worker_task: Optional[asyncio.Task] = None
         self._stopping = False
-        self._extractor = LLMRequest(
-            model_set=model_config.model_task_config.utils,
-            request_type="person_fact_writeback",
-        )
+        self._extractor = LLMServiceClient(task_name="utils", request_type="person_fact_writeback")
 
     async def start(self) -> None:
         if self._worker_task is not None and not self._worker_task.done():
@@ -190,11 +187,11 @@ class PersonFactWritebackService:
 ["他喜欢深夜打游戏", "他养了一只猫"]
 如果没有可写入的事实，输出 []"""
         try:
-            response, _ = await self._extractor.generate_response_async(prompt)
+            response_result = await self._extractor.generate_response(prompt)
         except Exception as exc:
             logger.debug("人物事实提取模型调用失败: %s", exc)
             return []
-        return self._parse_fact_list(response)
+        return self._parse_fact_list(response_result.response)
 
     @staticmethod
     def _parse_fact_list(raw: str) -> List[str]:
