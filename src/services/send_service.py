@@ -434,6 +434,21 @@ def _store_sent_message(message: SessionMessage) -> None:
     MessageUtils.store_message_to_db(message)
 
 
+async def _notify_memory_automation_on_message_sent(message: SessionMessage) -> None:
+    """在发送成功后通知长期记忆自动化服务。
+
+    Args:
+        message: 已成功发送的内部消息对象。
+    """
+    try:
+        from src.services.memory_flow_service import memory_automation_service
+
+        await memory_automation_service.on_message_sent(message)
+    except Exception as exc:
+        session_id = message.session_id or "unknown-session"
+        logger.warning(f"[{session_id}] 长期记忆人物事实写回注册失败: {exc}")
+
+
 def _log_platform_io_failures(delivery_batch: DeliveryBatch) -> None:
     """输出 Platform IO 批量发送失败详情。
 
@@ -503,6 +518,7 @@ async def _send_via_platform_io(
     if delivery_batch.has_success:
         if storage_message:
             _store_sent_message(message)
+        await _notify_memory_automation_on_message_sent(message)
         if show_log:
             successful_driver_ids = [
                 receipt.driver_id or "unknown"

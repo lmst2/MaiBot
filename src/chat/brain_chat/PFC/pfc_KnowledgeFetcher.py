@@ -3,10 +3,6 @@ from typing import Any, Dict, List, Tuple
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.common.logger import get_logger
 
-# NOTE: HippocampusManager doesn't exist in v0.12.2 - memory system was redesigned
-# from src.plugins.memory_system.Hippocampus import HippocampusManager
-from src.config.config import model_config
-from src.llm_models.utils_model import LLMRequest
 from src.person_info.person_info import resolve_person_id_for_memory
 from src.services.memory_service import memory_service
 
@@ -17,7 +13,6 @@ class KnowledgeFetcher:
     """知识调取器"""
 
     def __init__(self, private_name: str, stream_id: str):
-        self.llm = LLMRequest(model_set=model_config.model_task_config.utils)
         self.private_name = private_name
         self.stream_id = stream_id
 

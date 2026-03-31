@@ -189,39 +189,37 @@ def find_messages(
             conditions.append(Messages.is_command == False)  # noqa: E712
 
         statement = select(Messages).where(*conditions)
-        if limit > 0:
-            if limit_mode == "earliest":
-                statement = statement.order_by(col(Messages.timestamp)).limit(limit)
-                with get_db_session() as session:
+        with get_db_session(auto_commit=False) as session:
+            if limit > 0:
+                if limit_mode == "earliest":
+                    statement = statement.order_by(col(Messages.timestamp)).limit(limit)
                     results = list(session.exec(statement).all())
+                else:
+                    statement = statement.order_by(col(Messages.timestamp).desc()).limit(limit)
+                    results = list(session.exec(statement).all())
+                    results = list(reversed(results))
             else:
-                statement = statement.order_by(col(Messages.timestamp).desc()).limit(limit)
-                with get_db_session() as session:
-                    results = list(session.exec(statement).all())
-                results = list(reversed(results))
-        else:
-            if sort:
-                order_terms: list[Any] = []
-                for field_name, direction in sort:
-                    sort_field = _resolve_field(field_name)
-                    if sort_field is None:
-                        logger.warning(f"排序字段 '{field_name}' 在 Messages 模型中未找到。将跳过此排序条件。")
-                        continue
-                    order_terms.append(sort_field.asc() if direction == 1 else sort_field.desc())
-                if order_terms:
-                    statement = statement.order_by(*order_terms)
-            with get_db_session() as session:
+                if sort:
+                    order_terms: list[Any] = []
+                    for field_name, direction in sort:
+                        sort_field = _resolve_field(field_name)
+                        if sort_field is None:
+                            logger.warning(f"排序字段 '{field_name}' 在 Messages 模型中未找到。将跳过此排序条件。")
+                            continue
+                        order_terms.append(sort_field.asc() if direction == 1 else sort_field.desc())
+                    if order_terms:
+                        statement = statement.order_by(*order_terms)
                 results = list(session.exec(statement).all())
 
-        if filter_intercept_message_level is not None:
-            filtered_results = []
-            for msg in results:
-                config = _parse_additional_config(msg)
-                if config.get("intercept_message_level", 0) <= filter_intercept_message_level:
-                    filtered_results.append(msg)
-            results = filtered_results
+            if filter_intercept_message_level is not None:
+                filtered_results = []
+                for msg in results:
+                    config = _parse_additional_config(msg)
+                    if config.get("intercept_message_level", 0) <= filter_intercept_message_level:
+                        filtered_results.append(msg)
+                results = filtered_results
 
-        return [_message_to_instance(msg) for msg in results]
+            return [_message_to_instance(msg) for msg in results]
     except Exception as e:
         log_message = (
             "使用 SQLModel 查找消息失败 "

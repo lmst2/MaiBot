@@ -1,4 +1,10 @@
 data/
+!pytests/A_memorix_test/data/
+!pytests/A_memorix_test/data/benchmarks/
+!pytests/A_memorix_test/data/benchmarks/long_novel_memory_benchmark.json
+!pytests/A_memorix_test/data/real_dialogues/
+!pytests/A_memorix_test/data/real_dialogues/private_alice_weekend.json
+pytests/A_memorix_test/data/benchmarks/results/
 data1/
 mongodb/
 NapCat.Framework.Windows.Once/

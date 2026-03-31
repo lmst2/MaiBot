@@ -18,6 +18,7 @@ from src.common.database.database import get_db_session
 from src.common.database.database_model import PersonInfo
 from src.common.logger import get_logger
 from src.config.config import global_config
+from src.services.memory_service import memory_service
 from src.services.llm_service import LLMServiceClient
 
 
@@ -66,13 +67,43 @@ def get_person_id(platform: str, user_id: Union[int, str]) -> str:
 def get_person_id_by_person_name(person_name: str) -> str:
     """根据用户名获取用户ID"""
     try:
-        with get_db_session() as session:
-            statement = select(PersonInfo).where(col(PersonInfo.person_name) == person_name).limit(1)
-            record = session.exec(statement).first()
-        return record.person_id if record else ""
+        with get_db_session(auto_commit=False) as session:
+            statement = select(PersonInfo.person_id).where(col(PersonInfo.person_name) == person_name).limit(1)
+            person_id = session.exec(statement).first()
+            return str(person_id) if person_id else ""
     except Exception as e:
         logger.error(f"根据用户名 {person_name} 获取用户ID时出错: {e}")
         return ""
+
+
+def resolve_person_id_for_memory(
+    *,
+    person_name: str = "",
+    platform: str = "",
+    user_id: Union[int, str, None] = None,
+    strict_known: bool = False,
+) -> str:
+    """解析长期记忆检索/写入使用的人物 ID。
+
+    解析顺序：
+    1. 优先按 `person_name` 映射数据库中的 `person_id`
+    2. 回退到 `platform + user_id` 生成稳定 `person_id`
+    3. 若 `strict_known=True`，则要求该 `person_id` 已被认识
+    """
+    clean_name = str(person_name or "").strip()
+    if clean_name:
+        if by_name := get_person_id_by_person_name(clean_name):
+            return by_name
+
+    clean_platform = str(platform or "").strip()
+    clean_user_id = str(user_id or "").strip()
+    if clean_platform and clean_user_id:
+        candidate = get_person_id(clean_platform, clean_user_id)
+        if strict_known and not is_person_known(person_id=candidate):
+            return ""
+        return candidate
+
+    return ""
 
 
 def is_person_known(
@@ -800,75 +831,83 @@ person_info_manager = PersonInfoManager()
 
 
 async def store_person_memory_from_answer(person_name: str, memory_content: str, chat_id: str) -> None:
-    """将人物信息存入person_info的memory_points
+    """将人物事实写入长期记忆系统。
 
     Args:
         person_name: 人物名称
         memory_content: 记忆内容
         chat_id: 聊天ID
     """
+    clean_content = str(memory_content or "").strip()
+    if not clean_content:
+        logger.debug("人物事实写回跳过：memory_content 为空")
+        return
+
+    clean_chat_id = str(chat_id or "").strip()
+    if not clean_chat_id:
+        logger.warning("人物事实写回失败：chat_id 为空")
+        return
+
+    clean_person_name = str(person_name or "").strip()
     try:
         # 从 chat_id 获取 session
-        session = _chat_manager.get_session_by_session_id(chat_id)
+        session = _chat_manager.get_session_by_session_id(clean_chat_id)
         if not session:
-            logger.warning(f"无法获取session for chat_id: {chat_id}")
+            logger.warning(f"无法获取session for chat_id: {clean_chat_id}")
             return
 
-        platform = session.platform
+        session_platform = str(getattr(session, "platform", "") or "").strip()
+        session_user_id = str(getattr(session, "user_id", "") or "").strip()
+        session_group_id = str(getattr(session, "group_id", "") or "").strip()
 
-        # 尝试从person_name查找person_id
-        # 首先尝试通过person_name查找
-        person_id = get_person_id_by_person_name(person_name)
-
+        person_id = resolve_person_id_for_memory(
+            person_name=clean_person_name,
+            platform=session_platform,
+            user_id=session_user_id,
+        )
         if not person_id:
-            # 如果通过person_name找不到，尝试从 session 获取 user_id
-            if platform and session.user_id:
-                user_id = session.user_id
-                person_id = get_person_id(platform, user_id)
-            else:
-                logger.warning(f"无法确定person_id for person_name: {person_name}, chat_id: {chat_id}")
-                return
-
-        # 创建或获取Person对象
-        person = Person(person_id=person_id)
-
-        if not person.is_known:
-            logger.warning(f"用户 {person_name} (person_id: {person_id}) 尚未认识，无法存储记忆")
+            logger.warning(f"无法确定person_id for person_name: {clean_person_name}, chat_id: {clean_chat_id}")
             return
 
-        # 确定记忆分类（可以根据memory_content判断，这里使用通用分类）
-        category = "其他"  # 默认分类，可以根据需要调整
+        person = Person(person_id=person_id)
+        if not person.is_known:
+            logger.warning(f"用户 {clean_person_name or person_id} (person_id: {person_id}) 尚未认识，跳过写回")
+            return
 
-        # 记忆点格式：category:content:weight
-        weight = "1.0"  # 默认权重
-        memory_point = f"{category}:{memory_content}:{weight}"
+        participant_name = str(getattr(person, "person_name", "") or getattr(person, "nickname", "") or "").strip()
+        if not participant_name:
+            participant_name = clean_person_name or person_id
 
-        # 添加到memory_points
-        if not person.memory_points:
-            person.memory_points = []
+        payload_fingerprint = hashlib.md5(f"{person_id}|{clean_chat_id}|{clean_content}".encode()).hexdigest()
+        external_id = f"person_fact:{person_id}:{payload_fingerprint}"
 
-        # 检查是否已存在相似的记忆点（避免重复）
-        is_duplicate = False
-        for existing_point in person.memory_points:
-            if existing_point and isinstance(existing_point, str):
-                parts = existing_point.split(":", 2)
-                if len(parts) >= 2:
-                    existing_content = parts[1].strip()
-                    # 简单相似度检查（如果内容相同或非常相似，则跳过）
-                    if (
-                        existing_content == memory_content
-                        or memory_content in existing_content
-                        or existing_content in memory_content
-                    ):
-                        is_duplicate = True
-                        break
+        result = await memory_service.ingest_text(
+            external_id=external_id,
+            source_type="person_fact",
+            text=clean_content,
+            chat_id=clean_chat_id,
+            person_ids=[person_id],
+            participants=[participant_name],
+            tags=["person_fact"],
+            metadata={
+                "person_id": person_id,
+                "person_name": participant_name,
+                "writeback_source": "memory_flow_service",
+            },
+            respect_filter=True,
+            user_id=session_user_id,
+            group_id=session_group_id,
+        )
 
-        if not is_duplicate:
-            person.memory_points.append(memory_point)
-            person.sync_to_database()
-            logger.info(f"成功添加记忆点到 {person_name} (person_id: {person_id}): {memory_point}")
+        if getattr(result, "success", False):
+            logger.info(
+                f"成功写回人物事实到长期记忆: person={participant_name} person_id={person_id} chat_id={clean_chat_id}"
+            )
         else:
-            logger.debug(f"记忆点已存在，跳过: {memory_point}")
+            logger.warning(
+                f"人物事实写回长期记忆失败: person={participant_name} person_id={person_id} "
+                f"chat_id={clean_chat_id} detail={getattr(result, 'detail', '')}"
+            )
 
     except Exception as e:
         logger.error(f"存储人物记忆失败: {e}")

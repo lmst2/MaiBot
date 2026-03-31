@@ -8,7 +8,7 @@ from src.common.data_models.llm_service_data_models import LLMGenerationOptions
 from src.services.llm_service import LLMServiceClient
 from src.config.config import global_config
 from src.prompt.prompt_manager import prompt_manager
-from src.learners.jargon_miner_old import search_jargon
+from src.learners.jargon_explainer import search_jargon
 from src.learners.learner_utils_old import (
     is_bot_message,
     contains_bot_self_name,
