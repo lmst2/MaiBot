@@ -9,7 +9,7 @@ from src.plugin_runtime.integration import get_plugin_runtime_manager
 
 logger = get_logger("memory_service")
 
-PLUGIN_ID = "A_Memorix"
+PLUGIN_ID = "a-dawn.a-memorix"
 
 
 @dataclass
