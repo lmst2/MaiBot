@@ -54,11 +54,11 @@ logger = get_logger("main")
 
 # 定义重启退出码
 RESTART_EXIT_CODE = 42
-print("-----------------------------------------")
-print("\n\n\n\n\n")
-print(t("startup.dev_branch_warning"))
-print("\n\n\n\n\n")
-print("-----------------------------------------")
+# print("-----------------------------------------")
+# print("\n\n\n\n\n")
+# print(t("startup.dev_branch_warning"))
+# print("\n\n\n\n\n")
+# print("-----------------------------------------")
 
 
 def run_runner_process():
