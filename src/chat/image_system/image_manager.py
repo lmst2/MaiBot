@@ -1,9 +1,11 @@
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, Optional
+
 from rich.traceback import install
 from sqlmodel import select
-from typing import Optional
 
+import asyncio
 import base64
 import hashlib
 
@@ -11,8 +13,9 @@ from src.common.logger import get_logger
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Images, ImageType
 from src.common.data_models.image_data_model import MaiImage
-from src.config.config import global_config, model_config
-from src.llm_models.utils_model import LLMRequest
+from src.config.config import global_config
+from src.common.data_models.llm_service_data_models import LLMImageOptions
+from src.services.llm_service import LLMServiceClient
 
 install(extra_lines=3)
 
@@ -23,21 +26,30 @@ IMAGE_DIR = DATA_DIR / "images"
 logger = get_logger("image")
 
 
-def _ensure_image_dir_exists():
+def _ensure_image_dir_exists() -> None:
+    """确保图片缓存目录存在。"""
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-vlm = LLMRequest(model_set=model_config.model_task_config.vlm, request_type="image")
+vlm = LLMServiceClient(task_name="vlm", request_type="image")
 
 
 class ImageManager:
-    def __init__(self):
+    """图片描述管理器。"""
+
+    def __init__(self) -> None:
+        """初始化图片管理器。"""
         _ensure_image_dir_exists()
+        self._pending_description_tasks: Dict[str, asyncio.Task[None]] = {}
 
         logger.info("图片管理器初始化完成")
 
     async def get_image_description(
-        self, *, image_hash: Optional[str] = None, image_bytes: Optional[bytes] = None
+        self,
+        *,
+        image_hash: Optional[str] = None,
+        image_bytes: Optional[bytes] = None,
+        wait_for_build: bool = True,
     ) -> str:
         """
         获取图片描述的封装方法
@@ -49,6 +61,7 @@ class ImageManager:
         Args:
             image_hash (Optional[str]): 图片的哈希值，如果提供则优先使用该
             image_bytes (Optional[bytes]): 图片的字节数据，如果提供则在数据库中找不到哈希值时使用该数据生成描述
+            wait_for_build (bool): 未命中缓存时是否同步等待描述构建完成
         Returns:
             return (str): 图片描述，如果发生错误或无法生成描述则返回空字符串
         Raises:
@@ -73,6 +86,9 @@ class ImageManager:
         if not image_bytes:
             logger.warning("图片哈希值未找到，且未提供图片字节数据，返回无描述")
             return ""
+        if not wait_for_build:
+            self._schedule_description_build(hash_str, image_bytes)
+            return ""
         logger.info(f"图片描述未找到，哈希值: {hash_str}，准备生成新描述")
         try:
             image = await self.save_image_and_process(image_bytes)
@@ -80,6 +96,47 @@ class ImageManager:
         except Exception as e:
             logger.error(f"生成图片描述时发生错误: {e}")
             return ""
+
+    def _schedule_description_build(self, image_hash: str, image_bytes: bytes) -> None:
+        """调度图片描述后台构建任务。
+
+        Args:
+            image_hash: 图片哈希值。
+            image_bytes: 图片字节数据。
+        """
+        if image_hash in self._pending_description_tasks:
+            return
+
+        task = asyncio.create_task(self._build_description_in_background(image_hash, image_bytes))
+        self._pending_description_tasks[image_hash] = task
+        task.add_done_callback(lambda finished_task: self._finalize_description_build(image_hash, finished_task))
+
+    async def _build_description_in_background(self, image_hash: str, image_bytes: bytes) -> None:
+        """在后台构建并缓存图片描述。
+
+        Args:
+            image_hash: 图片哈希值。
+            image_bytes: 图片字节数据。
+        """
+        try:
+            logger.info(f"图片描述后台构建已开始，哈希值: {image_hash}")
+            await self.save_image_and_process(image_bytes)
+            logger.info(f"图片描述后台构建完成，哈希值: {image_hash}")
+        except Exception as exc:
+            logger.warning(f"图片描述后台构建失败，哈希值: {image_hash}，错误: {exc}")
+
+    def _finalize_description_build(self, image_hash: str, task: asyncio.Task[None]) -> None:
+        """回收图片描述后台构建任务。
+
+        Args:
+            image_hash: 图片哈希值。
+            task: 已完成的后台任务。
+        """
+        self._pending_description_tasks.pop(image_hash, None)
+        try:
+            task.result()
+        except Exception as exc:
+            logger.debug(f"图片描述后台任务结束时捕获异常，哈希值: {image_hash}，错误: {exc}")
 
     def get_image_from_db(self, image_hash: str) -> Optional[MaiImage]:
         """
@@ -260,7 +317,13 @@ class ImageManager:
         prompt = global_config.personality.visual_style
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
-        description, _ = await vlm.generate_response_for_image(prompt, image_base64, image_format, 0.4)
+        generation_result = await vlm.generate_response_for_image(
+            prompt,
+            image_base64,
+            image_format,
+            options=LLMImageOptions(temperature=0.4),
+        )
+        description = generation_result.response
         if not description:
             logger.warning("VLM未能生成图片描述")
         return description or ""

@@ -4,8 +4,9 @@ from typing import List, Dict, Optional, Any
 
 from src.common.logger import get_logger
 from src.common.database.database_model import Jargon
-from src.llm_models.utils_model import LLMRequest
-from src.config.config import model_config, global_config
+from src.common.data_models.llm_service_data_models import LLMGenerationOptions
+from src.services.llm_service import LLMServiceClient
+from src.config.config import global_config
 from src.prompt.prompt_manager import prompt_manager
 from src.learners.jargon_miner_old import search_jargon
 from src.learners.learner_utils_old import (
@@ -23,8 +24,8 @@ class JargonExplainer:
 
     def __init__(self, chat_id: str) -> None:
         self.chat_id = chat_id
-        self.llm = LLMRequest(
-            model_set=model_config.model_task_config.tool_use,
+        self.llm = LLMServiceClient(
+            task_name="utils",
             request_type="jargon.explain",
         )
 
@@ -206,7 +207,10 @@ class JargonExplainer:
         prompt_of_summarize.add_context("jargon_explanations", lambda _: explanations_text)
         summarize_prompt = await prompt_manager.render_prompt(prompt_of_summarize)
 
-        summary, _ = await self.llm.generate_response_async(summarize_prompt, temperature=0.3)
+        summary_result = await self.llm.generate_response(
+            summarize_prompt, options=LLMGenerationOptions(temperature=0.3)
+        )
+        summary = summary_result.response
         if not summary:
             # 如果LLM概括失败，直接返回原始解释
             return f"上下文中的黑话解释：\n{explanations_text}"

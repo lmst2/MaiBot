@@ -1,4 +1,5 @@
 from contextlib import suppress
+from copy import deepcopy
 from typing import Any, Dict, Optional
 
 import os
@@ -10,9 +11,9 @@ from src.chat.heart_flow.heartflow_message_processor import HeartFCMessageReceiv
 from src.common.logger import get_logger
 from src.common.utils.utils_message import MessageUtils
 from src.common.utils.utils_session import SessionUtils
+from src.config.config import global_config
 from src.platform_io.route_key_factory import RouteKeyFactory
 
-# from src.chat.brain_chat.PFC.pfc_manager import PFCManager
 from src.core.announcement_manager import global_announcement_manager
 from src.plugin_runtime.component_query import component_query_service
 
@@ -29,35 +30,19 @@ logger = get_logger("chat")
 
 
 class ChatBot:
-    def __init__(self):
+    def __init__(self) -> None:
+        """初始化聊天机器人入口。"""
+
         self.bot = None  # bot 实例引用
         self._started = False
-        self.heartflow_message_receiver = HeartFCMessageReceiver()  # 新增
-        # self.pfc_manager = PFCManager.get_instance()  # PFC管理器 # TODO: PFC恢复
+        self.heartflow_message_receiver = HeartFCMessageReceiver()
 
-    async def _ensure_started(self):
-        """确保所有任务已启动"""
+    async def _ensure_started(self) -> None:
+        """确保所有后台任务已启动。"""
         if not self._started:
             logger.debug("确保ChatBot所有任务已启动")
 
             self._started = True
-
-    async def _create_pfc_chat(self, message: SessionMessage):
-        """创建或获取PFC对话实例
-
-        Args:
-            message: 消息对象
-        """
-        try:
-            chat_id = message.session_id
-            private_name = str(message.message_info.user_info.user_nickname)
-
-            logger.debug(f"[私聊][{private_name}]创建或获取PFC对话: {chat_id}")
-            await self.pfc_manager.get_or_create_conversation(chat_id, private_name)
-
-        except Exception as e:
-            logger.error(f"创建PFC聊天失败: {e}")
-            logger.error(traceback.format_exc())
 
     async def _process_commands(self, message: SessionMessage) -> tuple[bool, Optional[str], bool]:
         """使用统一组件注册表处理命令。
@@ -175,11 +160,12 @@ class ChatBot:
             recalled: Dict[str, Any] = {}
             recalled_id = None
 
-            if getattr(seg, "type", None) == "notify" and isinstance(getattr(seg, "data", None), dict):
-                sub_type = seg.data.get("sub_type")
-                scene = seg.data.get("scene")
-                msg_id = seg.data.get("message_id")
-                recalled = seg.data.get("recalled_user_info") or {}
+            seg_data = getattr(seg, "data", None)
+            if getattr(seg, "type", None) == "notify" and isinstance(seg_data, dict):
+                sub_type = seg_data.get("sub_type")
+                scene = seg_data.get("scene")
+                msg_id = seg_data.get("message_id")
+                recalled = seg_data.get("recalled_user_info") or {}
                 if isinstance(recalled, dict):
                     recalled_id = recalled.get("user_id")
 
@@ -301,7 +287,13 @@ class ChatBot:
             #     pass
 
             # 处理消息内容，识别表情包等二进制数据并转化为文本描述
-            await message.process()
+            if global_config.maisaka.direct_image_input:
+                message.maisaka_original_raw_message = deepcopy(message.raw_message)  # type: ignore[attr-defined]
+            # 入站主链优先保证消息尽快入队，避免图片、表情包、语音分析阻塞适配器超时。
+            await message.process(
+                enable_heavy_media_analysis=False,
+                enable_voice_transcription=False,
+            )
 
             # 平台层的 @ 检测由底层 is_mentioned_bot_in_message 统一处理；此处不做用户名硬编码匹配
 
@@ -335,14 +327,13 @@ class ChatBot:
 
             # message.update_chat_stream(chat)
 
-            # 命令处理 - 使用新插件系统检查并处理命令
-            # 注意：命令返回的 response 当前只用于日志记录和流程判断，
-            # 不会在这里自动作为回复消息发送回会话。
-            # is_command, cmd_result, continue_process = await self._process_commands(message)
+            # 命令处理 - 使用新插件系统检查并处理命令。
+            # 命令处理器内部自行决定是否回复消息，这里只负责流程分发与拦截。
+            is_command, cmd_result, continue_process = await self._process_commands(message)
 
-            # # 如果是命令且不需要继续处理，则直接返回
-            # if is_command and await self._handle_command_processing_result(message, cmd_result, continue_process):
-            #     return
+            # 如果是命令且不需要继续处理，则直接返回，避免落入 HeartFlow / MaiSaka。
+            if is_command and await self._handle_command_processing_result(message, cmd_result, continue_process):
+                return
 
             # continue_flag, modified_message = await events_manager.handle_mai_events(EventType.ON_MESSAGE, message)
             # if not continue_flag:
@@ -362,31 +353,12 @@ class ChatBot:
             # else:
             #     template_group_name = None
 
-            # async def preprocess():
-            #     # 根据聊天类型路由消息
-            #     if group_info is None:
-            #         # 私聊消息 -> PFC系统
-            #         logger.debug("[私聊]检测到私聊消息，路由到PFC系统")
-            #         await MessageStorage.store_message(message, chat)
-            #         await self._create_pfc_chat(message)
-            #     else:
-            #         # 群聊消息 -> HeartFlow系统
-            #         logger.debug("[群聊]检测到群聊消息，路由到HeartFlow系统")
-            #         await self.heartflow_message_receiver.process_message(message)
-
-            # if template_group_name:
-            #     async with global_prompt_manager.async_message_scope(template_group_name):
-            #         await preprocess()
-            # else:
-            #     await preprocess()
             async def preprocess():
                 if group_info is None:
-                    # logger.debug("[私聊]检测到私聊消息，路由到PFC系统")
-                    # MessageUtils.store_message_to_db(message)  # 存储消息到数据库
-                    # await self._create_pfc_chat(message)
-                    logger.critical("暂时禁用私聊")
+                    logger.debug("[私聊]检测到私聊消息，路由到 Maisaka")
+                    await self.heartflow_message_receiver.process_message(message)
                 else:
-                    logger.debug("[群聊]检测到群聊消息，路由到HeartFlow系统")
+                    logger.debug("[群聊]检测到群聊消息，路由到 Maisaka")
                     await self.heartflow_message_receiver.process_message(message)
 
             await preprocess()

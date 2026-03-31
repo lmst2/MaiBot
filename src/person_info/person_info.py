@@ -17,14 +17,14 @@ from src.common.data_models.person_info_data_model import dump_group_cardname_re
 from src.common.database.database import get_db_session
 from src.common.database.database_model import PersonInfo
 from src.common.logger import get_logger
-from src.config.config import global_config, model_config
-from src.llm_models.utils_model import LLMRequest
+from src.config.config import global_config
+from src.services.llm_service import LLMServiceClient
 
 
 logger = get_logger("person_info")
 
-relation_selection_model = LLMRequest(
-    model_set=model_config.model_task_config.tool_use, request_type="relation_selection"
+relation_selection_model = LLMServiceClient(
+    task_name="utils", request_type="relation_selection"
 )
 
 
@@ -578,7 +578,8 @@ class Person:
 <分类1><分类2><分类3>......
 如果没有相关的分类，请输出<none>"""
 
-            response, _ = await relation_selection_model.generate_response_async(prompt)
+            generation_result = await relation_selection_model.generate_response(prompt)
+            response = generation_result.response
             # print(prompt)
             # print(response)
             category_list = extract_categories_from_response(response)
@@ -600,7 +601,8 @@ class Person:
 例如:
 <分类1><分类2><分类3>......
 如果没有相关的分类，请输出<none>"""
-            response, _ = await relation_selection_model.generate_response_async(prompt)
+            generation_result = await relation_selection_model.generate_response(prompt)
+            response = generation_result.response
             # print(prompt)
             # print(response)
             category_list = extract_categories_from_response(response)
@@ -634,7 +636,9 @@ class Person:
 class PersonInfoManager:
     def __init__(self):
         self.person_name_list = {}
-        self.qv_name_llm = LLMRequest(model_set=model_config.model_task_config.utils, request_type="relation.qv_name")
+        self.qv_name_llm = LLMServiceClient(
+            task_name="utils", request_type="relation.qv_name"
+        )
         try:
             with get_db_session() as _:
                 pass
@@ -737,7 +741,8 @@ class PersonInfoManager:
                 "nickname": "昵称",
                 "reason": "理由"
             }"""
-            response, _ = await self.qv_name_llm.generate_response_async(qv_name_prompt)
+            generation_result = await self.qv_name_llm.generate_response(qv_name_prompt)
+            response = generation_result.response
             # logger.info(f"取名提示词：{qv_name_prompt}\n取名回复：{response}")
             result = self._extract_json_from_text(response)
 

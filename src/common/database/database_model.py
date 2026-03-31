@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import Column, DateTime, Enum as SQLEnum, Float
+from sqlalchemy import Column, DateTime, Enum as SQLEnum, Float, Text
 from sqlmodel import Field, LargeBinary, SQLModel
 
 
@@ -17,8 +17,8 @@ class ImageType(str, Enum):
 
 
 class ModifiedBy(str, Enum):
-    AI = "ai"
-    USER = "user"
+    AI = "AI"
+    USER = "USER"
 
 
 class Messages(SQLModel, table=True):
@@ -134,6 +134,27 @@ class ActionRecord(SQLModel, table=True):
     action_display_prompt: Optional[str] = Field(default=None)  # 最终输入到Prompt的内容
 
 
+class ToolRecord(SQLModel, table=True):
+    """存储工具调用记录"""
+
+    __tablename__ = "tool_records"  # type: ignore
+
+    id: Optional[int] = Field(default=None, primary_key=True)  # 自增主键
+
+    # 元信息
+    tool_id: str = Field(index=True, max_length=255)  # 工具调用ID
+    timestamp: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))  # 记录时间戳
+    session_id: str = Field(index=True, max_length=255)  # 对应的 ChatSession session_id
+
+    # 调用信息
+    tool_name: str = Field(index=True, max_length=255)  # 工具名称
+    tool_reasoning: Optional[str] = Field(default=None)  # 工具调用推理过程
+    tool_data: Optional[str] = Field(default=None)  # 工具数据，JSON格式存储
+
+    tool_builtin_prompt: Optional[str] = Field(default=None)  # 内置工具提示
+    tool_display_prompt: Optional[str] = Field(default=None)  # 最终输入到 Prompt 的内容
+
+
 class CommandRecord(SQLModel, table=True):
     """记录命令执行情况"""
 
@@ -202,18 +223,40 @@ class Jargon(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)  # 自增主键
 
     content: str = Field(index=True, max_length=255)  # 黑话内容
-    raw_content: Optional[str] = Field(default=None, nullable=True)  # 原始内容，未处理的黑话内容，为List[str]
+    raw_content: Optional[str] = Field(
+        default=None, sa_column=Column(Text, nullable=True)
+    )  # 原始内容，未处理的黑话内容，为List[str]
 
-    meaning: str  # 黑话含义
-    session_id_dict: str = Field(default=r"{}")  # 会话ID列表，格式为{"session_id": session_count, ...}
+    meaning: str = Field(sa_column=Column(Text, nullable=False))  # 黑话含义
+    session_id_dict: str = Field(
+        default=r"{}", sa_column=Column(Text, nullable=False)
+    )  # 会话ID列表，格式为{"session_id": session_count, ...}
 
     count: int = Field(default=0)  # 使用次数
     is_jargon: Optional[bool] = Field(default=True)  # 是否为黑话，False表示为白话
     is_complete: bool = Field(default=False)  # 是否为已经完成全部推断（count > 100后不再推断）
     is_global: bool = Field(default=False)  # 是否为全局黑话（独立于session_id_dict）
     last_inference_count: int = Field(default=0)  # 上一次进行推断时的count值，用于判断是否需要重新推断
-    inference_with_context: Optional[str] = Field(default=None, nullable=True)  # 带上下文的推断结果，JSON格式
-    inference_with_content_only: Optional[str] = Field(default=None, nullable=True)  # 只基于词条的推断结果，JSON格式
+    inference_with_context: Optional[str] = Field(
+        default=None, sa_column=Column(Text, nullable=True)
+    )  # 带上下文的推断结果，JSON格式
+    inference_with_content_only: Optional[str] = Field(
+        default=None, sa_column=Column(Text, nullable=True)
+    )  # 只基于词条的推断结果，JSON格式
+
+
+class MaiKnowledge(SQLModel, table=True):
+    """存储 Maisaka 的用户画像知识。"""
+
+    __tablename__ = "mai_knowledge"  # type: ignore
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    knowledge_id: str = Field(index=True, max_length=255)
+    category_id: str = Field(index=True, max_length=32)
+    content: str
+    normalized_content: str = Field(index=True)
+    metadata_json: Optional[str] = Field(default=None, nullable=True)
+    created_at: datetime = Field(default_factory=datetime.now, sa_column=Column(DateTime, index=True))
 
 
 class ChatHistory(SQLModel, table=True):

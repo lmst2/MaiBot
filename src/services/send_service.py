@@ -281,6 +281,26 @@ def _build_processed_plain_text(message: SessionMessage) -> str:
     return " ".join(part for part in processed_parts if part)
 
 
+def _build_outbound_log_preview(message: SessionMessage, max_length: int = 160) -> str:
+    """构造出站消息的日志预览文本。
+
+    Args:
+        message: 待发送的内部消息对象。
+        max_length: 预览文本最大长度。
+
+    Returns:
+        str: 适用于日志展示的消息摘要。
+    """
+    preview_text = (message.processed_plain_text or message.display_message or "").strip()
+    if not preview_text:
+        preview_text = f"[{_describe_message_sequence(message.raw_message)}]"
+
+    normalized_preview = " ".join(preview_text.split())
+    if len(normalized_preview) <= max_length:
+        return normalized_preview
+    return f"{normalized_preview[:max_length]}..."
+
+
 def _build_outbound_session_message(
     message_sequence: MessageSequence,
     stream_id: str,
@@ -424,11 +444,7 @@ def _log_platform_io_failures(delivery_batch: DeliveryBatch) -> None:
         f"driver={receipt.driver_id} status={receipt.status} error={receipt.error}"
         for receipt in delivery_batch.failed_receipts
     ) or "未命中任何发送路由"
-    logger.warning(
-        "[SendService] Platform IO 发送失败: platform=%s %s",
-        delivery_batch.route_key.platform,
-        failed_details,
-    )
+    logger.warning(f"[SendService] Platform IO 发送失败: platform={delivery_batch.route_key.platform} {failed_details}")
 
 
 async def _send_via_platform_io(
@@ -493,9 +509,9 @@ async def _send_via_platform_io(
                 for receipt in delivery_batch.sent_receipts
             ]
             logger.info(
-                "[SendService] 已通过 Platform IO 将消息发往平台 '%s' (drivers: %s)",
-                route_key.platform,
-                ", ".join(successful_driver_ids),
+                f"[SendService] 已通过 Platform IO 将消息发往平台 '{route_key.platform}' "
+                f"(drivers: {', '.join(successful_driver_ids)}) "
+                f"message={_build_outbound_log_preview(message)}"
             )
         return True
 

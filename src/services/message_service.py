@@ -7,9 +7,9 @@ from typing import List, Optional, Tuple
 from sqlmodel import col, select
 
 from src.chat.message_receive.message import SessionMessage
-from src.common.data_models.action_record_data_model import MaiActionRecord
+from src.common.data_models.tool_record_data_model import MaiToolRecord
 from src.common.database.database import get_db_session
-from src.common.database.database_model import ActionRecord, Images, ImageType
+from src.common.database.database_model import Images, ImageType, ToolRecord
 from src.common.message_repository import count_messages, find_messages
 from src.common.utils.math_utils import translate_timestamp_to_human_readable
 from src.common.utils.utils_action import ActionUtils
@@ -238,18 +238,18 @@ def get_actions_by_timestamp_with_chat(
     timestamp_start: float,
     timestamp_end: float,
     limit: Optional[int] = None,
-) -> List[MaiActionRecord]:
+) -> List[MaiToolRecord]:
     with get_db_session() as session:
         statement = (
-            select(ActionRecord)
-            .where(col(ActionRecord.session_id) == chat_id)
-            .where(col(ActionRecord.timestamp) >= datetime.fromtimestamp(timestamp_start))
-            .where(col(ActionRecord.timestamp) <= datetime.fromtimestamp(timestamp_end))
-            .order_by(col(ActionRecord.timestamp))
+            select(ToolRecord)
+            .where(col(ToolRecord.session_id) == chat_id)
+            .where(col(ToolRecord.timestamp) >= datetime.fromtimestamp(timestamp_start))
+            .where(col(ToolRecord.timestamp) <= datetime.fromtimestamp(timestamp_end))
+            .order_by(col(ToolRecord.timestamp))
         )
         if limit is not None:
             statement = statement.limit(limit)
-        return [MaiActionRecord.from_db_instance(item) for item in session.exec(statement).all()]
+        return [MaiToolRecord.from_db_instance(item) for item in session.exec(statement).all()]
 
 
 def replace_user_references(text: str, platform: str, replace_bot_name: bool = False) -> str:

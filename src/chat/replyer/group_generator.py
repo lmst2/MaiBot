@@ -10,8 +10,8 @@ from datetime import datetime
 from src.common.logger import get_logger
 from src.common.data_models.info_data_model import ActionPlannerInfo
 from src.common.data_models.llm_data_model import LLMGenerationDataModel
-from src.config.config import global_config, model_config
-from src.llm_models.utils_model import LLMRequest
+from src.config.config import global_config
+from src.services.llm_service import LLMServiceClient
 from maim_message import BaseMessageInfo, MessageBase, Seg, UserInfo as MaimUserInfo
 
 from src.common.data_models.mai_message_data_model import MaiMessage
@@ -56,13 +56,11 @@ class DefaultReplyer:
             chat_stream: 当前绑定的聊天会话。
             request_type: LLM 请求类型标识。
         """
-        self.express_model = LLMRequest(model_set=model_config.model_task_config.replyer, request_type=request_type)
+        self.express_model = LLMServiceClient(
+            task_name="replyer", request_type=request_type
+        )
         self.chat_stream = chat_stream
         self.is_group_chat, self.chat_target_info = get_chat_type_and_target_info(self.chat_stream.session_id)
-
-        from src.chat.tool_executor import ToolExecutor
-
-        self.tool_executor = ToolExecutor(chat_id=self.chat_stream.session_id, enable_cache=True, cache_ttl=3)
 
     async def generate_reply_with_context(
         self,
@@ -397,6 +395,11 @@ class DefaultReplyer:
         return f"{expression_habits_title}\n{expression_habits_block}", selected_ids
 
     async def build_tool_info(self, chat_history: str, sender: str, target: str, enable_tool: bool = True) -> str:
+        del chat_history
+        del sender
+        del target
+        del enable_tool
+        return ""
         """构建工具信息块
 
         Args:
@@ -413,9 +416,7 @@ class DefaultReplyer:
 
         try:
             # 使用工具执行器获取信息
-            tool_results, _, _ = await self.tool_executor.execute_from_chat_message(
-                sender=sender, target_message=target, chat_history=chat_history, return_details=False
-            )
+            tool_results = []
 
             if tool_results:
                 tool_info_str = "以下是你通过工具获取到的实时信息：\n"
@@ -576,29 +577,6 @@ class DefaultReplyer:
         duration = end_time - start_time
         return name, result, duration
 
-    async def _build_disabled_jargon_explanation(self) -> str:
-        """当关闭黑话解释时使用的占位协程，避免额外的LLM调用"""
-        return ""
-
-    async def _build_unknown_words_jargon(self, unknown_words: Optional[List[str]], chat_id: str) -> str:
-        """针对 Planner 提供的未知词语列表执行黑话检索"""
-        if not unknown_words:
-            return ""
-        # 清洗未知词语列表，只保留非空字符串
-        concepts: List[str] = []
-        for item in unknown_words:
-            if isinstance(item, str):
-                s = item.strip()
-                if s:
-                    concepts.append(s)
-        if not concepts:
-            return ""
-        try:
-            return await retrieve_concepts_with_jargon(concepts, chat_id)
-        except Exception as e:
-            logger.error(f"未知词语黑话检索失败: {e}")
-            return ""
-
     async def _build_jargon_explanation(
         self,
         chat_id: str,
@@ -608,19 +586,14 @@ class DefaultReplyer:
     ) -> str:
         """
         统一的黑话解释构建函数：
-        - 根据 enable_jargon_explanation / jargon_mode 决定具体策略
+        - 根据 enable_jargon_explanation 决定是否启用
         """
+        del unknown_words
         enable_jargon_explanation = getattr(global_config.expression, "enable_jargon_explanation", True)
         if not enable_jargon_explanation:
             return ""
 
-        jargon_mode = getattr(global_config.expression, "jargon_mode", "context")
-
-        # planner 模式：仅使用 Planner 的 unknown_words
-        if jargon_mode == "planner":
-            return await self._build_unknown_words_jargon(unknown_words, chat_id)
-
-        # 默认 / context 模式：使用上下文自动匹配黑话
+        # 使用上下文自动匹配黑话
         try:
             return await explain_jargon_in_context(chat_id, messages_short, chat_talking_prompt_short) or ""
         except Exception as e:
@@ -1158,9 +1131,11 @@ class DefaultReplyer:
             # else:
             #     logger.debug(f"\nreplyer_Prompt:{prompt}\n")
 
-            content, (reasoning_content, model_name, tool_calls) = await self.express_model.generate_response_async(
-                prompt
-            )
+            generation_result = await self.express_model.generate_response(prompt)
+            content = generation_result.response
+            reasoning_content = generation_result.reasoning
+            model_name = generation_result.model_name
+            tool_calls = generation_result.tool_calls
 
             # 移除 content 前后的换行符和空格
             content = content.strip()
@@ -1169,6 +1144,10 @@ class DefaultReplyer:
         return content, reasoning_content, model_name, tool_calls
 
     async def get_prompt_info(self, message: str, sender: str, target: str):
+        del message
+        del sender
+        del target
+        return ""
         related_info = ""
         start_time = time.time()
         try:
@@ -1200,17 +1179,21 @@ class DefaultReplyer:
             template_prompt.add_context("sender", sender)
             template_prompt.add_context("target_message", target)
             prompt = await prompt_manager.render_prompt(template_prompt)
-            _, _, _, _, tool_calls = await llm_api.generate_with_model_with_tools(
-                prompt,
-                model_config=model_config.model_task_config.tool_use,
-                tool_options=[search_knowledge_tool.get_tool_definition()],
+            generation_result = await llm_api.generate(
+                llm_api.LLMServiceRequest(
+                    task_name="utils",
+                    request_type="replyer.lpmm_knowledge",
+                    prompt=prompt,
+                    tool_options=[search_knowledge_tool.get_tool_definition()],
+                )
             )
+            tool_calls = generation_result.completion.tool_calls
 
             # logger.info(f"工具调用提示词: {prompt}")
             # logger.info(f"工具调用: {tool_calls}")
 
             if tool_calls:
-                result = await self.tool_executor.execute_tool_call(tool_calls[0])
+                result = None
                 end_time = time.time()
                 if not result or not result.get("content"):
                     logger.debug("从LPMM知识库获取知识失败，返回空知识...")

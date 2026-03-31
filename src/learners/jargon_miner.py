@@ -12,17 +12,17 @@ from src.common.data_models.jargon_data_model import MaiJargon
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Jargon
 from src.common.logger import get_logger
-from src.config.config import global_config, model_config
-from src.llm_models.utils_model import LLMRequest
+from src.config.config import global_config
+from src.common.data_models.llm_service_data_models import LLMGenerationOptions
+from src.services.llm_service import LLMServiceClient
 from src.prompt.prompt_manager import prompt_manager
 
 from .expression_utils import is_single_char_jargon
 
 logger = get_logger("jargon")
 
-# TODO: 重构完LLM相关内容后，替换成新的模型调用方式
-llm_extract = LLMRequest(model_set=model_config.model_task_config.utils, request_type="jargon.extract")
-llm_inference = LLMRequest(model_set=model_config.model_task_config.utils, request_type="jargon.inference")
+llm_extract = LLMServiceClient(task_name="utils", request_type="jargon.extract")
+llm_inference = LLMServiceClient(task_name="utils", request_type="jargon.inference")
 
 
 class JargonEntry(TypedDict):
@@ -100,7 +100,10 @@ class JargonMiner:
         prompt1_template.add_context("previous_meaning_instruction", previous_meaning_instruction)
         prompt1 = await prompt_manager.render_prompt(prompt1_template)
 
-        llm_response_1, _ = await llm_inference.generate_response_async(prompt1, temperature=0.3)
+        generation_result_1 = await llm_inference.generate_response(
+            prompt1, options=LLMGenerationOptions(temperature=0.3)
+        )
+        llm_response_1 = generation_result_1.response
         if not llm_response_1:
             logger.warning(f"jargon {content} 推断1失败：无响应")
             return
@@ -129,7 +132,10 @@ class JargonMiner:
         prompt2_template.add_context("content", content)
         prompt2 = await prompt_manager.render_prompt(prompt2_template)
 
-        llm_response_2, _ = await llm_inference.generate_response_async(prompt2, temperature=0.3)
+        generation_result_2 = await llm_inference.generate_response(
+            prompt2, options=LLMGenerationOptions(temperature=0.3)
+        )
+        llm_response_2 = generation_result_2.response
         if not llm_response_2:
             logger.warning(f"jargon {content} 推断2失败：无响应")
             return
@@ -153,7 +159,10 @@ class JargonMiner:
         if global_config.debug.show_jargon_prompt:
             logger.info(f"jargon {content} 比较提示词: {prompt3}")
 
-        llm_response_3, _ = await llm_inference.generate_response_async(prompt3, temperature=0.3)
+        generation_result_3 = await llm_inference.generate_response(
+            prompt3, options=LLMGenerationOptions(temperature=0.3)
+        )
+        llm_response_3 = generation_result_3.response
         if not llm_response_3:
             logger.warning(f"jargon {content} 比较失败：无响应")
             return

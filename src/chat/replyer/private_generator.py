@@ -9,8 +9,8 @@ from datetime import datetime
 from src.common.logger import get_logger
 from src.common.data_models.info_data_model import ActionPlannerInfo
 from src.common.data_models.llm_data_model import LLMGenerationDataModel
-from src.config.config import global_config, model_config
-from src.llm_models.utils_model import LLMRequest
+from src.config.config import global_config
+from src.services.llm_service import LLMServiceClient
 from maim_message import BaseMessageInfo, MessageBase, Seg, UserInfo as MaimUserInfo
 
 from src.common.data_models.mai_message_data_model import MaiMessage
@@ -52,14 +52,12 @@ class PrivateReplyer:
             chat_stream: 当前绑定的聊天会话。
             request_type: LLM 请求类型标识。
         """
-        self.express_model = LLMRequest(model_set=model_config.model_task_config.replyer, request_type=request_type)
+        self.express_model = LLMServiceClient(
+            task_name="replyer", request_type=request_type
+        )
         self.chat_stream = chat_stream
         self.is_group_chat, self.chat_target_info = get_chat_type_and_target_info(self.chat_stream.session_id)
         # self.memory_activator = MemoryActivator()
-
-        from src.chat.tool_executor import ToolExecutor
-
-        self.tool_executor = ToolExecutor(chat_id=self.chat_stream.session_id, enable_cache=True, cache_ttl=3)
 
     async def generate_reply_with_context(
         self,
@@ -290,6 +288,11 @@ class PrivateReplyer:
         return f"{expression_habits_title}\n{expression_habits_block}", selected_ids
 
     async def build_tool_info(self, chat_history: str, sender: str, target: str, enable_tool: bool = True) -> str:
+        del chat_history
+        del sender
+        del target
+        del enable_tool
+        return ""
         """构建工具信息块
 
         Args:
@@ -306,9 +309,7 @@ class PrivateReplyer:
 
         try:
             # 使用工具执行器获取信息
-            tool_results, _, _ = await self.tool_executor.execute_from_chat_message(
-                sender=sender, target_message=target, chat_history=chat_history, return_details=False
-            )
+            tool_results = []
 
             if tool_results:
                 tool_info_str = "以下是你通过工具获取到的实时信息：\n"
@@ -997,9 +998,11 @@ class PrivateReplyer:
             else:
                 logger.debug(f"\n{prompt}\n")
 
-            content, (reasoning_content, model_name, tool_calls) = await self.express_model.generate_response_async(
-                prompt
-            )
+            generation_result = await self.express_model.generate_response(prompt)
+            content = generation_result.response
+            reasoning_content = generation_result.reasoning
+            model_name = generation_result.model_name
+            tool_calls = generation_result.tool_calls
 
             content = content.strip()
 

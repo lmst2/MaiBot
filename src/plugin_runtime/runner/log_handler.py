@@ -164,7 +164,7 @@ class RunnerIPCLogHandler(logging.Handler):
                 return f"{event_text} {' '.join(extras)}".strip()
             return event_text
 
-        # format() 会处理 %s 参数替换和 exc_info 文本拼接。
+        # format() 会处理占位参数替换和 exc_info 文本拼接。
         return self.format(record)
 
     @staticmethod

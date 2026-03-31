@@ -110,7 +110,7 @@ def run_action(action: str, extra_args: Optional[List[str]] = None) -> None:
     这里不重复解析子参数，而是直接调用各脚本的 main()，
     让子脚本保留原有的交互/参数行为。
     """
-    logger.info("开始执行操作: %s", action)
+    logger.info(f"开始执行操作: {action}")
 
     extra_args = extra_args or []
 
@@ -162,14 +162,14 @@ def run_action(action: str, extra_args: Optional[List[str]] = None) -> None:
             _warn_if_lpmm_disabled()
             _with_overridden_argv(extra_args, refresh_lpmm_knowledge_main)
         else:
-            logger.error("未知操作: %s", action)
+            logger.error(f"未知操作: {action}")
     except KeyboardInterrupt:
         logger.info("用户中断当前操作（Ctrl+C）")
     except SystemExit:
         # 子脚本里大量使用 sys.exit，直接透传即可
         raise
     except Exception as exc:  # pragma: no cover - 防御性兜底
-        logger.error("执行操作 %s 时发生未捕获异常: %s", action, exc)
+        logger.error(f"执行操作 {action} 时发生未捕获异常: {exc}")
         raise
 
 
@@ -442,7 +442,7 @@ def _run_embedding_helper() -> None:
     try:
         test_path.rename(archive_path)
     except Exception as exc:  # pragma: no cover - 防御性兜底
-        logger.error("归档 embedding_model_test.json 失败: %s", exc)
+        logger.error(f"归档 embedding_model_test.json 失败: {exc}")
         print("[ERROR] 归档 embedding_model_test.json 失败，请检查文件权限与路径。错误详情已写入日志。")
         return
 

@@ -4,16 +4,15 @@ from typing import Optional
 import base64
 
 from src.common.logger import get_logger
-from src.config.config import global_config, model_config
-from src.llm_models.utils_model import LLMRequest
+from src.config.config import global_config
+from src.services.llm_service import LLMServiceClient
 
 
 install(extra_lines=3)
 
 logger = get_logger("voice_utils")
 
-# TODO: 在LLMRequest重构后修改这里
-asr_model = LLMRequest(model_set=model_config.model_task_config.voice, request_type="audio")
+asr_model = LLMServiceClient(task_name="voice", request_type="audio")
 
 
 async def get_voice_text(voice_bytes: bytes) -> Optional[str]:
@@ -30,7 +29,8 @@ async def get_voice_text(voice_bytes: bytes) -> Optional[str]:
         return None
     try:
         voice_base64 = base64.b64encode(voice_bytes).decode("utf-8")
-        text = await asr_model.generate_response_for_voice(voice_base64)
+        transcription_result = await asr_model.transcribe_audio(voice_base64)
+        text = transcription_result.text
         if not text:
             logger.warning("语音转文字结果为空")
 

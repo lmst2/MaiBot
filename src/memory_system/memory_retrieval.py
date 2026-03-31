@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple, Callable
 from src.common.logger import get_logger
-from src.config.config import global_config, model_config
+from src.config.config import global_config
 from src.prompt.prompt_manager import prompt_manager
 from src.services import llm_service as llm_api
 from sqlmodel import select, col
@@ -269,18 +269,18 @@ async def _react_agent_solve_question(
             return messages
 
         message_factory_fn: Callable[..., List[Message]] = _build_messages  # pyright: ignore[reportGeneralTypeIssues]
-        (
-            success,
-            response,
-            reasoning_content,
-            model_name,
-            tool_calls,
-        ) = await llm_api.generate_with_model_with_tools_by_message_factory(
-            message_factory_fn,  # type: ignore[arg-type]
-            model_config=model_config.model_task_config.tool_use,
-            tool_options=tool_definitions,
-            request_type="memory.react",
+        generation_result = await llm_api.generate(
+            llm_api.LLMServiceRequest(
+                task_name="utils",
+                request_type="memory.react",
+                message_factory=message_factory_fn,  # type: ignore[arg-type]
+                tool_options=tool_definitions,
+            )
         )
+        success = generation_result.success
+        response = generation_result.completion.response
+        reasoning_content = generation_result.completion.reasoning
+        tool_calls = generation_result.completion.tool_calls
 
         # logger.info(
         # f"ReAct Agent 第 {iteration + 1} 次迭代 模型: {model_name} ，调用工具数量: {len(tool_calls) if tool_calls else 0} ，调用工具响应: {response}"
@@ -679,18 +679,16 @@ async def _react_agent_solve_question(
         evaluation_prompt_template.add_context("max_iterations", str(max_iterations))
         evaluation_prompt = await prompt_manager.render_prompt(evaluation_prompt_template)
 
-        (
-            eval_success,
-            eval_response,
-            eval_reasoning_content,
-            eval_model_name,
-            eval_tool_calls,
-        ) = await llm_api.generate_with_model_with_tools(
-            evaluation_prompt,
-            model_config=model_config.model_task_config.tool_use,
-            tool_options=[],  # 最终评估阶段不提供工具
-            request_type="memory.react.final",
+        evaluation_result = await llm_api.generate(
+            llm_api.LLMServiceRequest(
+                task_name="utils",
+                request_type="memory.react.final",
+                prompt=evaluation_prompt,
+                tool_options=[],
+            )
         )
+        eval_success = evaluation_result.success
+        eval_response = evaluation_result.completion.response
 
         if not eval_success:
             logger.error(f"ReAct Agent 最终评估阶段 LLM调用失败: {eval_response}")

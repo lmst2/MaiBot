@@ -1,7 +1,7 @@
-"""Host-side ComponentRegistry
+"""Host 侧组件注册表。
 
 对齐旧系统 component_registry.py 的核心能力：
-- 按类型注册组件（action / command / tool / event_handler / workflow_handler / message_gateway）
+- 按类型注册组件（action / command / tool / event_handler / hook_handler / message_gateway）
 - 命名空间 (plugin_id.component_name)
 - 命令正则匹配
 - 组件启用/禁用
@@ -16,6 +16,7 @@ import contextlib
 import re
 
 from src.common.logger import get_logger
+from src.core.tooling import build_tool_detailed_description
 
 logger = get_logger("plugin_runtime.host.component_registry")
 
@@ -89,10 +90,80 @@ class ToolEntry(ComponentEntry):
     """Tool 组件条目"""
 
     def __init__(self, name: str, component_type: str, plugin_id: str, metadata: Dict[str, Any]) -> None:
-        self.description: str = metadata.get("description", "")
+        self.description: str = str(metadata.get("description", "") or "").strip()
+        self.brief_description: str = str(
+            metadata.get("brief_description", self.description) or self.description or f"工具 {name}"
+        ).strip()
         self.parameters: List[Dict[str, Any]] = metadata.get("parameters", [])
-        self.parameters_raw: List[Dict[str, Any]] = metadata.get("parameters_raw", [])
+        self.parameters_raw: Dict[str, Any] | List[Dict[str, Any]] = metadata.get("parameters_raw", {})
+        detailed_description = str(metadata.get("detailed_description", "") or "").strip()
+        self.detailed_description: str = detailed_description
+        self.invoke_method: str = str(metadata.get("invoke_method", "plugin.invoke_tool") or "plugin.invoke_tool").strip()
+        self.legacy_component_type: str = str(metadata.get("legacy_component_type", "") or "").strip()
         super().__init__(name, component_type, plugin_id, metadata)
+
+        if not self.detailed_description:
+            parameters_schema = self._get_parameters_schema()
+            self.detailed_description = build_tool_detailed_description(parameters_schema)
+
+    def _get_parameters_schema(self) -> Dict[str, Any] | None:
+        """获取当前工具条目的对象级参数 Schema。
+
+        Returns:
+            Dict[str, Any] | None: 归一化后的参数 Schema。
+        """
+
+        if isinstance(self.parameters_raw, dict) and self.parameters_raw:
+            if self.parameters_raw.get("type") == "object" or "properties" in self.parameters_raw:
+                return dict(self.parameters_raw)
+
+            required_names: List[str] = []
+            normalized_properties: Dict[str, Any] = {}
+            for property_name, property_schema in self.parameters_raw.items():
+                if not isinstance(property_schema, dict):
+                    continue
+                property_schema_copy = dict(property_schema)
+                if bool(property_schema_copy.pop("required", False)):
+                    required_names.append(str(property_name))
+                normalized_properties[str(property_name)] = property_schema_copy
+
+            schema: Dict[str, Any] = {
+                "type": "object",
+                "properties": normalized_properties,
+            }
+            if required_names:
+                schema["required"] = required_names
+            return schema
+
+        if isinstance(self.parameters, list) and self.parameters:
+            properties: Dict[str, Any] = {}
+            required_names: List[str] = []
+            for parameter in self.parameters:
+                if not isinstance(parameter, dict):
+                    continue
+                parameter_name = str(parameter.get("name", "") or "").strip()
+                if not parameter_name:
+                    continue
+                if bool(parameter.get("required", False)):
+                    required_names.append(parameter_name)
+                properties[parameter_name] = {
+                    key: value
+                    for key, value in parameter.items()
+                    if key not in {"name", "required", "param_type"}
+                }
+                properties[parameter_name]["type"] = str(
+                    parameter.get("type", parameter.get("param_type", "string")) or "string"
+                )
+
+            schema = {
+                "type": "object",
+                "properties": properties,
+            }
+            if required_names:
+                schema["required"] = required_names
+            return schema
+
+        return None
 
 
 class EventHandlerEntry(ComponentEntry):
@@ -106,13 +177,128 @@ class EventHandlerEntry(ComponentEntry):
 
 
 class HookHandlerEntry(ComponentEntry):
-    """WorkflowHandler 组件条目"""
+    """HookHandler 组件条目。"""
 
     def __init__(self, name: str, component_type: str, plugin_id: str, metadata: Dict[str, Any]) -> None:
-        self.stage: str = metadata.get("stage", "")
-        self.priority: int = metadata.get("priority", 0)
-        self.blocking: bool = metadata.get("blocking", False)
+        self.hook: str = self._normalize_hook_name(metadata.get("hook", ""))
+        self.mode: str = self._normalize_mode(metadata.get("mode", "blocking"))
+        self.order: str = self._normalize_order(metadata.get("order", "normal"))
+        self.timeout_ms: int = self._normalize_timeout_ms(metadata.get("timeout_ms", 0))
+        self.error_policy: str = self._normalize_error_policy(metadata.get("error_policy", "skip"))
         super().__init__(name, component_type, plugin_id, metadata)
+
+    @staticmethod
+    def _normalize_error_policy(raw_value: Any) -> str:
+        """规范化 Hook 异常处理策略。
+
+        Args:
+            raw_value: 原始异常处理策略值。
+
+        Returns:
+            str: 规范化后的异常处理策略。
+
+        Raises:
+            ValueError: 当异常处理策略不受支持时抛出。
+        """
+
+        normalized_source = getattr(raw_value, "value", raw_value)
+        normalized_value = str(normalized_source or "").strip().lower() or "skip"
+        if normalized_value not in {"abort", "skip", "log"}:
+            raise ValueError(f"HookHandler 异常处理策略不合法: {raw_value}")
+        return normalized_value
+
+    @staticmethod
+    def _normalize_hook_name(raw_value: Any) -> str:
+        """规范化命名 Hook 名称。
+
+        Args:
+            raw_value: 原始 Hook 名称。
+
+        Returns:
+            str: 去空白后的 Hook 名称。
+
+        Raises:
+            ValueError: 当 Hook 名称为空时抛出。
+        """
+
+        normalized_source = getattr(raw_value, "value", raw_value)
+        if not (normalized_value := str(normalized_source or "").strip()):
+            raise ValueError("HookHandler 的 hook 名称不能为空")
+        return normalized_value
+
+    @staticmethod
+    def _normalize_mode(raw_value: Any) -> str:
+        """规范化 Hook 处理模式。
+
+        Args:
+            raw_value: 原始模式值。
+
+        Returns:
+            str: 规范化后的模式。
+
+        Raises:
+            ValueError: 当模式不受支持时抛出。
+        """
+
+        normalized_source = getattr(raw_value, "value", raw_value)
+        normalized_value = str(normalized_source or "").strip().lower() or "blocking"
+        if normalized_value not in {"blocking", "observe"}:
+            raise ValueError(f"HookHandler 模式不合法: {raw_value}")
+        return normalized_value
+
+    @staticmethod
+    def _normalize_order(raw_value: Any) -> str:
+        """规范化 Hook 顺序槽位。
+
+        Args:
+            raw_value: 原始顺序值。
+
+        Returns:
+            str: 规范化后的顺序槽位。
+
+        Raises:
+            ValueError: 当顺序值不受支持时抛出。
+        """
+
+        normalized_source = getattr(raw_value, "value", raw_value)
+        normalized_value = str(normalized_source or "").strip().lower() or "normal"
+        if normalized_value not in {"early", "normal", "late"}:
+            raise ValueError(f"HookHandler 顺序槽位不合法: {raw_value}")
+        return normalized_value
+
+    @staticmethod
+    def _normalize_timeout_ms(raw_value: Any) -> int:
+        """规范化 Hook 超时配置。
+
+        Args:
+            raw_value: 原始超时值。
+
+        Returns:
+            int: 规范化后的超时毫秒数。
+
+        Raises:
+            ValueError: 当超时值为负数或无法转换为整数时抛出。
+        """
+
+        try:
+            timeout_ms = int(raw_value or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"HookHandler 超时配置不合法: {raw_value}") from exc
+        if timeout_ms < 0:
+            raise ValueError(f"HookHandler 超时配置不能为负数: {raw_value}")
+        return timeout_ms
+
+    @property
+    def is_blocking(self) -> bool:
+        """返回当前 Hook 是否为阻塞模式。"""
+
+        return self.mode == "blocking"
+
+    @property
+    def is_observe(self) -> bool:
+        """返回当前 Hook 是否为观察模式。"""
+
+        return self.mode == "observe"
 
 
 class MessageGatewayEntry(ComponentEntry):
@@ -167,7 +353,7 @@ class MessageGatewayEntry(ComponentEntry):
 
 
 class ComponentRegistry:
-    """Host-side 组件注册表
+    """Host 侧组件注册表。
 
     由 Supervisor 在收到 plugin.register_components 时调用。
     供业务层查询可用组件、匹配命令、调度 action/event 等。
@@ -184,6 +370,86 @@ class ComponentRegistry:
 
         # 按插件索引
         self._by_plugin: Dict[str, List[ComponentEntry]] = {}
+
+    @staticmethod
+    def _convert_action_metadata_to_tool_metadata(
+        name: str,
+        metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """将旧 Action 元数据转换为统一 Tool 元数据。
+
+        Args:
+            name: 组件名称。
+            metadata: Action 原始元数据。
+
+        Returns:
+            Dict[str, Any]: 转换后的 Tool 元数据。
+        """
+
+        action_parameters = metadata.get("action_parameters")
+        parameters_schema: Dict[str, Any] | None = None
+        if isinstance(action_parameters, dict) and action_parameters:
+            properties: Dict[str, Any] = {}
+            for parameter_name, parameter_description in action_parameters.items():
+                normalized_name = str(parameter_name or "").strip()
+                if not normalized_name:
+                    continue
+                properties[normalized_name] = {
+                    "type": "string",
+                    "description": str(parameter_description or "").strip() or "兼容旧 Action 参数",
+                }
+            if properties:
+                parameters_schema = {
+                    "type": "object",
+                    "properties": properties,
+                }
+
+        detailed_parts: List[str] = []
+        if parameters_schema is not None:
+            parameter_description = build_tool_detailed_description(parameters_schema)
+            if parameter_description:
+                detailed_parts.append(parameter_description)
+
+        action_require = [
+            str(item).strip()
+            for item in (metadata.get("action_require") or [])
+            if str(item).strip()
+        ]
+        if action_require:
+            detailed_parts.append("使用建议：\n" + "\n".join(f"- {item}" for item in action_require))
+
+        associated_types = [
+            str(item).strip()
+            for item in (metadata.get("associated_types") or [])
+            if str(item).strip()
+        ]
+        if associated_types:
+            detailed_parts.append(f"适用消息类型：{'、'.join(associated_types)}。")
+
+        activation_type = str(metadata.get("activation_type", "always") or "always").strip()
+        activation_keywords = [
+            str(item).strip()
+            for item in (metadata.get("activation_keywords") or [])
+            if str(item).strip()
+        ]
+        activation_lines = [f"兼容旧 Action 激活方式：{activation_type}。"]
+        if activation_keywords:
+            activation_lines.append(f"激活关键词：{'、'.join(activation_keywords)}。")
+        if str(metadata.get("action_prompt", "") or "").strip():
+            activation_lines.append(f"原始 Action 提示语：{str(metadata['action_prompt']).strip()}。")
+        detailed_parts.append("\n".join(activation_lines))
+
+        brief_description = str(metadata.get("brief_description", metadata.get("description", "") or f"工具 {name}")).strip()
+        return {
+            **metadata,
+            "description": brief_description,
+            "brief_description": brief_description,
+            "detailed_description": "\n\n".join(part for part in detailed_parts if part).strip(),
+            "parameters_raw": parameters_schema or {},
+            "invoke_method": "plugin.invoke_action",
+            "legacy_action": True,
+            "legacy_component_type": "ACTION",
+        }
 
     @staticmethod
     def _normalize_component_type(component_type: str) -> ComponentTypes:
@@ -223,18 +489,20 @@ class ComponentRegistry:
         """
         try:
             normalized_type = self._normalize_component_type(component_type)
+            normalized_metadata = dict(metadata)
             if normalized_type == ComponentTypes.ACTION:
-                comp = ActionEntry(name, normalized_type.value, plugin_id, metadata)
+                normalized_metadata = self._convert_action_metadata_to_tool_metadata(name, normalized_metadata)
+                comp = ToolEntry(name, ComponentTypes.TOOL.value, plugin_id, normalized_metadata)
             elif normalized_type == ComponentTypes.COMMAND:
-                comp = CommandEntry(name, normalized_type.value, plugin_id, metadata)
+                comp = CommandEntry(name, normalized_type.value, plugin_id, normalized_metadata)
             elif normalized_type == ComponentTypes.TOOL:
-                comp = ToolEntry(name, normalized_type.value, plugin_id, metadata)
+                comp = ToolEntry(name, normalized_type.value, plugin_id, normalized_metadata)
             elif normalized_type == ComponentTypes.EVENT_HANDLER:
-                comp = EventHandlerEntry(name, normalized_type.value, plugin_id, metadata)
+                comp = EventHandlerEntry(name, normalized_type.value, plugin_id, normalized_metadata)
             elif normalized_type == ComponentTypes.HOOK_HANDLER:
-                comp = HookHandlerEntry(name, normalized_type.value, plugin_id, metadata)
+                comp = HookHandlerEntry(name, normalized_type.value, plugin_id, normalized_metadata)
             elif normalized_type == ComponentTypes.MESSAGE_GATEWAY:
-                comp = MessageGatewayEntry(name, normalized_type.value, plugin_id, metadata)
+                comp = MessageGatewayEntry(name, normalized_type.value, plugin_id, normalized_metadata)
             else:
                 raise ValueError(f"组件类型 {component_type} 不存在")
         except ValueError:
@@ -454,16 +722,17 @@ class ComponentRegistry:
         return handlers
 
     def get_hook_handlers(
-        self, stage: str, *, enabled_only: bool = True, session_id: Optional[str] = None
+        self, hook_name: str, *, enabled_only: bool = True, session_id: Optional[str] = None
     ) -> List[HookHandlerEntry]:
-        """获取特定 hook 阶段的所有步骤，按 priority 降序。
+        """获取订阅指定命名 Hook 的全部处理器。
 
         Args:
-            stage: hook 名称
-            enabled_only: 是否仅返回启用的组件
-            session_id: 可选的会话ID，若提供则考虑会话禁用状态
+            hook_name: 目标 Hook 名称。
+            enabled_only: 是否仅返回启用的组件。
+            session_id: 可选的会话 ID，若提供则考虑会话禁用状态。
+
         Returns:
-            handlers (List[HookHandlerEntry]): 符合条件的 HookHandler 组件列表，按 priority 降序排序
+            List[HookHandlerEntry]: 符合条件的 HookHandler 组件列表。
         """
         handlers: List[HookHandlerEntry] = []
         for comp in self._by_type.get(ComponentTypes.HOOK_HANDLER, {}).values():
@@ -471,10 +740,36 @@ class ComponentRegistry:
                 continue
             if not isinstance(comp, HookHandlerEntry):
                 continue
-            if comp.stage == stage:
+            if comp.hook == hook_name:
                 handlers.append(comp)
-        handlers.sort(key=lambda c: c.priority, reverse=True)
+        handlers.sort(key=lambda comp: (self._get_hook_mode_rank(comp.mode), self._get_hook_order_rank(comp.order), comp.plugin_id, comp.name))
         return handlers
+
+    @staticmethod
+    def _get_hook_mode_rank(mode: str) -> int:
+        """返回 Hook 模式的排序权重。
+
+        Args:
+            mode: Hook 模式字符串。
+
+        Returns:
+            int: 越小表示越靠前。
+        """
+
+        return {"blocking": 0, "observe": 1}.get(mode, 99)
+
+    @staticmethod
+    def _get_hook_order_rank(order: str) -> int:
+        """返回 Hook 顺序槽位的排序权重。
+
+        Args:
+            order: Hook 顺序槽位字符串。
+
+        Returns:
+            int: 越小表示越靠前。
+        """
+
+        return {"early": 0, "normal": 1, "late": 2}.get(order, 99)
 
     def get_message_gateway(
         self,
@@ -566,8 +861,13 @@ class ComponentRegistry:
         Returns:
             stats (StatusDict): 组件统计信息，包括总数、各类型数量、插件数量等
         """
-        stats: StatusDict = {"total": len(self._components)}  # type: ignore
-        for comp_type, type_dict in self._by_type.items():
-            stats[comp_type.value.lower()] = len(type_dict)
-        stats["plugins"] = len(self._by_plugin)
-        return stats
+        return StatusDict(
+            total=len(self._components),
+            action=len(self._by_type[ComponentTypes.ACTION]),
+            command=len(self._by_type[ComponentTypes.COMMAND]),
+            tool=len(self._by_type[ComponentTypes.TOOL]),
+            event_handler=len(self._by_type[ComponentTypes.EVENT_HANDLER]),
+            hook_handler=len(self._by_type[ComponentTypes.HOOK_HANDLER]),
+            message_gateway=len(self._by_type[ComponentTypes.MESSAGE_GATEWAY]),
+            plugins=len(self._by_plugin),
+        )

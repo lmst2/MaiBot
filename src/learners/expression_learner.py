@@ -7,8 +7,9 @@ import difflib
 import json
 import re
 
-from src.llm_models.utils_model import LLMRequest
-from src.config.config import model_config, global_config
+from src.common.data_models.llm_service_data_models import LLMGenerationOptions
+from src.services.llm_service import LLMServiceClient
+from src.config.config import global_config
 from src.prompt.prompt_manager import prompt_manager
 from src.common.logger import get_logger
 from src.common.database.database_model import Expression
@@ -26,10 +27,11 @@ if TYPE_CHECKING:
 
 logger = get_logger("expressor")
 
-# TODO: 重构完LLM相关内容后，替换成新的模型调用方式
-express_learn_model = LLMRequest(model_set=model_config.model_task_config.utils, request_type="expression.learner")
-summary_model = LLMRequest(model_set=model_config.model_task_config.tool_use, request_type="expression.summary")
-check_model = LLMRequest(model_set=model_config.model_task_config.tool_use, request_type="expression.check")
+express_learn_model = LLMServiceClient(
+    task_name="utils", request_type="expression.learner"
+)
+summary_model = LLMServiceClient(task_name="utils", request_type="expression.summary")
+check_model = LLMServiceClient(task_name="utils", request_type="expression.check")
 
 
 class ExpressionLearner:
@@ -74,7 +76,10 @@ class ExpressionLearner:
 
         # 调用 LLM 学习表达方式
         try:
-            response, _ = await express_learn_model.generate_response_async(prompt, temperature=0.3)
+            generation_result = await express_learn_model.generate_response(
+                prompt, options=LLMGenerationOptions(temperature=0.3)
+            )
+            response = generation_result.response
         except Exception as e:
             logger.error(f"学习表达方式失败，模型生成出错：{e}")
             return
@@ -413,7 +418,10 @@ class ExpressionLearner:
             "只输出概括内容。"
         )
         try:
-            summary, _ = await summary_model.generate_response_async(prompt, temperature=0.2)
+            summary_result = await summary_model.generate_response(
+                prompt, options=LLMGenerationOptions(temperature=0.2)
+            )
+            summary = summary_result.response
             if summary := summary.strip():
                 return summary
         except Exception as e:

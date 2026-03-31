@@ -46,9 +46,7 @@ class I18nManager:
                 self._log_once(
                     ("invalid_env_locale", "env", env_locale),
                     logging.WARNING,
-                    "检测到非法 MAIBOT_LOCALE=%s，已回退到默认 locale %s",
-                    env_locale,
-                    self._default_locale,
+                    f"检测到非法 MAIBOT_LOCALE={env_locale}，已回退到默认 locale {self._default_locale}",
                 )
         return self._default_locale
 
@@ -84,15 +82,14 @@ class I18nManager:
             self._log_once(
                 ("non_plural_key", translation_locale, key),
                 logging.WARNING,
-                "翻译 key '%s' 不是 plural 节点，已回退到普通 t()",
-                key,
+                f"翻译 key '{key}' 不是 plural 节点，已回退到普通 t()",
             )
             return self.t(key, locale=translation_locale, count=count, **kwargs)
 
         try:
             plural_category = select_plural_category(translation_locale, count)
         except Exception as exc:
-            logger.warning("为 key '%s' 选择 plural category 失败: %s，已回退到 other", key, exc)
+            logger.warning(f"为 key '{key}' 选择 plural category 失败: {exc}，已回退到 other")
             plural_category = "other"
 
         template = translation_value.get(plural_category) or translation_value.get("other")
@@ -100,8 +97,7 @@ class I18nManager:
             self._log_once(
                 ("plural_missing_template", translation_locale, key),
                 logging.WARNING,
-                "翻译 key '%s' 缺少 plural 模板，已回退到 key 本身",
-                key,
+                f"翻译 key '{key}' 缺少 plural 模板，已回退到 key 本身",
             )
             return key
 
@@ -125,8 +121,7 @@ class I18nManager:
             self._log_once(
                 ("plural_missing_other", translation_locale, key),
                 logging.WARNING,
-                "翻译 key '%s' 缺少 other plural category，已回退到 key 本身",
-                key,
+                f"翻译 key '{key}' 缺少 other plural category，已回退到 key 本身",
             )
         return template
 
@@ -134,7 +129,7 @@ class I18nManager:
         try:
             return format_template(template, **kwargs)
         except Exception as exc:
-            logger.error("翻译 key '%s' 格式化失败: %s", key, exc)
+            logger.error(f"翻译 key '{key}' 格式化失败: {exc}")
             return template
 
     def _get_translation_value(self, key: str, locale: str | None) -> tuple[TranslationValue | None, str]:
@@ -149,20 +144,15 @@ class I18nManager:
                 self._log_once(
                     ("missing_key_fallback", target_locale, key),
                     logging.WARNING,
-                    "翻译 key '%s' 在 locale '%s' 中缺失，已回退到默认 locale '%s'",
-                    key,
-                    target_locale,
-                    self._default_locale,
+                    f"翻译 key '{key}' 在 locale '{target_locale}' 中缺失，"
+                    f"已回退到默认 locale '{self._default_locale}'",
                 )
                 return default_catalog[key], self._default_locale
 
         self._log_once(
             ("missing_key", target_locale, key),
             logging.WARNING,
-            "翻译 key '%s' 缺失，locale='%s'，默认 locale='%s'",
-            key,
-            target_locale,
-            self._default_locale,
+            f"翻译 key '{key}' 缺失，locale='{target_locale}'，默认 locale='{self._default_locale}'",
         )
         return None, target_locale
 
@@ -177,9 +167,7 @@ class I18nManager:
             self._log_once(
                 ("invalid_locale", "explicit", locale),
                 logging.WARNING,
-                "检测到非法 locale='%s'，已回退到当前默认 locale %s",
-                locale,
-                current_locale,
+                f"检测到非法 locale='{locale}'，已回退到当前默认 locale {current_locale}",
             )
             return current_locale
 
@@ -195,9 +183,7 @@ class I18nManager:
             self._log_once(
                 ("load_failed", normalized_locale, exc.__class__.__name__),
                 logging.WARNING,
-                "加载 locale '%s' 失败: %s",
-                normalized_locale,
-                exc,
+                f"加载 locale '{normalized_locale}' 失败: {exc}",
             )
             return {}
 

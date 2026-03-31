@@ -20,8 +20,8 @@ from src.common.database.database import get_db_session
 from src.common.database.database_model import Expression
 from src.common.logger import get_logger
 from src.config.config import global_config
-from src.config.config import model_config
-from src.llm_models.utils_model import LLMRequest
+from src.common.data_models.llm_service_data_models import LLMGenerationOptions
+from src.services.llm_service import LLMServiceClient
 from src.manager.async_task_manager import AsyncTask
 
 logger = get_logger("expression_auto_check_task")
@@ -76,7 +76,7 @@ def create_evaluation_prompt(situation: str, style: str) -> str:
     return prompt
 
 
-judge_llm = LLMRequest(model_set=model_config.model_task_config.tool_use, request_type="expression_check")
+judge_llm = LLMServiceClient(task_name="utils", request_type="expression_check")
 
 
 async def single_expression_check(situation: str, style: str) -> tuple[bool, str, str | None]:
@@ -94,10 +94,11 @@ async def single_expression_check(situation: str, style: str) -> tuple[bool, str
         prompt = create_evaluation_prompt(situation, style)
         logger.debug(f"正在评估表达方式: situation={situation}, style={style}")
 
-        response, (reasoning, model_name, _) = await judge_llm.generate_response_async(
-            prompt=prompt, temperature=0.6, max_tokens=1024
+        generation_result = await judge_llm.generate_response(
+            prompt=prompt,
+            options=LLMGenerationOptions(temperature=0.6, max_tokens=1024),
         )
-
+        response = generation_result.response
         logger.debug(f"LLM响应: {response}")
 
         # 解析JSON响应

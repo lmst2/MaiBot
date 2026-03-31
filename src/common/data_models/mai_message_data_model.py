@@ -1,15 +1,17 @@
+import json
 from dataclasses import dataclass, field
-from maim_message import (
-    MessageBase,
-    UserInfo as MaimUserInfo,
-    GroupInfo as MaimGroupInfo,
-    BaseMessageInfo as MaimBaseMessageInfo,
-    Seg,
-)
+from datetime import datetime
 from typing import Optional
 
-import json
-from datetime import datetime
+from maim_message import (
+    BaseMessageInfo as MaimBaseMessageInfo,
+    GroupInfo as MaimGroupInfo,
+    MessageBase,
+    ReceiverInfo as MaimReceiverInfo,
+    Seg,
+    SenderInfo as MaimSenderInfo,
+    UserInfo as MaimUserInfo,
+)
 
 from src.common.database.database_model import Messages
 from src.common.data_models.message_component_data_model import MessageSequence
@@ -41,34 +43,24 @@ class MessageInfo:
 class MaiMessage(BaseDatabaseDataModel[Messages]):
     def __init__(self, message_id: str, timestamp: datetime, platform: str):
         self.message_id: str = message_id
-        self.timestamp: datetime = timestamp  # 时间戳
-        self.initialized = False  # 用于标记是否已初始化其他属性
+        self.timestamp: datetime = timestamp
+        self.initialized = False
         self.platform: str = platform
 
-        # 定义其他属性
-        self.message_info: MessageInfo  # 初始化后赋值
+        self.message_info: MessageInfo
         self.is_mentioned: bool = False
-        """机器人被提及标记，若被at，则提及也被标记"""
         self.is_at: bool = False
-        """机器人被at标记"""
         self.is_emoji: bool = False
-        """消息为纯表情包，在计算打字时长时候会被特殊处理"""
         self.is_picture: bool = False
-        """消息为纯图片，在计算打字时长时候会被特殊处理"""
         self.is_command: bool = False
-        """消息为命令消息，打字时长必定为0"""
         self.is_notify: bool = False
-        """消息为通知消息"""
 
         self.session_id: str
         self.reply_to: Optional[str] = None
 
         self.processed_plain_text: Optional[str] = None
-        """处理过后的纯文本内容"""
         self.display_message: Optional[str] = None
-        """最后显示给大模型的消息内容"""
         self.raw_message: MessageSequence
-        """原始消息数据"""
 
     @classmethod
     def from_db_instance(cls, db_record: "Messages"):
@@ -79,12 +71,12 @@ class MaiMessage(BaseDatabaseDataModel[Messages]):
             group_info = GroupInfo(db_record.group_id, db_record.group_name)
         else:
             group_info = None
+
         obj.message_info = MessageInfo(
             user_info=user_info,
             group_info=group_info,
             additional_config=json.loads(db_record.additional_config) if db_record.additional_config else {},
         )
-
         obj.is_mentioned = db_record.is_mentioned
         obj.is_at = db_record.is_at
         obj.is_emoji = db_record.is_emoji
@@ -127,18 +119,22 @@ class MaiMessage(BaseDatabaseDataModel[Messages]):
 
     @classmethod
     def from_maim_message(cls, message: MessageBase):
-        """从 maim_message.MessageBase 创建 MaiMessage 实例，解析消息内容并提取相关信息"""
+        """从 maim_message.MessageBase 创建 MaiMessage。"""
         msg_info = message.message_info
         assert msg_info, "MessageBase 的 message_info 不能为空"
+
         platform = msg_info.platform
         assert isinstance(platform, str)
+
         msg_id = str(msg_info.message_id)
         timestamp = msg_info.time
         assert isinstance(msg_id, str)
         assert msg_id
         assert timestamp
+
         obj = cls(message_id=msg_id, timestamp=datetime.fromtimestamp(timestamp), platform=platform)
         obj.raw_message = MessageUtils.from_maim_message_segments_to_MaiSeq(message)
+
         usr_info = msg_info.user_info
         assert usr_info
         assert isinstance(usr_info.user_id, str)
@@ -148,40 +144,69 @@ class MaiMessage(BaseDatabaseDataModel[Messages]):
             user_nickname=usr_info.user_nickname,
             user_cardname=usr_info.user_cardname,
         )
-        if grp_info := msg_info.group_info:
+
+        if msg_info.group_info:
+            grp_info = msg_info.group_info
             assert isinstance(grp_info.group_id, str)
             assert isinstance(grp_info.group_name, str)
             group_info = GroupInfo(group_id=grp_info.group_id, group_name=grp_info.group_name)
         else:
             group_info = None
+
         add_cfg = msg_info.additional_config or {}
         obj.message_info = MessageInfo(user_info=user_info, group_info=group_info, additional_config=add_cfg)
         return obj
 
     async def to_maim_message(self) -> MessageBase:
-        """
-        从 MaiMessage 实例转换为 maim_message.MessageBase，构建消息内容并设置相关信息
-        """
-        maim_user_info = MaimUserInfo(
+        """将 MaiMessage 转换为 maim_message.MessageBase。"""
+        sender_user_info = MaimUserInfo(
             user_id=self.message_info.user_info.user_id,
             user_nickname=self.message_info.user_info.user_nickname,
             user_cardname=self.message_info.user_info.user_cardname,
             platform=self.platform,
         )
-        maim_group_info = None
+
+        sender_group_info = None
         if self.message_info.group_info:
-            maim_group_info = MaimGroupInfo(
+            sender_group_info = MaimGroupInfo(
                 group_id=self.message_info.group_info.group_id,
                 group_name=self.message_info.group_info.group_name,
                 platform=self.platform,
             )
+
+        sender_info = MaimSenderInfo(
+            group_info=sender_group_info,
+            user_info=sender_user_info,
+        )
+
+        receiver_group_info = sender_group_info
+        receiver_user_info = None
+        additional_config = self.message_info.additional_config or {}
+        target_user_id = str(additional_config.get("platform_io_target_user_id") or "").strip()
+        if receiver_group_info is None and target_user_id:
+            receiver_user_info = MaimUserInfo(
+                user_id=target_user_id,
+                user_nickname=None,
+                user_cardname=None,
+                platform=self.platform,
+            )
+
+        receiver_info = None
+        if receiver_group_info or receiver_user_info:
+            receiver_info = MaimReceiverInfo(
+                group_info=receiver_group_info,
+                user_info=receiver_user_info,
+            )
+
         maim_msg_info = MaimBaseMessageInfo(
             platform=self.platform,
             message_id=self.message_id,
             time=self.timestamp.timestamp(),
-            group_info=maim_group_info,
-            user_info=maim_user_info,
+            group_info=receiver_group_info,
+            user_info=sender_user_info,
             additional_config=self.message_info.additional_config,
+            sender_info=sender_info,
+            receiver_info=receiver_info,
         )
         msg_segments = await MessageUtils.from_MaiSeq_to_maim_message_segments(self.raw_message)
         return MessageBase(message_info=maim_msg_info, message_segment=Seg(type="seglist", data=msg_segments))

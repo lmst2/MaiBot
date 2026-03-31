@@ -49,7 +49,7 @@ from .api_registry import APIRegistry
 from .capability_service import CapabilityService
 from .component_registry import ComponentRegistry
 from .event_dispatcher import EventDispatcher
-from .hook_dispatcher import HookDispatcher
+from .hook_dispatcher import HookDispatchResult, HookDispatcher
 from .logger_bridge import RunnerLogBridge
 from .message_gateway import MessageGateway
 from .rpc_server import RPCServer
@@ -80,6 +80,7 @@ class PluginRunnerSupervisor:
     def __init__(
         self,
         plugin_dirs: Optional[List[Path]] = None,
+        group_name: str = "third_party",
         socket_path: Optional[str] = None,
         health_check_interval_sec: Optional[float] = None,
         max_restart_attempts: Optional[int] = None,
@@ -89,12 +90,14 @@ class PluginRunnerSupervisor:
 
         Args:
             plugin_dirs: 由当前 Runner 负责加载的插件目录列表。
+            group_name: 当前 Supervisor 所属运行时分组名称。
             socket_path: 自定义 IPC 地址；留空时由传输层自动生成。
             health_check_interval_sec: 健康检查间隔，单位秒。
             max_restart_attempts: 自动重启 Runner 的最大次数。
             runner_spawn_timeout_sec: 等待 Runner 建连并就绪的超时时间，单位秒。
         """
         runtime_config = global_config.plugin_runtime
+        self._group_name: str = str(group_name or "third_party").strip() or "third_party"
         self._plugin_dirs: List[Path] = plugin_dirs or []
         self._health_interval: float = health_check_interval_sec or runtime_config.health_check_interval_sec or 30.0
         self._runner_spawn_timeout: float = (
@@ -108,7 +111,7 @@ class PluginRunnerSupervisor:
         self._api_registry = APIRegistry()
         self._component_registry = ComponentRegistry()
         self._event_dispatcher = EventDispatcher(self._component_registry)
-        self._hook_dispatcher = HookDispatcher(self._component_registry)
+        self._hook_dispatcher = HookDispatcher(lambda: [self])
         self._message_gateway = MessageGateway(self._component_registry)
         self._log_bridge = RunnerLogBridge()
 
@@ -132,6 +135,12 @@ class PluginRunnerSupervisor:
     def authorization_manager(self) -> AuthorizationManager:
         """返回授权管理器。"""
         return self._authorization
+
+    @property
+    def group_name(self) -> str:
+        """返回当前 Supervisor 的运行时分组名称。"""
+
+        return self._group_name
 
     @property
     def capability_service(self) -> CapabilityService:
@@ -243,17 +252,18 @@ class PluginRunnerSupervisor:
         """
         return await self._event_dispatcher.dispatch_event(event_type, self, message, extra_args)
 
-    async def dispatch_hook(self, stage: str, **kwargs: Any) -> Dict[str, Any]:
-        """分发 Hook 到已注册的 Hook 处理器。
+    async def invoke_hook(self, hook_name: str, **kwargs: Any) -> HookDispatchResult:
+        """在当前 Supervisor 内触发一次命名 Hook 调用。
 
         Args:
-            stage: Hook 阶段名称。
-            **kwargs: 传递给 Hook 的关键字参数。
+            hook_name: 本次触发的 Hook 名称。
+            **kwargs: 传递给 Hook 处理器的关键字参数。
 
         Returns:
-            Dict[str, Any]: 经 Hook 修改后的参数字典。
+            HookDispatchResult: 聚合后的 Hook 调用结果。
         """
-        return await self._hook_dispatcher.hook_dispatch(stage, self, **kwargs)
+
+        return await self._hook_dispatcher.invoke_hook(hook_name, **kwargs)
 
     async def send_message_to_external(
         self,

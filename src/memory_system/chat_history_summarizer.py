@@ -16,8 +16,9 @@ from json_repair import repair_json
 
 from src.chat.message_receive.message import SessionMessage
 from src.common.logger import get_logger
-from src.config.config import model_config, global_config
-from src.llm_models.utils_model import LLMRequest
+from src.config.config import global_config
+from src.common.data_models.llm_service_data_models import LLMGenerationOptions
+from src.services.llm_service import LLMServiceClient
 from src.services import message_service as message_api
 from src.chat.utils.utils import is_bot_self
 from src.person_info.person_info import Person
@@ -88,8 +89,8 @@ class ChatHistorySummarizer:
         # 注意：批次加载需要异步查询消息，所以在 start() 中调用
 
         # LLM请求器，用于压缩聊天内容
-        self.summarizer_llm = LLMRequest(
-            model_set=model_config.model_task_config.utils, request_type="chat_history_summarizer"
+        self.summarizer_llm = LLMServiceClient(
+            task_name="utils", request_type="chat_history_summarizer"
         )
 
         # 后台循环相关
@@ -656,10 +657,11 @@ class ChatHistorySummarizer:
         prompt = await prompt_manager.render_prompt(prompt_template)
 
         try:
-            response, _ = await self.summarizer_llm.generate_response_async(
+            generation_result = await self.summarizer_llm.generate_response(
                 prompt=prompt,
-                temperature=0.3,
+                options=LLMGenerationOptions(temperature=0.3),
             )
+            response = generation_result.response
 
             logger.info(f"{self.log_prefix} 话题识别LLM Prompt: {prompt}")
             logger.info(f"{self.log_prefix} 话题识别LLM Response: {response}")
@@ -812,7 +814,8 @@ class ChatHistorySummarizer:
         prompt = await prompt_manager.render_prompt(prompt_template)
 
         try:
-            response, _ = await self.summarizer_llm.generate_response_async(prompt=prompt)
+            generation_result = await self.summarizer_llm.generate_response(prompt=prompt)
+            response = generation_result.response
 
             # 解析JSON响应
             json_str = response.strip()

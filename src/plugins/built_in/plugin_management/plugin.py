@@ -6,7 +6,7 @@
 from maibot_sdk import Command, MaiBotPlugin
 
 
-_VALID_COMPONENT_TYPES = ("action", "command", "event_handler")
+_VALID_COMPONENT_TYPES = ("tool", "command", "event_handler")
 
 HELP_ALL = (
     "管理命令帮助\n"
@@ -37,7 +37,7 @@ HELP_COMPONENT = (
     "/pm component enable local <component_name> <component_type> 本聊天启用组件\n"
     "/pm component disable global <component_name> <component_type> 全局禁用组件\n"
     "/pm component disable local <component_name> <component_type> 本聊天禁用组件\n"
-    "  - <component_type> 可选项: action, command, event_handler\n"
+    "  - <component_type> 可选项: tool, command, event_handler\n"
 )
 
 

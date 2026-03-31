@@ -1,19 +1,40 @@
 from json_repair import repair_json
-from typing import Tuple, Optional, List
+from typing import Any, List, Optional, Tuple
 
 import json
 import re
 
-from src.config.config import model_config
 from src.config.config import global_config
-from src.llm_models.utils_model import LLMRequest
+from src.common.data_models.llm_service_data_models import LLMGenerationOptions
+from src.services.llm_service import LLMServiceClient
 from src.prompt.prompt_manager import prompt_manager
 from src.common.logger import get_logger
 
 logger = get_logger("expression_utils")
 
-# TODO: 重构完LLM相关内容后，替换成新的模型调用方式
-judge_llm = LLMRequest(model_set=model_config.model_task_config.tool_use, request_type="expression_check")
+judge_llm = LLMServiceClient(task_name="utils", request_type="expression_check")
+
+
+def _normalize_repair_json_result(repaired_result: Any) -> str:
+    """将 repair_json 的返回值规范化为 JSON 字符串。
+
+    Args:
+        repaired_result: `repair_json` 的返回值，可能是字符串或带附加信息的元组。
+
+    Returns:
+        str: 可供 `json.loads` 继续解析的 JSON 字符串。
+
+    Raises:
+        TypeError: 当返回值无法规范化为字符串时抛出。
+    """
+    if isinstance(repaired_result, str):
+        return repaired_result
+    if isinstance(repaired_result, tuple) and repaired_result:
+        first_item = repaired_result[0]
+        if isinstance(first_item, str):
+            return first_item
+        return json.dumps(first_item, ensure_ascii=False)
+    raise TypeError(f"repair_json 返回了无法处理的结果类型: {type(repaired_result)}")
 
 
 async def check_expression_suitability(situation: str, style: str) -> Tuple[bool, str, Optional[str]]:
@@ -51,7 +72,11 @@ async def check_expression_suitability(situation: str, style: str) -> Tuple[bool
 
     logger.info(f"正在评估表达方式: situation={situation}, style={style}")
 
-    response, _ = await judge_llm.generate_response_async(prompt=prompt, temperature=0.6, max_tokens=1024)
+    generation_result = await judge_llm.generate_response(
+        prompt=prompt,
+        options=LLMGenerationOptions(temperature=0.6, max_tokens=1024),
+    )
+    response = generation_result.response
 
     logger.debug(f"评估结果: {response}")
 
@@ -59,7 +84,7 @@ async def check_expression_suitability(situation: str, style: str) -> Tuple[bool
         evaluation = json.loads(response)
     except json.JSONDecodeError:
         try:
-            response_repaired = repair_json(response)
+            response_repaired = _normalize_repair_json_result(repair_json(response))
             evaluation = json.loads(response_repaired)
         except Exception as e:
             raise ValueError(f"无法解析LLM响应为JSON: {response}") from e
@@ -74,7 +99,7 @@ async def check_expression_suitability(situation: str, style: str) -> Tuple[bool
         return False, f"评估结果格式错误: {e}", str(e)
 
 
-def fix_chinese_quotes_in_json(text):
+def fix_chinese_quotes_in_json(text: str) -> str:
     """使用状态机修复 JSON 字符串值中的中文引号"""
     result = []
     i = 0
@@ -201,12 +226,12 @@ def is_single_char_jargon(content: str) -> bool:
     )
 
 
-def _try_parse(text):
+def _try_parse(text: str) -> Any:
     try:
         return json.loads(text)
     except Exception:
         try:
-            repaired = repair_json(text)
+            repaired = _normalize_repair_json_result(repair_json(text))
             return json.loads(repaired)
         except Exception:
             return None

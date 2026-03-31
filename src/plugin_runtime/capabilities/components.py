@@ -29,6 +29,19 @@ class _RuntimeComponentManagerProtocol(Protocol):
 
     def _build_api_unavailable_error(self, entry: "APIEntry") -> str: ...
 
+    def _collect_api_reference_matches(
+        self,
+        caller_plugin_id: str,
+        normalized_api_name: str,
+        normalized_version: str,
+    ) -> tuple[List[tuple["PluginSupervisor", "APIEntry"]], List[tuple["PluginSupervisor", "APIEntry"]], bool]: ...
+
+    def _collect_api_toggle_reference_matches(
+        self,
+        normalized_name: str,
+        normalized_version: str,
+    ) -> List[tuple["PluginSupervisor", "APIEntry"]]: ...
+
     def _get_supervisor_for_plugin(self, plugin_id: str) -> Optional["PluginSupervisor"]: ...
 
     def _resolve_api_target(
@@ -58,6 +71,73 @@ class _RuntimeComponentManagerProtocol(Protocol):
 
 
 class RuntimeComponentCapabilityMixin:
+    def _collect_api_reference_matches(
+        self: _RuntimeComponentManagerProtocol,
+        caller_plugin_id: str,
+        normalized_api_name: str,
+        normalized_version: str,
+    ) -> tuple[List[tuple["PluginSupervisor", "APIEntry"]], List[tuple["PluginSupervisor", "APIEntry"]], bool]:
+        """按 API 完整名或短名精确收集匹配项。
+
+        该辅助方法用于兼容名字中本身包含 ``.`` 的 API。对于这类 API，
+        不能简单按最后一个点号拆成 ``plugin_id.api_name``。
+
+        Args:
+            caller_plugin_id: 调用方插件 ID。
+            normalized_api_name: 已规范化的 API 名称。
+            normalized_version: 已规范化的版本号。
+
+        Returns:
+            tuple[List[tuple[PluginSupervisor, APIEntry]], List[tuple[PluginSupervisor, APIEntry]], bool]:
+                依次为可见且启用的匹配项、可见但已禁用的匹配项、是否存在不可见匹配项。
+        """
+
+        visible_enabled_matches: List[tuple["PluginSupervisor", "APIEntry"]] = []
+        visible_disabled_matches: List[tuple["PluginSupervisor", "APIEntry"]] = []
+        hidden_match_exists = False
+
+        for supervisor in self.supervisors:
+            for entry in supervisor.api_registry.get_apis(
+                version=normalized_version,
+                enabled_only=False,
+            ):
+                if entry.name != normalized_api_name and entry.full_name != normalized_api_name:
+                    continue
+                if self._is_api_visible_to_plugin(entry, caller_plugin_id):
+                    if entry.enabled:
+                        visible_enabled_matches.append((supervisor, entry))
+                    else:
+                        visible_disabled_matches.append((supervisor, entry))
+                else:
+                    hidden_match_exists = True
+
+        return visible_enabled_matches, visible_disabled_matches, hidden_match_exists
+
+    def _collect_api_toggle_reference_matches(
+        self: _RuntimeComponentManagerProtocol,
+        normalized_name: str,
+        normalized_version: str,
+    ) -> List[tuple["PluginSupervisor", "APIEntry"]]:
+        """按 API 完整名或短名精确收集启停操作匹配项。
+
+        Args:
+            normalized_name: 已规范化的 API 名称。
+            normalized_version: 已规范化的版本号。
+
+        Returns:
+            List[tuple[PluginSupervisor, APIEntry]]: 匹配到的 API 条目列表。
+        """
+
+        matches: List[tuple["PluginSupervisor", "APIEntry"]] = []
+        for supervisor in self.supervisors:
+            for entry in supervisor.api_registry.get_apis(
+                version=normalized_version,
+                enabled_only=False,
+            ):
+                if entry.name == normalized_name or entry.full_name == normalized_name:
+                    matches.append((supervisor, entry))
+        return matches
+
     @staticmethod
     def _normalize_component_type(component_type: str) -> str:
         """规范化组件类型名称。
@@ -69,7 +149,10 @@ class RuntimeComponentCapabilityMixin:
             str: 统一转为大写后的组件类型名。
         """
 
-        return str(component_type or "").strip().upper()
+        normalized_component_type = str(component_type or "").strip().upper()
+        if normalized_component_type == "ACTION":
+            return "TOOL"
+        return normalized_component_type
 
     @classmethod
     def _is_api_component_type(cls, component_type: str) -> bool:
@@ -190,6 +273,20 @@ class RuntimeComponentCapabilityMixin:
         if not normalized_api_name:
             return None, None, "缺少必要参数 api_name"
 
+        exact_visible_enabled_matches, exact_visible_disabled_matches, exact_hidden_match_exists = (
+            self._collect_api_reference_matches(caller_plugin_id, normalized_api_name, normalized_version)
+        )
+        if len(exact_visible_enabled_matches) == 1:
+            return exact_visible_enabled_matches[0][0], exact_visible_enabled_matches[0][1], None
+        if len(exact_visible_enabled_matches) > 1:
+            return None, None, f"API 名称不唯一: {normalized_api_name}，请显式指定 version"
+        if exact_visible_disabled_matches:
+            if len(exact_visible_disabled_matches) == 1:
+                return None, None, self._build_api_unavailable_error(exact_visible_disabled_matches[0][1])
+            return None, None, f"API {normalized_api_name} 存在多个已下线版本，请显式指定 version"
+        if exact_hidden_match_exists:
+            return None, None, f"API {normalized_api_name} 未公开，禁止跨插件调用"
+
         if "." in normalized_api_name:
             target_plugin_id, target_api_name = normalized_api_name.rsplit(".", 1)
             try:
@@ -207,9 +304,7 @@ class RuntimeComponentCapabilityMixin:
                 enabled_only=False,
             )
             visible_enabled_entries = [
-                entry
-                for entry in entries
-                if self._is_api_visible_to_plugin(entry, caller_plugin_id) and entry.enabled
+                entry for entry in entries if self._is_api_visible_to_plugin(entry, caller_plugin_id) and entry.enabled
             ]
             visible_disabled_entries = [
                 entry
@@ -280,6 +375,12 @@ class RuntimeComponentCapabilityMixin:
         normalized_name, normalized_version = self._normalize_api_reference(name, version)
         if not normalized_name:
             return None, None, "缺少必要参数 name"
+
+        exact_matches = self._collect_api_toggle_reference_matches(normalized_name, normalized_version)
+        if len(exact_matches) == 1:
+            return exact_matches[0][0], exact_matches[0][1], None
+        if len(exact_matches) > 1:
+            return None, None, f"API 名称不唯一: {normalized_name}，请显式指定 version"
 
         if "." in normalized_name:
             plugin_id, api_name = normalized_name.rsplit(".", 1)

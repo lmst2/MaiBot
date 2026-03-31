@@ -1,8 +1,9 @@
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
 from rich.traceback import install
 from sqlmodel import select
-from typing import Optional, Tuple, List
 
 import asyncio
 import hashlib
@@ -17,8 +18,9 @@ from src.common.database.database_model import Images, ImageType
 from src.common.database.database import get_db_session, get_db_session_manual
 from src.common.utils.utils_image import ImageUtils
 from src.prompt.prompt_manager import prompt_manager
-from src.config.config import config_manager, global_config, model_config
-from src.llm_models.utils_model import LLMRequest
+from src.config.config import config_manager, global_config
+from src.common.data_models.llm_service_data_models import LLMGenerationOptions, LLMImageOptions
+from src.services.llm_service import LLMServiceClient
 
 logger = get_logger("emoji")
 
@@ -38,8 +40,10 @@ def _ensure_directories() -> None:
 
 
 # TODO: 修改这个vlm为获取的vlm client，暂时使用这个VLM方法
-emoji_manager_vlm = LLMRequest(model_set=model_config.model_task_config.vlm, request_type="emoji.see")
-emoji_manager_emotion_judge_llm = LLMRequest(model_set=model_config.model_task_config.utils, request_type="emoji")
+emoji_manager_vlm = LLMServiceClient(task_name="vlm", request_type="emoji.see")
+emoji_manager_emotion_judge_llm = LLMServiceClient(
+    task_name="utils", request_type="emoji"
+)
 
 
 class EmojiManager:
@@ -48,11 +52,13 @@ class EmojiManager:
     """
 
     def __init__(self) -> None:
+        """初始化表情包管理器。"""
         _ensure_directories()
 
         self._emoji_num: int = 0
-        self.emojis: list[MaiEmoji] = []
+        self.emojis: List[MaiEmoji] = []
         self._maintenance_wakeup_event: asyncio.Event = asyncio.Event()
+        self._pending_description_tasks: Dict[str, asyncio.Task[None]] = {}
         self._reload_callback_registered: bool = False
 
         config_manager.register_reload_callback(self.reload_runtime_config)
@@ -75,7 +81,11 @@ class EmojiManager:
         logger.info("[关闭] Emoji 模块已注销配置热重载回调")
 
     async def get_emoji_description(
-        self, *, emoji_bytes: Optional[bytes] = None, emoji_hash: Optional[str] = None
+        self,
+        *,
+        emoji_bytes: Optional[bytes] = None,
+        emoji_hash: Optional[str] = None,
+        wait_for_build: bool = True,
     ) -> Optional[Tuple[str, List[str]]]:
         """
         根据表情包哈希获取表情包描述和情感列表的封装方法
@@ -83,6 +93,7 @@ class EmojiManager:
         Args:
             emoji_bytes (Optional[bytes]): 表情包的字节数据，如果提供了字节数据但数据库中没有找到对应记录，则会尝试构建表情包描述
             emoji_hash (Optional[str]): 表情包的哈希值，如果提供了哈希值则优先使用哈希值查找表情包描述
+            wait_for_build (bool): 未命中缓存时是否同步等待描述构建完成
         Returns:
             return (Optional[Tuple[str, List[str]]]): 如果找到对应的表情包，则返回包含描述和情感标签的元组；若没找到，则尝试构建表情包描述并返回，如果构建失败则返回 None
         Raises:
@@ -110,27 +121,88 @@ class EmojiManager:
         # 如果提供了字节数据但数据库中没有找到，尝试构建
         if not emoji_bytes:
             return None
+        if not wait_for_build:
+            self._schedule_description_build(emoji_hash, emoji_bytes)
+            return None
 
         # 找不到尝试构建
+        return await self._build_and_cache_emoji_description(emoji_hash, emoji_bytes)
+
+    def _schedule_description_build(self, emoji_hash: str, emoji_bytes: bytes) -> None:
+        """调度表情包描述后台构建任务。
+
+        Args:
+            emoji_hash: 表情包哈希值。
+            emoji_bytes: 表情包字节数据。
+        """
+        if emoji_hash in self._pending_description_tasks:
+            return
+
+        task = asyncio.create_task(self._build_description_in_background(emoji_hash, emoji_bytes))
+        self._pending_description_tasks[emoji_hash] = task
+        task.add_done_callback(lambda finished_task: self._finalize_description_build(emoji_hash, finished_task))
+
+    async def _build_description_in_background(self, emoji_hash: str, emoji_bytes: bytes) -> None:
+        """在后台构建并缓存表情包描述。
+
+        Args:
+            emoji_hash: 表情包哈希值。
+            emoji_bytes: 表情包字节数据。
+        """
+        try:
+            logger.info(f"表情包描述后台构建已开始，哈希值: {emoji_hash}")
+            await self._build_and_cache_emoji_description(emoji_hash, emoji_bytes)
+            logger.info(f"表情包描述后台构建完成，哈希值: {emoji_hash}")
+        except Exception as exc:
+            logger.warning(f"表情包描述后台构建失败，哈希值: {emoji_hash}，错误: {exc}")
+
+    def _finalize_description_build(self, emoji_hash: str, task: asyncio.Task[None]) -> None:
+        """回收表情包描述后台构建任务。
+
+        Args:
+            emoji_hash: 表情包哈希值。
+            task: 已完成的后台任务。
+        """
+        self._pending_description_tasks.pop(emoji_hash, None)
+        try:
+            task.result()
+        except Exception as exc:
+            logger.debug(f"表情包描述后台任务结束时捕获异常，哈希值: {emoji_hash}，错误: {exc}")
+
+    async def _build_and_cache_emoji_description(
+        self,
+        emoji_hash: str,
+        emoji_bytes: bytes,
+    ) -> Optional[Tuple[str, List[str]]]:
+        """构建并缓存表情包描述与情感标签。
+
+        Args:
+            emoji_hash: 表情包哈希值。
+            emoji_bytes: 表情包字节数据。
+
+        Returns:
+            Optional[Tuple[str, List[str]]]: 构建成功时返回描述和情感标签，否则返回 ``None``。
+        """
         logger.info(f"未找到哈希值为 {emoji_hash} 的表情包与其描述，尝试构建描述")
         full_path = EMOJI_DIR / f"{emoji_hash}.png"
         try:
             full_path.write_bytes(emoji_bytes)
             new_emoji = MaiEmoji(full_path=full_path, image_bytes=emoji_bytes)
             await new_emoji.calculate_hash_format()
-        except Exception as e:
-            logger.error(f"缓存表情包文件时出错: {e}")
-            raise e
+        except Exception as exc:
+            logger.error(f"缓存表情包文件时出错: {exc}")
+            raise exc
+
         success_desc, new_emoji = await self.build_emoji_description(new_emoji)
         if not success_desc:
             logger.error("构建表情包描述失败")
             return None
+
         success_emotion, new_emoji = await self.build_emoji_emotion(new_emoji)
         if not success_emotion:
             logger.error("构建表情包情感标签失败")
             return None
 
-        # 缓存结果到数据库
         with get_db_session() as session:
             try:
                 image_record = new_emoji.to_db_instance()
@@ -139,8 +211,8 @@ class EmojiManager:
                 image_record.register_time = datetime.now()
                 image_record.no_file_flag = True
                 session.add(image_record)
-            except Exception as e:
-                logger.error(f"缓存表情包描述时出错: {e}")
+            except Exception as exc:
+                logger.error(f"缓存表情包描述时出错: {exc}")
         return new_emoji.description, new_emoji.emotion or []
 
     def load_emojis_from_db(self) -> None:
@@ -461,9 +533,11 @@ class EmojiManager:
         emoji_replace_prompt_template.add_context("emoji_list", "\n".join(emoji_info_list))
         emoji_replace_prompt = await prompt_manager.render_prompt(emoji_replace_prompt_template)
 
-        decision, _ = await emoji_manager_emotion_judge_llm.generate_response_async(
-            emoji_replace_prompt, temperature=0.8, max_tokens=600
+        decision_result = await emoji_manager_emotion_judge_llm.generate_response(
+            emoji_replace_prompt,
+            options=LLMGenerationOptions(temperature=0.8, max_tokens=600),
         )
+        decision = decision_result.response
         logger.info(f"[决策] 结果: {decision}")
 
         # 解析决策结果
@@ -515,33 +589,56 @@ class EmojiManager:
         image_bytes = target_emoji.image_bytes or await asyncio.to_thread(
             target_emoji.read_image_bytes, target_emoji.full_path
         )
+        image_base64 = ImageUtils.image_bytes_to_base64(image_bytes)
+        try:
+            if image_format == "gif":
+                try:
+                    image_bytes = await asyncio.to_thread(ImageUtils.gif_2_static_image, image_bytes)
+                except Exception as e:
+                    logger.error(f"[构建描述] 转换 GIF 图片时出错: {e}")
+                    return False, target_emoji
+                prompt: str = "这是一个动态图表情包，每一张图代表了动态图的某一帧，黑色背景代表透明，简短描述一下表情包表达的情感和内容，从互联网梗、meme的角度去分析，精简回答"
+                image_base64 = ImageUtils.image_bytes_to_base64(image_bytes)
+                description_result = await emoji_manager_vlm.generate_response_for_image(
+                    prompt,
+                    image_base64,
+                    "jpg",
+                    options=LLMImageOptions(temperature=0.5),
+                )
+                description = description_result.response
+            else:
+                prompt: str = "这是一个表情包，请详细描述一下表情包所表达的情感和内容，简短描述细节，从互联网梗、meme的角度去分析，精简回答"
+                description_result = await emoji_manager_vlm.generate_response_for_image(
+                    prompt,
+                    image_base64,
+                    image_format,
+                    options=LLMImageOptions(temperature=0.5),
+                )
+                description = description_result.response
+        except Exception as e:
+            logger.error(f"[构建描述] 调用视觉模型生成表情包描述时出错: {e}")
+            return False, target_emoji
 
-        if image_format == "gif":
-            try:
-                image_bytes = await asyncio.to_thread(ImageUtils.gif_2_static_image, image_bytes)
-            except Exception as e:
-                logger.error(f"[构建描述] 转换 GIF 图片时出错: {e}")
-                return False, target_emoji
-            prompt: str = "这是一个动态图表情包，每一张图代表了动态图的某一帧，黑色背景代表透明，简短描述一下表情包表达的情感和内容，从互联网梗、meme的角度去分析，精简回答"
-            image_base64 = ImageUtils.image_bytes_to_base64(image_bytes)
-            description, _ = await emoji_manager_vlm.generate_response_for_image(
-                prompt, image_base64, "jpg", temperature=0.5
-            )
-        else:
-            prompt: str = "这是一个表情包，请详细描述一下表情包所表达的情感和内容，简短描述细节，从互联网梗、meme的角度去分析，精简回答"
-            image_base64 = ImageUtils.image_bytes_to_base64(image_bytes)
-            description, _ = await emoji_manager_vlm.generate_response_for_image(
-                prompt, image_base64, image_format, temperature=0.5
-            )
+        if not description:
+            logger.warning(f"[构建描述] 视觉模型返回空描述，跳过注册: {target_emoji.file_name}")
+            return False, target_emoji
 
         # 表情包审查
         if global_config.emoji.content_filtration:
-            filtration_prompt_template = prompt_manager.get_prompt("emoji_content_filtration")
-            filtration_prompt_template.add_context("demand", global_config.emoji.filtration_prompt)
-            filtration_prompt = await prompt_manager.render_prompt(filtration_prompt_template)
-            llm_response, _ = await emoji_manager_vlm.generate_response_for_image(
-                filtration_prompt, image_base64, image_format, temperature=0.3
-            )
+            try:
+                filtration_prompt_template = prompt_manager.get_prompt("emoji_content_filtration")
+                filtration_prompt_template.add_context("demand", global_config.emoji.filtration_prompt)
+                filtration_prompt = await prompt_manager.render_prompt(filtration_prompt_template)
+                filtration_result = await emoji_manager_vlm.generate_response_for_image(
+                    filtration_prompt,
+                    image_base64,
+                    image_format,
+                    options=LLMImageOptions(temperature=0.3),
+                )
+                llm_response = filtration_result.response
+            except Exception as e:
+                logger.error(f"[表情包审查] 调用视觉模型审查表情包时出错: {e}")
+                return False, target_emoji
             if "否" in llm_response:
                 logger.warning(f"[表情包审查] 表情包内容不符合要求，拒绝注册: {target_emoji.file_name}")
                 return False, target_emoji
@@ -567,9 +664,19 @@ class EmojiManager:
         emotion_prompt_template.add_context("description", target_emoji.description)
         emotion_prompt = await prompt_manager.render_prompt(emotion_prompt_template)
         # 调用LLM生成情感标签
-        emotion_result, _ = await emoji_manager_emotion_judge_llm.generate_response_async(
-            emotion_prompt, temperature=0.3, max_tokens=200
-        )
+        try:
+            emotion_generation_result = await emoji_manager_emotion_judge_llm.generate_response(
+                emotion_prompt,
+                options=LLMGenerationOptions(temperature=0.3, max_tokens=200),
+            )
+            emotion_result = emotion_generation_result.response
+        except Exception as e:
+            logger.error(f"[构建情感标签] 调用模型生成情感标签时出错: {e}")
+            return False, target_emoji
+
+        if not emotion_result:
+            logger.warning(f"[构建情感标签] 情感标签结果为空，跳过注册: {target_emoji.file_name}")
+            return False, target_emoji
 
         # 解析情感标签结果
         emotions = [e.strip() for e in emotion_result.replace("，", ",").split(",") if e.strip()]
@@ -651,7 +758,12 @@ class EmojiManager:
                 for emoji_file in EMOJI_DIR.iterdir():
                     if not emoji_file.is_file():
                         continue
-                    if await self.register_emoji_by_filename(emoji_file):
+                    try:
+                        register_success = await self.register_emoji_by_filename(emoji_file)
+                    except Exception as e:
+                        logger.error(f"[定期维护] 注册表情包 {emoji_file.name} 时发生未处理异常: {e}")
+                        register_success = False
+                    if register_success:
                         break  # 每次只注册一个表情包
                     try:
                         emoji_file.unlink()

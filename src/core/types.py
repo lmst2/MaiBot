@@ -1,12 +1,13 @@
-import copy
-import warnings
 from dataclasses import dataclass, field, fields
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
+
+import copy
+import warnings
+
 from maim_message import Seg
 
-from src.llm_models.payload_content.tool_option import ToolParamType as ToolParamType
-from src.llm_models.payload_content.tool_option import ToolCall as ToolCall
+from src.llm_models.payload_content.tool_option import ToolCall
 # from src.common.data_models.message_data_model import ReplyContentType as ReplyContentType
 # from src.common.data_models.message_data_model import ReplyContent as ReplyContent
 # from src.common.data_models.message_data_model import ForwardNode as ForwardNode
@@ -15,49 +16,42 @@ from src.llm_models.payload_content.tool_option import ToolCall as ToolCall
 
 # 组件类型枚举
 class ComponentType(Enum):
-    """组件类型枚举"""
+    """Host 内部使用的组件类型枚举。"""
 
     ACTION = "action"  # 动作组件
     COMMAND = "command"  # 命令组件
-    TOOL = "tool"  # 服务组件（预留）
-    SCHEDULER = "scheduler"  # 定时任务组件（预留）
-    EVENT_HANDLER = "event_handler"  # 事件处理组件（预留）
+    TOOL = "tool"  # 工具组件
 
     def __str__(self) -> str:
+        """返回枚举值字符串。
+
+        Returns:
+            str: 当前组件类型对应的字符串值。
+        """
         return self.value
 
 
 # 动作激活类型枚举
 class ActionActivationType(Enum):
-    """动作激活类型枚举"""
+    """动作激活类型枚举。"""
 
     NEVER = "never"  # 从不激活（默认关闭）
     ALWAYS = "always"  # 默认参与到planner
     RANDOM = "random"  # 随机启用action到planner
     KEYWORD = "keyword"  # 关键词触发启用action到planner
 
-    def __str__(self):
-        return self.value
+    def __str__(self) -> str:
+        """返回枚举值字符串。
 
-
-# 聊天模式枚举
-class ChatMode(Enum):
-    """聊天模式枚举"""
-
-    FOCUS = "focus"  # Focus聊天模式
-    NORMAL = "normal"  # Normal聊天模式
-    PRIORITY = "priority"  # 优先级聊天模式
-    ALL = "all"  # 所有聊天模式
-
-    def __str__(self):
+        Returns:
+            str: 当前激活类型对应的字符串值。
+        """
         return self.value
 
 
 # 事件类型枚举
 class EventType(Enum):
-    """
-    事件类型枚举类
-    """
+    """事件类型枚举。"""
 
     ON_START = "on_start"  # 启动事件，用于调用按时任务
     ON_STOP = "on_stop"  # 停止事件，用于调用按时任务
@@ -72,185 +66,96 @@ class EventType(Enum):
     UNKNOWN = "unknown"  # 未知事件类型
 
     def __str__(self) -> str:
+        """返回枚举值字符串。
+
+        Returns:
+            str: 当前事件类型对应的字符串值。
+        """
         return self.value
 
 
-@dataclass
-class PythonDependency:
-    """Python包依赖信息"""
-
-    package_name: str  # 包名称
-    version: str = ""  # 版本要求，例如: ">=1.0.0", "==2.1.3", ""表示任意版本
-    optional: bool = False  # 是否为可选依赖
-    description: str = ""  # 依赖描述
-    install_name: str = ""  # 安装时的包名（如果与import名不同）
-
-    def __post_init__(self):
-        if not self.install_name:
-            self.install_name = self.package_name
-
-    def get_pip_requirement(self) -> str:
-        """获取pip安装格式的依赖字符串"""
-        if self.version:
-            return f"{self.install_name}{self.version}"
-        return self.install_name
-
-
-@dataclass
+@dataclass(slots=True)
 class ComponentInfo:
-    """组件信息"""
+    """Host 内部使用的组件信息快照。"""
 
-    name: str  # 组件名称
-    component_type: ComponentType  # 组件类型
-    description: str = ""  # 组件描述
-    enabled: bool = True  # 是否启用
-    plugin_name: str = ""  # 所属插件名称
-    is_built_in: bool = False  # 是否为内置组件
-    metadata: Dict[str, Any] = field(default_factory=dict)  # 额外元数据
+    name: str
+    """组件名称。"""
 
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
+    description: str = ""
+    """组件描述。"""
+
+    enabled: bool = True
+    """组件是否启用。"""
+
+    plugin_name: str = ""
+    """所属插件 ID。"""
+
+    component_type: ComponentType = field(init=False)
+    """组件类型。"""
 
 
-@dataclass
+@dataclass(slots=True)
 class ActionInfo(ComponentInfo):
-    """动作组件信息"""
+    """供 Planner 与回复链使用的动作信息快照。"""
 
     action_parameters: Dict[str, str] = field(
         default_factory=dict
     )  # 动作参数与描述，例如 {"param1": "描述1", "param2": "描述2"}
     action_require: List[str] = field(default_factory=list)  # 动作需求说明
     associated_types: List[str] = field(default_factory=list)  # 关联的消息类型
-    # 激活类型相关
-    focus_activation_type: ActionActivationType = ActionActivationType.ALWAYS  # 已弃用
-    normal_activation_type: ActionActivationType = ActionActivationType.ALWAYS  # 已弃用
     activation_type: ActionActivationType = ActionActivationType.ALWAYS
     random_activation_probability: float = 0.0
     activation_keywords: List[str] = field(default_factory=list)  # 激活关键词列表
     keyword_case_sensitive: bool = False
-    # 模式和并行设置
     parallel_action: bool = False
+    component_type: ComponentType = field(init=False, default=ComponentType.ACTION)
+    """组件类型。"""
 
-    def __post_init__(self):
-        super().__post_init__()
-        if self.activation_keywords is None:
-            self.activation_keywords = []
-        if self.action_parameters is None:
-            self.action_parameters = {}
-        if self.action_require is None:
-            self.action_require = []
-        if self.associated_types is None:
-            self.associated_types = []
-        self.component_type = ComponentType.ACTION
+    def __post_init__(self) -> None:
+        """归一化动作快照中的集合字段。"""
+        self.action_parameters = dict(self.action_parameters or {})
+        self.action_require = list(self.action_require or [])
+        self.associated_types = list(self.associated_types or [])
+        self.activation_keywords = list(self.activation_keywords or [])
 
 
-@dataclass
+@dataclass(slots=True)
 class CommandInfo(ComponentInfo):
-    """命令组件信息"""
+    """供命令处理链使用的命令信息快照。"""
 
-    command_pattern: str = ""  # 命令匹配模式（正则表达式）
-
-    def __post_init__(self):
-        super().__post_init__()
-        self.component_type = ComponentType.COMMAND
+    component_type: ComponentType = field(init=False, default=ComponentType.COMMAND)
+    """组件类型。"""
 
 
-@dataclass
+@dataclass(slots=True)
 class ToolInfo(ComponentInfo):
-    """工具组件信息"""
+    """供工具执行链使用的工具信息快照。"""
 
-    tool_parameters: List[Tuple[str, ToolParamType, str, bool, List[str] | None]] = field(
-        default_factory=list
-    )  # 工具参数定义
-    tool_description: str = ""  # 工具描述
+    parameters_schema: Dict[str, Any] | None = None
+    """对象级工具参数 Schema。"""
 
-    def __post_init__(self):
-        super().__post_init__()
-        self.component_type = ComponentType.TOOL
+    component_type: ComponentType = field(init=False, default=ComponentType.TOOL)
+    """组件类型。"""
 
-    def get_llm_definition(self) -> dict:
-        """生成 LLM function-calling 所需的工具定义"""
-        return {
+    def get_llm_definition(self) -> Dict[str, Any]:
+        """生成供 LLM 使用的规范化工具定义。
+
+        Returns:
+            Dict[str, Any]: 统一工具定义字典。
+        """
+        definition: Dict[str, Any] = {
             "name": self.name,
-            "description": self.tool_description,
-            "parameters": self.tool_parameters,
+            "description": self.description,
         }
+        if self.parameters_schema is not None:
+            definition["parameters_schema"] = copy.deepcopy(self.parameters_schema)
+        return definition
 
 
-@dataclass
-class EventHandlerInfo(ComponentInfo):
-    """事件处理器组件信息"""
-
-    event_type: EventType | str = EventType.ON_MESSAGE  # 监听事件类型
-    intercept_message: bool = False  # 是否拦截消息处理（默认不拦截）
-    weight: int = 0  # 事件处理器权重，决定执行顺序
-
-    def __post_init__(self):
-        super().__post_init__()
-        self.component_type = ComponentType.EVENT_HANDLER
-
-
-@dataclass
-class PluginInfo:
-    """插件信息"""
-
-    display_name: str  # 插件显示名称
-    name: str  # 插件名称
-    description: str  # 插件描述
-    version: str = "1.0.0"  # 插件版本
-    author: str = ""  # 插件作者
-    enabled: bool = True  # 是否启用
-    is_built_in: bool = False  # 是否为内置插件
-    components: List[ComponentInfo] = field(default_factory=list)  # 包含的组件列表
-    dependencies: List[str] = field(default_factory=list)  # 依赖的其他插件
-    python_dependencies: List[PythonDependency] = field(default_factory=list)  # Python包依赖
-    config_file: str = ""  # 配置文件路径
-    metadata: Dict[str, Any] = field(default_factory=dict)  # 额外元数据
-    # 新增：manifest相关信息
-    manifest_data: Dict[str, Any] = field(default_factory=dict)  # manifest文件数据
-    license: str = ""  # 插件许可证
-    homepage_url: str = ""  # 插件主页
-    repository_url: str = ""  # 插件仓库地址
-    keywords: List[str] = field(default_factory=list)  # 插件关键词
-    categories: List[str] = field(default_factory=list)  # 插件分类
-    min_host_version: str = ""  # 最低主机版本要求
-    max_host_version: str = ""  # 最高主机版本要求
-
-    def __post_init__(self):
-        if self.components is None:
-            self.components = []
-        if self.dependencies is None:
-            self.dependencies = []
-        if self.python_dependencies is None:
-            self.python_dependencies = []
-        if self.metadata is None:
-            self.metadata = {}
-        if self.manifest_data is None:
-            self.manifest_data = {}
-        if self.keywords is None:
-            self.keywords = []
-        if self.categories is None:
-            self.categories = []
-
-    def get_missing_packages(self) -> List[PythonDependency]:
-        """检查缺失的Python包"""
-        missing = []
-        for dep in self.python_dependencies:
-            try:
-                __import__(dep.package_name)
-            except ImportError:
-                if not dep.optional:
-                    missing.append(dep)
-        return missing
-
-    def get_pip_requirements(self) -> List[str]:
-        """获取所有pip安装格式的依赖"""
-        return [dep.get_pip_requirement() for dep in self.python_dependencies]
-
-
-@dataclass
+@dataclass(slots=True)
 class ModifyFlag:
+    """消息修改标记集合。"""
+
     modify_message_segments: bool = False
     modify_plain_text: bool = False
     modify_llm_prompt: bool = False
@@ -258,9 +163,9 @@ class ModifyFlag:
     modify_llm_response_reasoning: bool = False
 
 
-@dataclass
+@dataclass(slots=True)
 class MaiMessages:
-    """MaiM插件消息"""
+    """核心事件系统使用的统一消息模型。"""
 
     message_segments: List[Seg] = field(default_factory=list)
     """消息段列表，支持多段消息"""
@@ -306,11 +211,17 @@ class MaiMessages:
 
     _modify_flags: ModifyFlag = field(default_factory=ModifyFlag)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """归一化消息段列表。"""
         if self.message_segments is None:
             self.message_segments = []
 
-    def deepcopy(self):
+    def deepcopy(self) -> "MaiMessages":
+        """深拷贝当前消息对象。
+
+        Returns:
+            MaiMessages: 深拷贝后的消息对象。
+        """
         return copy.deepcopy(self)
 
     def to_transport_dict(self) -> Dict[str, Any]:
@@ -347,6 +258,14 @@ class MaiMessages:
 
     @staticmethod
     def _serialize_transport_value(value: Any) -> Any:
+        """递归序列化字段值为可传输结构。
+
+        Args:
+            value: 任意字段值。
+
+        Returns:
+            Any: 可用于 IPC 传输的纯 Python 值。
+        """
         if isinstance(value, (str, int, float, bool)) or value is None:
             return value
         if isinstance(value, Enum):
@@ -367,13 +286,22 @@ class MaiMessages:
 
     @staticmethod
     def _deserialize_transport_field(field_name: str, value: Any) -> Any:
+        """反序列化特定字段的传输值。
+
+        Args:
+            field_name: 字段名称。
+            value: 传输层返回的字段值。
+
+        Returns:
+            Any: 反序列化后的字段值。
+        """
         if field_name == "message_segments" and isinstance(value, list):
             deserialized_segments: List[Seg] = []
             for segment in value:
                 if isinstance(segment, Seg):
                     deserialized_segments.append(segment)
                 elif isinstance(segment, dict) and "type" in segment:
-                    deserialized_segments.append(Seg(type=segment.get("type", "text"), data=segment.get("data")))
+                    deserialized_segments.append(Seg(type=segment.get("type", "text"), data=segment.get("data", "")))
             return deserialized_segments
 
         if field_name == "llm_response_tool_call" and isinstance(value, list):
@@ -393,15 +321,15 @@ class MaiMessages:
 
         return value
 
-    def modify_message_segments(self, new_segments: List[Seg], suppress_warning: bool = False):
-        """
-        修改消息段列表
+    def modify_message_segments(self, new_segments: List[Seg], suppress_warning: bool = False) -> None:
+        """修改消息段列表。
 
         Warning:
-            在生成了plain_text的情况下调用此方法，可能会导致plain_text内容与消息段不一致
+            在生成了 ``plain_text`` 的情况下调用此方法，可能会导致文本与消息段不一致。
 
         Args:
-            new_segments (List[Seg]): 新的消息段列表
+            new_segments: 新的消息段列表。
+            suppress_warning: 是否抑制潜在不一致警告。
         """
         if self.plain_text and not suppress_warning:
             warnings.warn(
@@ -412,15 +340,15 @@ class MaiMessages:
         self.message_segments = new_segments
         self._modify_flags.modify_message_segments = True
 
-    def modify_llm_prompt(self, new_prompt: str, suppress_warning: bool = False):
-        """
-        修改LLM提示词
+    def modify_llm_prompt(self, new_prompt: str, suppress_warning: bool = False) -> None:
+        """修改 LLM 提示词。
 
         Warning:
-            在没有生成llm_prompt的情况下调用此方法，可能会导致修改无效
+            在没有生成 ``llm_prompt`` 的情况下调用此方法，可能会导致修改无效。
 
         Args:
-            new_prompt (str): 新的提示词内容
+            new_prompt: 新的提示词内容。
+            suppress_warning: 是否抑制潜在无效修改警告。
         """
         if self.llm_prompt is None and not suppress_warning:
             warnings.warn(
@@ -431,15 +359,15 @@ class MaiMessages:
         self.llm_prompt = new_prompt
         self._modify_flags.modify_llm_prompt = True
 
-    def modify_plain_text(self, new_text: str, suppress_warning: bool = False):
-        """
-        修改生成的plain_text内容
+    def modify_plain_text(self, new_text: str, suppress_warning: bool = False) -> None:
+        """修改生成的纯文本内容。
 
         Warning:
-            在未生成plain_text的情况下调用此方法，可能会导致plain_text为空或者修改无效
+            在未生成 ``plain_text`` 的情况下调用此方法，可能会导致修改无效。
 
         Args:
-            new_text (str): 新的纯文本内容
+            new_text: 新的纯文本内容。
+            suppress_warning: 是否抑制潜在无效修改警告。
         """
         if not self.plain_text and not suppress_warning:
             warnings.warn(
@@ -450,15 +378,15 @@ class MaiMessages:
         self.plain_text = new_text
         self._modify_flags.modify_plain_text = True
 
-    def modify_llm_response_content(self, new_content: str, suppress_warning: bool = False):
-        """
-        修改生成的llm_response_content内容
+    def modify_llm_response_content(self, new_content: str, suppress_warning: bool = False) -> None:
+        """修改生成的 LLM 响应正文。
 
         Warning:
-            在未生成llm_response_content的情况下调用此方法，可能会导致llm_response_content为空或者修改无效
+            在未生成 ``llm_response_content`` 的情况下调用此方法，可能会导致修改无效。
 
         Args:
-            new_content (str): 新的LLM响应内容
+            new_content: 新的 LLM 响应内容。
+            suppress_warning: 是否抑制潜在无效修改警告。
         """
         if not self.llm_response_content and not suppress_warning:
             warnings.warn(
@@ -469,15 +397,15 @@ class MaiMessages:
         self.llm_response_content = new_content
         self._modify_flags.modify_llm_response_content = True
 
-    def modify_llm_response_reasoning(self, new_reasoning: str, suppress_warning: bool = False):
-        """
-        修改生成的llm_response_reasoning内容
+    def modify_llm_response_reasoning(self, new_reasoning: str, suppress_warning: bool = False) -> None:
+        """修改生成的 LLM 推理内容。
 
         Warning:
-            在未生成llm_response_reasoning的情况下调用此方法，可能会导致llm_response_reasoning为空或者修改无效
+            在未生成 ``llm_response_reasoning`` 的情况下调用此方法，可能会导致修改无效。
 
         Args:
-            new_reasoning (str): 新的LLM响应推理内容
+            new_reasoning: 新的 LLM 推理内容。
+            suppress_warning: 是否抑制潜在无效修改警告。
         """
         if not self.llm_response_reasoning and not suppress_warning:
             warnings.warn(
@@ -487,10 +415,3 @@ class MaiMessages:
             )
         self.llm_response_reasoning = new_reasoning
         self._modify_flags.modify_llm_response_reasoning = True
-
-
-@dataclass
-class CustomEventHandlerResult:
-    message: str = ""
-    timestamp: float = 0.0
-    extra_info: Optional[Dict] = None

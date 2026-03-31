@@ -13,8 +13,8 @@ import jieba
 from src.chat.message_receive.chat_manager import chat_manager as _chat_manager
 from src.chat.message_receive.message import SessionMessage
 from src.common.logger import get_logger
-from src.config.config import global_config, model_config
-from src.llm_models.utils_model import LLMRequest
+from src.config.config import global_config
+from src.services.llm_service import LLMServiceClient
 from src.person_info.person_info import Person
 
 from .typo_generator import ChineseTypoGenerator
@@ -235,10 +235,11 @@ def is_mentioned_bot_in_message(message: SessionMessage) -> tuple[bool, bool, fl
 
 async def get_embedding(text, request_type="embedding") -> Optional[List[float]]:
     """获取文本的embedding向量"""
-    # 每次都创建新的LLMRequest实例以避免事件循环冲突
-    llm = LLMRequest(model_set=model_config.model_task_config.embedding, request_type=request_type)
+    # 每次都创建新的服务层实例以避免事件循环冲突
+    llm = LLMServiceClient(task_name="embedding", request_type=request_type)
     try:
-        embedding, _ = await llm.get_embedding(text)
+        embedding_result = await llm.embed_text(text)
+        embedding = embedding_result.embedding
     except Exception as e:
         logger.error(f"获取embedding失败: {str(e)}")
         embedding = None

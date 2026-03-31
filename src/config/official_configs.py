@@ -1,6 +1,8 @@
-from .config_base import ConfigBase, Field
+from typing import Literal, Optional
+
 import re
-from typing import Optional, Literal
+
+from .config_base import ConfigBase, Field
 
 """
 须知：
@@ -233,17 +235,6 @@ class ChatConfig(ConfigBase):
         },
     )
     """上下文长度"""
-
-    planner_smooth: float = Field(
-        default=3,
-        ge=0,
-        json_schema_extra={
-            "x-widget": "slider",
-            "x-icon": "gauge",
-            "step": 0.5,
-        },
-    )
-    """规划器平滑，增大数值会减小planner负荷，略微降低反应速度，推荐1-5，0为关闭，必须大于等于0"""
 
     think_mode: Literal["classic", "deep", "dynamic"] = Field(
         default="dynamic",
@@ -676,21 +667,6 @@ class ExpressionConfig(ConfigBase):
         },
     )
     """是否在回复前尝试对上下文中的黑话进行解释（关闭可减少一次LLM调用，仅影响回复前的黑话匹配与解释，不影响黑话学习）"""
-
-    jargon_mode: Literal["context", "planner"] = Field(
-        default="planner",
-        json_schema_extra={
-            "x-widget": "select",
-            "x-icon": "settings",
-        },
-    )
-    """
-    黑话解释来源模式
-    
-    可选：
-    - "context"：使用上下文自动匹配黑话
-    - "planner"：仅使用Planner在reply动作中给出的unknown_words列表
-    """
 
 
 class ToolConfig(ConfigBase):
@@ -1528,33 +1504,6 @@ class MaiSakaConfig(ConfigBase):
     __ui_icon__ = "message-circle"
     __ui_parent__ = "experimental"
 
-    enable_emotion_module: bool = Field(
-        default=True,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "heart",
-        },
-    )
-    """启用情绪感知模块"""
-
-    enable_cognition_module: bool = Field(
-        default=True,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "brain",
-        },
-    )
-    """启用认知分析模块"""
-
-    enable_timing_module: bool = Field(
-        default=True,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "clock",
-        },
-    )
-    """启用时间感知模块（含自我反思功能）"""
-
     enable_knowledge_module: bool = Field(
         default=True,
         json_schema_extra={
@@ -1563,42 +1512,6 @@ class MaiSakaConfig(ConfigBase):
         },
     )
     """启用知识库模块"""
-
-    enable_mcp: bool = Field(
-        default=True,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "zap",
-        },
-    )
-    """启用 MCP (Model Context Protocol) 支持"""
-
-    enable_write_file: bool = Field(
-        default=True,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "file-plus",
-        },
-    )
-    """启用文件写入工具"""
-
-    enable_read_file: bool = Field(
-        default=True,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "file-text",
-        },
-    )
-    """启用文件读取工具"""
-
-    enable_list_files: bool = Field(
-        default=True,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "list",
-        },
-    )
-    """启用文件列表工具"""
 
     show_analyze_cognition_prompt: bool = Field(
         default=False,
@@ -1609,15 +1522,6 @@ class MaiSakaConfig(ConfigBase):
     )
     """是否在 CLI 中显示 analyze_cognition 的 Prompt"""
 
-    show_analyze_timing_prompt: bool = Field(
-        default=False,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "terminal",
-        },
-    )
-    """是否在 CLI 中显示 analyze_timing 的 Prompt"""
-
     show_thinking: bool = Field(
         default=True,
         json_schema_extra={
@@ -1625,7 +1529,7 @@ class MaiSakaConfig(ConfigBase):
             "x-icon": "brain",
         },
     )
-    """鏄惁鍦?CLI 涓樉绀哄唴蹇冩€濊€冨拰瀹屾暣 Prompt"""
+    """是否显示MaiSaka思考过程"""
 
     user_name: str = Field(
         default="用户",
@@ -1634,7 +1538,465 @@ class MaiSakaConfig(ConfigBase):
             "x-icon": "user",
         },
     )
-    """MaiSaka 涓敤鎴风殑鏄剧ず鍚嶇О"""
+    """MaiSaka 使用的用户名称"""
+
+    direct_image_input: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "image",
+        },
+    )
+    """是否直接输入图片"""
+
+    merge_user_messages: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "merge",
+        },
+    )
+    """是否将新接收的用户发言合并为单个用户消息"""
+
+    max_internal_rounds: int = Field(
+        default=6,
+        ge=1,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "repeat",
+        },
+    )
+    """每个入站消息的最大内部规划轮数"""
+
+    tool_filter_task_name: str = Field(
+        default="utils",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "sparkles",
+        },
+    )
+    """工具筛选预判使用的模型任务名"""
+
+    tool_filter_threshold: int = Field(
+        default=20,
+        ge=1,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "filter",
+        },
+    )
+    """当可用工具总数超过该阈值时，先进行一轮工具筛选"""
+
+    tool_filter_max_keep: int = Field(
+        default=5,
+        ge=1,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "list-filter",
+        },
+    )
+    """工具筛选阶段最多保留的非内置工具数量"""
+
+    terminal_image_preview: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "image",
+        },
+    )
+    """是否渲染低分辨率终端预览图片"""
+
+    terminal_image_preview_width: int = Field(
+        default=24,
+        ge=8,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "columns",
+        },
+    )
+    """Maisaka终端图片预览的字符宽度"""
+
+
+class MCPAuthorizationConfig(ConfigBase):
+    """MCP HTTP 认证配置。"""
+
+    mode: Literal["none", "bearer"] = Field(
+        default="none",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "shield",
+        },
+    )
+    """认证模式，当前支持无认证和静态 Bearer Token"""
+
+    bearer_token: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "password",
+            "x-icon": "key",
+        },
+    )
+    """静态 Bearer Token，仅在 `mode=\"bearer\"` 时使用"""
+
+    def model_post_init(self, context: Optional[dict] = None) -> None:
+        """验证 MCP 认证配置。
+
+        Args:
+            context: Pydantic 传入的上下文对象。
+
+        Returns:
+            None
+        """
+
+        if self.mode == "bearer" and not self.bearer_token.strip():
+            raise ValueError("MCP 使用 bearer 认证时必须填写 bearer_token")
+        return super().model_post_init(context)
+
+
+class MCPRootItemConfig(ConfigBase):
+    """单个 MCP Root 配置。"""
+
+    enabled: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "power",
+        },
+    )
+    """是否启用当前 Root"""
+
+    uri: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "folder",
+        },
+    )
+    """Root URI，通常为 `file://` 路径 URI"""
+
+    name: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "tag",
+        },
+    )
+    """Root 的显示名称"""
+
+    def model_post_init(self, context: Optional[dict] = None) -> None:
+        """验证单个 Root 配置。
+
+        Args:
+            context: Pydantic 传入的上下文对象。
+
+        Returns:
+            None
+        """
+
+        if self.enabled and not self.uri.strip():
+            raise ValueError("启用的 MCP Root 必须填写 uri")
+        return super().model_post_init(context)
+
+
+class MCPRootsConfig(ConfigBase):
+    """MCP Roots 能力配置。"""
+
+    enable: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "folder-tree",
+        },
+    )
+    """是否向 MCP 服务器暴露 Roots 能力"""
+
+    items: list[MCPRootItemConfig] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "folder",
+        },
+    )
+    """Roots 列表"""
+
+
+class MCPSamplingConfig(ConfigBase):
+    """MCP Sampling 能力配置。"""
+
+    enable: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "brain",
+        },
+    )
+    """是否启用 Sampling 能力声明"""
+
+    task_name: str = Field(
+        default="planner",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "sparkles",
+        },
+    )
+    """执行 Sampling 请求时使用的主程序模型任务名"""
+
+    include_context_support: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "layers",
+        },
+    )
+    """是否声明支持 `includeContext` 非 `none` 语义"""
+
+    tool_support: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "wrench",
+        },
+    )
+    """是否声明支持在 Sampling 中继续使用工具"""
+
+
+class MCPElicitationConfig(ConfigBase):
+    """MCP Elicitation 能力配置。"""
+
+    enable: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "message-circle-question",
+        },
+    )
+    """是否启用 Elicitation 能力声明"""
+
+    allow_form: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "form-input",
+        },
+    )
+    """是否允许表单模式 Elicitation"""
+
+    allow_url: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "link",
+        },
+    )
+    """是否允许 URL 模式 Elicitation"""
+
+    def model_post_init(self, context: Optional[dict] = None) -> None:
+        """验证 Elicitation 配置。
+
+        Args:
+            context: Pydantic 传入的上下文对象。
+
+        Returns:
+            None
+        """
+
+        if self.enable and not (self.allow_form or self.allow_url):
+            raise ValueError("启用 MCP Elicitation 时至少需要允许一种模式")
+        return super().model_post_init(context)
+
+
+class MCPClientConfig(ConfigBase):
+    """MCP 客户端宿主能力配置。"""
+
+    client_name: str = Field(
+        default="MaiBot",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "bot",
+        },
+    )
+    """MCP 客户端实现名称"""
+
+    client_version: str = Field(
+        default="1.0.0",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "info",
+        },
+    )
+    """MCP 客户端实现版本"""
+
+    roots: MCPRootsConfig = Field(default_factory=MCPRootsConfig)
+    """Roots 能力配置"""
+
+    sampling: MCPSamplingConfig = Field(default_factory=MCPSamplingConfig)
+    """Sampling 能力配置"""
+
+    elicitation: MCPElicitationConfig = Field(default_factory=MCPElicitationConfig)
+    """Elicitation 能力配置"""
+
+
+class MCPServerItemConfig(ConfigBase):
+    """单个 MCP 服务器配置。"""
+
+    name: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "tag",
+        },
+    )
+    """服务器名称，必须唯一"""
+
+    enabled: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "power",
+        },
+    )
+    """是否启用当前 MCP 服务器"""
+
+    transport: Literal["stdio", "streamable_http"] = Field(
+        default="stdio",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "shuffle",
+        },
+    )
+    """传输方式，可选 `stdio` 或 `streamable_http`"""
+
+    command: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "terminal",
+        },
+    )
+    """stdio 模式下启动服务器的命令"""
+
+    args: list[str] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "list",
+        },
+    )
+    """stdio 模式下的命令参数列表"""
+
+    env: dict[str, str] = Field(
+        default_factory=lambda: {},
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "variable",
+        },
+    )
+    """stdio 模式下附加的环境变量"""
+
+    url: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "link",
+        },
+    )
+    """`streamable_http` 模式下的 MCP 端点地址"""
+
+    headers: dict[str, str] = Field(
+        default_factory=lambda: {},
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "file-json",
+        },
+    )
+    """HTTP 模式下附加的请求头"""
+
+    http_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        json_schema_extra={
+            "x-widget": "number",
+            "x-icon": "clock-3",
+        },
+    )
+    """HTTP 请求超时时间，单位秒"""
+
+    read_timeout_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        json_schema_extra={
+            "x-widget": "number",
+            "x-icon": "timer",
+        },
+    )
+    """会话读取超时时间，单位秒"""
+
+    authorization: MCPAuthorizationConfig = Field(default_factory=MCPAuthorizationConfig)
+    """HTTP 认证配置"""
+
+    def model_post_init(self, context: Optional[dict] = None) -> None:
+        """验证 MCP 服务器配置。
+
+        Args:
+            context: Pydantic 传入的上下文对象。
+
+        Returns:
+            None
+        """
+
+        if not self.name.strip():
+            raise ValueError("MCPServerItemConfig.name 不能为空")
+
+        if self.transport == "stdio" and not self.command.strip():
+            raise ValueError(f"MCP 服务器 {self.name} 使用 stdio 时必须填写 command")
+
+        if self.transport == "streamable_http" and not self.url.strip():
+            raise ValueError(f"MCP 服务器 {self.name} 使用 streamable_http 时必须填写 url")
+
+        return super().model_post_init(context)
+
+
+class MCPConfig(ConfigBase):
+    """MCP 总配置。"""
+
+    __ui_parent__ = "maisaka"
+
+    enable: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "zap",
+        },
+    )
+    """是否启用 MCP（Model Context Protocol）"""
+
+    client: MCPClientConfig = Field(default_factory=MCPClientConfig)
+    """MCP 客户端宿主能力配置"""
+
+    servers: list[MCPServerItemConfig] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "server",
+        },
+    )
+    """_wrap_MCP 服务器配置列表"""
+
+    def model_post_init(self, context: Optional[dict] = None) -> None:
+        """验证 MCP 总配置。
+
+        Args:
+            context: Pydantic 传入的上下文对象。
+
+        Returns:
+            None
+        """
+
+        server_names = [server.name.strip() for server in self.servers if server.name.strip()]
+        if len(server_names) != len(set(server_names)):
+            raise ValueError("MCP 配置中的服务器名称不能重复")
+        return super().model_post_init(context)
+
 
 class PluginRuntimeConfig(ConfigBase):
     """插件运行时配置类"""
