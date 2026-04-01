@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Sequence
 import asyncio
 import json
 import random
+import re
 
 from PIL import Image as PILImage
 from pydantic import BaseModel, Field as PydanticField
@@ -27,7 +28,7 @@ from src.config.config import global_config
 from src.core.tooling import ToolRegistry, ToolSpec
 from src.know_u.knowledge import extract_category_ids_from_result
 from src.llm_models.model_client.base_client import BaseClient
-from src.llm_models.payload_content.message import Message, MessageBuilder, RoleType
+from src.llm_models.payload_content.message import ImageMessagePart, Message, MessageBuilder, RoleType, TextMessagePart
 from src.llm_models.payload_content.resp_format import RespFormat, RespFormatType
 from src.llm_models.payload_content.tool_option import ToolCall, ToolDefinitionInput, ToolOption, normalize_tool_options
 from src.services.llm_service import LLMServiceClient
@@ -137,7 +138,7 @@ class MaisakaChatLoopService:
 
             try:
                 self._chat_system_prompt = load_prompt(
-                    "maidairy_chat",
+                    "maisaka_chat",
                     file_tools_section=tools_section,
                     bot_name=global_config.bot.nickname,
                     identity=self._personality_prompt,
@@ -695,6 +696,61 @@ class MaisakaChatLoopService:
             padding=(0, 1),
         )
 
+    @staticmethod
+    def _estimate_text_tokens(text: str) -> int:
+        """估算单段文本的输入 token 数。"""
+        normalized_text = text.strip()
+        if not normalized_text:
+            return 0
+
+        cjk_char_count = sum(1 for char in normalized_text if "\u4e00" <= char <= "\u9fff")
+        latin_chunks = re.findall(r"[A-Za-z0-9_]+", normalized_text)
+        latin_token_count = sum(max(1, (len(chunk) + 3) // 4) for chunk in latin_chunks)
+        punctuation_count = len(re.findall(r"[^\w\s]", normalized_text))
+        whitespace_bonus = max(1, normalized_text.count("\n"))
+        return cjk_char_count + latin_token_count + punctuation_count + whitespace_bonus
+
+    @classmethod
+    def _estimate_request_tokens(cls, messages: Sequence[Message]) -> int:
+        """估算本轮请求消息的总输入 token 数。"""
+        total_tokens = 0
+        for message in messages:
+            total_tokens += 4
+            total_tokens += cls._estimate_text_tokens(str(message.role.value))
+            if message.tool_call_id:
+                total_tokens += cls._estimate_text_tokens(message.tool_call_id)
+            if message.tool_calls:
+                for tool_call in message.tool_calls:
+                    total_tokens += cls._estimate_text_tokens(getattr(tool_call, "func_name", "") or "")
+                    total_tokens += cls._estimate_text_tokens(
+                        json.dumps(getattr(tool_call, "args", {}) or {}, ensure_ascii=False)
+                    )
+            for part in message.parts:
+                if isinstance(part, TextMessagePart):
+                    total_tokens += cls._estimate_text_tokens(part.text)
+                    continue
+                if isinstance(part, ImageMessagePart):
+                    total_tokens += max(256, len(part.image_base64) // 12)
+        return total_tokens
+
+    @staticmethod
+    def _build_prompt_stats_text(
+        *,
+        selected_history_count: int,
+        built_message_count: int,
+        input_token_count: int,
+    ) -> str:
+        """构造本轮 prompt 的统计信息文本。"""
+        if input_token_count >= 10_000:
+            input_token_text = f"{input_token_count / 1000:.1f}k"
+        else:
+            input_token_text = str(input_token_count)
+        return (
+            f"已选上下文消息数={selected_history_count} "
+            f"大模型消息数={built_message_count} "
+            f"估算输入Token={input_token_text}"
+        )
+
     async def chat_loop_step(self, chat_history: List[LLMContextMessage]) -> ChatResponse:
         """执行一轮 Maisaka 规划器请求。
 
@@ -708,6 +764,13 @@ class MaisakaChatLoopService:
         await self.ensure_chat_prompt_loaded()
         selected_history, selection_reason = self._select_llm_context_messages(chat_history)
         built_messages = self._build_request_messages(selected_history)
+        input_token_count = self._estimate_request_tokens(built_messages)
+        prompt_stats_text = self._build_prompt_stats_text(
+            selected_history_count=len(selected_history),
+            built_message_count=len(built_messages),
+            input_token_count=input_token_count,
+        )
+        display_subtitle = f"{selection_reason} | {prompt_stats_text}"
 
         def message_factory(_client: BaseClient) -> List[Message]:
             """返回当前轮次已经构建好的请求消息。
@@ -743,7 +806,7 @@ class MaisakaChatLoopService:
                 Panel(
                     Group(*ordered_panels),
                     title="MaiSaka 大模型请求 - 对话单步",
-                    subtitle=selection_reason,
+                    subtitle=display_subtitle,
                     border_style="cyan",
                     padding=(0, 1),
                 )
@@ -757,6 +820,7 @@ class MaisakaChatLoopService:
             f"工具数={len(all_tools)} "
             f"启用打断={self._interrupt_flag is not None}"
         )
+        logger.info(f"??Prompt??: {prompt_stats_text}")
         generation_result = await self._llm_chat.generate_response_with_messages(
             message_factory=message_factory,
             options=LLMGenerationOptions(

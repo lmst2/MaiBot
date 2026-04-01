@@ -174,7 +174,7 @@ class MaisakaReplyGenerator:
 
         try:
             system_prompt = load_prompt(
-                "maidairy_replyer",
+                "maisaka_replyer",
                 bot_name=global_config.bot.nickname,
                 time_block=f"当前时间：{current_time}",
                 identity=self._personality_prompt,
@@ -193,7 +193,7 @@ class MaisakaReplyGenerator:
         ]
         if extra_sections:
             user_sections.append("\n\n".join(extra_sections))
-        user_sections.append(f"【你的想法】\n{reply_reason}")
+        user_sections.append(f"【回复信息参考】\n{reply_reason}")
         user_sections.append("现在，你说：")
 
         user_prompt = "\n\n".join(user_sections)

@@ -1,5 +1,6 @@
 """Maisaka 推理引擎。"""
 
+from base64 import b64decode
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Optional, cast
 
@@ -15,7 +16,7 @@ from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.chat.message_receive.message import SessionMessage
 from src.chat.replyer.replyer_manager import replyer_manager
 from src.chat.utils.utils import process_llm_response
-from src.common.data_models.message_component_data_model import MessageSequence, TextComponent
+from src.common.data_models.message_component_data_model import EmojiComponent, MessageSequence, TextComponent
 from src.common.database.database import get_db_session
 from src.common.database.database_model import PersonInfo
 from src.common.logger import get_logger
@@ -82,7 +83,7 @@ class MaisakaReasoningEngine:
 
                 self._runtime._agent_state = self._runtime._STATE_RUNNING
                 if cached_messages:
-                    self._append_wait_interrupted_message_if_needed()
+                    self._clear_pending_wait_tool_call_id()
                     await self._ingest_messages(cached_messages)
                     anchor_message = cached_messages[-1]
                 else:
@@ -94,7 +95,7 @@ class MaisakaReasoningEngine:
                         self._runtime._internal_turn_queue.task_done()
                         continue
                     logger.info(f"{self._runtime.log_prefix} 等待超时后开始新一轮思考")
-                    self._runtime._chat_history.append(self._build_wait_timeout_message())
+                    self._clear_pending_wait_tool_call_id()
                     self._trim_chat_history()
                 try:
                     for round_index in range(self._runtime._max_internal_rounds):
@@ -179,6 +180,10 @@ class MaisakaReasoningEngine:
             return self._runtime.message_cache[-1]
         return None
 
+    def _clear_pending_wait_tool_call_id(self) -> None:
+        """清理等待状态残留的 wait 工具调用编号。"""
+        self._runtime._pending_wait_tool_call_id = None
+
     def _build_wait_timeout_message(self) -> ToolResultMessage:
         """构造 wait 超时后的工具结果消息。"""
         tool_call_id = self._runtime._pending_wait_tool_call_id or "wait_timeout"
@@ -260,20 +265,22 @@ class MaisakaReasoningEngine:
         timestamp_text = message.timestamp.strftime("%H:%M:%S")
         user_name = user_info.user_nickname or user_info.user_id
         group_card = user_info.user_cardname or ""
-        message_id = message.message_id or ""
-        return (
-            f"[时间]{timestamp_text}\n"
-            f"[用户]{user_name}\n"
-            f"[用户群昵称]{group_card}\n"
-            f"[msg_id]{message_id}\n"
-            "[发言内容]"
-        )
+        prefix_parts = [
+            f"[时间]{timestamp_text}\n",
+            f"[用户]{user_name}\n",
+            f"[用户群昵称]{group_card}\n",
+        ]
+        if not message.is_notify and message.message_id:
+            prefix_parts.append(f"[msg_id]{message.message_id}\n")
+        prefix_parts.append("[发言内容]")
+        return "".join(prefix_parts)
 
     def _build_legacy_visible_text(self, message: SessionMessage, source_sequence: MessageSequence) -> str:
         user_info = message.message_info.user_info
         speaker_name = user_info.user_cardname or user_info.user_nickname or user_info.user_id
         legacy_sequence = MessageSequence([])
-        legacy_sequence.text(format_speaker_content(speaker_name, "", message.timestamp, message.message_id))
+        visible_message_id = None if message.is_notify else message.message_id
+        legacy_sequence.text(format_speaker_content(speaker_name, "", message.timestamp, visible_message_id))
         for component in clone_message_sequence(source_sequence).components:
             legacy_sequence.components.append(component)
         return build_visible_text_from_sequence(legacy_sequence).strip()
@@ -281,7 +288,8 @@ class MaisakaReasoningEngine:
     def _build_legacy_visible_text_from_text(self, message: SessionMessage, content: str) -> str:
         user_info = message.message_info.user_info
         speaker_name = user_info.user_cardname or user_info.user_nickname or user_info.user_id
-        return format_speaker_content(speaker_name, content, message.timestamp, message.message_id).strip()
+        visible_message_id = None if message.is_notify else message.message_id
+        return format_speaker_content(speaker_name, content, message.timestamp, visible_message_id).strip()
 
     def _insert_chat_history_message(self, message: LLMContextMessage) -> int:
         """将消息按处理顺序追加到聊天历史末尾。"""
@@ -1385,3 +1393,154 @@ class MaisakaReasoningEngine:
             tool_call.func_name,
             "发送表情包失败。",
         )
+
+    async def _handle_send_emoji(self, tool_call: ToolCall) -> ToolExecutionResult:
+        """?????????????"""
+        from src.chat.emoji_system.emoji_manager import emoji_manager
+        from src.common.utils.utils_image import ImageUtils
+        import random
+
+        tool_args = tool_call.args or {}
+        emotion = str(tool_args.get("emotion") or "").strip()
+        structured_result: dict[str, Any] = {
+            "success": False,
+            "message": "",
+            "description": "",
+            "emotion": [],
+            "requested_emotion": emotion,
+        }
+
+        logger.info(f"{self._runtime.log_prefix} ??????????: ??={emotion!r}")
+
+        if not emoji_manager.emojis:
+            structured_result["message"] = "??????????????"
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                structured_result["message"],
+                structured_content=structured_result,
+            )
+
+        selected_emoji = None
+        if emotion:
+            matching_emojis = [
+                emoji
+                for emoji in emoji_manager.emojis
+                if emotion.lower() in (item.lower() for item in emoji.emotion)
+            ]
+            if matching_emojis:
+                selected_emoji = random.choice(matching_emojis)
+                logger.info(
+                    f"{self._runtime.log_prefix} ?? {len(matching_emojis)} ????? {emotion!r} ?????"
+                    f"????{selected_emoji.description}"
+                )
+
+        if selected_emoji is None:
+            selected_emoji = random.choice(emoji_manager.emojis)
+            logger.info(
+                f"{self._runtime.log_prefix} ????????? {emotion!r}?"
+                f"??????{selected_emoji.description}"
+            )
+
+        emoji_description = selected_emoji.description.strip()
+        emoji_emotions = [str(item).strip() for item in selected_emoji.emotion if str(item).strip()]
+        structured_result["description"] = emoji_description
+        structured_result["emotion"] = emoji_emotions
+
+        emoji_manager.update_emoji_usage(selected_emoji)
+
+        try:
+            emoji_base64 = ImageUtils.image_path_to_base64(str(selected_emoji.full_path))
+            if not emoji_base64:
+                raise ValueError("??????? base64 ??")
+        except Exception as exc:
+            logger.error(f"{self._runtime.log_prefix} ??????? base64 ??: {exc}")
+            structured_result["message"] = f"????????{exc}"
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                structured_result["message"],
+                structured_content=structured_result,
+            )
+
+        try:
+            sent = await send_service.emoji_to_stream(
+                emoji_base64=emoji_base64,
+                stream_id=self._runtime.session_id,
+                storage_message=True,
+                set_reply=False,
+                reply_message=None,
+            )
+        except Exception as exc:
+            logger.exception(f"{self._runtime.log_prefix} ??????????: {exc}")
+            structured_result["message"] = f"???????????{exc}"
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                structured_result["message"],
+                structured_content=structured_result,
+            )
+
+        if sent:
+            success_message = (
+                f"???????{emoji_description}????{', '.join(emoji_emotions)}?"
+                if emoji_emotions
+                else f"???????{emoji_description}"
+            )
+            logger.info(
+                f"{self._runtime.log_prefix} ???????: "
+                f"??={selected_emoji.description!r} ????={selected_emoji.emotion}"
+            )
+            self._append_sent_emoji_to_chat_history(
+                emoji_base64=emoji_base64,
+                success_message=success_message,
+            )
+            structured_result["success"] = True
+            structured_result["message"] = success_message
+            return self._build_tool_success_result(
+                tool_call.func_name,
+                success_message,
+                structured_content=structured_result,
+            )
+
+        logger.warning(f"{self._runtime.log_prefix} ???????")
+        structured_result["message"] = "????????"
+        return self._build_tool_failure_result(
+            tool_call.func_name,
+            structured_result["message"],
+            structured_content=structured_result,
+        )
+
+    def _append_sent_emoji_to_chat_history(
+        self,
+        *,
+        emoji_base64: str,
+        success_message: str,
+    ) -> None:
+        """? bot ?????????????? Maisaka ?????"""
+        bot_name = global_config.bot.nickname.strip() or "MaiSaka"
+        reply_timestamp = datetime.now()
+        planner_prefix = (
+            f"[??]{reply_timestamp.strftime('%H:%M:%S')}\n"
+            f"[??]{bot_name}\n"
+            "[?????]\n"
+            "[msg_id]\n"
+            "[????]"
+        )
+        history_message = SessionBackedMessage(
+            raw_message=MessageSequence(
+                [
+                    TextComponent(planner_prefix),
+                    EmojiComponent(
+                        binary_hash="",
+                        content=success_message,
+                        binary_data=b64decode(emoji_base64),
+                    ),
+                ]
+            ),
+            visible_text=format_speaker_content(
+                bot_name,
+                "[???]",
+                reply_timestamp,
+            ),
+            timestamp=reply_timestamp,
+            source_kind="guided_reply",
+        )
+        self._runtime._chat_history.append(history_message)
