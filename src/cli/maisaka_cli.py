@@ -33,7 +33,6 @@ from src.maisaka.message_adapter import format_speaker_content
 from src.maisaka.tool_handlers import (
     ToolHandlerContext,
     handle_mcp_tool,
-    handle_stop,
     handle_unknown_tool,
     handle_wait,
 )
@@ -230,9 +229,8 @@ class BufferCLI:
 
         Each round may produce internal thoughts and optionally call tools:
         - reply(msg_id): generate a visible reply for the current round
-        - no_reply(): skip visible output and continue the loop
+        - no_reply(): pause the inner loop until a new user message arrives
         - wait(seconds): wait for new user input
-        - stop(): stop the current inner loop and return to idle
         """
         if self._chat_loop_service is None:
             return
@@ -329,11 +327,7 @@ class BufferCLI:
             tool_context = self._build_tool_context()
 
             for tool_call in response.tool_calls:
-                if tool_call.func_name == "stop":
-                    await handle_stop(tool_call, chat_history)
-                    should_stop = True
-
-                elif tool_call.func_name == "reply":
+                if tool_call.func_name == "reply":
                     reply = await self._generate_visible_reply(chat_history, response.content or "")
                     chat_history.append(
                         ToolResultMessage(
@@ -354,15 +348,16 @@ class BufferCLI:
 
                 elif tool_call.func_name == "no_reply":
                     if global_config.maisaka.show_thinking:
-                        console.print("[muted]本轮未发送可见回复。[/muted]")
+                        console.print("[muted]对话已暂停，等待新的输入...[/muted]")
                     chat_history.append(
                         ToolResultMessage(
-                            content="本轮未发送可见回复。",
+                            content="当前对话循环已暂停，等待新消息到来。",
                             timestamp=datetime.now(),
                             tool_call_id=tool_call.call_id,
                             tool_name=tool_call.func_name,
                         )
                     )
+                    should_stop = True
 
                 elif tool_call.func_name == "wait":
                     tool_result = await handle_wait(tool_call, chat_history, tool_context)

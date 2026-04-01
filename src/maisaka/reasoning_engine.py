@@ -67,7 +67,6 @@ class MaisakaReasoningEngine:
             "query_jargon": self._invoke_query_jargon_tool,
             "query_person_info": self._invoke_query_person_info_tool,
             "wait": self._invoke_wait_tool,
-            "stop": self._invoke_stop_tool,
             "send_emoji": self._invoke_send_emoji_tool,
         }
 
@@ -132,6 +131,10 @@ class MaisakaReasoningEngine:
                                 logger.info(f"{self._runtime.log_prefix} 当前思考与上一轮过于相似，已替换为重新思考提示")
 
                             self._last_reasoning_content = reasoning_content
+                            self._runtime._render_context_usage_panel(
+                                selected_history_count=response.selected_history_count,
+                                prompt_tokens=response.prompt_tokens,
+                            )
                             self._runtime._chat_history.append(response.raw_message)
 
                             if response.tool_calls:
@@ -570,7 +573,7 @@ class MaisakaReasoningEngine:
             wait_seconds = invocation.arguments.get("seconds", 30)
             return f"你让当前对话先等待 {wait_seconds} 秒。"
 
-        if invocation.tool_name == "stop":
+        if invocation.tool_name == "no_reply":
             return "你暂停了当前对话循环，等待新的外部消息。"
 
         if invocation.tool_name == "query_jargon":
@@ -760,7 +763,12 @@ class MaisakaReasoningEngine:
         """执行 no_reply 内置工具。"""
 
         del context
-        return self._build_tool_success_result(invocation.tool_name, "本轮未发送可见回复。")
+        self._runtime._enter_stop_state()
+        return self._build_tool_success_result(
+            invocation.tool_name,
+            "当前对话循环已暂停，等待新消息到来。",
+            metadata={"pause_execution": True},
+        )
 
     async def _invoke_query_jargon_tool(
         self,
@@ -800,21 +808,6 @@ class MaisakaReasoningEngine:
         return self._build_tool_success_result(
             invocation.tool_name,
             f"当前对话循环进入等待状态，最长等待 {wait_seconds} 秒。",
-            metadata={"pause_execution": True},
-        )
-
-    async def _invoke_stop_tool(
-        self,
-        invocation: ToolInvocation,
-        context: Optional[ToolExecutionContext] = None,
-    ) -> ToolExecutionResult:
-        """执行 stop 内置工具。"""
-
-        del context
-        self._runtime._enter_stop_state()
-        return self._build_tool_success_result(
-            invocation.tool_name,
-            "当前对话循环已暂停，等待新消息到来。",
             metadata={"pause_execution": True},
         )
 
@@ -1017,36 +1010,35 @@ class MaisakaReasoningEngine:
                 .order_by(col(PersonInfo.last_known_time).desc(), col(PersonInfo.id).desc())
                 .limit(limit)
             ).all()
+            persons: list[dict[str, Any]] = []
+            for record in records:
+                memory_points: list[str] = []
+                if record.memory_points:
+                    try:
+                        parsed_points = json.loads(record.memory_points)
+                        if isinstance(parsed_points, list):
+                            memory_points = [str(point).strip() for point in parsed_points if str(point).strip()]
+                    except (json.JSONDecodeError, TypeError, ValueError):
+                        memory_points = []
 
-        persons: list[dict[str, Any]] = []
-        for record in records:
-            memory_points: list[str] = []
-            if record.memory_points:
-                try:
-                    parsed_points = json.loads(record.memory_points)
-                    if isinstance(parsed_points, list):
-                        memory_points = [str(point).strip() for point in parsed_points if str(point).strip()]
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    memory_points = []
+                persons.append(
+                    {
+                        "person_id": record.person_id,
+                        "person_name": record.person_name or "",
+                        "user_nickname": record.user_nickname,
+                        "user_id": record.user_id,
+                        "platform": record.platform,
+                        "name_reason": record.name_reason or "",
+                        "is_known": record.is_known,
+                        "know_counts": record.know_counts,
+                        "memory_points": memory_points[:20],
+                        "last_known_time": (
+                            record.last_known_time.isoformat() if record.last_known_time is not None else None
+                        ),
+                    }
+                )
 
-            persons.append(
-                {
-                    "person_id": record.person_id,
-                    "person_name": record.person_name or "",
-                    "user_nickname": record.user_nickname,
-                    "user_id": record.user_id,
-                    "platform": record.platform,
-                    "name_reason": record.name_reason or "",
-                    "is_known": record.is_known,
-                    "know_counts": record.know_counts,
-                    "memory_points": memory_points[:20],
-                    "last_known_time": (
-                        record.last_known_time.isoformat() if record.last_known_time is not None else None
-                    ),
-                }
-            )
-
-        return persons
+            return persons
 
     def _query_related_knowledge(
         self,

@@ -1559,6 +1559,15 @@ class MaiSakaConfig(ConfigBase):
     )
     """是否渲染低分辨率终端预览图片"""
 
+    terminal_image_display_mode: Literal["legacy", "path_link"] = Field(
+        default="legacy",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "image",
+        },
+    )
+    """图片展示模式：legacy（仅显示元信息）/ path_link（可点击本地路径）"""
+
     terminal_image_preview_width: int = Field(
         default=24,
         ge=8,

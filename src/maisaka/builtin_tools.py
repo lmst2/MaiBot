@@ -73,7 +73,7 @@ def create_builtin_tool_specs() -> List[ToolSpec]:
                     },
                     "quote": {
                         "type": "boolean",
-                        "description": "是否以引用回复的方式发送。",
+                        "description": "当有非常明确的回复目标时，以引用回复的方式发送。",
                         "default": True,
                     },
                     "unknown_words": {
