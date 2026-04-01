@@ -65,7 +65,6 @@ class PrivateReplyer:
         reply_reason: str = "",
         available_actions: Optional[Dict[str, ActionInfo]] = None,
         chosen_actions: Optional[List[ActionPlannerInfo]] = None,
-        enable_tool: bool = True,
         from_plugin: bool = True,
         think_level: int = 1,
         stream_id: Optional[str] = None,
@@ -84,7 +83,6 @@ class PrivateReplyer:
             reply_reason: 回复原因
             available_actions: 可用的动作信息字典
             chosen_actions: 已选动作
-            enable_tool: 是否启用工具调用
             from_plugin: 是否来自插件
 
         Returns:
@@ -103,7 +101,6 @@ class PrivateReplyer:
                     extra_info=extra_info,
                     available_actions=available_actions,
                     chosen_actions=chosen_actions,
-                    enable_tool=enable_tool,
                     reply_message=reply_message,
                     reply_reason=reply_reason,
                     unknown_words=unknown_words,
@@ -287,25 +284,19 @@ class PrivateReplyer:
 
         return f"{expression_habits_title}\n{expression_habits_block}", selected_ids
 
-    async def build_tool_info(self, chat_history: str, sender: str, target: str, enable_tool: bool = True) -> str:
+    async def build_tool_info(self, chat_history: str, sender: str, target: str) -> str:
         del chat_history
         del sender
         del target
-        del enable_tool
         return ""
         """构建工具信息块
 
         Args:
             chat_history: 聊天历史记录
             reply_to: 回复对象，格式为 "发送者:消息内容"
-            enable_tool: 是否启用工具调用
-
         Returns:
             str: 工具信息字符串
         """
-
-        if not enable_tool:
-            return ""
 
         try:
             # 使用工具执行器获取信息
@@ -612,7 +603,6 @@ class PrivateReplyer:
         reply_reason: str = "",
         available_actions: Optional[Dict[str, ActionInfo]] = None,
         chosen_actions: Optional[List[ActionPlannerInfo]] = None,
-        enable_tool: bool = True,
         unknown_words: Optional[List[str]] = None,
     ) -> Tuple[str, List[int]]:
         """
@@ -624,7 +614,6 @@ class PrivateReplyer:
             available_actions: 可用动作
             chosen_actions: 已选动作
             enable_timeout: 是否启用超时处理
-            enable_tool: 是否启用工具调用
             reply_message: 回复的原始消息
         Returns:
             str: 构建好的上下文
@@ -719,7 +708,7 @@ class PrivateReplyer:
             ),
             # self._time_and_run_task(self.build_relation_info(chat_talking_prompt_short, sender), "relation_info"),
             self._time_and_run_task(
-                self.build_tool_info(chat_talking_prompt_short, sender, target, enable_tool=enable_tool), "tool_info"
+                self.build_tool_info(chat_talking_prompt_short, sender, target), "tool_info"
             ),
             self._time_and_run_task(self.get_prompt_info(chat_talking_prompt_short, sender, target), "prompt_info"),
             self._time_and_run_task(self.build_actions_prompt(available_actions, chosen_actions), "actions_info"),

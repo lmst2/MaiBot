@@ -24,9 +24,7 @@
 3. 对于参数化泛型，应该使用`typing`模块中的类型注解来指定参数化泛型的类型。
     - 例如，使用`List[int]`来表示一个包含整数的列表，使用`Dict[str, Any]`来表示一个键为字符串，值为任意类型的字典。
 ## 变量规范
-1. 变量命名应该具有描述性，能够清晰地表达变量的用途和含义。
-2. 变量命名应该遵循下划线命名法。
-3. 当确定某个变量/实例是某种类型的时候（优先按照类型注解确定，除非你分析出类型注解是错误的），可以不必使用`or`进行fallback。
+1. 当确定某个变量/实例是某种类型的时候（优先按照类型注解确定，除非你分析出类型注解是错误的），可以不必使用`or`进行fallback。
     - 例如，`bot_nickname = (global_config.bot.nickname or "").strip()` 可以改为 `bot_nickname = global_config.bot.nickname.strip()`，前提是我们确定`global_config.bot.nickname`一定是一个字符串。
 ## 类属性使用规范
 1. 应该尽量减少使用getattr和setattr方法，除非是在对一个动态类进行处理或者使用Monkeypatch完成Pytest
@@ -36,6 +34,7 @@
 # 运行/调试/构建/测试/依赖
 优先使用uv
 依赖项以 pyproject.toml 为准
+不要修改dashboard下的内容，因为这部分内容由另一个仓库build
 
 # 语言规范
 

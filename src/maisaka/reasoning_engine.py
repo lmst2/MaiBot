@@ -1282,7 +1282,7 @@ class MaisakaReasoningEngine:
         self._runtime._chat_history.append(history_message)
         return self._build_tool_success_result(
             tool_call.func_name,
-            "可见回复已生成并发送。",
+            "回复已生成并发送。",
             structured_content={
                 "msg_id": target_message_id,
                 "quote": quote_reply,

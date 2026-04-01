@@ -343,11 +343,6 @@ class LLMOrchestrator:
         )
         response = execution_result.api_response
         model_info = execution_result.model_info
-        if self.request_type.startswith("maisaka_"):
-            logger.info(
-                f"LLMOrchestrator[{self.request_type}] generate_response_with_message_async 执行完成 "
-                f"(model={model_info.name}, time_cost={time.time() - start_time:.2f}s)"
-            )
 
         time_cost = time.time() - start_time
         logger.debug(f"LLM请求总耗时: {time_cost}")
@@ -833,14 +828,7 @@ class LLMOrchestrator:
 
             message_list = []
             if message_factory:
-                if self.request_type.startswith("maisaka_"):
-                    logger.info(f"LLMOrchestrator[{self.request_type}] 正在通过 message_factory 构建消息列表")
                 message_list = message_factory(client)
-                if self.request_type.startswith("maisaka_"):
-                    logger.info(
-                        f"LLMOrchestrator[{self.request_type}] message_factory 返回了 {len(message_list)} 条消息"
-                    )
-
             try:
                 request = self._build_client_request(
                     request_type=request_type,

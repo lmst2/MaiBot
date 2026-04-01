@@ -121,11 +121,7 @@ def create_builtin_tool_specs() -> List[ToolSpec]:
         ),
         _build_tool_spec(
             name="no_reply",
-            brief_description="本轮不发送可见回复，继续下一步思考。",
-        ),
-        _build_tool_spec(
-            name="stop",
-            brief_description="暂停当前内部循环，等待新的外部消息。",
+            brief_description="本轮不进行回复，等待其他用户的新消息。",
         ),
         _build_tool_spec(
             name="send_emoji",

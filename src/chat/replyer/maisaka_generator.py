@@ -288,7 +288,6 @@ class MaisakaReplyGenerator:
         reply_reason: str = "",
         available_actions: Optional[Dict[str, ActionInfo]] = None,
         chosen_actions: Optional[List[object]] = None,
-        enable_tool: bool = True,
         from_plugin: bool = True,
         stream_id: Optional[str] = None,
         reply_message: Optional[SessionMessage] = None,
@@ -303,7 +302,6 @@ class MaisakaReplyGenerator:
         """结合上下文生成 Maisaka 的最终可见回复。"""
         del available_actions
         del chosen_actions
-        del enable_tool
         del extra_info
         del from_plugin
         del log_reply

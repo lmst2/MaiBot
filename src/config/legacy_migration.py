@@ -265,6 +265,18 @@ def try_migrate_legacy_bot_config_dict(data: dict[str, Any]) -> MigrationResult:
             migrated_any = True
             reasons.append("experimental.chat_prompts")
 
+    chat = _as_dict(data.get("chat"))
+    if chat is not None and "think_mode" in chat:
+        chat.pop("think_mode", None)
+        migrated_any = True
+        reasons.append("chat.think_mode_removed")
+
+    tool = _as_dict(data.get("tool"))
+    if tool is not None:
+        data.pop("tool", None)
+        migrated_any = True
+        reasons.append("tool_section_removed")
+
     # ExpressionConfig 中的 manual_reflect_operator_id:
     # 旧版本可能是 ""（字符串），新版本期望 Optional[TargetItem]。
     # 空字符串视为未配置，转换为 None/删除键以避免校验错误。
