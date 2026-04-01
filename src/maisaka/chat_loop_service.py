@@ -137,7 +137,7 @@ class MaisakaChatLoopService:
 
             try:
                 self._chat_system_prompt = load_prompt(
-                    "maidairy_chat",
+                    "maisaka_chat",
                     file_tools_section=tools_section,
                     bot_name=global_config.bot.nickname,
                     identity=self._personality_prompt,
@@ -695,6 +695,32 @@ class MaisakaChatLoopService:
             padding=(0, 1),
         )
 
+    @staticmethod
+    def _format_token_count(token_count: int) -> str:
+        """格式化 token 数量展示文本。"""
+        if token_count >= 10_000:
+            return f"{token_count / 1000:.1f}k"
+        return str(token_count)
+
+    @classmethod
+    def _build_prompt_stats_text(
+        cls,
+        *,
+        selected_history_count: int,
+        built_message_count: int,
+        prompt_tokens: int,
+        completion_tokens: int,
+        total_tokens: int,
+    ) -> str:
+        """构造本轮 prompt 的统计信息文本。"""
+        return (
+            f"已选上下文消息数={selected_history_count} "
+            f"大模型消息数={built_message_count} "
+            f"实际输入Token={cls._format_token_count(prompt_tokens)} "
+            f"输出Token={cls._format_token_count(completion_tokens)} "
+            f"总Token={cls._format_token_count(total_tokens)}"
+        )
+
     async def chat_loop_step(self, chat_history: List[LLMContextMessage]) -> ChatResponse:
         """执行一轮 Maisaka 规划器请求。
 
@@ -768,6 +794,15 @@ class MaisakaChatLoopService:
         )
         request_elapsed = perf_counter() - request_started_at
         logger.info(f"规划器请求完成，耗时={request_elapsed:.3f} 秒")
+
+        prompt_stats_text = self._build_prompt_stats_text(
+            selected_history_count=len(selected_history),
+            built_message_count=len(built_messages),
+            prompt_tokens=generation_result.prompt_tokens,
+            completion_tokens=generation_result.completion_tokens,
+            total_tokens=generation_result.total_tokens,
+        )
+        logger.info(f"本轮Prompt统计: {prompt_stats_text}")
 
         tool_call_summaries = [
             {

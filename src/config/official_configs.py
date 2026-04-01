@@ -236,20 +236,6 @@ class ChatConfig(ConfigBase):
     )
     """上下文长度"""
 
-    think_mode: Literal["classic", "deep", "dynamic"] = Field(
-        default="dynamic",
-        json_schema_extra={
-            "x-widget": "select",
-            "x-icon": "brain",
-        },
-    )
-    """
-    思考模式配置
-    - classic: 默认think_level为0（轻量回复，不需要思考和回忆）
-    - deep: 默认think_level为1（深度回复，需要进行回忆和思考）
-    - dynamic: think_level由planner动态给出（根据planner返回的think_level决定）
-    """
-
     plan_reply_log_max_per_chat: int = Field(
         default=1024,
         json_schema_extra={
@@ -667,21 +653,6 @@ class ExpressionConfig(ConfigBase):
         },
     )
     """是否在回复前尝试对上下文中的黑话进行解释（关闭可减少一次LLM调用，仅影响回复前的黑话匹配与解释，不影响黑话学习）"""
-
-
-class ToolConfig(ConfigBase):
-    """工具配置类"""
-
-    __ui_parent__ = "emoji"
-
-    enable_tool: bool = Field(
-        default=False,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "wrench",
-        },
-    )
-    """是否在聊天中启用工具"""
 
 
 class VoiceConfig(ConfigBase):

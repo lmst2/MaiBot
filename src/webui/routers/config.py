@@ -36,7 +36,6 @@ from src.config.official_configs import (
     ResponsePostProcessConfig,
     ResponseSplitterConfig,
     TelemetryConfig,
-    ToolConfig,
     VoiceConfig,
 )
 from src.webui.config_schema import ConfigSchemaGenerator
@@ -113,7 +112,6 @@ async def get_config_section_schema(section_name: str):
     - experimental: ExperimentalConfig
     - maim_message: MaimMessageConfig
     - lpmm_knowledge: LPMMKnowledgeConfig
-    - tool: ToolConfig
     - memory: MemoryConfig
     - debug: DebugConfig
     - voice: VoiceConfig
@@ -138,7 +136,6 @@ async def get_config_section_schema(section_name: str):
         "experimental": ExperimentalConfig,
         "maim_message": MaimMessageConfig,
         "lpmm_knowledge": LPMMKnowledgeConfig,
-        "tool": ToolConfig,
         "memory": MemoryConfig,
         "debug": DebugConfig,
         "voice": VoiceConfig,

@@ -36,7 +36,6 @@ from .official_configs import (
     ResponsePostProcessConfig,
     ResponseSplitterConfig,
     TelemetryConfig,
-    ToolConfig,
     VoiceConfig,
     WebUIConfig,
 )
@@ -89,9 +88,6 @@ class Config(ConfigBase):
 
     message_receive: MessageReceiveConfig = Field(default_factory=MessageReceiveConfig)
     """消息接收配置类"""
-
-    tool: ToolConfig = Field(default_factory=ToolConfig)
-    """工具配置类"""
 
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     """语音配置类"""

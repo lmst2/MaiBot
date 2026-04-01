@@ -34,6 +34,7 @@ from src.llm_models.model_client.base_client import (
     ClientRequest,
     EmbeddingRequest,
     ResponseRequest,
+    UsageRecord,
     client_registry,
 )
 from src.llm_models.payload_content.message import Message, MessageBuilder
@@ -137,6 +138,7 @@ class LLMOrchestrator:
         reasoning_content: str,
         model_name: str,
         tool_calls: List[ToolCall] | None,
+        usage: UsageRecord | None = None,
     ) -> LLMResponseResult:
         """构建统一的文本响应结果。
 
@@ -154,6 +156,9 @@ class LLMOrchestrator:
             reasoning=reasoning_content,
             model_name=model_name,
             tool_calls=tool_calls,
+            prompt_tokens=usage.prompt_tokens if usage is not None else 0,
+            completion_tokens=usage.completion_tokens if usage is not None else 0,
+            total_tokens=usage.total_tokens if usage is not None else 0,
         )
 
     async def generate_response_for_image(
@@ -215,7 +220,13 @@ class LLMOrchestrator:
                 endpoint="/chat/completions",
                 time_cost=time_cost,
             )
-        return self._build_generation_result(content, reasoning_content, model_info.name, tool_calls)
+        return self._build_generation_result(
+            content,
+            reasoning_content,
+            model_info.name,
+            tool_calls,
+            response.usage,
+        )
 
     async def generate_response_for_voice(self, voice_base64: str) -> LLMAudioTranscriptionResult:
         """为语音生成转录响应。
@@ -298,7 +309,13 @@ class LLMOrchestrator:
                 endpoint="/chat/completions",
                 time_cost=time.time() - start_time,
             )
-        return self._build_generation_result(content or "", reasoning_content, model_info.name, tool_calls)
+        return self._build_generation_result(
+            content or "",
+            reasoning_content,
+            model_info.name,
+            tool_calls,
+            response.usage,
+        )
 
     async def generate_response_with_message_async(
         self,
@@ -343,11 +360,6 @@ class LLMOrchestrator:
         )
         response = execution_result.api_response
         model_info = execution_result.model_info
-        if self.request_type.startswith("maisaka_"):
-            logger.info(
-                f"LLMOrchestrator[{self.request_type}] generate_response_with_message_async 执行完成 "
-                f"(model={model_info.name}, time_cost={time.time() - start_time:.2f}s)"
-            )
 
         time_cost = time.time() - start_time
         logger.debug(f"LLM请求总耗时: {time_cost}")
@@ -369,7 +381,13 @@ class LLMOrchestrator:
                 endpoint="/chat/completions",
                 time_cost=time_cost,
             )
-        return self._build_generation_result(content or "", reasoning_content, model_info.name, tool_calls)
+        return self._build_generation_result(
+            content or "",
+            reasoning_content,
+            model_info.name,
+            tool_calls,
+            response.usage,
+        )
 
     async def get_embedding(self, embedding_input: str) -> LLMEmbeddingResult:
         """获取嵌入向量。
@@ -833,14 +851,7 @@ class LLMOrchestrator:
 
             message_list = []
             if message_factory:
-                if self.request_type.startswith("maisaka_"):
-                    logger.info(f"LLMOrchestrator[{self.request_type}] 正在通过 message_factory 构建消息列表")
                 message_list = message_factory(client)
-                if self.request_type.startswith("maisaka_"):
-                    logger.info(
-                        f"LLMOrchestrator[{self.request_type}] message_factory 返回了 {len(message_list)} 条消息"
-                    )
-
             try:
                 request = self._build_client_request(
                     request_type=request_type,

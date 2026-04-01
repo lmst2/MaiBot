@@ -66,6 +66,9 @@ class LLMResponseResult(BaseDataModel):
     reasoning: str = field(default_factory=str)
     model_name: str = field(default_factory=str)
     tool_calls: List[ToolCall] | None = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
 
 
 @dataclass(slots=True)
@@ -120,6 +123,9 @@ class LLMServiceResult(BaseDataModel):
             "response": self.completion.response,
             "reasoning": self.completion.reasoning,
             "model_name": self.completion.model_name,
+            "prompt_tokens": self.completion.prompt_tokens,
+            "completion_tokens": self.completion.completion_tokens,
+            "total_tokens": self.completion.total_tokens,
         }
         if self.completion.tool_calls is not None:
             payload["tool_calls"] = [
