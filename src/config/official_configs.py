@@ -1075,6 +1075,24 @@ class ExperimentalConfig(ConfigBase):
     )
     """_wrap_私聊说话规则，行为风格（实验性功能）"""
 
+    group_chat_prompt: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "textarea",
+            "x-icon": "users",
+        },
+    )
+    """_wrap_群聊通用注意事项（实验性功能）"""
+
+    private_chat_prompts: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "textarea",
+            "x-icon": "user",
+        },
+    )
+    """_wrap_私聊通用注意事项（实验性功能）"""
+
     chat_prompts: list[ExtraPromptItem] = Field(
         default_factory=lambda: [],
         json_schema_extra={

@@ -49,7 +49,10 @@ class MaisakaHeartFlowChatting:
 
         session_name = chat_manager.get_session_name(session_id) or session_id
         self.log_prefix = f"[{session_name}]"
-        self._chat_loop_service = MaisakaChatLoopService()
+        self._chat_loop_service = MaisakaChatLoopService(
+            session_id=session_id,
+            is_group_chat=self.chat_stream.is_group_session,
+        )
         self._chat_history: list[LLMContextMessage] = []
         self.history_loop: list[CycleDetail] = []
 
