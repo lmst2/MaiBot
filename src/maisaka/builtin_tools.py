@@ -100,25 +100,25 @@ def create_builtin_tool_specs() -> List[ToolSpec]:
                 "required": ["words"],
             },
         ),
-        _build_tool_spec(
-            name="query_person_info",
-            brief_description="查询某个人的档案和相关记忆信息。",
-            parameters_schema={
-                "type": "object",
-                "properties": {
-                    "person_name": {
-                        "type": "string",
-                        "description": "人物名称、昵称或用户 ID。",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "最多返回多少条匹配记录。",
-                        "default": 3,
-                    },
-                },
-                "required": ["person_name"],
-            },
-        ),
+        # _build_tool_spec(
+        #     name="query_person_info",
+        #     brief_description="查询某个人的档案和相关记忆信息。",
+        #     parameters_schema={
+        #         "type": "object",
+        #         "properties": {
+        #             "person_name": {
+        #                 "type": "string",
+        #                 "description": "人物名称、昵称或用户 ID。",
+        #             },
+        #             "limit": {
+        #                 "type": "integer",
+        #                 "description": "最多返回多少条匹配记录。",
+        #                 "default": 3,
+        #             },
+        #         },
+        #         "required": ["person_name"],
+        #     },
+        # ),
         _build_tool_spec(
             name="no_reply",
             brief_description="本轮不进行回复，等待其他用户的新消息。",
