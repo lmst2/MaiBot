@@ -10,7 +10,7 @@
 """
 
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Protocol, Set, cast
+from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Set, Tuple, cast
 
 import asyncio
 import contextlib
@@ -22,6 +22,8 @@ import signal
 import sys
 import time
 import tomllib
+
+import tomlkit
 
 from src.common.logger import get_console_handler, get_logger, initialize_logging
 from src.plugin_runtime import (
@@ -46,6 +48,8 @@ from src.plugin_runtime.protocol.envelope import (
     ReloadPluginsResultPayload,
     RunnerReadyPayload,
     UnregisterPluginPayload,
+    ValidatePluginConfigPayload,
+    ValidatePluginConfigResultPayload,
 )
 from src.plugin_runtime.protocol.errors import ErrorCode
 from src.plugin_runtime.runner.log_handler import RunnerIPCLogHandler
@@ -77,6 +81,64 @@ class _ContextAwarePlugin(Protocol):
         Args:
             context: 由 Runner 构造的上下文对象。
         """
+
+
+class _ConfigAwarePlugin(Protocol):
+    """支持声明式插件配置能力的插件协议。"""
+
+    def normalize_plugin_config(self, config_data: Optional[Mapping[str, Any]]) -> Tuple[Dict[str, Any], bool]:
+        """对插件配置进行归一化与补齐。
+
+        Args:
+            config_data: 原始配置数据。
+
+        Returns:
+            Tuple[Dict[str, Any], bool]: 归一化后的配置，以及是否发生自动变更。
+        """
+
+        ...
+
+    def set_plugin_config(self, config: Dict[str, Any]) -> None:
+        """注入插件当前配置。
+
+        Args:
+            config: 当前最新插件配置。
+        """
+
+        ...
+
+    def get_default_config(self) -> Dict[str, Any]:
+        """返回插件默认配置。
+
+        Returns:
+            Dict[str, Any]: 默认配置字典。
+        """
+
+        ...
+
+    def get_webui_config_schema(
+        self,
+        *,
+        plugin_id: str = "",
+        plugin_name: str = "",
+        plugin_version: str = "",
+        plugin_description: str = "",
+        plugin_author: str = "",
+    ) -> Dict[str, Any]:
+        """返回插件配置 Schema。
+
+        Args:
+            plugin_id: 插件 ID。
+            plugin_name: 插件名称。
+            plugin_version: 插件版本。
+            plugin_description: 插件描述。
+            plugin_author: 插件作者。
+
+        Returns:
+            Dict[str, Any]: WebUI 配置 Schema。
+        """
+
+        ...
 
 
 def _install_shutdown_signal_handlers(
@@ -271,14 +333,11 @@ class PluginRunner:
             始终绑定为当前插件实例，避免伪造其他插件身份申请能力。
             """
             if plugin_id and plugin_id != bound_plugin_id:
-                logger.warning(
-                    f"插件 {bound_plugin_id} 尝试以 {plugin_id} 身份发起 RPC，已强制绑定回自身身份"
-                )
+                logger.warning(f"插件 {bound_plugin_id} 尝试以 {plugin_id} 身份发起 RPC，已强制绑定回自身身份")
             normalized_method = str(method or "").strip()
             if normalized_method not in _PLUGIN_ALLOWED_RAW_HOST_METHODS:
                 raise PermissionError(
-                    f"插件 {bound_plugin_id} 不允许直接调用 Host 原始 RPC 方法: "
-                    f"{normalized_method or '<empty>'}"
+                    f"插件 {bound_plugin_id} 不允许直接调用 Host 原始 RPC 方法: {normalized_method or '<empty>'}"
                 )
             resp = await rpc_client.send_request(
                 method=normalized_method,
@@ -294,16 +353,71 @@ class PluginRunner:
         logger.debug(f"已为插件 {plugin_id} 注入 PluginContext")
 
     def _apply_plugin_config(self, meta: PluginMeta, config_data: Optional[Dict[str, Any]] = None) -> None:
-        """在 Runner 侧为插件实例注入当前插件配置。"""
+        """在 Runner 侧为插件实例注入当前插件配置。
+
+        Args:
+            meta: 插件元数据。
+            config_data: 可选的配置数据；留空时自动从插件目录读取。
+        """
         instance = meta.instance
         if not hasattr(instance, "set_plugin_config"):
             return
 
-        plugin_config = config_data if config_data is not None else self._load_plugin_config(meta.plugin_dir)
+        raw_config = config_data if config_data is not None else self._load_plugin_config(meta.plugin_dir)
+        plugin_config, should_persist = self._normalize_plugin_config(instance, raw_config)
+        config_path = Path(meta.plugin_dir) / "config.toml"
+        default_config = self._get_plugin_default_config(instance)
+        should_initialize_file = not config_path.exists() and bool(default_config)
+        if should_persist or should_initialize_file:
+            self._save_plugin_config(meta.plugin_dir, plugin_config)
         try:
-            instance.set_plugin_config(plugin_config)
+            cast(_ConfigAwarePlugin, instance).set_plugin_config(plugin_config)
         except Exception as exc:
             logger.warning(f"插件 {meta.plugin_id} 配置注入失败: {exc}")
+
+    def _normalize_plugin_config(
+        self,
+        instance: object,
+        config_data: Optional[Dict[str, Any]],
+        *,
+        suppress_errors: bool = True,
+    ) -> Tuple[Dict[str, Any], bool]:
+        """对插件配置做统一归一化处理。
+
+        Args:
+            instance: 插件实例。
+            config_data: 原始配置数据。
+            suppress_errors: 是否在归一化失败时吞掉异常并回退原始配置。
+
+        Returns:
+            Tuple[Dict[str, Any], bool]: 归一化后的配置，以及是否需要回写文件。
+        """
+
+        normalized_config = dict(config_data or {})
+        if not hasattr(instance, "normalize_plugin_config"):
+            return normalized_config, False
+
+        try:
+            return cast(_ConfigAwarePlugin, instance).normalize_plugin_config(normalized_config)
+        except Exception as exc:
+            if not suppress_errors:
+                raise
+            logger.warning(f"插件配置归一化失败，将回退为原始配置: {exc}")
+            return normalized_config, False
+
+    @staticmethod
+    def _save_plugin_config(plugin_dir: str, config_data: Dict[str, Any]) -> None:
+        """将插件配置写回到 ``config.toml``。
+
+        Args:
+            plugin_dir: 插件目录。
+            config_data: 需要写回的配置字典。
+        """
+
+        config_path = Path(plugin_dir) / "config.toml"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with config_path.open("w", encoding="utf-8") as handle:
+            handle.write(tomlkit.dumps(config_data))
 
     @staticmethod
     def _load_plugin_config(plugin_dir: str) -> Dict[str, Any]:
@@ -334,6 +448,7 @@ class PluginRunner:
         self._rpc_client.register_method("plugin.prepare_shutdown", self._handle_prepare_shutdown)
         self._rpc_client.register_method("plugin.shutdown", self._handle_shutdown)
         self._rpc_client.register_method("plugin.config_updated", self._handle_config_updated)
+        self._rpc_client.register_method("plugin.validate_config", self._handle_validate_plugin_config)
         self._rpc_client.register_method("plugin.reload", self._handle_reload_plugin)
         self._rpc_client.register_method("plugin.reload_batch", self._handle_reload_plugins)
 
@@ -451,6 +566,8 @@ class PluginRunner:
             capabilities_required=meta.capabilities_required,
             dependencies=meta.dependencies,
             config_reload_subscriptions=config_reload_subscriptions,
+            default_config=self._get_plugin_default_config(instance),
+            config_schema=self._get_plugin_config_schema(meta),
         )
 
         try:
@@ -467,6 +584,53 @@ class PluginRunner:
         except Exception as e:
             logger.error(f"插件 {meta.plugin_id} 注册失败: {e}")
             return False
+
+    @staticmethod
+    def _get_plugin_default_config(instance: object) -> Dict[str, Any]:
+        """获取插件默认配置。
+
+        Args:
+            instance: 插件实例。
+
+        Returns:
+            Dict[str, Any]: 默认配置；插件未声明时返回空字典。
+        """
+
+        if not hasattr(instance, "get_default_config"):
+            return {}
+        try:
+            default_config = cast(_ConfigAwarePlugin, instance).get_default_config()
+        except Exception as exc:
+            logger.warning(f"读取插件默认配置失败: {exc}")
+            return {}
+        return default_config if isinstance(default_config, dict) else {}
+
+    @staticmethod
+    def _get_plugin_config_schema(meta: PluginMeta) -> Dict[str, Any]:
+        """获取插件 WebUI 配置 Schema。
+
+        Args:
+            meta: 插件元数据。
+
+        Returns:
+            Dict[str, Any]: 插件配置 Schema；插件未声明时返回空字典。
+        """
+
+        instance = meta.instance
+        if not hasattr(instance, "get_webui_config_schema"):
+            return {}
+        try:
+            schema = cast(_ConfigAwarePlugin, instance).get_webui_config_schema(
+                plugin_id=meta.plugin_id,
+                plugin_name=meta.manifest.name,
+                plugin_version=meta.version,
+                plugin_description=meta.manifest.description,
+                plugin_author=meta.manifest.author.name,
+            )
+        except Exception as exc:
+            logger.warning(f"构造插件配置 Schema 失败: {exc}")
+            return {}
+        return schema if isinstance(schema, dict) else {}
 
     async def _unregister_plugin(self, plugin_id: str, reason: str) -> None:
         """通知 Host 注销指定插件。
@@ -631,7 +795,9 @@ class PluginRunner:
                 continue
             dependency_graph[plugin_id] = {dependency for dependency in meta.dependencies if dependency in plugin_ids}
 
-        indegree: Dict[str, int] = {plugin_id: len(dependencies) for plugin_id, dependencies in dependency_graph.items()}
+        indegree: Dict[str, int] = {
+            plugin_id: len(dependencies) for plugin_id, dependencies in dependency_graph.items()
+        }
         reverse_graph: Dict[str, Set[str]] = {plugin_id: set() for plugin_id in dependency_graph}
 
         for plugin_id, dependencies in dependency_graph.items():
@@ -677,9 +843,7 @@ class PluginRunner:
         for failed_plugin_id, failure_reason in failed_plugins.items():
             rollback_failure = rollback_failures.get(failed_plugin_id)
             if rollback_failure:
-                finalized_failures[failed_plugin_id] = (
-                    f"{failure_reason}；且旧版本恢复失败: {rollback_failure}"
-                )
+                finalized_failures[failed_plugin_id] = f"{failure_reason}；且旧版本恢复失败: {rollback_failure}"
             else:
                 finalized_failures[failed_plugin_id] = f"{failure_reason}（已恢复旧版本）"
 
@@ -761,9 +925,7 @@ class PluginRunner:
                 failed_plugins=failed_plugins,
             )
 
-        target_plugin_ids: Set[str] = {
-            plugin_id for plugin_id in reload_root_ids if plugin_id not in loaded_plugin_ids
-        }
+        target_plugin_ids: Set[str] = {plugin_id for plugin_id in reload_root_ids if plugin_id not in loaded_plugin_ids}
         if loaded_root_plugin_ids := reload_root_ids & loaded_plugin_ids:
             target_plugin_ids.update(self._collect_reverse_dependents_for_roots(loaded_root_plugin_ids))
 
@@ -1127,6 +1289,42 @@ class PluginRunner:
                 return envelope.make_error_response(ErrorCode.E_UNKNOWN.value, str(e))
         return envelope.make_response(payload={"acknowledged": True})
 
+    async def _handle_validate_plugin_config(self, envelope: Envelope) -> Envelope:
+        """处理插件配置校验请求。
+
+        Args:
+            envelope: RPC 请求信封。
+
+        Returns:
+            Envelope: RPC 响应信封。
+        """
+
+        try:
+            payload = ValidatePluginConfigPayload.model_validate(envelope.payload)
+        except Exception as exc:
+            return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(exc))
+
+        plugin_id = envelope.plugin_id
+        meta = self._loader.get_plugin(plugin_id)
+        if meta is None:
+            return envelope.make_error_response(ErrorCode.E_PLUGIN_NOT_FOUND.value, f"未找到插件: {plugin_id}")
+
+        try:
+            normalized_config, changed = self._normalize_plugin_config(
+                meta.instance,
+                payload.config_data,
+                suppress_errors=False,
+            )
+        except Exception as exc:
+            return envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(exc))
+
+        result = ValidatePluginConfigResultPayload(
+            success=True,
+            normalized_config=normalized_config,
+            changed=changed,
+        )
+        return envelope.make_response(payload=result.model_dump())
+
     async def _handle_reload_plugin(self, envelope: Envelope) -> Envelope:
         """处理按插件 ID 的精确重载请求。
 
@@ -1212,8 +1410,7 @@ async def _async_main() -> None:
         session_token,
         plugin_dirs,
         external_available_plugins={
-            str(plugin_id): str(plugin_version)
-            for plugin_id, plugin_version in external_plugin_ids.items()
+            str(plugin_id): str(plugin_version) for plugin_id, plugin_version in external_plugin_ids.items()
         },
     )
 

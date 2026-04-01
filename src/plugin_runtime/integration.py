@@ -9,7 +9,20 @@
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Coroutine, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Coroutine,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+)
 
 import asyncio
 
@@ -364,9 +377,7 @@ class PluginRuntimeManager(
         """构建当前已注册插件到所属 Supervisor 的映射。"""
 
         return {
-            plugin_id: supervisor
-            for supervisor in self.supervisors
-            for plugin_id in supervisor.get_loaded_plugin_ids()
+            plugin_id: supervisor for supervisor in self.supervisors for plugin_id in supervisor.get_loaded_plugin_ids()
         }
 
     def _build_external_available_plugins_for_supervisor(self, target_supervisor: "PluginSupervisor") -> Dict[str, str]:
@@ -411,9 +422,7 @@ class PluginRuntimeManager(
             local_plugin_ids = set(supervisor.get_loaded_plugin_ids())
             local_dependency_map = {
                 plugin_id: {
-                    dependency
-                    for dependency in dependency_map.get(plugin_id, set())
-                    if dependency in local_plugin_ids
+                    dependency for dependency in dependency_map.get(plugin_id, set()) if dependency in local_plugin_ids
                 }
                 for plugin_id in local_plugin_ids
             }
@@ -440,9 +449,7 @@ class PluginRuntimeManager(
         """
 
         normalized_plugin_ids = [
-            normalized_plugin_id
-            for plugin_id in plugin_ids
-            if (normalized_plugin_id := str(plugin_id or "").strip())
+            normalized_plugin_id for plugin_id in plugin_ids if (normalized_plugin_id := str(plugin_id or "").strip())
         ]
         if not normalized_plugin_ids:
             return True
@@ -518,9 +525,7 @@ class PluginRuntimeManager(
             return False
 
         config_payload = (
-            config_data
-            if config_data is not None
-            else self._load_plugin_config_for_supervisor(sv, plugin_id)
+            config_data if config_data is not None else self._load_plugin_config_for_supervisor(sv, plugin_id)
         )
         return await sv.notify_plugin_config_updated(
             plugin_id=plugin_id,
@@ -528,6 +533,41 @@ class PluginRuntimeManager(
             config_version=config_version,
             config_scope=config_scope,
         )
+
+    async def validate_plugin_config(self, plugin_id: str, config_data: Dict[str, Any]) -> Dict[str, Any] | None:
+        """请求运行时按插件自身配置模型校验配置。
+
+        Args:
+            plugin_id: 目标插件 ID。
+            config_data: 待校验的配置内容。
+
+        Returns:
+            Dict[str, Any] | None: 校验成功时返回规范化后的配置；若插件当前未加载
+            或运行时不可用，则返回 ``None`` 以便调用方回退到静态 Schema 方案。
+
+        Raises:
+            ValueError: 插件已加载，但配置校验失败时抛出。
+        """
+
+        if not self._started:
+            return None
+
+        try:
+            supervisor = self._get_supervisor_for_plugin(plugin_id)
+        except RuntimeError as exc:
+            logger.warning(f"插件 {plugin_id} 配置校验路由失败，将回退到静态 Schema: {exc}")
+            return None
+
+        if supervisor is None:
+            return None
+
+        try:
+            return await supervisor.validate_plugin_config(plugin_id, config_data)
+        except ValueError:
+            raise
+        except Exception as exc:
+            logger.warning(f"插件 {plugin_id} 运行时配置校验不可用，将回退到静态 Schema: {exc}")
+            return None
 
     @staticmethod
     def _normalize_config_reload_scopes(changed_scopes: Sequence[str]) -> tuple[str, ...]:
@@ -869,7 +909,9 @@ class PluginRuntimeManager(
                 if self._plugin_dir_matches(cached_path, Path(plugin_dir)):
                     return cached_path
 
-        for candidate_plugin_id, plugin_path in self._iter_discovered_plugin_paths(getattr(supervisor, "_plugin_dirs", [])):
+        for candidate_plugin_id, plugin_path in self._iter_discovered_plugin_paths(
+            getattr(supervisor, "_plugin_dirs", [])
+        ):
             if candidate_plugin_id != plugin_id:
                 continue
             self._plugin_path_cache[plugin_id] = plugin_path
@@ -908,9 +950,7 @@ class PluginRuntimeManager(
             )
             self._plugin_config_watcher_subscriptions[plugin_id] = (config_path, subscription_id)
 
-    def _build_plugin_config_change_callback(
-        self, plugin_id: str
-    ) -> Callable[[Sequence[FileChange]], Awaitable[None]]:
+    def _build_plugin_config_change_callback(self, plugin_id: str) -> Callable[[Sequence[FileChange]], Awaitable[None]]:
         """为指定插件生成配置文件变更回调。"""
 
         async def _callback(changes: Sequence[FileChange]) -> None:
@@ -1018,7 +1058,10 @@ class PluginRuntimeManager(
                 return plugin_id
 
         for plugin_id, plugin_path in self._plugin_path_cache.items():
-            if not any(self._plugin_dir_matches(plugin_path, Path(plugin_dir)) for plugin_dir in getattr(supervisor, "_plugin_dirs", [])):
+            if not any(
+                self._plugin_dir_matches(plugin_path, Path(plugin_dir))
+                for plugin_dir in getattr(supervisor, "_plugin_dirs", [])
+            ):
                 continue
             if resolved_path == plugin_path or resolved_path.is_relative_to(plugin_path):
                 return plugin_id

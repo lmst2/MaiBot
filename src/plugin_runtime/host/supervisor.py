@@ -39,6 +39,8 @@ from src.plugin_runtime.protocol.envelope import (
     RunnerReadyPayload,
     ShutdownPayload,
     UnregisterPluginPayload,
+    ValidatePluginConfigPayload,
+    ValidatePluginConfigResultPayload,
 )
 from src.plugin_runtime.protocol.codec import MsgPackCodec
 from src.plugin_runtime.protocol.errors import ErrorCode, RPCError
@@ -58,6 +60,7 @@ if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
 
 logger = get_logger("plugin_runtime.host.runner_manager")
+
 
 @dataclass(slots=True)
 class _MessageGatewayRuntimeState:
@@ -100,9 +103,7 @@ class PluginRunnerSupervisor:
         self._group_name: str = str(group_name or "third_party").strip() or "third_party"
         self._plugin_dirs: List[Path] = plugin_dirs or []
         self._health_interval: float = health_check_interval_sec or runtime_config.health_check_interval_sec or 30.0
-        self._runner_spawn_timeout: float = (
-            runner_spawn_timeout_sec or runtime_config.runner_spawn_timeout_sec or 30.0
-        )
+        self._runner_spawn_timeout: float = runner_spawn_timeout_sec or runtime_config.runner_spawn_timeout_sec or 30.0
         self._max_restart_attempts: int = max_restart_attempts or runtime_config.max_restart_attempts or 3
 
         self._transport = create_transport_server(socket_path=socket_path)
@@ -200,10 +201,7 @@ class PluginRunnerSupervisor:
         Returns:
             Dict[str, str]: 已注册插件版本映射，键为插件 ID，值为插件版本。
         """
-        return {
-            plugin_id: registration.plugin_version
-            for plugin_id, registration in self._registered_plugins.items()
-        }
+        return {plugin_id: registration.plugin_version for plugin_id, registration in self._registered_plugins.items()}
 
     @staticmethod
     def _normalize_reload_plugin_ids(plugin_ids: Optional[List[str] | str]) -> List[str]:
@@ -550,6 +548,39 @@ class PluginRunnerSupervisor:
 
         return bool(response.payload.get("acknowledged", False))
 
+    async def validate_plugin_config(self, plugin_id: str, config_data: Dict[str, Any]) -> Dict[str, Any]:
+        """请求 Runner 使用插件自身配置模型校验配置。
+
+        Args:
+            plugin_id: 目标插件 ID。
+            config_data: 待校验的配置内容。
+
+        Returns:
+            Dict[str, Any]: 插件模型归一化后的配置字典。
+
+        Raises:
+            ValueError: 插件拒绝该配置或校验失败时抛出。
+        """
+
+        payload = ValidatePluginConfigPayload(config_data=config_data)
+        try:
+            response = await self._rpc_server.send_request(
+                "plugin.validate_config",
+                plugin_id=plugin_id,
+                payload=payload.model_dump(),
+                timeout_ms=10000,
+            )
+        except Exception as exc:
+            raise ValueError(f"插件配置校验请求失败: {exc}") from exc
+
+        if response.error:
+            raise ValueError(str(response.error.get("message", "插件配置校验失败")))
+
+        result = ValidatePluginConfigResultPayload.model_validate(response.payload)
+        if not result.success:
+            raise ValueError("插件配置校验失败")
+        return dict(result.normalized_config)
+
     def get_config_reload_subscribers(self, scope: str) -> List[str]:
         """返回订阅指定全局配置广播的插件列表。
 
@@ -608,6 +639,7 @@ class PluginRunnerSupervisor:
         Raises:
             TimeoutError: 在超时时间内 Runner 未完成初始化。
         """
+
         async def wait_for_ready() -> RunnerReadyPayload:
             """轮询等待 Runner 上报就绪。"""
             while True:
@@ -1058,7 +1090,9 @@ class PluginRunnerSupervisor:
             route_key = RouteKey(platform=platform)
 
         route_account_id, route_scope = RouteKeyFactory.extract_components(route_metadata)
-        account_id = route_key.account_id or route_account_id or runtime_state.account_id or gateway_entry.account_id or None
+        account_id = (
+            route_key.account_id or route_account_id or runtime_state.account_id or gateway_entry.account_id or None
+        )
         scope = route_key.scope or route_scope or runtime_state.scope or gateway_entry.scope or None
         return RouteKey(
             platform=platform,

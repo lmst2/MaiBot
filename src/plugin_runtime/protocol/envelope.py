@@ -1,7 +1,7 @@
-"""RPC Envelope 消息模型
+"""RPC Envelope 消息模型。
 
 定义 Host 与 Runner 之间所有 RPC 消息的统一信封格式。
-使用 Pydantic 进行 schema 定义与校验。
+使用 Pydantic 进行 Schema 定义与校验。
 """
 
 from enum import Enum
@@ -39,12 +39,23 @@ class ConfigReloadScope(str, Enum):
 
 # ====== 请求 ID 生成器 ======
 class RequestIdGenerator:
-    """单调递增 int64 请求 ID 生成器"""
+    """单调递增 int64 请求 ID 生成器。"""
 
     def __init__(self, start: int = 1) -> None:
+        """初始化请求 ID 生成器。
+
+        Args:
+            start: 起始请求 ID。
+        """
         self._counter = start
 
     async def next(self) -> int:
+        """返回下一个请求 ID。
+
+        Returns:
+            int: 下一个可用的请求 ID。
+        """
+
         current = self._counter
         self._counter += 1
         return current
@@ -52,7 +63,7 @@ class RequestIdGenerator:
 
 # ====== Envelope 模型 ======
 class Envelope(BaseModel):
-    """RPC 统一消息封装
+    """RPC 统一消息封装。
 
     所有 Host <-> Runner 消息均封装为此格式。
     序列化流程：Envelope -> .model_dump() -> MsgPack encode
@@ -79,18 +90,44 @@ class Envelope(BaseModel):
     """错误信息 (仅 response)"""
 
     def is_request(self) -> bool:
+        """判断当前信封是否为请求消息。
+
+        Returns:
+            bool: 当前消息类型是否为 ``REQUEST``。
+        """
+
         return self.message_type == MessageType.REQUEST
 
     def is_response(self) -> bool:
+        """判断当前信封是否为响应消息。
+
+        Returns:
+            bool: 当前消息类型是否为 ``RESPONSE``。
+        """
+
         return self.message_type == MessageType.RESPONSE
 
     def is_broadcast(self) -> bool:
+        """判断当前信封是否为广播消息。
+
+        Returns:
+            bool: 当前消息类型是否为 ``BROADCAST``。
+        """
+
         return self.message_type == MessageType.BROADCAST
 
     def make_response(
         self, payload: Optional[Dict[str, Any]] = None, error: Optional[Dict[str, Any]] = None
     ) -> "Envelope":
-        """基于当前请求创建对应的响应信封"""
+        """基于当前请求创建对应的响应信封。
+
+        Args:
+            payload: 响应业务载荷。
+            error: 响应错误信息。
+
+        Returns:
+            Envelope: 对应的响应信封。
+        """
         return Envelope(
             protocol_version=self.protocol_version,
             request_id=self.request_id,
@@ -102,7 +139,16 @@ class Envelope(BaseModel):
         )
 
     def make_error_response(self, code: str, message: str = "", details: Optional[Dict[str, Any]] = None) -> "Envelope":
-        """基于当前请求创建错误响应"""
+        """基于当前请求创建错误响应。
+
+        Args:
+            code: 错误码。
+            message: 错误描述。
+            details: 详细错误信息。
+
+        Returns:
+            Envelope: 错误响应信封。
+        """
         return self.make_response(
             error={
                 "code": code,
@@ -141,9 +187,7 @@ class ComponentDeclaration(BaseModel):
 
     name: str = Field(description="组件名称")
     """组件名称"""
-    component_type: str = Field(
-        description="组件类型：action/command/tool/event_handler/hook_handler/message_gateway"
-    )
+    component_type: str = Field(description="组件类型：action/command/tool/event_handler/hook_handler/message_gateway")
     """组件类型：`action`/`command`/`tool`/`event_handler`/`hook_handler`/`message_gateway`"""
     plugin_id: str = Field(description="所属插件 ID")
     """所属插件 ID"""
@@ -170,6 +214,10 @@ class RegisterPluginPayload(BaseModel):
     """插件级依赖插件 ID 列表"""
     config_reload_subscriptions: List[str] = Field(default_factory=list, description="订阅的全局配置热重载范围")
     """订阅的全局配置热重载范围"""
+    default_config: Dict[str, Any] = Field(default_factory=dict, description="插件默认配置")
+    """插件默认配置"""
+    config_schema: Dict[str, Any] = Field(default_factory=dict, description="插件配置 Schema")
+    """插件配置 Schema"""
 
 
 class BootstrapPluginPayload(BaseModel):
@@ -254,6 +302,24 @@ class ConfigUpdatedPayload(BaseModel):
     """新配置版本"""
     config_data: Dict[str, Any] = Field(default_factory=dict, description="配置内容")
     """配置内容"""
+
+
+class ValidatePluginConfigPayload(BaseModel):
+    """plugin.validate_config 请求 payload。"""
+
+    config_data: Dict[str, Any] = Field(default_factory=dict, description="待校验的配置内容")
+    """待校验的配置内容"""
+
+
+class ValidatePluginConfigResultPayload(BaseModel):
+    """plugin.validate_config 响应 payload。"""
+
+    success: bool = Field(description="是否校验成功")
+    """是否校验成功"""
+    normalized_config: Dict[str, Any] = Field(default_factory=dict, description="校验后的规范化配置")
+    """校验后的规范化配置"""
+    changed: bool = Field(default=False, description="是否在校验过程中自动补齐或归一化")
+    """是否在校验过程中自动补齐或归一化"""
 
 
 # ====== 关停 ======

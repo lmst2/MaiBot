@@ -858,5 +858,55 @@ class ComponentQueryService:
             logger.error(f"读取插件 {plugin_name} 配置失败: {exc}", exc_info=True)
             return None
 
+    def get_plugin_default_config(self, plugin_name: str) -> Optional[dict]:
+        """获取指定插件注册时上报的默认配置。
+
+        Args:
+            plugin_name: 插件名称。
+
+        Returns:
+            Optional[dict]: 默认配置字典；未找到时返回 ``None``。
+        """
+
+        runtime_manager = self._get_runtime_manager()
+        try:
+            supervisor = runtime_manager._get_supervisor_for_plugin(plugin_name)
+        except RuntimeError as exc:
+            logger.error(f"读取插件默认配置失败: {exc}")
+            return None
+
+        if supervisor is None:
+            return None
+
+        registration = supervisor._registered_plugins.get(plugin_name)
+        if registration is None:
+            return None
+        return dict(registration.default_config)
+
+    def get_plugin_config_schema(self, plugin_name: str) -> Optional[dict]:
+        """获取指定插件注册时上报的配置 Schema。
+
+        Args:
+            plugin_name: 插件名称。
+
+        Returns:
+            Optional[dict]: 配置 Schema；未找到时返回 ``None``。
+        """
+
+        runtime_manager = self._get_runtime_manager()
+        try:
+            supervisor = runtime_manager._get_supervisor_for_plugin(plugin_name)
+        except RuntimeError as exc:
+            logger.error(f"读取插件配置 Schema 失败: {exc}")
+            return None
+
+        if supervisor is None:
+            return None
+
+        registration = supervisor._registered_plugins.get(plugin_name)
+        if registration is None:
+            return None
+        return dict(registration.config_schema)
+
 
 component_query_service = ComponentQueryService()
