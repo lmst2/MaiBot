@@ -6,19 +6,20 @@ import hashlib
 from base64 import b64decode
 from dataclasses import dataclass
 from enum import Enum
-from io import BytesIO
 from pathlib import Path
 from urllib.parse import quote
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal
 
 import tempfile
 
-from PIL import Image as PILImage
 from pydantic import BaseModel, Field as PydanticField
 from rich.console import Group, RenderableType
 from rich.pretty import Pretty
 from rich.panel import Panel
 from rich.text import Text
+
+PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute().resolve()
+DATA_IMAGE_DIR = PROJECT_ROOT / "data" / "images"
 
 
 class PromptImageDisplayMode(str, Enum):
@@ -37,11 +38,6 @@ class PromptImageDisplaySettings(BaseModel):
     display_mode: PromptImageDisplayMode = PydanticField(default=PromptImageDisplayMode.LEGACY)
     """图片展示模式。"""
 
-    enable_terminal_preview: bool = PydanticField(default=False)
-    """是否开启低分辨率终端 ASCII 预览。"""
-
-    terminal_preview_width: int = PydanticField(default=24, ge=1)
-    """终端预览宽度（字符数）。"""
 
 
 @dataclass(slots=True)
@@ -54,8 +50,6 @@ class _MessageRenderResult:
 
 class PromptCLIVisualizer:
     """负责构建 CLI 下 prompt 展示所需的所有可视化组件。"""
-
-    _ASCII_CHARS = " .:-=+*#%@"
 
     @staticmethod
     def _get_role_badge_style(role: str) -> str:
@@ -115,35 +109,6 @@ class PromptCLIVisualizer:
         return normalized
 
     @staticmethod
-    def _build_terminal_image_preview(image_base64: str, *, preview_width: int) -> Optional[str]:
-        """从 base64 构建 ASCII 预览。"""
-        try:
-            image_bytes = b64decode(image_base64)
-            with PILImage.open(BytesIO(image_bytes)) as image:
-                grayscale = image.convert("L")
-                width, height = grayscale.size
-                if width <= 0 or height <= 0:
-                    return None
-
-                preview_width = max(8, preview_width)
-                preview_height = max(1, int(height * (preview_width / width) * 0.5))
-                resized = grayscale.resize((preview_width, preview_height))
-                pixels = list(resized.tobytes())
-        except Exception:
-            return None
-
-        rows: List[str] = []
-        for row_index in range(preview_height):
-            row_pixels = pixels[row_index * preview_width : (row_index + 1) * preview_width]
-            row = "".join(
-                PromptCLIVisualizer._ASCII_CHARS[min(len(PromptCLIVisualizer._ASCII_CHARS) - 1, pixel * len(PromptCLIVisualizer._ASCII_CHARS) // 256)]
-                for pixel in row_pixels
-            )
-            rows.append(row)
-
-        return "\n".join(rows)
-
-    @staticmethod
     def _build_image_cache_path(image_format: str, image_base64: str) -> Path:
         image_format = PromptCLIVisualizer._normalize_image_format(image_format)
         root = Path(tempfile.gettempdir()) / "maisaka_prompt_images"
@@ -157,9 +122,27 @@ class PromptCLIVisualizer:
         return f"file:///{quote(normalized, safe='/:')}"
 
     @staticmethod
+    def _build_official_image_path(image_format: str, image_base64: str) -> Path | None:
+        normalized_format = PromptCLIVisualizer._normalize_image_format(image_format)
+        try:
+            image_bytes = b64decode(image_base64)
+        except Exception:
+            return None
+
+        digest = hashlib.sha256(image_bytes).hexdigest()
+        official_path = DATA_IMAGE_DIR / f"{digest}.{normalized_format}"
+        if official_path.exists():
+            return official_path
+        return None
+
+    @staticmethod
     def _build_image_file_link(image_format: str, image_base64: str) -> tuple[str, Path] | None:
-        """把图片内容写入临时目录并返回可点击链接文本。"""
+        """优先返回正式图片路径；不存在时回退到临时缓存路径。"""
         normalized_format = PromptCLIVisualizer._normalize_image_format(image_format) or "bin"
+        official_path = PromptCLIVisualizer._build_official_image_path(image_format, image_base64)
+        if official_path is not None:
+            return PromptCLIVisualizer._build_file_uri(official_path), official_path
+
         try:
             image_bytes = b64decode(image_base64)
         except Exception:
@@ -189,14 +172,6 @@ class PromptCLIVisualizer:
                 file_uri, file_path = path_result
                 preview_parts.append(Text.from_markup(f"\n[link={file_uri}]点击打开图片[/link]", style="cyan"))
                 preview_parts.append(Text(f"\n{file_path}", style="dim"))
-
-        if settings.enable_terminal_preview:
-            preview_text = cls._build_terminal_image_preview(
-                image_base64,
-                preview_width=settings.terminal_preview_width,
-            )
-            if preview_text:
-                preview_parts.append(Text(preview_text, style="white"))
 
         return Panel(
             Group(*preview_parts),
@@ -315,16 +290,12 @@ class PromptCLIVisualizer:
         messages: list[Any],
         *,
         image_display_mode: Literal["legacy", "path_link"],
-        enable_terminal_image_preview: bool,
-        terminal_image_preview_width: int,
     ) -> List[Panel]:
         """构建完整 prompt 可视化面板。"""
         if image_display_mode not in {mode.value for mode in PromptImageDisplayMode}:
             image_display_mode = PromptImageDisplayMode.LEGACY
         settings = PromptImageDisplaySettings(
             display_mode=PromptImageDisplayMode(image_display_mode),
-            enable_terminal_preview=enable_terminal_image_preview,
-            terminal_preview_width=terminal_image_preview_width,
         )
 
         ordered_panels: List[Panel] = []

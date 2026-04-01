@@ -27,6 +27,13 @@ def _guess_image_format(image_bytes: bytes) -> Optional[str]:
         return None
 
 
+def _build_binary_component_type_text(component: EmojiComponent | ImageComponent) -> str:
+    """为图片类消息组件构造显式的消息类型标记。"""
+    if isinstance(component, EmojiComponent):
+        return "[消息类型]表情包"
+    return "[消息类型]图片"
+
+
 def _build_message_from_sequence(
     role: RoleType,
     message_sequence: MessageSequence,
@@ -53,6 +60,7 @@ def _build_message_from_sequence(
         if isinstance(component, (EmojiComponent, ImageComponent)):
             image_format = _guess_image_format(component.binary_data)
             if image_format and component.binary_data:
+                builder.add_text_content(_build_binary_component_type_text(component))
                 builder.add_image_content(image_format, base64.b64encode(component.binary_data).decode("utf-8"))
                 has_content = True
                 continue

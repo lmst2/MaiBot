@@ -1,22 +1,17 @@
 """Maisaka 对话循环服务。"""
 
-from base64 import b64decode
 from dataclasses import dataclass
 from datetime import datetime
-from io import BytesIO
 from time import perf_counter
-from typing import Any, Dict, List, Optional, Sequence
+from typing import List, Optional, Sequence
 
 import asyncio
 import json
 import random
 
-from PIL import Image as PILImage
 from pydantic import BaseModel, Field as PydanticField
-from rich.console import Group, RenderableType
+from rich.console import Group
 from rich.panel import Panel
-from rich.pretty import Pretty
-from rich.text import Text
 
 from src.cli.console import console
 from src.common.data_models.llm_service_data_models import LLMGenerationOptions
@@ -35,6 +30,7 @@ from src.services.llm_service import LLMServiceClient
 from .builtin_tools import get_builtin_tools
 from .context_messages import AssistantMessage, LLMContextMessage, SessionBackedMessage
 from .message_adapter import format_speaker_content
+from .prompt_cli_renderer import PromptCLIVisualizer
 
 
 @dataclass(slots=True)
@@ -44,6 +40,11 @@ class ChatResponse:
     content: Optional[str]
     tool_calls: List[ToolCall]
     raw_message: AssistantMessage
+    selected_history_count: int
+    prompt_tokens: int
+    built_message_count: int
+    completion_tokens: int
+    total_tokens: int
 
 
 class ToolFilterSelection(BaseModel):
@@ -468,259 +469,6 @@ class MaisakaChatLoopService:
 
         return extract_category_ids_from_result(generation_result.response or "")
 
-    @staticmethod
-    def _get_role_badge_style(role: str) -> str:
-        """返回终端中角色标签的样式。
-
-        Args:
-            role: 消息角色名称。
-
-        Returns:
-            str: Rich 可识别的样式字符串。
-        """
-
-        if role == "system":
-            return "bold white on blue"
-        if role == "user":
-            return "bold black on green"
-        if role == "assistant":
-            return "bold black on yellow"
-        if role == "tool":
-            return "bold white on magenta"
-        return "bold white on bright_black"
-
-    @staticmethod
-    def _get_role_badge_label(role: str) -> str:
-        """返回终端中角色标签的中文名称。
-
-        Args:
-            role: 消息角色名称。
-
-        Returns:
-            str: 用于展示的中文角色名称。
-        """
-
-        if role == "system":
-            return "系统"
-        if role == "user":
-            return "用户"
-        if role == "assistant":
-            return "助手"
-        if role == "tool":
-            return "工具"
-        return "未知"
-
-    @staticmethod
-    def _build_terminal_image_preview(image_base64: str) -> Optional[str]:
-        """构造终端图片预览字符画。
-
-        Args:
-            image_base64: 图片的 Base64 编码。
-
-        Returns:
-            Optional[str]: 生成成功时返回字符画文本，否则返回 ``None``。
-        """
-
-        ascii_chars = " .:-=+*#%@"
-
-        try:
-            image_bytes = b64decode(image_base64)
-            with PILImage.open(BytesIO(image_bytes)) as image:
-                grayscale = image.convert("L")
-                width, height = grayscale.size
-                if width <= 0 or height <= 0:
-                    return None
-
-                preview_width = max(8, int(global_config.maisaka.terminal_image_preview_width))
-                preview_height = max(1, int(height * (preview_width / width) * 0.5))
-                resized = grayscale.resize((preview_width, preview_height))
-                pixels = list(resized.tobytes())
-        except Exception:
-            return None
-
-        rows: List[str] = []
-        for row_index in range(preview_height):
-            row_pixels = pixels[row_index * preview_width : (row_index + 1) * preview_width]
-            row = "".join(ascii_chars[min(len(ascii_chars) - 1, pixel * len(ascii_chars) // 256)] for pixel in row_pixels)
-            rows.append(row)
-
-        return "\n".join(rows)
-
-    @classmethod
-    def _render_message_content(cls, content: Any) -> RenderableType:
-        """将消息内容渲染为终端可展示对象。
-
-        Args:
-            content: 原始消息内容。
-
-        Returns:
-            RenderableType: Rich 可渲染对象。
-        """
-
-        if isinstance(content, str):
-            return Text(content)
-
-        if isinstance(content, list):
-            parts: List[RenderableType] = []
-            for item in content:
-                if isinstance(item, str):
-                    parts.append(Text(item))
-                    continue
-                if isinstance(item, tuple) and len(item) == 2:
-                    image_format, image_base64 = item
-                    if isinstance(image_format, str) and isinstance(image_base64, str):
-                        approx_size = max(0, len(image_base64) * 3 // 4)
-                        size_text = f"{approx_size / 1024:.1f} KB" if approx_size >= 1024 else f"{approx_size} B"
-                        preview_parts: List[RenderableType] = [
-                            Text(f"图片格式 image/{image_format}  {size_text}\nbase64 内容已省略", style="magenta")
-                        ]
-                        if global_config.maisaka.terminal_image_preview:
-                            preview_text = cls._build_terminal_image_preview(image_base64)
-                            if preview_text:
-                                preview_parts.append(Text(preview_text, style="white"))
-                        parts.append(
-                            Panel(
-                                Group(*preview_parts),
-                                border_style="magenta",
-                                padding=(0, 1),
-                            )
-                        )
-                        continue
-                if isinstance(item, dict) and item.get("type") == "text" and isinstance(item.get("text"), str):
-                    parts.append(Text(item["text"]))
-                else:
-                    parts.append(Pretty(item, expand_all=True))
-            return Group(*parts) if parts else Text("")
-
-        if content is None:
-            return Text("")
-
-        return Pretty(content, expand_all=True)
-
-    @staticmethod
-    def _format_tool_call_for_display(tool_call: Any) -> Dict[str, Any]:
-        """将工具调用对象格式化为易读字典。
-
-        Args:
-            tool_call: 原始工具调用对象或字典。
-
-        Returns:
-            Dict[str, Any]: 适合终端展示的工具调用字典。
-        """
-
-        if isinstance(tool_call, dict):
-            function_info = tool_call.get("function", {})
-            return {
-                "id": tool_call.get("id"),
-                "name": function_info.get("name", tool_call.get("name")),
-                "arguments": function_info.get("arguments", tool_call.get("arguments")),
-            }
-
-        return {
-            "id": getattr(tool_call, "call_id", getattr(tool_call, "id", None)),
-            "name": getattr(tool_call, "func_name", getattr(tool_call, "name", None)),
-            "arguments": getattr(tool_call, "args", getattr(tool_call, "arguments", None)),
-        }
-
-    def _render_tool_call_panel(self, tool_call: Any, index: int, parent_index: int) -> Panel:
-        """渲染单个工具调用面板。
-
-        Args:
-            tool_call: 原始工具调用对象。
-            index: 工具调用在当前消息中的序号。
-            parent_index: 所属消息的序号。
-
-        Returns:
-            Panel: 工具调用展示面板。
-        """
-
-        title = Text.assemble(
-            Text(" 工具调用 ", style="bold white on magenta"),
-            Text(f"  #{parent_index}.{index}", style="muted"),
-        )
-        return Panel(
-            Pretty(self._format_tool_call_for_display(tool_call), expand_all=True),
-            title=title,
-            border_style="magenta",
-            padding=(0, 1),
-        )
-
-    def _render_message_panel(self, message: Any, index: int) -> Panel:
-        """渲染单条消息面板。
-
-        Args:
-            message: 原始消息对象或字典。
-            index: 消息序号。
-
-        Returns:
-            Panel: 终端展示面板。
-        """
-
-        if isinstance(message, dict):
-            raw_role = message.get("role", "unknown")
-            content = message.get("content")
-            tool_call_id = message.get("tool_call_id")
-        else:
-            raw_role = getattr(message, "role", "unknown")
-            content = getattr(message, "content", None)
-            tool_call_id = getattr(message, "tool_call_id", None)
-
-        role = raw_role.value if isinstance(raw_role, RoleType) else str(raw_role)
-        title = Text.assemble(
-            Text(f" {self._get_role_badge_label(role)} ", style=self._get_role_badge_style(role)),
-            Text(f"  #{index}", style="muted"),
-        )
-
-        parts: List[RenderableType] = []
-        if content not in (None, "", []):
-            parts.append(Text(" 消息 ", style="bold cyan"))
-            parts.append(self._render_message_content(content))
-
-        if tool_call_id:
-            parts.append(
-                Text.assemble(
-                    Text(" 工具调用编号 ", style="bold magenta"),
-                    Text(" "),
-                    Text(str(tool_call_id), style="magenta"),
-                )
-            )
-
-        if not parts:
-            parts.append(Text("[空消息]", style="muted"))
-
-        return Panel(
-            Group(*parts),
-            title=title,
-            border_style="dim",
-            padding=(0, 1),
-        )
-
-    @staticmethod
-    def _format_token_count(token_count: int) -> str:
-        """格式化 token 数量展示文本。"""
-        if token_count >= 10_000:
-            return f"{token_count / 1000:.1f}k"
-        return str(token_count)
-
-    @classmethod
-    def _build_prompt_stats_text(
-        cls,
-        *,
-        selected_history_count: int,
-        built_message_count: int,
-        prompt_tokens: int,
-        completion_tokens: int,
-        total_tokens: int,
-    ) -> str:
-        """构造本轮 prompt 的统计信息文本。"""
-        return (
-            f"已选上下文消息数={selected_history_count} "
-            f"大模型消息数={built_message_count} "
-            f"实际输入Token={cls._format_token_count(prompt_tokens)} "
-            f"输出Token={cls._format_token_count(completion_tokens)} "
-            f"总Token={cls._format_token_count(total_tokens)}"
-        )
-
     async def chat_loop_step(self, chat_history: List[LLMContextMessage]) -> ChatResponse:
         """执行一轮 Maisaka 规划器请求。
 
@@ -756,13 +504,10 @@ class MaisakaChatLoopService:
         else:
             all_tools = [*get_builtin_tools(), *self._extra_tools]
 
-        ordered_panels: List[Panel] = []
-        for index, msg in enumerate(built_messages, start=1):
-            ordered_panels.append(self._render_message_panel(msg, index))
-            tool_calls = getattr(msg, "tool_calls", None)
-            if tool_calls:
-                for tool_call_index, tool_call in enumerate(tool_calls, start=1):
-                    ordered_panels.append(self._render_tool_call_panel(tool_call, tool_call_index, index))
+        ordered_panels = PromptCLIVisualizer.build_prompt_panels(
+            built_messages,
+            image_display_mode=global_config.maisaka.terminal_image_display_mode,
+        )
 
         if global_config.maisaka.show_thinking and ordered_panels:
             console.print(
@@ -795,7 +540,7 @@ class MaisakaChatLoopService:
         request_elapsed = perf_counter() - request_started_at
         logger.info(f"规划器请求完成，耗时={request_elapsed:.3f} 秒")
 
-        prompt_stats_text = self._build_prompt_stats_text(
+        prompt_stats_text = PromptCLIVisualizer.build_prompt_stats_text(
             selected_history_count=len(selected_history),
             built_message_count=len(built_messages),
             prompt_tokens=generation_result.prompt_tokens,
@@ -826,6 +571,11 @@ class MaisakaChatLoopService:
             content=generation_result.response,
             tool_calls=generation_result.tool_calls or [],
             raw_message=raw_message,
+            selected_history_count=len(selected_history),
+            prompt_tokens=generation_result.prompt_tokens,
+            built_message_count=len(built_messages),
+            completion_tokens=generation_result.completion_tokens,
+            total_tokens=generation_result.total_tokens,
         )
 
     @staticmethod

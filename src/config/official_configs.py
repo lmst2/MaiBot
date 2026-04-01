@@ -1550,15 +1550,6 @@ class MaiSakaConfig(ConfigBase):
     )
     """工具筛选阶段最多保留的非内置工具数量"""
 
-    terminal_image_preview: bool = Field(
-        default=False,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "image",
-        },
-    )
-    """是否渲染低分辨率终端预览图片"""
-
     terminal_image_display_mode: Literal["legacy", "path_link"] = Field(
         default="legacy",
         json_schema_extra={
@@ -1567,16 +1558,6 @@ class MaiSakaConfig(ConfigBase):
         },
     )
     """图片展示模式：legacy（仅显示元信息）/ path_link（可点击本地路径）"""
-
-    terminal_image_preview_width: int = Field(
-        default=24,
-        ge=8,
-        json_schema_extra={
-            "x-widget": "input",
-            "x-icon": "columns",
-        },
-    )
-    """Maisaka终端图片预览的字符宽度"""
 
 
 class MCPAuthorizationConfig(ConfigBase):
