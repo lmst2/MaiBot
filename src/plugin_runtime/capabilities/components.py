@@ -458,6 +458,17 @@ class RuntimeComponentCapabilityMixin:
     async def _cap_component_get_plugin_info(
         self: _RuntimeComponentManagerProtocol, plugin_id: str, capability: str, args: Dict[str, Any]
     ) -> Any:
+        """获取指定插件的基础信息。
+
+        Args:
+            plugin_id: 当前调用方插件 ID。
+            capability: 当前能力名称。
+            args: 能力调用参数。
+
+        Returns:
+            Any: 插件基础信息响应。
+        """
+
         plugin_name: str = args.get("plugin_name", plugin_id)
         try:
             sv = self._get_supervisor_for_plugin(plugin_name)
@@ -473,9 +484,45 @@ class RuntimeComponentCapabilityMixin:
                     "description": "",
                     "author": "",
                     "enabled": True,
+                    "default_config": reg.default_config,
+                    "config_schema": reg.config_schema,
                 },
             }
         return {"success": False, "error": f"未找到插件: {plugin_name}"}
+
+    async def _cap_component_get_plugin_config_schema(
+        self: _RuntimeComponentManagerProtocol, plugin_id: str, capability: str, args: Dict[str, Any]
+    ) -> Any:
+        """获取指定插件注册时上报的配置 Schema。
+
+        Args:
+            plugin_id: 当前调用方插件 ID。
+            capability: 当前能力名称。
+            args: 能力调用参数。
+
+        Returns:
+            Any: 包含配置 Schema 与默认配置的响应。
+        """
+
+        plugin_name: str = args.get("plugin_name", plugin_id)
+        try:
+            sv = self._get_supervisor_for_plugin(plugin_name)
+        except RuntimeError as exc:
+            return {"success": False, "error": str(exc)}
+
+        if sv is None:
+            return {"success": False, "error": f"未找到插件: {plugin_name}"}
+
+        registration = sv._registered_plugins.get(plugin_name)
+        if registration is None:
+            return {"success": False, "error": f"未找到插件: {plugin_name}"}
+
+        return {
+            "success": True,
+            "plugin_id": plugin_name,
+            "schema": registration.config_schema,
+            "default_config": registration.default_config,
+        }
 
     async def _cap_component_list_loaded_plugins(
         self: _RuntimeComponentManagerProtocol, plugin_id: str, capability: str, args: Dict[str, Any]
