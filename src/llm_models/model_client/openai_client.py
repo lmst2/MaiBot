@@ -314,13 +314,15 @@ def _convert_tool_options(tool_options: List[ToolOption]) -> List[ChatCompletion
     """
     converted_tools: List[ChatCompletionToolParam] = []
     for tool_option in tool_options:
+        parameters_schema = cast(
+            Dict[str, object],
+            tool_option.parameters_schema or {"type": "object", "properties": {}},
+        )
         function_schema: FunctionDefinition = {
             "name": tool_option.name,
             "description": tool_option.description,
+            "parameters": parameters_schema,
         }
-        parameters_schema = tool_option.parameters_schema
-        if parameters_schema is not None:
-            function_schema["parameters"] = cast(Dict[str, object], parameters_schema)
         converted_tools.append(
             {
                 "type": "function",
