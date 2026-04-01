@@ -328,14 +328,47 @@ class MaisakaReasoningEngine:
         trimmed_history = list(self._runtime._chat_history)
         removed_count = 0
 
-        while conversation_message_count >= self._runtime._max_context_size and trimmed_history:
+        while conversation_message_count > self._runtime._max_context_size and trimmed_history:
             removed_message = trimmed_history.pop(0)
             removed_count += 1
             if removed_message.count_in_context:
                 conversation_message_count -= 1
 
+        trimmed_history, pruned_orphan_count = self._drop_leading_orphan_tool_results(trimmed_history)
+        removed_count += pruned_orphan_count
+
         self._runtime._chat_history = trimmed_history
         self._runtime._log_history_trimmed(removed_count, conversation_message_count)
+
+    @staticmethod
+    def _drop_leading_orphan_tool_results(
+        chat_history: list[LLMContextMessage],
+    ) -> tuple[list[LLMContextMessage], int]:
+        """清理历史前缀中缺少对应 assistant tool_call 的工具结果消息。"""
+
+        if not chat_history:
+            return chat_history, 0
+
+        available_tool_call_ids = {
+            tool_call.call_id
+            for message in chat_history
+            if isinstance(message, AssistantMessage)
+            for tool_call in message.tool_calls
+            if tool_call.call_id
+        }
+
+        first_valid_index = 0
+        while first_valid_index < len(chat_history):
+            message = chat_history[first_valid_index]
+            if not isinstance(message, ToolResultMessage):
+                break
+            if message.tool_call_id in available_tool_call_ids:
+                break
+            first_valid_index += 1
+
+        if first_valid_index == 0:
+            return chat_history, 0
+        return chat_history[first_valid_index:], first_valid_index
 
     @staticmethod
     def _calculate_similarity(text1: str, text2: str) -> float:
@@ -819,7 +852,77 @@ class MaisakaReasoningEngine:
         """执行 send_emoji 内置工具。"""
 
         del context
-        return await self._handle_send_emoji(self._build_tool_call_from_invocation(invocation))
+        return await self._invoke_builtin_send_emoji(self._build_tool_call_from_invocation(invocation))
+
+    async def _invoke_builtin_send_emoji(self, tool_call: ToolCall) -> ToolExecutionResult:
+        """执行内置表情工具。"""
+        from src.chat.emoji_system.maisaka_tool import send_emoji_for_maisaka
+
+        tool_args = tool_call.args or {}
+        emotion = str(tool_args.get("emotion") or "").strip()
+        context_texts = [
+            message.get_history_text()
+            for message in self._runtime._chat_history[-5:]
+            if message.get_history_text().strip()
+        ]
+        structured_result: dict[str, Any] = {
+            "success": False,
+            "message": "",
+            "description": "",
+            "emotion": [],
+            "requested_emotion": emotion,
+            "matched_emotion": "",
+        }
+
+        logger.info(f"{self._runtime.log_prefix} 触发表情包发送工具，请求情绪={emotion!r}")
+
+        try:
+            send_result = await send_emoji_for_maisaka(
+                stream_id=self._runtime.session_id,
+                requested_emotion=emotion,
+                reasoning=self._last_reasoning_content,
+                context_texts=context_texts,
+            )
+        except Exception as exc:
+            logger.exception(f"{self._runtime.log_prefix} 发送表情包时发生异常: {exc}")
+            structured_result["message"] = f"发送表情包时发生异常：{exc}"
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                structured_result["message"],
+                structured_content=structured_result,
+            )
+
+        structured_result["description"] = send_result.description
+        structured_result["emotion"] = list(send_result.emotions)
+        structured_result["matched_emotion"] = send_result.matched_emotion
+        structured_result["message"] = send_result.message
+
+        if send_result.success:
+            logger.info(
+                f"{self._runtime.log_prefix} 表情包发送成功: "
+                f"描述={send_result.description!r} 情绪标签={send_result.emotions} "
+                f"请求情绪={emotion!r} 命中情绪={send_result.matched_emotion!r}"
+            )
+            self._append_sent_emoji_to_chat_history(
+                emoji_base64=send_result.emoji_base64,
+                success_message=send_result.message,
+            )
+            structured_result["success"] = True
+            return self._build_tool_success_result(
+                tool_call.func_name,
+                send_result.message,
+                structured_content=structured_result,
+            )
+
+        logger.warning(
+            f"{self._runtime.log_prefix} 表情包发送失败: "
+            f"请求情绪={emotion!r} 错误信息={send_result.message}"
+        )
+        return self._build_tool_failure_result(
+            tool_call.func_name,
+            structured_result["message"],
+            structured_content=structured_result,
+        )
 
     async def _handle_tool_calls(
         self,
