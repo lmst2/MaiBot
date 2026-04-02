@@ -1959,6 +1959,129 @@ class MCPConfig(ConfigBase):
         return super().model_post_init(context)
 
 
+class PluginRuntimeRenderConfig(ConfigBase):
+    """插件运行时浏览器渲染配置。"""
+
+    enabled: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "image",
+        },
+    )
+    """是否启用插件运行时浏览器渲染能力"""
+
+    browser_ws_endpoint: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "link",
+        },
+    )
+    """优先复用的现有 Chromium CDP 地址，可填写 ws/http 端点"""
+
+    executable_path: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "folder",
+        },
+    )
+    """浏览器可执行文件路径，留空时自动探测本机 Chrome/Chromium"""
+
+    browser_install_root: str = Field(
+        default="data/playwright-browsers",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hard-drive",
+        },
+    )
+    """Playwright 托管浏览器目录，自动下载 Chromium 时会复用该目录"""
+
+    headless: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "monitor",
+        },
+    )
+    """是否以无头模式启动浏览器"""
+
+    launch_args: list[str] = Field(
+        default_factory=lambda: [
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--disable-setuid-sandbox",
+            "--no-sandbox",
+            "--no-zygote",
+        ],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "terminal",
+        },
+    )
+    """浏览器启动参数列表"""
+
+    concurrency_limit: int = Field(
+        default=2,
+        ge=1,
+        json_schema_extra={
+            "x-widget": "number",
+            "x-icon": "layers",
+        },
+    )
+    """同时允许进行的最大渲染任务数"""
+
+    startup_timeout_sec: float = Field(
+        default=20.0,
+        gt=0,
+        json_schema_extra={
+            "x-widget": "number",
+            "x-icon": "clock",
+        },
+    )
+    """浏览器连接或启动超时时间（秒）"""
+
+    render_timeout_sec: float = Field(
+        default=15.0,
+        gt=0,
+        json_schema_extra={
+            "x-widget": "number",
+            "x-icon": "timer",
+        },
+    )
+    """单次渲染默认超时时间（秒）"""
+
+    auto_download_chromium: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "download",
+        },
+    )
+    """未检测到可用浏览器时，是否自动下载 Playwright Chromium"""
+
+    download_connection_timeout_sec: float = Field(
+        default=120.0,
+        gt=0,
+        json_schema_extra={
+            "x-widget": "number",
+            "x-icon": "cloud-lightning",
+        },
+    )
+    """自动下载 Chromium 时的连接超时时间（秒）"""
+
+    restart_after_render_count: int = Field(
+        default=200,
+        ge=0,
+        json_schema_extra={
+            "x-widget": "number",
+            "x-icon": "refresh-cw",
+        },
+    )
+    """累计渲染指定次数后自动重建本地浏览器，0 表示关闭该策略"""
+
+
 class PluginRuntimeConfig(ConfigBase):
     """插件运行时配置类"""
 
@@ -2021,3 +2144,6 @@ class PluginRuntimeConfig(ConfigBase):
     自定义 IPC Socket 路径（仅 Linux/macOS 生效）
     留空则自动生成临时路径
     """
+
+    render: PluginRuntimeRenderConfig = Field(default_factory=PluginRuntimeRenderConfig)
+    """浏览器渲染能力配置"""

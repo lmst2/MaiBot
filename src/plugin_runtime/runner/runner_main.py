@@ -29,6 +29,7 @@ import tomlkit
 
 from src.common.logger import get_console_handler, get_logger, initialize_logging
 from src.plugin_runtime import (
+    ENV_BLOCKED_PLUGIN_REASONS,
     ENV_EXTERNAL_PLUGIN_IDS,
     ENV_HOST_VERSION,
     ENV_IPC_ADDRESS,
@@ -196,6 +197,7 @@ class PluginRunner:
         session_token: str,
         plugin_dirs: List[str],
         external_available_plugins: Optional[Dict[str, str]] = None,
+        blocked_plugin_reasons: Optional[Dict[str, str]] = None,
     ) -> None:
         """初始化 Runner。
 
@@ -204,6 +206,7 @@ class PluginRunner:
             session_token: 握手用会话令牌。
             plugin_dirs: 当前 Runner 负责扫描的插件目录列表。
             external_available_plugins: 视为已满足的外部依赖插件版本映射。
+            blocked_plugin_reasons: 需要拒绝加载的插件及原因映射。
         """
         self._host_address: str = host_address
         self._session_token: str = session_token
@@ -213,9 +216,15 @@ class PluginRunner:
             for plugin_id, plugin_version in (external_available_plugins or {}).items()
             if str(plugin_id or "").strip() and str(plugin_version or "").strip()
         }
+        self._blocked_plugin_reasons: Dict[str, str] = {
+            str(plugin_id or "").strip(): str(reason or "").strip()
+            for plugin_id, reason in (blocked_plugin_reasons or {}).items()
+            if str(plugin_id or "").strip() and str(reason or "").strip()
+        }
 
         self._rpc_client: RPCClient = RPCClient(host_address, session_token)
         self._loader: PluginLoader = PluginLoader(host_version=os.getenv(ENV_HOST_VERSION, ""))
+        self._loader.set_blocked_plugin_reasons(self._blocked_plugin_reasons)
         self._start_time: float = time.monotonic()
         self._shutting_down: bool = False
         self._reload_lock: asyncio.Lock = asyncio.Lock()
@@ -1639,6 +1648,7 @@ class PluginRunner:
 
 async def _async_main() -> None:
     """异步主入口"""
+    blocked_plugin_reasons_raw = os.environ.get(ENV_BLOCKED_PLUGIN_REASONS, "")
     host_address = os.environ.pop(ENV_IPC_ADDRESS, "")
     external_plugin_ids_raw = os.environ.get(ENV_EXTERNAL_PLUGIN_IDS, "")
     session_token = os.environ.pop(ENV_SESSION_TOKEN, "")
@@ -1658,13 +1668,30 @@ async def _async_main() -> None:
         logger.warning("外部依赖插件版本映射格式非法，已回退为空映射")
         external_plugin_ids = {}
 
+    try:
+        blocked_plugin_reasons = json.loads(blocked_plugin_reasons_raw) if blocked_plugin_reasons_raw else {}
+    except json.JSONDecodeError:
+        logger.warning("解析阻止加载插件原因映射失败，已回退为空映射")
+        blocked_plugin_reasons = {}
+    if not isinstance(blocked_plugin_reasons, dict):
+        logger.warning("阻止加载插件原因映射格式非法，已回退为空映射")
+        blocked_plugin_reasons = {}
+
+    runner_kwargs: Dict[str, Any] = {
+        "external_available_plugins": {
+            str(plugin_id): str(plugin_version) for plugin_id, plugin_version in external_plugin_ids.items()
+        }
+    }
+    if blocked_plugin_reasons:
+        runner_kwargs["blocked_plugin_reasons"] = {
+            str(plugin_id): str(reason) for plugin_id, reason in blocked_plugin_reasons.items()
+        }
+
     runner = PluginRunner(
         host_address,
         session_token,
         plugin_dirs,
-        external_available_plugins={
-            str(plugin_id): str(plugin_version) for plugin_id, plugin_version in external_plugin_ids.items()
-        },
+        **runner_kwargs,
     )
 
     # 注册信号处理

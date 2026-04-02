@@ -75,6 +75,35 @@ class PluginLoader:
         self._failed_plugins: Dict[str, str] = {}
         self._manifest_validator = ManifestValidator(host_version=host_version)
         self._compat_hook_installed = False
+        self._blocked_plugin_reasons: Dict[str, str] = {}
+
+    def set_blocked_plugin_reasons(self, blocked_plugin_reasons: Optional[Dict[str, str]] = None) -> None:
+        """更新当前加载器持有的拒绝加载插件列表。
+
+        Args:
+            blocked_plugin_reasons: 需要拒绝加载的插件及原因映射。
+        """
+
+        self._blocked_plugin_reasons = {
+            str(plugin_id or "").strip(): str(reason or "").strip()
+            for plugin_id, reason in (blocked_plugin_reasons or {}).items()
+            if str(plugin_id or "").strip() and str(reason or "").strip()
+        }
+
+    def get_blocked_plugin_reason(self, plugin_id: str) -> Optional[str]:
+        """返回指定插件当前的拒绝加载原因。
+
+        Args:
+            plugin_id: 目标插件 ID。
+
+        Returns:
+            Optional[str]: 若插件被阻止加载则返回原因，否则返回 ``None``。
+        """
+
+        normalized_plugin_id = str(plugin_id or "").strip()
+        if not normalized_plugin_id:
+            return None
+        return self._blocked_plugin_reasons.get(normalized_plugin_id)
 
     def discover_and_load(
         self,
@@ -156,6 +185,11 @@ class PluginLoader:
             return None
 
         plugin_id = manifest.id
+        if blocked_reason := self.get_blocked_plugin_reason(plugin_id):
+            self._failed_plugins[plugin_id] = blocked_reason
+            logger.warning(f"插件 {plugin_id} 已被 Host 依赖流水线阻止加载: {blocked_reason}")
+            return None
+
         return plugin_id, (plugin_dir, manifest, plugin_path)
 
     def _record_duplicate_candidates(self, duplicate_candidates: Dict[str, List[Path]]) -> None:

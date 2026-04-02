@@ -91,4 +91,5 @@ def register_capability_impls(manager: "PluginRuntimeManager", supervisor: Plugi
     _register("component.reload_plugin", manager._cap_component_reload_plugin)
 
     _register("knowledge.search", manager._cap_knowledge_search)
+    _register("render.html2png", manager._cap_render_html2png)
     logger.debug("已注册全部主程序能力实现")

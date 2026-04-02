@@ -3,6 +3,8 @@
 验证协议层、传输层、RPC 通信链路的正确性。
 """
 
+# pyright: reportArgumentType=false, reportAttributeAccessIssue=false, reportCallIssue=false, reportIndexIssue=false, reportMissingImports=false, reportOptionalMemberAccess=false
+
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
@@ -2891,7 +2893,7 @@ class TestIntegration:
         assert instances[0].stopped is True
 
     @pytest.mark.asyncio
-    async def test_handle_plugin_source_changes_only_reload_matching_supervisor(self, monkeypatch, tmp_path):
+    async def test_handle_plugin_source_changes_restarts_supervisors_after_dependency_sync(self, monkeypatch, tmp_path):
         from src.config.file_watcher import FileChange
         from src.plugin_runtime import integration as integration_module
         import json
@@ -2915,7 +2917,6 @@ class TestIntegration:
             def __init__(self, plugin_dirs, registered_plugins):
                 self._plugin_dirs = plugin_dirs
                 self._registered_plugins = registered_plugins
-                self.reload_reasons = []
                 self.config_updates = []
 
             def get_loaded_plugin_ids(self):
@@ -2923,9 +2924,6 @@ class TestIntegration:
 
             def get_loaded_plugin_versions(self):
                 return {plugin_id: "1.0.0" for plugin_id in self._registered_plugins}
-
-            async def reload_plugins(self, plugin_ids=None, reason="manual", external_available_plugins=None):
-                self.reload_reasons.append((plugin_ids, reason, external_available_plugins or {}))
 
             async def notify_plugin_config_updated(self, plugin_id, config_data, config_version=""):
                 self.config_updates.append((plugin_id, config_data, config_version))
@@ -2935,27 +2933,37 @@ class TestIntegration:
         manager._started = True
         manager._builtin_supervisor = FakeSupervisor([builtin_root], {"test.alpha": object()})
         manager._third_party_supervisor = FakeSupervisor([thirdparty_root], {"test.beta": object()})
+        dependency_sync_calls = []
+        restart_calls = []
+
+        async def fake_sync(plugin_dirs: Sequence[Path]) -> Any:
+            """记录依赖同步调用。"""
+
+            dependency_sync_calls.append(list(plugin_dirs))
+            return integration_module.DependencySyncState(
+                blocked_changed_plugin_ids={"test.beta"},
+                environment_changed=False,
+            )
+
+        async def fake_restart(reason: str) -> bool:
+            """记录 Supervisor 重启调用。"""
+
+            restart_calls.append(reason)
+            return True
+
+        monkeypatch.setattr(manager, "_sync_plugin_dependencies", fake_sync)
+        monkeypatch.setattr(manager, "_restart_supervisors", fake_restart)
 
         changes = [
             FileChange(change_type=1, path=beta_dir / "plugin.py"),
         ]
 
-        refresh_calls = []
-
-        def fake_refresh() -> None:
-            refresh_calls.append(True)
-
-        manager._refresh_plugin_config_watch_subscriptions = fake_refresh
-
         await manager._handle_plugin_source_changes(changes)
 
-        assert manager._builtin_supervisor.reload_reasons == []
-        assert manager._third_party_supervisor.reload_reasons == [
-            (["test.beta"], "file_watcher", {"test.alpha": "1.0.0"})
-        ]
+        assert dependency_sync_calls == [[builtin_root, thirdparty_root]]
+        assert restart_calls == ["file_watcher_blocklist_changed"]
         assert manager._builtin_supervisor.config_updates == []
         assert manager._third_party_supervisor.config_updates == []
-        assert refresh_calls == [True]
 
     @pytest.mark.asyncio
     async def test_reload_plugins_globally_warns_and_skips_cross_supervisor_dependents(self, monkeypatch):

@@ -8,6 +8,7 @@
 5. 提供统一的能力实现注册接口，使插件可以调用主程序功能
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -33,13 +34,15 @@ from src.common.logger import get_logger
 from src.config.config import config_manager
 from src.config.file_watcher import FileChange, FileWatcher
 from src.platform_io import DeliveryBatch, InboundMessageEnvelope, get_platform_io_manager
-from src.plugin_runtime.hook_catalog import register_builtin_hook_specs
 from src.plugin_runtime.capabilities import (
     RuntimeComponentCapabilityMixin,
     RuntimeCoreCapabilityMixin,
     RuntimeDataCapabilityMixin,
+    RuntimeRenderCapabilityMixin,
 )
 from src.plugin_runtime.capabilities.registry import register_capability_impls
+from src.plugin_runtime.dependency_pipeline import PluginDependencyPipeline
+from src.plugin_runtime.hook_catalog import register_builtin_hook_specs
 from src.plugin_runtime.host.hook_dispatcher import HookDispatchResult, HookDispatcher
 from src.plugin_runtime.host.hook_spec_registry import HookSpec, HookSpecRegistry
 from src.plugin_runtime.host.message_utils import MessageDict, PluginMessageUtils
@@ -67,10 +70,19 @@ _EVENT_TYPE_MAP: Dict[str, str] = {
 }
 
 
+@dataclass(frozen=True)
+class DependencySyncState:
+    """表示一次插件依赖同步后的状态。"""
+
+    blocked_changed_plugin_ids: Set[str]
+    environment_changed: bool
+
+
 class PluginRuntimeManager(
     RuntimeCoreCapabilityMixin,
     RuntimeDataCapabilityMixin,
     RuntimeComponentCapabilityMixin,
+    RuntimeRenderCapabilityMixin,
 ):
     """插件运行时管理器（单例）
 
@@ -88,7 +100,9 @@ class PluginRuntimeManager(
         self._plugin_source_watcher_subscription_id: Optional[str] = None
         self._plugin_config_watcher_subscriptions: Dict[str, Tuple[Path, str]] = {}
         self._plugin_path_cache: Dict[str, Path] = {}
-        self._manifest_validator: ManifestValidator = ManifestValidator()
+        self._manifest_validator: ManifestValidator = ManifestValidator(validate_python_package_dependencies=False)
+        self._plugin_dependency_pipeline: PluginDependencyPipeline = PluginDependencyPipeline()
+        self._blocked_plugin_reasons: Dict[str, str] = {}
         self._config_reload_callback: Callable[[Sequence[str]], Awaitable[None]] = self._handle_main_config_reload
         self._config_reload_callback_registered: bool = False
         self._hook_spec_registry: HookSpecRegistry = HookSpecRegistry()
@@ -131,7 +145,7 @@ class PluginRuntimeManager(
     @classmethod
     def _discover_plugin_dependency_map(cls, plugin_dirs: Iterable[Path]) -> Dict[str, List[str]]:
         """扫描指定插件目录集合，返回 ``plugin_id -> dependencies`` 映射。"""
-        validator = ManifestValidator()
+        validator = ManifestValidator(validate_python_package_dependencies=False)
         return validator.build_plugin_dependency_map(plugin_dirs)
 
     @classmethod
@@ -191,6 +205,206 @@ class PluginRuntimeManager(
         }
         return supervisor_cls(**supported_kwargs)
 
+    def _resolve_runtime_plugin_dirs(self) -> Tuple[List[Path], List[Path]]:
+        """解析当前运行时应管理的插件根目录。
+
+        Returns:
+            Tuple[List[Path], List[Path]]: 内置插件目录列表与第三方插件目录列表。
+        """
+
+        return self._get_builtin_plugin_dirs(), self._get_third_party_plugin_dirs()
+
+    @staticmethod
+    def _resolve_supervisor_socket_paths() -> Tuple[Optional[str], Optional[str]]:
+        """解析内置与第三方 Supervisor 的 IPC 地址。
+
+        Returns:
+            Tuple[Optional[str], Optional[str]]: 内置 Runner 与第三方 Runner 的 socket 地址。
+        """
+
+        runtime_config = config_manager.get_global_config().plugin_runtime
+        socket_path_base = runtime_config.ipc_socket_path or None
+        builtin_socket = f"{socket_path_base}-builtin" if socket_path_base else None
+        third_party_socket = f"{socket_path_base}-third_party" if socket_path_base else None
+        return builtin_socket, third_party_socket
+
+    def _apply_blocked_plugin_reasons_to_supervisors(self) -> None:
+        """将当前阻止加载插件列表同步到全部 Supervisor。"""
+
+        for supervisor in self.supervisors:
+            set_blocked_plugin_reasons = getattr(supervisor, "set_blocked_plugin_reasons", None)
+            if callable(set_blocked_plugin_reasons):
+                set_blocked_plugin_reasons(self._blocked_plugin_reasons)
+
+    def _set_blocked_plugin_reasons(self, blocked_plugin_reasons: Dict[str, str]) -> Set[str]:
+        """更新 Host 侧维护的阻止加载插件列表。
+
+        Args:
+            blocked_plugin_reasons: 最新的阻止加载插件及原因映射。
+
+        Returns:
+            Set[str]: 本次发生状态变化的插件 ID 集合。
+        """
+
+        normalized_reasons = {
+            str(plugin_id or "").strip(): str(reason or "").strip()
+            for plugin_id, reason in blocked_plugin_reasons.items()
+            if str(plugin_id or "").strip() and str(reason or "").strip()
+        }
+        changed_plugin_ids = {
+            plugin_id
+            for plugin_id in set(self._blocked_plugin_reasons) | set(normalized_reasons)
+            if self._blocked_plugin_reasons.get(plugin_id) != normalized_reasons.get(plugin_id)
+        }
+        self._blocked_plugin_reasons = normalized_reasons
+        self._apply_blocked_plugin_reasons_to_supervisors()
+        return changed_plugin_ids
+
+    async def _sync_plugin_dependencies(self, plugin_dirs: Sequence[Path]) -> DependencySyncState:
+        """执行插件依赖同步，并刷新阻止加载插件列表。
+
+        Args:
+            plugin_dirs: 当前需要参与分析的插件根目录列表。
+
+        Returns:
+            DependencySyncState: 同步后的环境变更状态与阻止列表变化集合。
+        """
+
+        result = await self._plugin_dependency_pipeline.execute(plugin_dirs)
+        changed_plugin_ids = self._set_blocked_plugin_reasons(result.blocked_plugin_reasons)
+        return DependencySyncState(
+            blocked_changed_plugin_ids=changed_plugin_ids,
+            environment_changed=result.environment_changed,
+        )
+
+    def _build_supervisors(self, builtin_dirs: Sequence[Path], third_party_dirs: Sequence[Path]) -> None:
+        """根据目录列表创建当前运行时所需的 Supervisor。
+
+        Args:
+            builtin_dirs: 内置插件目录列表。
+            third_party_dirs: 第三方插件目录列表。
+        """
+
+        from src.plugin_runtime.host.supervisor import PluginSupervisor
+
+        builtin_socket, third_party_socket = self._resolve_supervisor_socket_paths()
+        self._builtin_supervisor = None
+        self._third_party_supervisor = None
+
+        if builtin_dirs:
+            builtin_supervisor = self._instantiate_supervisor(
+                PluginSupervisor,
+                plugin_dirs=list(builtin_dirs),
+                group_name="builtin",
+                hook_spec_registry=self._hook_spec_registry,
+                socket_path=builtin_socket,
+            )
+            self._builtin_supervisor = builtin_supervisor
+            self._register_capability_impls(builtin_supervisor)
+
+        if third_party_dirs:
+            third_party_supervisor = self._instantiate_supervisor(
+                PluginSupervisor,
+                plugin_dirs=list(third_party_dirs),
+                group_name="third_party",
+                hook_spec_registry=self._hook_spec_registry,
+                socket_path=third_party_socket,
+            )
+            self._third_party_supervisor = third_party_supervisor
+            self._register_capability_impls(third_party_supervisor)
+
+        self._apply_blocked_plugin_reasons_to_supervisors()
+
+    async def _start_supervisors(
+        self,
+        builtin_dirs: Sequence[Path],
+        third_party_dirs: Sequence[Path],
+    ) -> List["PluginSupervisor"]:
+        """按依赖顺序启动当前已创建的 Supervisor。
+
+        Args:
+            builtin_dirs: 内置插件目录列表。
+            third_party_dirs: 第三方插件目录列表。
+
+        Returns:
+            List[PluginSupervisor]: 成功启动的 Supervisor 列表。
+        """
+
+        started_supervisors: List["PluginSupervisor"] = []
+        supervisor_groups: Dict[str, Optional["PluginSupervisor"]] = {
+            "builtin": self._builtin_supervisor,
+            "third_party": self._third_party_supervisor,
+        }
+        start_order = self._build_group_start_order(builtin_dirs, third_party_dirs)
+
+        try:
+            for group_name in start_order:
+                supervisor = supervisor_groups.get(group_name)
+                if supervisor is None:
+                    continue
+
+                external_plugin_versions = {
+                    plugin_id: plugin_version
+                    for started_supervisor in started_supervisors
+                    for plugin_id, plugin_version in started_supervisor.get_loaded_plugin_versions().items()
+                }
+                supervisor.set_external_available_plugins(external_plugin_versions)
+                set_blocked_plugin_reasons = getattr(supervisor, "set_blocked_plugin_reasons", None)
+                if callable(set_blocked_plugin_reasons):
+                    set_blocked_plugin_reasons(self._blocked_plugin_reasons)
+                await supervisor.start()
+                started_supervisors.append(supervisor)
+        except Exception:
+            await asyncio.gather(*(supervisor.stop() for supervisor in started_supervisors), return_exceptions=True)
+            raise
+
+        return started_supervisors
+
+    async def _stop_supervisors(self) -> None:
+        """停止当前全部 Supervisor。"""
+
+        supervisors = self.supervisors
+        if not supervisors:
+            return
+
+        await asyncio.gather(*(supervisor.stop() for supervisor in supervisors), return_exceptions=True)
+        self._builtin_supervisor = None
+        self._third_party_supervisor = None
+
+    async def _restart_supervisors(self, reason: str) -> bool:
+        """重启当前全部 Supervisor。
+
+        Args:
+            reason: 本次重启的原因。
+
+        Returns:
+            bool: 是否重启成功。
+        """
+
+        builtin_dirs, third_party_dirs = self._resolve_runtime_plugin_dirs()
+        if duplicate_plugin_ids := self._find_duplicate_plugin_ids(builtin_dirs + third_party_dirs):
+            details = "; ".join(
+                f"{plugin_id}: {', '.join(str(path) for path in paths)}"
+                for plugin_id, paths in sorted(duplicate_plugin_ids.items())
+            )
+            logger.error(f"检测到重复插件 ID，拒绝执行 Supervisor 重启: {details}")
+            return False
+
+        logger.info(f"开始重启插件运行时 Supervisor: {reason}")
+        await self._stop_supervisors()
+        self._build_supervisors(builtin_dirs, third_party_dirs)
+
+        try:
+            await self._start_supervisors(builtin_dirs, third_party_dirs)
+        except Exception as exc:
+            logger.error(f"重启插件运行时 Supervisor 失败: {exc}", exc_info=True)
+            await self._stop_supervisors()
+            return False
+
+        self._refresh_plugin_config_watch_subscriptions()
+        logger.info(f"插件运行时 Supervisor 已重启完成: {reason}")
+        return True
+
     # ─── 生命周期 ─────────────────────────────────────────────
 
     async def start(self) -> None:
@@ -204,10 +418,7 @@ class PluginRuntimeManager(
             logger.info("插件运行时已在配置中禁用，跳过启动")
             return
 
-        from src.plugin_runtime.host.supervisor import PluginSupervisor
-
-        builtin_dirs = self._get_builtin_plugin_dirs()
-        third_party_dirs = self._get_third_party_plugin_dirs()
+        builtin_dirs, third_party_dirs = self._resolve_runtime_plugin_dirs()
 
         if duplicate_plugin_ids := self._find_duplicate_plugin_ids(builtin_dirs + third_party_dirs):
             details = "; ".join(
@@ -221,61 +432,19 @@ class PluginRuntimeManager(
             logger.info("未找到任何插件目录，跳过插件运行时启动")
             return
 
+        dependency_sync_state = await self._sync_plugin_dependencies(builtin_dirs + third_party_dirs)
+        if dependency_sync_state.environment_changed:
+            logger.info("插件依赖流水线已更新当前 Python 环境，启动时将直接加载最新环境")
+
         self.ensure_builtin_hook_specs_registered()
         platform_io_manager = get_platform_io_manager()
+        self._build_supervisors(builtin_dirs, third_party_dirs)
 
-        # 从配置读取自定义 IPC socket 路径（留空则自动生成）
-        socket_path_base = _cfg.ipc_socket_path or None
-
-        # 当用户指定了自定义路径时，为两个 Supervisor 添加后缀以避免 UDS 冲突
-        builtin_socket = f"{socket_path_base}-builtin" if socket_path_base else None
-        third_party_socket = f"{socket_path_base}-third_party" if socket_path_base else None
-
-        # 创建两个 Supervisor，各自拥有独立的 socket / Runner 子进程
-        if builtin_dirs:
-            self._builtin_supervisor = self._instantiate_supervisor(
-                PluginSupervisor,
-                plugin_dirs=builtin_dirs,
-                group_name="builtin",
-                hook_spec_registry=self._hook_spec_registry,
-                socket_path=builtin_socket,
-            )
-            self._register_capability_impls(self._builtin_supervisor)
-
-        if third_party_dirs:
-            self._third_party_supervisor = self._instantiate_supervisor(
-                PluginSupervisor,
-                plugin_dirs=third_party_dirs,
-                group_name="third_party",
-                hook_spec_registry=self._hook_spec_registry,
-                socket_path=third_party_socket,
-            )
-            self._register_capability_impls(self._third_party_supervisor)
-
-        started_supervisors: List[PluginSupervisor] = []
+        started_supervisors: List["PluginSupervisor"] = []
         try:
             platform_io_manager.set_inbound_dispatcher(self._dispatch_platform_inbound)
             await platform_io_manager.ensure_send_pipeline_ready()
-
-            supervisor_groups: Dict[str, Optional[PluginSupervisor]] = {
-                "builtin": self._builtin_supervisor,
-                "third_party": self._third_party_supervisor,
-            }
-            start_order = self._build_group_start_order(builtin_dirs, third_party_dirs)
-
-            for group_name in start_order:
-                supervisor = supervisor_groups.get(group_name)
-                if supervisor is None:
-                    continue
-
-                external_plugin_versions = {
-                    plugin_id: plugin_version
-                    for started_supervisor in started_supervisors
-                    for plugin_id, plugin_version in started_supervisor.get_loaded_plugin_versions().items()
-                }
-                supervisor.set_external_available_plugins(external_plugin_versions)
-                await supervisor.start()
-                started_supervisors.append(supervisor)
+            started_supervisors = await self._start_supervisors(builtin_dirs, third_party_dirs)
 
             await self._start_plugin_file_watcher()
             config_manager.register_reload_callback(self._config_reload_callback)
@@ -528,6 +697,21 @@ class PluginRuntimeManager(
         ]
         if not normalized_plugin_ids:
             return True
+
+        blocked_plugin_ids = [plugin_id for plugin_id in normalized_plugin_ids if plugin_id in self._blocked_plugin_reasons]
+        if blocked_plugin_ids:
+            logger.warning(
+                "以下插件当前被依赖流水线阻止加载，已拒绝重载请求: "
+                + ", ".join(
+                    f"{plugin_id} ({self._blocked_plugin_reasons[plugin_id]})"
+                    for plugin_id in sorted(blocked_plugin_ids)
+                )
+            )
+            normalized_plugin_ids = [
+                plugin_id for plugin_id in normalized_plugin_ids if plugin_id not in self._blocked_plugin_reasons
+            ]
+            if not normalized_plugin_ids:
+                return False
 
         dependency_map = self._build_registered_dependency_map()
         supervisor_by_plugin = self._build_registered_supervisor_map()
@@ -909,6 +1093,12 @@ class PluginRuntimeManager(
         normalized_plugin_id = str(plugin_id or "").strip()
         if not normalized_plugin_id:
             return False
+        if normalized_plugin_id in self._blocked_plugin_reasons:
+            logger.warning(
+                f"插件 {normalized_plugin_id} 当前被依赖流水线阻止加载: "
+                f"{self._blocked_plugin_reasons[normalized_plugin_id]}"
+            )
+            return False
 
         try:
             registered_supervisor = self._get_supervisor_for_plugin(normalized_plugin_id)
@@ -933,7 +1123,7 @@ class PluginRuntimeManager(
     def _find_duplicate_plugin_ids(cls, plugin_dirs: List[Path]) -> Dict[str, List[Path]]:
         """扫描插件目录，找出被多个目录重复声明的插件 ID。"""
         plugin_locations: Dict[str, List[Path]] = {}
-        validator = ManifestValidator()
+        validator = ManifestValidator(validate_python_package_dependencies=False)
         for plugin_path, manifest in validator.iter_plugin_manifests(plugin_dirs):
             plugin_locations.setdefault(manifest.id, []).append(plugin_path)
 
@@ -1190,7 +1380,8 @@ class PluginRuntimeManager(
         if not self._started or not changes:
             return
 
-        if duplicate_plugin_ids := self._find_duplicate_plugin_ids(list(self._iter_plugin_dirs())):
+        plugin_dirs = list(self._iter_plugin_dirs())
+        if duplicate_plugin_ids := self._find_duplicate_plugin_ids(plugin_dirs):
             details = "; ".join(
                 f"{plugin_id}: {', '.join(str(path) for path in paths)}"
                 for plugin_id, paths in sorted(duplicate_plugin_ids.items())
@@ -1198,21 +1389,24 @@ class PluginRuntimeManager(
             logger.error(f"检测到重复插件 ID，跳过本次插件热重载: {details}")
             return
 
-        changed_plugin_ids: List[str] = []
-        changed_paths = [change.path.resolve() for change in changes]
+        relevant_source_changes = [
+            change.path.resolve()
+            for change in changes
+            if change.path.name in {"plugin.py", "_manifest.json"} or change.path.suffix == ".py"
+        ]
+        if not relevant_source_changes:
+            return
 
-        for supervisor in self.supervisors:
-            for path in changed_paths:
-                plugin_id = self._match_plugin_id_for_supervisor(supervisor, path)
-                if plugin_id is None:
-                    continue
-                if path.name in {"plugin.py", "_manifest.json"} or path.suffix == ".py":
-                    if plugin_id not in changed_plugin_ids:
-                        changed_plugin_ids.append(plugin_id)
+        dependency_sync_state = await self._sync_plugin_dependencies(plugin_dirs)
+        restart_reason = "file_watcher"
+        if dependency_sync_state.environment_changed:
+            restart_reason = "file_watcher_dependency_install"
+        elif dependency_sync_state.blocked_changed_plugin_ids:
+            restart_reason = "file_watcher_blocklist_changed"
 
-        if changed_plugin_ids:
-            await self.reload_plugins_globally(changed_plugin_ids, reason="file_watcher")
-            self._refresh_plugin_config_watch_subscriptions()
+        restarted = await self._restart_supervisors(restart_reason)
+        if not restarted:
+            logger.warning(f"插件源码变更后重启 Supervisor 失败: {restart_reason}")
 
     @staticmethod
     def _plugin_dir_matches(path: Path, plugin_dir: Path) -> bool:

@@ -14,6 +14,7 @@ from src.platform_io import DriverKind, InboundMessageEnvelope, RouteBinding, Ro
 from src.platform_io.drivers import PluginPlatformDriver
 from src.platform_io.route_key_factory import RouteKeyFactory
 from src.plugin_runtime import (
+    ENV_BLOCKED_PLUGIN_REASONS,
     ENV_EXTERNAL_PLUGIN_IDS,
     ENV_GLOBAL_CONFIG_SNAPSHOT,
     ENV_HOST_VERSION,
@@ -131,6 +132,7 @@ class PluginRunnerSupervisor:
         self._registered_plugins: Dict[str, RegisterPluginPayload] = {}
         self._message_gateway_states: Dict[str, Dict[str, _MessageGatewayRuntimeState]] = {}
         self._external_available_plugins: Dict[str, str] = {}
+        self._blocked_plugin_reasons: Dict[str, str] = {}
         self._runner_ready_events: asyncio.Event = asyncio.Event()
         self._runner_ready_payloads: RunnerReadyPayload = RunnerReadyPayload()
         self._health_task: Optional[asyncio.Task[None]] = None
@@ -210,6 +212,19 @@ class PluginRunnerSupervisor:
             Dict[str, str]: 已注册插件版本映射，键为插件 ID，值为插件版本。
         """
         return {plugin_id: registration.plugin_version for plugin_id, registration in self._registered_plugins.items()}
+
+    def set_blocked_plugin_reasons(self, blocked_plugin_reasons: Dict[str, str]) -> None:
+        """设置当前 Runner 启动时应拒绝加载的插件列表。
+
+        Args:
+            blocked_plugin_reasons: 需要拒绝加载的插件及原因映射。
+        """
+
+        self._blocked_plugin_reasons = {
+            str(plugin_id or "").strip(): str(reason or "").strip()
+            for plugin_id, reason in blocked_plugin_reasons.items()
+            if str(plugin_id or "").strip() and str(reason or "").strip()
+        }
 
     @staticmethod
     def _normalize_reload_plugin_ids(plugin_ids: Optional[List[str] | str]) -> List[str]:
@@ -1303,6 +1318,7 @@ class PluginRunnerSupervisor:
         global_config_snapshot = config_manager.get_global_config().model_dump(mode="json")
         global_config_snapshot["model"] = config_manager.get_model_config().model_dump(mode="json")
         return {
+            ENV_BLOCKED_PLUGIN_REASONS: json.dumps(self._blocked_plugin_reasons, ensure_ascii=False),
             ENV_EXTERNAL_PLUGIN_IDS: json.dumps(self._external_available_plugins, ensure_ascii=False),
             ENV_GLOBAL_CONFIG_SNAPSHOT: json.dumps(global_config_snapshot, ensure_ascii=False),
             ENV_HOST_VERSION: PROTOCOL_VERSION,
