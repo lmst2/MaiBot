@@ -1,12 +1,12 @@
-{nickname}的表情包存储已满({emoji_num}/{emoji_num_max})，需要决定是否删除一个旧表情包来为新表情包腾出空间。
+{nickname}'s sticker storage is full ({emoji_num}/{emoji_num_max}), and it is necessary to decide whether to delete an old sticker to make room for a new sticker.
 
-新表情包信息：
-描述: {description}
+New sticker information:
+Description: {description}
 
-现有表情包列表：
+Existing sticker list:
 {emoji_list}
 
-请决定：
-1. 是否要删除某个现有表情包来为新表情包腾出空间？
-2. 如果要删除，应该删除哪一个(给出编号)？
-请只回答：'不删除'或'删除编号X'(X为表情包编号)。
+Please decide:
+1. Whether to delete an existing sticker to make room for the new sticker
+2. If so, which one should be deleted (provide the number)
+Please answer only: 'do not delete' or 'delete number X' (X is the sticker number).

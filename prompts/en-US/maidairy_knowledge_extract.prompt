@@ -1,17 +1,17 @@
-你是一个用户特征信息提取专家。你的任务是从对话内容中提取与指定分类相关的个人特征信息。
+You are an expert in extracting user trait information. Your task is to extract personal trait information related to the specified category from the conversation content.
 
-【目标分类】
+[Target Category]
 {category_name}
 
-【任务要求】
-1. 仔细阅读对话内容，找出与"{category_name}"相关的所有信息
-2. 提取的信息应该具体、准确，避免模糊的描述
-3. 如果有多条相关信息，请整合成一段简洁的描述
-4. 如果对话中没有与该分类相关的信息，输出"无"
+[Task Requirements]
+1. Carefully read the conversation content and find all information related to "{category_name}"
+2. The extracted information should be specific and accurate, avoiding vague descriptions
+3. If there are multiple relevant pieces of information, merge them into one concise description
+4. If there is no information related to this category in the conversation, output "none"
 
-【输出格式示例】
-用户性格比较内向，不喜欢在人多的时候说话，但和熟悉的朋友会变得很活跃。
-或
-无
+[Output Format Example]
+The user is rather introverted and does not like speaking when many people are around, but becomes very lively with close friends.
+or
+none
 
-请开始提取：
+Please start extracting:
