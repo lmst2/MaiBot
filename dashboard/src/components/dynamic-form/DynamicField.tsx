@@ -2,6 +2,7 @@ import * as React from "react"
 import * as LucideIcons from "lucide-react"
 
 import { Input } from "@/components/ui/input"
+import { KeyValueEditor } from "@/components/ui/key-value-editor"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
@@ -29,6 +30,57 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   value,
   onChange,
 }) => {
+  const renderPrimitiveArrayEditor = () => {
+    const itemType = schema.items?.type ?? 'string'
+    const arrayValue = Array.isArray(value)
+      ? value
+      : Array.isArray(schema.default)
+        ? schema.default
+        : []
+
+    const textareaValue = arrayValue.map((item) => String(item ?? '')).join('\n')
+
+    return (
+      <Textarea
+        value={textareaValue}
+        onChange={(e) => {
+          const nextItems = e.target.value
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+            .map((line) => {
+              if (itemType === 'integer') {
+                return parseInt(line, 10) || 0
+              }
+              if (itemType === 'number') {
+                return parseFloat(line) || 0
+              }
+              if (itemType === 'boolean') {
+                return line === 'true'
+              }
+              return line
+            })
+          onChange(nextItems)
+        }}
+        rows={Math.max(4, arrayValue.length || 4)}
+      />
+    )
+  }
+
+  const renderObjectEditor = () => {
+    const objectValue =
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {}
+
+    return (
+      <KeyValueEditor
+        value={objectValue}
+        onChange={onChange}
+      />
+    )
+  }
+
   /**
    * 渲染字段图标
    */
@@ -53,6 +105,12 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       switch (widget) {
         case 'slider':
           return renderSlider()
+        case 'input':
+          return renderTextInput()
+        case 'number':
+          return renderNumberInput()
+        case 'password':
+          return renderTextInput('password')
         case 'switch':
           return renderSwitch()
         case 'textarea':
@@ -60,6 +118,12 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         case 'select':
           return renderSelect()
         case 'custom':
+          if (type === 'array' && schema.items && schema.items.type !== 'object') {
+            return renderPrimitiveArrayEditor()
+          }
+          if (type === 'object') {
+            return renderObjectEditor()
+          }
           return (
             <div className="rounded-md border border-dashed border-muted-foreground/25 bg-muted/10 p-4 text-center text-sm text-muted-foreground">
               Custom field requires Hook
@@ -83,17 +147,16 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       case 'select':
         return renderSelect()
       case 'array':
-        return (
-          <div className="rounded-md border border-dashed border-muted-foreground/25 bg-muted/10 p-4 text-center text-sm text-muted-foreground">
-            Array fields not yet supported
-          </div>
-        )
+        if (!schema.items || schema.items.type === 'object') {
+          return (
+            <div className="rounded-md border border-dashed border-muted-foreground/25 bg-muted/10 p-4 text-center text-sm text-muted-foreground">
+              Complex array requires Hook
+            </div>
+          )
+        }
+        return renderPrimitiveArrayEditor()
       case 'object':
-        return (
-          <div className="rounded-md border border-dashed border-muted-foreground/25 bg-muted/10 p-4 text-center text-sm text-muted-foreground">
-            Object fields not yet supported
-          </div>
-        )
+        return renderObjectEditor()
       case 'textarea':
         return renderTextarea()
       default:
@@ -107,14 +170,27 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 
   /**
    * 渲染 Switch 组件（用于 boolean 类型）
+   * 使用水平布局：标签+描述在左，开关在右
    */
   const renderSwitch = () => {
     const checked = Boolean(value)
     return (
-      <Switch
-        checked={checked}
-        onCheckedChange={(checked) => onChange(checked)}
-      />
+      <div className="flex items-center justify-between rounded-lg border p-3 sm:p-4">
+        <div className="space-y-0.5 pr-4">
+          <Label className="text-sm font-medium flex items-center gap-2">
+            {renderIcon()}
+            {schema.label}
+            {schema.required && <span className="text-destructive">*</span>}
+          </Label>
+          {schema.description && (
+            <p className="text-[13px] text-muted-foreground">{schema.description}</p>
+          )}
+        </div>
+        <Switch
+          checked={checked}
+          onCheckedChange={(checked) => onChange(checked)}
+        />
+      </div>
     )
   }
 
@@ -169,11 +245,11 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   /**
    * 渲染 Input[type="text"] 组件（用于 string 类型）
    */
-  const renderTextInput = () => {
+  const renderTextInput = (type: 'password' | 'text' = 'text') => {
     const strValue = typeof value === 'string' ? value : (schema.default as string ?? '')
     return (
       <Input
-        type="text"
+        type={type}
         value={strValue}
         onChange={(e) => onChange(e.target.value)}
       />
@@ -225,6 +301,16 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
     )
   }
 
+  // 判断当前字段是否为 Switch/Boolean 类型（独立处理布局）
+  const isBoolean =
+    schema['x-widget'] === 'switch' ||
+    (!schema['x-widget'] && schema.type === 'boolean')
+
+  // Switch/Boolean 字段自带完整布局，直接返回
+  if (isBoolean) {
+    return renderInputComponent()
+  }
+
   return (
     <div className="space-y-2">
       {/* Label with icon */}
@@ -239,7 +325,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 
       {/* Description */}
       {schema.description && (
-        <p className="text-sm text-muted-foreground">{schema.description}</p>
+        <p className="text-[13px] text-muted-foreground">{schema.description}</p>
       )}
     </div>
   )

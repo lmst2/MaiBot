@@ -1473,7 +1473,6 @@ class MaiSakaConfig(ConfigBase):
 
     __ui_label__ = "MaiSaka"
     __ui_icon__ = "message-circle"
-    __ui_parent__ = "experimental"
 
     enable_knowledge_module: bool = Field(
         default=True,

@@ -207,22 +207,25 @@ describe('DynamicField', () => {
       expect(screen.getByRole('combobox')).toBeInTheDocument()
     })
 
-    it('renders placeholder for array type', () => {
+    it('renders textarea editor for primitive array type', () => {
       const schema: FieldSchema = {
         name: 'test_array',
         type: 'array',
         label: 'Test Array',
         description: 'A test array',
         required: false,
+        items: {
+          type: 'string',
+        },
       }
       const onChange = vi.fn()
 
-      render(<DynamicField schema={schema} value={[]} onChange={onChange} />)
+      render(<DynamicField schema={schema} value={['a', 'b']} onChange={onChange} />)
 
-      expect(screen.getByText('Array fields not yet supported')).toBeInTheDocument()
+      expect(screen.getByRole('textbox')).toHaveValue('a\nb')
     })
 
-    it('renders placeholder for object type', () => {
+    it('renders key-value editor for object type', () => {
       const schema: FieldSchema = {
         name: 'test_object',
         type: 'object',
@@ -232,9 +235,10 @@ describe('DynamicField', () => {
       }
       const onChange = vi.fn()
 
-      render(<DynamicField schema={schema} value={{}} onChange={onChange} />)
+      render(<DynamicField schema={schema} value={{ foo: 'bar' }} onChange={onChange} />)
 
-      expect(screen.getByText('Object fields not yet supported')).toBeInTheDocument()
+      expect(screen.getByText('可视化编辑')).toBeInTheDocument()
+      expect(screen.getByDisplayValue('foo')).toBeInTheDocument()
     })
   })
 

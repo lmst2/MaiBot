@@ -85,7 +85,6 @@ describe('DynamicConfigForm', () => {
       render(<DynamicConfigForm schema={schema} values={values} onChange={onChange} />)
 
       expect(screen.getByText('Top Field')).toBeInTheDocument()
-      expect(screen.getByText('SubConfig')).toBeInTheDocument()
       expect(screen.getByText('Sub configuration')).toBeInTheDocument()
       expect(screen.getByText('Nested Field')).toBeInTheDocument()
     })
@@ -305,6 +304,71 @@ describe('DynamicConfigForm', () => {
 
       expect(onChange).toHaveBeenCalledWith('hooked_field', 'hook_value')
     })
+
+    it('renders nested Hook component with full field path', async () => {
+      const NestedHookComponent: React.FC<FieldHookComponentProps> = ({ fieldPath, onChange }) => {
+        return (
+          <button onClick={() => onChange?.([{ enabled: true }])}>
+            {fieldPath}
+          </button>
+        )
+      }
+
+      const hooks = new FieldHookRegistry()
+      hooks.register('mcp.servers', NestedHookComponent, 'replace')
+
+      const schema: ConfigSchema = {
+        className: 'RootConfig',
+        classDoc: 'Root configuration',
+        fields: [],
+        nested: {
+          mcp: {
+            className: 'MCPConfig',
+            classDoc: 'MCP 配置',
+            fields: [
+              {
+                name: 'enable',
+                type: 'boolean',
+                label: '启用 MCP',
+                description: '是否启用 MCP',
+                required: false,
+              },
+              {
+                name: 'servers',
+                type: 'array',
+                label: '服务器列表',
+                description: '复杂对象数组',
+                required: false,
+                items: {
+                  type: 'object',
+                },
+              },
+            ],
+            nested: {
+              servers: {
+                className: 'MCPServerItemConfig',
+                classDoc: 'MCP 服务器项',
+                fields: [],
+              },
+            },
+          },
+        },
+      }
+      const values = {
+        mcp: {
+          enable: true,
+          servers: [],
+        },
+      }
+      const onChange = vi.fn()
+      const user = userEvent.setup()
+
+      render(<DynamicConfigForm schema={schema} values={values} onChange={onChange} hooks={hooks} />)
+
+      await user.click(screen.getByRole('button', { name: 'mcp.servers' }))
+
+      expect(onChange).toHaveBeenCalledWith('mcp.servers', [{ enabled: true }])
+    })
   })
 
   describe('edge cases', () => {
@@ -334,7 +398,7 @@ describe('DynamicConfigForm', () => {
 
       render(<DynamicConfigForm schema={schema} values={values} onChange={onChange} />)
 
-      expect(screen.getByText('SubConfig')).toBeInTheDocument()
+      expect(screen.getByText('Sub configuration')).toBeInTheDocument()
       expect(screen.getByText('Nested Field')).toBeInTheDocument()
     })
 

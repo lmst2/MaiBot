@@ -1,5 +1,6 @@
-import inspect
 from typing import Any, Dict, List, get_args, get_origin
+
+import inspect
 
 from pydantic_core import PydanticUndefined
 
@@ -56,7 +57,7 @@ class ConfigSchemaGenerator:
         if inspect.isclass(annotation) and issubclass(annotation, ConfigBase):
             return cls.generate_config_schema(annotation)
 
-        if origin in {list, tuple} and args:
+        if origin in {list, set, tuple} and args:
             first = args[0]
             if inspect.isclass(first) and issubclass(first, ConfigBase):
                 return cls.generate_config_schema(first)
@@ -83,7 +84,7 @@ class ConfigSchemaGenerator:
         origin = get_origin(annotation)
         args = get_args(annotation)
 
-        if origin is list and args:
+        if origin in {list, set} and args:
             schema["items"] = {"type": cls._map_field_type(args[0])}
 
         if options := cls._extract_options(annotation):
@@ -120,7 +121,7 @@ class ConfigSchemaGenerator:
         origin = get_origin(annotation)
         args = get_args(annotation)
 
-        if origin in {list, tuple}:
+        if origin in {list, set, tuple}:
             return "array"
         if inspect.isclass(annotation) and issubclass(annotation, ConfigBase):
             return "object"
@@ -133,7 +134,7 @@ class ConfigSchemaGenerator:
         if annotation is str:
             return "string"
 
-        if origin in {list, tuple} and args:
+        if origin in {list, set, tuple} and args:
             return "array"
 
         if origin in {dict}:

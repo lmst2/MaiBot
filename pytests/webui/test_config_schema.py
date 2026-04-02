@@ -1,4 +1,4 @@
-from src.config.official_configs import ChatConfig
+from src.config.official_configs import ChatConfig, MessageReceiveConfig
 from src.config.config import Config
 from src.webui.config_schema import ConfigSchemaGenerator
 
@@ -60,17 +60,49 @@ def test_nested_model_schema():
 def test_field_without_extra_metadata():
     """Test that fields without json_schema_extra still generate valid schema."""
     schema = ConfigSchemaGenerator.generate_schema(ChatConfig)
-    max_context_size = next(f for f in schema["fields"] if f["name"] == "max_context_size")
+    inevitable_at_reply = next(f for f in schema["fields"] if f["name"] == "inevitable_at_reply")
 
     # Verify basic fields are generated
-    assert "name" in max_context_size
-    assert max_context_size["name"] == "max_context_size"
-    assert "type" in max_context_size
-    assert max_context_size["type"] == "integer"
-    assert "label" in max_context_size
-    assert "required" in max_context_size
+    assert "name" in inevitable_at_reply
+    assert inevitable_at_reply["name"] == "inevitable_at_reply"
+    assert "type" in inevitable_at_reply
+    assert inevitable_at_reply["type"] == "boolean"
+    assert "label" in inevitable_at_reply
+    assert "required" in inevitable_at_reply
 
     # Verify no x-widget or x-icon from json_schema_extra (since field has none)
     # These fields should only be present if explicitly defined in json_schema_extra
-    assert not max_context_size.get("x-widget")
-    assert not max_context_size.get("x-icon")
+    assert not inevitable_at_reply.get("x-widget")
+    assert not inevitable_at_reply.get("x-icon")
+
+
+def test_all_top_level_sections_have_ui_metadata():
+    """所有顶层配置节都必须声明 uiParent 或独立 Tab 的标签与图标。"""
+    schema = ConfigSchemaGenerator.generate_schema(Config)
+
+    for section_name, section_schema in schema["nested"].items():
+        has_parent = bool(section_schema.get("uiParent"))
+        has_host_meta = bool(section_schema.get("uiLabel")) and bool(section_schema.get("uiIcon"))
+        assert has_parent or has_host_meta, f"{section_name} 缺少 UI 元数据"
+
+
+def test_maisaka_is_host_tab_and_mcp_is_attached_to_it():
+    """MaiSaka 应作为独立 Tab，MCP 作为其子配置挂载。"""
+    schema = ConfigSchemaGenerator.generate_schema(Config)
+
+    maisaka_schema = schema["nested"]["maisaka"]
+    mcp_schema = schema["nested"]["mcp"]
+
+    assert maisaka_schema.get("uiParent") is None
+    assert maisaka_schema.get("uiLabel") == "MaiSaka"
+    assert maisaka_schema.get("uiIcon") == "message-circle"
+    assert mcp_schema.get("uiParent") == "maisaka"
+
+
+def test_set_field_is_mapped_as_array():
+    """set[str] 应映射为前端可识别的 array。"""
+    schema = ConfigSchemaGenerator.generate_schema(MessageReceiveConfig)
+    ban_words = next(field for field in schema["fields"] if field["name"] == "ban_words")
+
+    assert ban_words["type"] == "array"
+    assert ban_words["items"]["type"] == "string"
