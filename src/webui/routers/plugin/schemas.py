@@ -111,3 +111,19 @@ class UpdatePluginConfigRequest(BaseModel):
 
 class UpdatePluginRawConfigRequest(BaseModel):
     config: str = Field(..., description="原始 TOML 配置内容")
+
+
+class HookSpecResponse(BaseModel):
+    name: str = Field(..., description="Hook 名称")
+    description: str = Field("", description="Hook 描述")
+    parameters_schema: Dict[str, Any] = Field(default_factory=dict, description="Hook 参数模型")
+    default_timeout_ms: int = Field(..., description="默认超时毫秒数")
+    allow_blocking: bool = Field(..., description="是否允许 blocking 处理器")
+    allow_observe: bool = Field(..., description="是否允许 observe 处理器")
+    allow_abort: bool = Field(..., description="是否允许 abort")
+    allow_kwargs_mutation: bool = Field(..., description="是否允许修改 kwargs")
+
+
+class HookSpecListResponse(BaseModel):
+    success: bool = Field(..., description="是否成功")
+    hooks: List[HookSpecResponse] = Field(default_factory=list, description="Hook 规格列表")

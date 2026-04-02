@@ -13,12 +13,13 @@ import pytest
 from src.plugin_runtime.component_query import component_query_service
 from src.plugin_runtime.protocol.envelope import (
     Envelope,
+    InspectPluginConfigPayload,
     MessageType,
     RegisterPluginPayload,
     ValidatePluginConfigPayload,
 )
 from src.plugin_runtime.runner.runner_main import PluginRunner
-from src.webui.routers.plugin.config_routes import update_plugin_config
+from src.webui.routers.plugin.config_routes import get_plugin_config, get_plugin_config_schema, update_plugin_config
 from src.webui.routers.plugin.schemas import UpdatePluginConfigRequest
 
 
@@ -55,6 +56,61 @@ class _DemoConfigPlugin:
         """
 
         self.received_config = config
+
+    def get_default_config(self) -> Dict[str, Any]:
+        """返回测试插件的默认配置。
+
+        Returns:
+            Dict[str, Any]: 默认配置字典。
+        """
+
+        return {"plugin": {"enabled": True, "retry_count": 3}}
+
+    def get_webui_config_schema(
+        self,
+        *,
+        plugin_id: str = "",
+        plugin_name: str = "",
+        plugin_version: str = "",
+        plugin_description: str = "",
+        plugin_author: str = "",
+    ) -> Dict[str, Any]:
+        """返回测试插件的 WebUI 配置 Schema。
+
+        Args:
+            plugin_id: 插件 ID。
+            plugin_name: 插件名称。
+            plugin_version: 插件版本。
+            plugin_description: 插件描述。
+            plugin_author: 插件作者。
+
+        Returns:
+            Dict[str, Any]: 测试配置 Schema。
+        """
+
+        del plugin_name, plugin_description, plugin_author
+        return {
+            "plugin_id": plugin_id,
+            "plugin_info": {
+                "name": "Demo",
+                "version": plugin_version,
+                "description": "",
+                "author": "",
+            },
+            "sections": {
+                "plugin": {
+                    "fields": {
+                        "enabled": {
+                            "type": "boolean",
+                            "label": "启用",
+                            "default": True,
+                            "ui_type": "switch",
+                        }
+                    }
+                }
+            },
+            "layout": {"type": "auto", "tabs": []},
+        }
 
 
 class _StrictConfigPlugin:
@@ -174,6 +230,63 @@ async def test_runner_validate_plugin_config_handler_returns_normalized_config(m
 
 
 @pytest.mark.asyncio
+async def test_runner_inspect_plugin_config_handler_supports_unloaded_plugin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Runner 应支持对未加载插件执行冷检查。"""
+
+    plugin = _DemoConfigPlugin()
+    runner = PluginRunner(
+        host_address="ipc://unused",
+        session_token="session-token",
+        plugin_dirs=[],
+    )
+    meta = SimpleNamespace(
+        plugin_id="demo.plugin",
+        plugin_dir="/tmp/demo-plugin",
+        instance=plugin,
+        manifest=SimpleNamespace(
+            name="Demo",
+            description="",
+            author=SimpleNamespace(name="tester"),
+        ),
+        version="1.0.0",
+    )
+    purged_plugins: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        runner,
+        "_resolve_plugin_meta_for_config_request",
+        lambda plugin_id: (meta, True, None) if plugin_id == "demo.plugin" else (None, False, "not-found"),
+    )
+    monkeypatch.setattr(
+        runner._loader,
+        "purge_plugin_modules",
+        lambda plugin_id, plugin_dir: purged_plugins.append((plugin_id, plugin_dir)),
+    )
+
+    envelope = Envelope(
+        request_id=1,
+        message_type=MessageType.REQUEST,
+        method="plugin.inspect_config",
+        plugin_id="demo.plugin",
+        payload=InspectPluginConfigPayload(
+            config_data={"plugin": {"enabled": False}},
+            use_provided_config=True,
+        ).model_dump(),
+    )
+
+    response = await runner._handle_inspect_plugin_config(envelope)
+
+    assert response.error is None
+    assert response.payload["success"] is True
+    assert response.payload["enabled"] is False
+    assert response.payload["normalized_config"] == {"plugin": {"enabled": False, "retry_count": 3}}
+    assert response.payload["default_config"] == {"plugin": {"enabled": True, "retry_count": 3}}
+    assert purged_plugins == [("demo.plugin", "/tmp/demo-plugin")]
+
+
+@pytest.mark.asyncio
 async def test_runner_validate_plugin_config_handler_returns_error_on_invalid_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -251,3 +364,73 @@ async def test_update_plugin_config_prefers_runtime_validation(
     with config_path.open("rb") as handle:
         saved_config = tomllib.load(handle)
     assert saved_config == {"plugin": {"enabled": False, "retry_count": 3}}
+
+
+@pytest.mark.asyncio
+async def test_webui_config_endpoints_use_runtime_inspection_for_unloaded_plugin(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """WebUI 在插件未加载时也应从代码定义返回配置与 Schema。"""
+
+    async def _mock_inspect_plugin_config(
+        plugin_id: str,
+        config_data: Optional[Dict[str, Any]] = None,
+        *,
+        use_provided_config: bool = False,
+    ) -> SimpleNamespace | None:
+        """返回运行时冷检查结果。
+
+        Args:
+            plugin_id: 插件 ID。
+            config_data: 可选配置。
+            use_provided_config: 是否使用传入配置。
+
+        Returns:
+            SimpleNamespace | None: 冷检查结果。
+        """
+
+        del config_data, use_provided_config
+        if plugin_id != "demo.plugin":
+            return None
+        return SimpleNamespace(
+            config_schema={
+                "plugin_id": "demo.plugin",
+                "plugin_info": {
+                    "name": "Demo",
+                    "version": "1.0.0",
+                    "description": "",
+                    "author": "",
+                },
+                "sections": {"plugin": {"fields": {}}},
+                "layout": {"type": "auto", "tabs": []},
+            },
+            normalized_config={"plugin": {"enabled": True, "retry_count": 3}},
+            enabled=True,
+        )
+
+    fake_runtime_manager = SimpleNamespace(inspect_plugin_config=_mock_inspect_plugin_config)
+
+    monkeypatch.setattr(
+        "src.webui.routers.plugin.config_routes.require_plugin_token",
+        lambda session: session or "session-token",
+    )
+    monkeypatch.setattr(
+        "src.webui.routers.plugin.config_routes.find_plugin_path_by_id",
+        lambda plugin_id: tmp_path if plugin_id == "demo.plugin" else None,
+    )
+    monkeypatch.setattr(
+        "src.plugin_runtime.integration.get_plugin_runtime_manager",
+        lambda: fake_runtime_manager,
+    )
+
+    schema_response = await get_plugin_config_schema("demo.plugin", maibot_session="session-token")
+    config_response = await get_plugin_config("demo.plugin", maibot_session="session-token")
+
+    assert schema_response["success"] is True
+    assert schema_response["schema"]["plugin_id"] == "demo.plugin"
+    assert config_response == {
+        "success": True,
+        "config": {"plugin": {"enabled": True, "retry_count": 3}},
+        "message": "配置文件不存在，已返回默认配置",
+    }

@@ -27,6 +27,8 @@ from src.plugin_runtime.protocol.envelope import (
     ConfigUpdatedPayload,
     Envelope,
     HealthPayload,
+    InspectPluginConfigPayload,
+    InspectPluginConfigResultPayload,
     MessageGatewayStateUpdatePayload,
     MessageGatewayStateUpdateResultPayload,
     PROTOCOL_VERSION,
@@ -52,6 +54,7 @@ from .capability_service import CapabilityService
 from .component_registry import ComponentRegistry
 from .event_dispatcher import EventDispatcher
 from .hook_dispatcher import HookDispatchResult, HookDispatcher
+from .hook_spec_registry import HookSpecRegistry
 from .logger_bridge import RunnerLogBridge
 from .message_gateway import MessageGateway
 from .rpc_server import RPCServer
@@ -84,6 +87,7 @@ class PluginRunnerSupervisor:
         self,
         plugin_dirs: Optional[List[Path]] = None,
         group_name: str = "third_party",
+        hook_spec_registry: Optional[HookSpecRegistry] = None,
         socket_path: Optional[str] = None,
         health_check_interval_sec: Optional[float] = None,
         max_restart_attempts: Optional[int] = None,
@@ -94,6 +98,7 @@ class PluginRunnerSupervisor:
         Args:
             plugin_dirs: 由当前 Runner 负责加载的插件目录列表。
             group_name: 当前 Supervisor 所属运行时分组名称。
+            hook_spec_registry: 可选的共享 Hook 规格注册中心。
             socket_path: 自定义 IPC 地址；留空时由传输层自动生成。
             health_check_interval_sec: 健康检查间隔，单位秒。
             max_restart_attempts: 自动重启 Runner 的最大次数。
@@ -110,9 +115,12 @@ class PluginRunnerSupervisor:
         self._authorization = AuthorizationManager()
         self._capability_service = CapabilityService(self._authorization)
         self._api_registry = APIRegistry()
-        self._component_registry = ComponentRegistry()
+        self._component_registry = ComponentRegistry(hook_spec_registry=hook_spec_registry)
         self._event_dispatcher = EventDispatcher(self._component_registry)
-        self._hook_dispatcher = HookDispatcher(lambda: [self])
+        self._hook_dispatcher = HookDispatcher(
+            lambda: [self],
+            hook_spec_registry=hook_spec_registry,
+        )
         self._message_gateway = MessageGateway(self._component_registry)
         self._log_bridge = RunnerLogBridge()
 
@@ -581,6 +589,49 @@ class PluginRunnerSupervisor:
             raise ValueError("插件配置校验失败")
         return dict(result.normalized_config)
 
+    async def inspect_plugin_config(
+        self,
+        plugin_id: str,
+        config_data: Optional[Dict[str, Any]] = None,
+        *,
+        use_provided_config: bool = False,
+    ) -> InspectPluginConfigResultPayload:
+        """请求 Runner 解析插件配置元数据。
+
+        Args:
+            plugin_id: 目标插件 ID。
+            config_data: 可选的配置内容。
+            use_provided_config: 是否优先使用传入配置而不是磁盘配置。
+
+        Returns:
+            InspectPluginConfigResultPayload: 插件配置解析结果。
+
+        Raises:
+            ValueError: Runner 无法解析插件或返回了错误响应时抛出。
+        """
+
+        payload = InspectPluginConfigPayload(
+            config_data=config_data or {},
+            use_provided_config=use_provided_config,
+        )
+        try:
+            response = await self._rpc_server.send_request(
+                "plugin.inspect_config",
+                plugin_id=plugin_id,
+                payload=payload.model_dump(),
+                timeout_ms=10000,
+            )
+        except Exception as exc:
+            raise ValueError(f"插件配置解析请求失败: {exc}") from exc
+
+        if response.error:
+            raise ValueError(str(response.error.get("message", "插件配置解析失败")))
+
+        result = InspectPluginConfigResultPayload.model_validate(response.payload)
+        if not result.success:
+            raise ValueError("插件配置解析失败")
+        return result
+
     def get_config_reload_subscribers(self, scope: str) -> List[str]:
         """返回订阅指定全局配置广播的插件列表。
 
@@ -713,15 +764,25 @@ class PluginRunnerSupervisor:
 
         component_declarations = [component.model_dump() for component in payload.components]
         runtime_components, api_components = self._split_component_declarations(component_declarations)
-        self._component_registry.remove_components_by_plugin(payload.plugin_id)
-        self._api_registry.remove_apis_by_plugin(payload.plugin_id)
-        await self._unregister_all_message_gateway_drivers_for_plugin(payload.plugin_id)
+        try:
+            registered_count = self._component_registry.register_plugin_components(
+                payload.plugin_id,
+                runtime_components,
+            )
+        except Exception as exc:
+            logger.error(f"插件 {payload.plugin_id} 组件注册失败: {exc}")
+            return envelope.make_error_response(
+                ErrorCode.E_BAD_PAYLOAD.value,
+                str(exc),
+                details={
+                    "plugin_id": payload.plugin_id,
+                    "component_count": len(runtime_components),
+                },
+            )
 
-        registered_count = self._component_registry.register_plugin_components(
-            payload.plugin_id,
-            runtime_components,
-        )
+        self._api_registry.remove_apis_by_plugin(payload.plugin_id)
         registered_api_count = self._api_registry.register_plugin_apis(payload.plugin_id, api_components)
+        await self._unregister_all_message_gateway_drivers_for_plugin(payload.plugin_id)
         self._registered_plugins[payload.plugin_id] = payload
         self._message_gateway_states[payload.plugin_id] = {}
 

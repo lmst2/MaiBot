@@ -40,8 +40,211 @@ from src.common.utils.utils_message import MessageUtils
 from src.config.config import global_config
 from src.platform_io import DeliveryBatch, get_platform_io_manager
 from src.platform_io.route_key_factory import RouteKeyFactory
+from src.plugin_runtime.hook_payloads import deserialize_session_message, serialize_session_message
+from src.plugin_runtime.hook_schema_utils import build_object_schema
+from src.plugin_runtime.host.hook_dispatcher import HookDispatchResult
+from src.plugin_runtime.host.hook_spec_registry import HookSpec, HookSpecRegistry
 
 logger = get_logger("send_service")
+
+
+def register_send_service_hook_specs(registry: HookSpecRegistry) -> List[HookSpec]:
+    """注册发送服务内置 Hook 规格。
+
+    Args:
+        registry: 目标 Hook 规格注册中心。
+
+    Returns:
+        List[HookSpec]: 实际注册的 Hook 规格列表。
+    """
+
+    return registry.register_hook_specs(
+        [
+            HookSpec(
+                name="send_service.after_build_message",
+                description="在出站 SessionMessage 构建完成后触发，可改写消息体或取消发送。",
+                parameters_schema=build_object_schema(
+                    {
+                        "message": {
+                            "type": "object",
+                            "description": "待发送消息的序列化 SessionMessage。",
+                        },
+                        "stream_id": {
+                            "type": "string",
+                            "description": "目标会话 ID。",
+                        },
+                        "display_message": {
+                            "type": "string",
+                            "description": "展示层文本。",
+                        },
+                        "typing": {
+                            "type": "boolean",
+                            "description": "是否模拟打字。",
+                        },
+                        "set_reply": {
+                            "type": "boolean",
+                            "description": "是否附带引用回复。",
+                        },
+                        "storage_message": {
+                            "type": "boolean",
+                            "description": "发送成功后是否写库。",
+                        },
+                        "show_log": {
+                            "type": "boolean",
+                            "description": "是否输出发送日志。",
+                        },
+                    },
+                    required=[
+                        "message",
+                        "stream_id",
+                        "display_message",
+                        "typing",
+                        "set_reply",
+                        "storage_message",
+                        "show_log",
+                    ],
+                ),
+                default_timeout_ms=5000,
+                allow_abort=True,
+                allow_kwargs_mutation=True,
+            ),
+            HookSpec(
+                name="send_service.before_send",
+                description="在真正调用 Platform IO 发送前触发，可改写消息或取消本次发送。",
+                parameters_schema=build_object_schema(
+                    {
+                        "message": {
+                            "type": "object",
+                            "description": "待发送消息的序列化 SessionMessage。",
+                        },
+                        "typing": {
+                            "type": "boolean",
+                            "description": "是否模拟打字。",
+                        },
+                        "set_reply": {
+                            "type": "boolean",
+                            "description": "是否附带引用回复。",
+                        },
+                        "reply_message_id": {
+                            "type": "string",
+                            "description": "被引用消息 ID。",
+                        },
+                        "storage_message": {
+                            "type": "boolean",
+                            "description": "发送成功后是否写库。",
+                        },
+                        "show_log": {
+                            "type": "boolean",
+                            "description": "是否输出发送日志。",
+                        },
+                    },
+                    required=["message", "typing", "set_reply", "storage_message", "show_log"],
+                ),
+                default_timeout_ms=5000,
+                allow_abort=True,
+                allow_kwargs_mutation=True,
+            ),
+            HookSpec(
+                name="send_service.after_send",
+                description="在发送流程结束后触发，用于观察最终发送结果。",
+                parameters_schema=build_object_schema(
+                    {
+                        "message": {
+                            "type": "object",
+                            "description": "本次发送消息的序列化 SessionMessage。",
+                        },
+                        "sent": {
+                            "type": "boolean",
+                            "description": "本次发送是否成功。",
+                        },
+                        "typing": {
+                            "type": "boolean",
+                            "description": "是否模拟打字。",
+                        },
+                        "set_reply": {
+                            "type": "boolean",
+                            "description": "是否附带引用回复。",
+                        },
+                        "reply_message_id": {
+                            "type": "string",
+                            "description": "被引用消息 ID。",
+                        },
+                        "storage_message": {
+                            "type": "boolean",
+                            "description": "发送成功后是否写库。",
+                        },
+                        "show_log": {
+                            "type": "boolean",
+                            "description": "是否输出发送日志。",
+                        },
+                    },
+                    required=["message", "sent", "typing", "set_reply", "storage_message", "show_log"],
+                ),
+                default_timeout_ms=5000,
+                allow_abort=False,
+                allow_kwargs_mutation=False,
+            ),
+        ]
+    )
+
+
+def _get_runtime_manager() -> Any:
+    """获取插件运行时管理器。
+
+    Returns:
+        Any: 插件运行时管理器单例。
+    """
+
+    from src.plugin_runtime.integration import get_plugin_runtime_manager
+
+    return get_plugin_runtime_manager()
+
+
+def _coerce_bool(value: Any, default: bool) -> bool:
+    """将任意值安全转换为布尔值。
+
+    Args:
+        value: 待转换的值。
+        default: 当值为空时使用的默认值。
+
+    Returns:
+        bool: 转换后的布尔值。
+    """
+
+    if value is None:
+        return default
+    return bool(value)
+
+
+async def _invoke_send_hook(
+    hook_name: str,
+    message: SessionMessage,
+    **kwargs: Any,
+) -> tuple[HookDispatchResult, SessionMessage]:
+    """触发携带出站消息的命名 Hook。
+
+    Args:
+        hook_name: 目标 Hook 名称。
+        message: 当前待发送消息。
+        **kwargs: 需要附带的额外参数。
+
+    Returns:
+        tuple[HookDispatchResult, SessionMessage]: Hook 聚合结果以及可能被改写后的消息对象。
+    """
+
+    hook_result = await _get_runtime_manager().invoke_hook(
+        hook_name,
+        message=serialize_session_message(message),
+        **kwargs,
+    )
+    mutated_message = message
+    raw_message = hook_result.kwargs.get("message")
+    if raw_message is not None:
+        try:
+            mutated_message = deserialize_session_message(raw_message)
+        except Exception as exc:
+            logger.warning(f"Hook {hook_name} 返回的 message 无法反序列化，已忽略: {exc}")
+    return hook_result, mutated_message
 
 
 def _inherit_platform_io_route_metadata(target_stream: BotChatSession) -> Dict[str, object]:
@@ -469,6 +672,27 @@ async def _send_via_platform_io(
     Returns:
         bool: 发送成功时返回 ``True``。
     """
+    before_send_result, message = await _invoke_send_hook(
+        "send_service.before_send",
+        message,
+        typing=typing,
+        set_reply=set_reply,
+        reply_message_id=reply_message_id,
+        storage_message=storage_message,
+        show_log=show_log,
+    )
+    if before_send_result.aborted:
+        logger.info(f"[SendService] 消息 {message.message_id} 在发送前被 Hook 中止")
+        return False
+
+    before_kwargs = before_send_result.kwargs
+    typing = _coerce_bool(before_kwargs.get("typing"), typing)
+    set_reply = _coerce_bool(before_kwargs.get("set_reply"), set_reply)
+    storage_message = _coerce_bool(before_kwargs.get("storage_message"), storage_message)
+    show_log = _coerce_bool(before_kwargs.get("show_log"), show_log)
+    raw_reply_message_id = before_kwargs.get("reply_message_id", reply_message_id)
+    reply_message_id = None if raw_reply_message_id in {None, ""} else str(raw_reply_message_id)
+
     platform_io_manager = get_platform_io_manager()
     try:
         await platform_io_manager.ensure_send_pipeline_ready()
@@ -499,6 +723,18 @@ async def _send_via_platform_io(
         logger.error(f"[SendService] Platform IO 发送异常: {exc}")
         logger.debug(traceback.format_exc())
         return False
+
+    sent = bool(delivery_batch.has_success)
+    await _invoke_send_hook(
+        "send_service.after_send",
+        message,
+        sent=sent,
+        typing=typing,
+        set_reply=set_reply,
+        reply_message_id=reply_message_id,
+        storage_message=storage_message,
+        show_log=show_log,
+    )
 
     if delivery_batch.has_success:
         if storage_message:
@@ -605,6 +841,26 @@ async def _send_to_target(
         )
         if outbound_message is None:
             return False
+
+        after_build_result, outbound_message = await _invoke_send_hook(
+            "send_service.after_build_message",
+            outbound_message,
+            stream_id=stream_id,
+            display_message=display_message,
+            typing=typing,
+            set_reply=set_reply,
+            storage_message=storage_message,
+            show_log=show_log,
+        )
+        if after_build_result.aborted:
+            logger.info(f"[SendService] 消息 {outbound_message.message_id} 在构建后被 Hook 中止")
+            return False
+
+        after_build_kwargs = after_build_result.kwargs
+        typing = _coerce_bool(after_build_kwargs.get("typing"), typing)
+        set_reply = _coerce_bool(after_build_kwargs.get("set_reply"), set_reply)
+        storage_message = _coerce_bool(after_build_kwargs.get("storage_message"), storage_message)
+        show_log = _coerce_bool(after_build_kwargs.get("show_log"), show_log)
 
         sent = await send_session_message(
             outbound_message,

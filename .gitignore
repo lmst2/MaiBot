@@ -1,5 +1,6 @@
 data/
 data1/
+mai_knowledge/knowledge.json
 mongodb/
 NapCat.Framework.Windows.Once/
 NapCat.Framework.Windows.OneKey/
