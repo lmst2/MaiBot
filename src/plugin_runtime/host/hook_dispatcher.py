@@ -26,34 +26,13 @@ import contextlib
 from src.common.logger import get_logger
 from src.config.config import global_config
 
+from .hook_spec_registry import HookSpec, HookSpecRegistry
+
 if TYPE_CHECKING:
     from .component_registry import HookHandlerEntry
     from .supervisor import PluginRunnerSupervisor
 
 logger = get_logger("plugin_runtime.host.hook_dispatcher")
-
-
-@dataclass(slots=True)
-class HookSpec:
-    """命名 Hook 的静态规格定义。
-
-    Attributes:
-        name: Hook 的唯一名称。
-        description: Hook 描述。
-        default_timeout_ms: 默认超时毫秒数；为 `0` 时退回系统默认值。
-        allow_blocking: 是否允许注册阻塞处理器。
-        allow_observe: 是否允许注册观察处理器。
-        allow_abort: 是否允许处理器中止当前 Hook 调用。
-        allow_kwargs_mutation: 是否允许阻塞处理器修改 `kwargs`。
-    """
-
-    name: str
-    description: str = ""
-    default_timeout_ms: int = 0
-    allow_blocking: bool = True
-    allow_observe: bool = True
-    allow_abort: bool = True
-    allow_kwargs_mutation: bool = True
 
 
 @dataclass(slots=True)
@@ -121,17 +100,19 @@ class HookDispatcher:
     def __init__(
         self,
         supervisors_provider: Optional[Callable[[], Sequence["PluginRunnerSupervisor"]]] = None,
+        hook_spec_registry: Optional[HookSpecRegistry] = None,
     ) -> None:
         """初始化 Hook 分发器。
 
         Args:
             supervisors_provider: 可选的 Supervisor 提供器。若调用 `invoke_hook()`
                 时未显式传入 `supervisors`，则使用该回调获取目标 Supervisor 列表。
+            hook_spec_registry: 可选的 Hook 规格注册中心；留空时使用独立注册中心。
         """
 
         self._background_tasks: Set[asyncio.Task[Any]] = set()
-        self._hook_specs: Dict[str, HookSpec] = {}
         self._supervisors_provider = supervisors_provider
+        self._hook_spec_registry = hook_spec_registry or HookSpecRegistry()
 
     async def stop(self) -> None:
         """停止分发器并取消所有未完成的观察任务。"""
@@ -148,16 +129,7 @@ class HookDispatcher:
             spec: 需要注册的 Hook 规格。
         """
 
-        normalized_name = self._normalize_hook_name(spec.name)
-        self._hook_specs[normalized_name] = HookSpec(
-            name=normalized_name,
-            description=spec.description,
-            default_timeout_ms=max(int(spec.default_timeout_ms), 0),
-            allow_blocking=bool(spec.allow_blocking),
-            allow_observe=bool(spec.allow_observe),
-            allow_abort=bool(spec.allow_abort),
-            allow_kwargs_mutation=bool(spec.allow_kwargs_mutation),
-        )
+        self._hook_spec_registry.register_hook_spec(spec)
 
     def register_hook_specs(self, specs: Sequence[HookSpec]) -> None:
         """批量注册命名 Hook 规格。
@@ -180,13 +152,36 @@ class HookDispatcher:
         """
 
         normalized_name = self._normalize_hook_name(hook_name)
-        if normalized_name in self._hook_specs:
-            return self._hook_specs[normalized_name]
+        registered_spec = self._hook_spec_registry.get_hook_spec(normalized_name)
+        if registered_spec is not None:
+            return registered_spec
 
         return HookSpec(
             name=normalized_name,
+            parameters_schema={},
             default_timeout_ms=self._get_default_timeout_ms(),
         )
+
+    def unregister_hook_spec(self, hook_name: str) -> bool:
+        """注销指定命名 Hook 规格。
+
+        Args:
+            hook_name: 目标 Hook 名称。
+
+        Returns:
+            bool: 是否成功注销。
+        """
+
+        return self._hook_spec_registry.unregister_hook_spec(hook_name)
+
+    def list_hook_specs(self) -> List[HookSpec]:
+        """返回当前全部显式注册的 Hook 规格。
+
+        Returns:
+            List[HookSpec]: 已注册 Hook 规格列表。
+        """
+
+        return self._hook_spec_registry.list_hook_specs()
 
     async def invoke_hook(
         self,

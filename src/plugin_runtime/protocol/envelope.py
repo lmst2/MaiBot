@@ -288,6 +288,8 @@ class RunnerReadyPayload(BaseModel):
     """已完成初始化的插件列表"""
     failed_plugins: List[str] = Field(default_factory=list, description="初始化失败的插件列表")
     """初始化失败的插件列表"""
+    inactive_plugins: List[str] = Field(default_factory=list, description="当前因禁用或依赖不可用而未激活的插件列表")
+    """当前因禁用或依赖不可用而未激活的插件列表"""
 
 
 # ====== 配置更新 ======
@@ -309,6 +311,32 @@ class ValidatePluginConfigPayload(BaseModel):
 
     config_data: Dict[str, Any] = Field(default_factory=dict, description="待校验的配置内容")
     """待校验的配置内容"""
+
+
+class InspectPluginConfigPayload(BaseModel):
+    """plugin.inspect_config 请求 payload。"""
+
+    config_data: Dict[str, Any] = Field(default_factory=dict, description="可选的配置内容")
+    """可选的配置内容"""
+    use_provided_config: bool = Field(default=False, description="是否优先使用请求中携带的配置内容")
+    """是否优先使用请求中携带的配置内容"""
+
+
+class InspectPluginConfigResultPayload(BaseModel):
+    """plugin.inspect_config 响应 payload。"""
+
+    success: bool = Field(description="是否解析成功")
+    """是否解析成功"""
+    default_config: Dict[str, Any] = Field(default_factory=dict, description="插件默认配置")
+    """插件默认配置"""
+    config_schema: Dict[str, Any] = Field(default_factory=dict, description="插件配置 Schema")
+    """插件配置 Schema"""
+    normalized_config: Dict[str, Any] = Field(default_factory=dict, description="归一化后的配置内容")
+    """归一化后的配置内容"""
+    changed: bool = Field(default=False, description="是否在归一化过程中自动补齐或修正了配置")
+    """是否在归一化过程中自动补齐或修正了配置"""
+    enabled: bool = Field(default=True, description="插件在当前配置下是否应被视为启用")
+    """插件在当前配置下是否应被视为启用"""
 
 
 class ValidatePluginConfigResultPayload(BaseModel):
@@ -380,6 +408,8 @@ class ReloadPluginResultPayload(BaseModel):
     """成功完成重载的插件列表"""
     unloaded_plugins: List[str] = Field(default_factory=list, description="本次已卸载的插件列表")
     """本次已卸载的插件列表"""
+    inactive_plugins: List[str] = Field(default_factory=list, description="本次处于未激活状态的插件列表")
+    """本次处于未激活状态的插件列表"""
     failed_plugins: Dict[str, str] = Field(default_factory=dict, description="重载失败的插件及原因")
     """重载失败的插件及原因"""
 
@@ -395,6 +425,8 @@ class ReloadPluginsResultPayload(BaseModel):
     """成功完成重载的插件列表"""
     unloaded_plugins: List[str] = Field(default_factory=list, description="本次已卸载的插件列表")
     """本次已卸载的插件列表"""
+    inactive_plugins: List[str] = Field(default_factory=list, description="本次处于未激活状态的插件列表")
+    """本次处于未激活状态的插件列表"""
     failed_plugins: Dict[str, str] = Field(default_factory=dict, description="重载失败的插件及原因")
     """重载失败的插件及原因"""
 

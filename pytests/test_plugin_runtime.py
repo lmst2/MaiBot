@@ -5,7 +5,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
 
 import asyncio
 import json
@@ -1405,6 +1405,57 @@ class TestComponentRegistry:
         assert warnings
         assert "plugin_a.broken" in warnings[0]
 
+    def test_register_hook_handler_rejects_unknown_hook(self):
+        from src.plugin_runtime.host.component_registry import ComponentRegistrationError, ComponentRegistry
+        from src.plugin_runtime.host.hook_spec_registry import HookSpecRegistry
+
+        reg = ComponentRegistry(hook_spec_registry=HookSpecRegistry())
+
+        with pytest.raises(ComponentRegistrationError, match="未注册的 Hook"):
+            reg.register_component(
+                "broken_hook",
+                "hook_handler",
+                "plugin_a",
+                {
+                    "hook": "chat.receive.unknown",
+                    "mode": "blocking",
+                },
+            )
+
+    def test_register_plugin_components_is_atomic_when_hook_invalid(self):
+        from src.plugin_runtime.host.component_registry import ComponentRegistrationError, ComponentRegistry
+        from src.plugin_runtime.host.hook_spec_registry import HookSpec, HookSpecRegistry
+
+        hook_spec_registry = HookSpecRegistry()
+        hook_spec_registry.register_hook_spec(HookSpec(name="chat.receive.before_process"))
+        reg = ComponentRegistry(hook_spec_registry=hook_spec_registry)
+        reg.register_plugin_components(
+            "plugin_a",
+            [
+                {"name": "cmd_old", "component_type": "command", "metadata": {"command_pattern": r"^/old"}},
+            ],
+        )
+
+        with pytest.raises(ComponentRegistrationError, match="未注册的 Hook"):
+            reg.register_plugin_components(
+                "plugin_a",
+                [
+                    {
+                        "name": "hook_ok",
+                        "component_type": "hook_handler",
+                        "metadata": {"hook": "chat.receive.before_process", "mode": "blocking"},
+                    },
+                    {
+                        "name": "hook_bad",
+                        "component_type": "hook_handler",
+                        "metadata": {"hook": "chat.receive.missing", "mode": "blocking"},
+                    },
+                ],
+            )
+
+        assert reg.get_component("plugin_a.cmd_old") is not None
+        assert reg.get_component("plugin_a.hook_ok") is None
+
     def test_query_by_type(self):
         from src.plugin_runtime.host.component_registry import ComponentRegistry
 
@@ -2141,6 +2192,18 @@ class TestPluginRuntimeHookEntry:
         assert result.aborted is False
         assert result.kwargs["session_id"] == "s-1"
         assert ("b1", "builtin_guard") in call_log
+
+    def test_manager_lists_builtin_hook_specs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """PluginRuntimeManager 应暴露内置 Hook 规格清单。"""
+
+        _ComponentRegistry, PluginRuntimeManager = self._import_manager_modules(monkeypatch)
+
+        manager = PluginRuntimeManager()
+        hook_names = {spec.name for spec in manager.list_hook_specs()}
+
+        assert "chat.receive.before_process" in hook_names
+        assert "send_service.before_send" in hook_names
+        assert "maisaka.planner.after_response" in hook_names
 
 
 class TestRPCServer:
@@ -2974,6 +3037,16 @@ class TestIntegration:
                 self._registered_plugins = {plugin_id: object() for plugin_id in plugins}
                 self.config_updates = []
 
+            async def inspect_plugin_config(
+                self,
+                plugin_id: str,
+                config_data: Optional[Dict[str, Any]] = None,
+                use_provided_config: bool = False,
+            ) -> SimpleNamespace:
+                """返回测试用的配置解析结果。"""
+                del config_data, use_provided_config
+                return SimpleNamespace(enabled=True, normalized_config={"enabled": True}, plugin_id=plugin_id)
+
             async def notify_plugin_config_updated(
                 self,
                 plugin_id,
@@ -2996,6 +3069,110 @@ class TestIntegration:
 
         assert manager._builtin_supervisor.config_updates == [("test.alpha", {"enabled": True}, "", "self")]
         assert manager._third_party_supervisor.config_updates == []
+
+    @pytest.mark.asyncio
+    async def test_handle_plugin_config_changes_loads_unloaded_enabled_plugin(self, monkeypatch, tmp_path):
+        from src.plugin_runtime import integration as integration_module
+        from src.config.file_watcher import FileChange
+        import json
+
+        thirdparty_root = tmp_path / "plugins"
+        alpha_dir = thirdparty_root / "alpha"
+        alpha_dir.mkdir(parents=True)
+        (alpha_dir / "config.toml").write_text("[plugin]\nenabled = true\n", encoding="utf-8")
+        (alpha_dir / "plugin.py").write_text("def create_plugin():\n    return object()\n", encoding="utf-8")
+        (alpha_dir / "_manifest.json").write_text(json.dumps(build_test_manifest("test.alpha")), encoding="utf-8")
+
+        monkeypatch.chdir(tmp_path)
+
+        class FakeSupervisor:
+            def __init__(self, plugin_dirs):
+                self._plugin_dirs = plugin_dirs
+                self._registered_plugins = {}
+
+            async def inspect_plugin_config(
+                self,
+                plugin_id: str,
+                config_data: Optional[Dict[str, Any]] = None,
+                use_provided_config: bool = False,
+            ) -> SimpleNamespace:
+                """返回测试用的启用配置快照。"""
+                del config_data, use_provided_config
+                return SimpleNamespace(enabled=True, normalized_config={"plugin": {"enabled": True}}, plugin_id=plugin_id)
+
+        manager = integration_module.PluginRuntimeManager()
+        manager._started = True
+        manager._third_party_supervisor = FakeSupervisor([thirdparty_root])
+
+        load_calls = []
+
+        async def fake_load_plugin_globally(plugin_id: str, reason: str = "manual") -> bool:
+            """记录自动加载调用。"""
+            load_calls.append((plugin_id, reason))
+            return True
+
+        monkeypatch.setattr(manager, "load_plugin_globally", fake_load_plugin_globally)
+
+        await manager._handle_plugin_config_changes(
+            "test.alpha",
+            [FileChange(change_type=1, path=alpha_dir / "config.toml")],
+        )
+
+        assert load_calls == [("test.alpha", "config_enabled")]
+
+    @pytest.mark.asyncio
+    async def test_handle_plugin_config_changes_unloads_loaded_disabled_plugin(self, monkeypatch, tmp_path):
+        from src.plugin_runtime import integration as integration_module
+        from src.config.file_watcher import FileChange
+        import json
+
+        builtin_root = tmp_path / "src" / "plugins" / "built_in"
+        alpha_dir = builtin_root / "alpha"
+        alpha_dir.mkdir(parents=True)
+        (alpha_dir / "config.toml").write_text("[plugin]\nenabled = false\n", encoding="utf-8")
+        (alpha_dir / "plugin.py").write_text("def create_plugin():\n    return object()\n", encoding="utf-8")
+        (alpha_dir / "_manifest.json").write_text(json.dumps(build_test_manifest("test.alpha")), encoding="utf-8")
+
+        monkeypatch.chdir(tmp_path)
+
+        class FakeSupervisor:
+            def __init__(self, plugin_dirs, plugins):
+                self._plugin_dirs = plugin_dirs
+                self._registered_plugins = {plugin_id: object() for plugin_id in plugins}
+
+            async def inspect_plugin_config(
+                self,
+                plugin_id: str,
+                config_data: Optional[Dict[str, Any]] = None,
+                use_provided_config: bool = False,
+            ) -> SimpleNamespace:
+                """返回测试用的禁用配置快照。"""
+                del config_data, use_provided_config
+                return SimpleNamespace(
+                    enabled=False,
+                    normalized_config={"plugin": {"enabled": False}},
+                    plugin_id=plugin_id,
+                )
+
+        manager = integration_module.PluginRuntimeManager()
+        manager._started = True
+        manager._builtin_supervisor = FakeSupervisor([builtin_root], ["test.alpha"])
+
+        reload_calls = []
+
+        async def fake_reload_plugins_globally(plugin_ids: Sequence[str], reason: str = "manual") -> bool:
+            """记录自动卸载调用。"""
+            reload_calls.append((list(plugin_ids), reason))
+            return True
+
+        monkeypatch.setattr(manager, "reload_plugins_globally", fake_reload_plugins_globally)
+
+        await manager._handle_plugin_config_changes(
+            "test.alpha",
+            [FileChange(change_type=1, path=alpha_dir / "config.toml")],
+        )
+
+        assert reload_calls == [(["test.alpha"], "config_disabled")]
 
     @pytest.mark.asyncio
     async def test_handle_main_config_reload_only_notifies_subscribers(self, monkeypatch):
@@ -3107,6 +3284,55 @@ class TestIntegration:
         assert {
             subscription["paths"][0] for subscription in manager._plugin_file_watcher.subscriptions
         } == {alpha_dir / "config.toml", beta_dir / "config.toml"}
+
+    def test_refresh_plugin_config_watch_subscriptions_includes_unloaded_plugins(self, tmp_path):
+        from src.plugin_runtime import integration as integration_module
+        import json
+
+        thirdparty_root = tmp_path / "plugins"
+        alpha_dir = thirdparty_root / "alpha"
+        beta_dir = thirdparty_root / "beta"
+        alpha_dir.mkdir(parents=True)
+        beta_dir.mkdir(parents=True)
+        (alpha_dir / "plugin.py").write_text("def create_plugin():\n    return object()\n", encoding="utf-8")
+        (beta_dir / "plugin.py").write_text("def create_plugin():\n    return object()\n", encoding="utf-8")
+        (alpha_dir / "_manifest.json").write_text(json.dumps(build_test_manifest("test.alpha")), encoding="utf-8")
+        (beta_dir / "_manifest.json").write_text(json.dumps(build_test_manifest("test.beta")), encoding="utf-8")
+
+        class FakeWatcher:
+            def __init__(self):
+                self.subscriptions = []
+
+            def subscribe(
+                self,
+                callback: Any,
+                *,
+                paths: Optional[Sequence[Path]] = None,
+                change_types: Any = None,
+            ) -> str:
+                """记录新的监听订阅。"""
+                del callback, change_types
+                subscription_id = f"sub-{len(self.subscriptions) + 1}"
+                self.subscriptions.append({"id": subscription_id, "paths": tuple(paths or ())})
+                return subscription_id
+
+            def unsubscribe(self, subscription_id: str) -> bool:
+                """兼容 watcher 取消订阅接口。"""
+                del subscription_id
+                return True
+
+        class FakeSupervisor:
+            def __init__(self, plugin_dirs, plugins):
+                self._plugin_dirs = plugin_dirs
+                self._registered_plugins = {plugin_id: object() for plugin_id in plugins}
+
+        manager = integration_module.PluginRuntimeManager()
+        manager._plugin_file_watcher = FakeWatcher()
+        manager._third_party_supervisor = FakeSupervisor([thirdparty_root], ["test.alpha"])
+
+        manager._refresh_plugin_config_watch_subscriptions()
+
+        assert set(manager._plugin_config_watcher_subscriptions.keys()) == {"test.alpha", "test.beta"}
 
     @pytest.mark.asyncio
     async def test_component_reload_plugin_returns_failure_when_reload_rolls_back(self, monkeypatch):

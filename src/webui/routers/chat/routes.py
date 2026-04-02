@@ -1,9 +1,8 @@
 """本地聊天室路由 - WebUI 与麦麦直接对话。"""
 
-import uuid
 from typing import Dict, Optional
 
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import case, func
 from sqlmodel import col, select
 
@@ -13,16 +12,11 @@ from src.common.logger import get_logger
 from src.config.config import global_config
 from src.webui.dependencies import require_auth
 
-from .support import (
+from .service import (
     WEBUI_CHAT_GROUP_ID,
     WEBUI_CHAT_PLATFORM,
-    authenticate_chat_websocket,
     chat_history,
     chat_manager,
-    dispatch_chat_event,
-    normalize_webui_user_id,
-    resolve_initial_virtual_identity,
-    send_initial_chat_state,
 )
 
 logger = get_logger("webui.chat")
@@ -111,55 +105,6 @@ async def clear_chat_history(
     """清空聊天历史记录。"""
     deleted = chat_history.clear_history(group_id)
     return {"success": True, "message": f"已清空 {deleted} 条聊天记录"}
-
-
-@router.websocket("/ws")
-async def websocket_chat(
-    websocket: WebSocket,
-    user_id: Optional[str] = Query(default=None),
-    user_name: Optional[str] = Query(default="WebUI用户"),
-    platform: Optional[str] = Query(default=None),
-    person_id: Optional[str] = Query(default=None),
-    group_name: Optional[str] = Query(default=None),
-    group_id: Optional[str] = Query(default=None),
-    token: Optional[str] = Query(default=None),
-) -> None:
-    """WebSocket 聊天端点。"""
-    if not await authenticate_chat_websocket(websocket, token):
-        logger.warning("聊天 WebSocket 连接被拒绝：认证失败")
-        await websocket.close(code=4001, reason="认证失败，请重新登录")
-        return
-
-    session_id = str(uuid.uuid4())
-    normalized_user_id = normalize_webui_user_id(user_id)
-    current_user_name = user_name or "WebUI用户"
-    current_virtual_config = resolve_initial_virtual_identity(platform, person_id, group_name, group_id)
-
-    await chat_manager.connect(websocket, session_id, normalized_user_id)
-    try:
-        await send_initial_chat_state(
-            session_id=session_id,
-            user_id=normalized_user_id,
-            user_name=current_user_name,
-            virtual_config=current_virtual_config,
-        )
-
-        while True:
-            data = await websocket.receive_json()
-            current_user_name, current_virtual_config = await dispatch_chat_event(
-                session_id=session_id,
-                session_id_prefix=session_id[:8],
-                data=data,
-                current_user_name=current_user_name,
-                normalized_user_id=normalized_user_id,
-                current_virtual_config=current_virtual_config,
-            )
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket 断开: session={session_id}, user={normalized_user_id}")
-    except Exception as e:
-        logger.error(f"WebSocket 错误: {e}")
-    finally:
-        chat_manager.disconnect(session_id, normalized_user_id)
 
 
 @router.get("/info")

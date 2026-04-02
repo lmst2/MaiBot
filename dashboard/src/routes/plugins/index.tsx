@@ -93,12 +93,12 @@ function PluginsPageContent() {
 
   // 统一管理 WebSocket 和数据加载
   useEffect(() => {
-    let ws: WebSocket | null = null
+    let unsubscribeProgress: (() => Promise<void>) | null = null
     let isUnmounted = false
 
     const init = async () => {
       // 1. 先连接 WebSocket（异步获取 token）
-      ws = await connectPluginProgressWebSocket(
+      unsubscribeProgress = await connectPluginProgressWebSocket(
         (progress) => {
           if (isUnmounted) return
           
@@ -128,29 +128,7 @@ function PluginsPageContent() {
         }
       )
 
-      // 2. 等待 WebSocket 连接建立
-      await new Promise<void>((resolve) => {
-        if (!ws) {
-          resolve()
-          return
-        }
-        
-        const checkConnection = () => {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            console.log('WebSocket connected, starting to load plugins')
-            resolve()
-          } else if (ws && ws.readyState === WebSocket.CLOSED) {
-            console.warn('WebSocket closed before loading plugins')
-            resolve()
-          } else {
-            setTimeout(checkConnection, 100)
-          }
-        }
-        
-        checkConnection()
-      })
-
-      // 3. 检查 Git 状态
+      // 2. 检查 Git 状态
       if (!isUnmounted) {
         const statusResult = await checkGitStatus()
         if (!statusResult.success) {
@@ -173,7 +151,7 @@ function PluginsPageContent() {
         }
       }
 
-      // 4. 获取麦麦版本
+      // 3. 获取麦麦版本
       if (!isUnmounted) {
         const versionResult = await getMaimaiVersion()
         if (!versionResult.success) {
@@ -186,7 +164,7 @@ function PluginsPageContent() {
           setMaimaiVersion(versionResult.data)
         }
       }
-      // 5. 加载插件列表（包含已安装信息）
+      // 4. 加载插件列表（包含已安装信息）
       if (!isUnmounted) {
         try {
           setLoading(true)
@@ -282,8 +260,8 @@ function PluginsPageContent() {
 
     return () => {
       isUnmounted = true
-      if (ws) {
-        ws.close()
+      if (unsubscribeProgress) {
+        void unsubscribeProgress()
       }
     }
   }, [toast])

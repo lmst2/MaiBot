@@ -25,6 +25,7 @@ from typing import (
 )
 
 import asyncio
+import inspect
 
 import tomlkit
 
@@ -32,14 +33,17 @@ from src.common.logger import get_logger
 from src.config.config import config_manager
 from src.config.file_watcher import FileChange, FileWatcher
 from src.platform_io import DeliveryBatch, InboundMessageEnvelope, get_platform_io_manager
+from src.plugin_runtime.hook_catalog import register_builtin_hook_specs
 from src.plugin_runtime.capabilities import (
     RuntimeComponentCapabilityMixin,
     RuntimeCoreCapabilityMixin,
     RuntimeDataCapabilityMixin,
 )
 from src.plugin_runtime.capabilities.registry import register_capability_impls
-from src.plugin_runtime.host.hook_dispatcher import HookDispatchResult, HookDispatcher, HookSpec
+from src.plugin_runtime.host.hook_dispatcher import HookDispatchResult, HookDispatcher
+from src.plugin_runtime.host.hook_spec_registry import HookSpec, HookSpecRegistry
 from src.plugin_runtime.host.message_utils import MessageDict, PluginMessageUtils
+from src.plugin_runtime.protocol.envelope import InspectPluginConfigResultPayload
 from src.plugin_runtime.runner.manifest_validator import ManifestValidator
 
 if TYPE_CHECKING:
@@ -87,7 +91,12 @@ class PluginRuntimeManager(
         self._manifest_validator: ManifestValidator = ManifestValidator()
         self._config_reload_callback: Callable[[Sequence[str]], Awaitable[None]] = self._handle_main_config_reload
         self._config_reload_callback_registered: bool = False
-        self._hook_dispatcher: HookDispatcher = HookDispatcher(lambda: self.supervisors)
+        self._hook_spec_registry: HookSpecRegistry = HookSpecRegistry()
+        self._builtin_hook_specs_registered: bool = False
+        self._hook_dispatcher: HookDispatcher = HookDispatcher(
+            lambda: self.supervisors,
+            hook_spec_registry=self._hook_spec_registry,
+        )
 
     async def _dispatch_platform_inbound(self, envelope: InboundMessageEnvelope) -> None:
         """接收 Platform IO 审核后的入站消息并送入主消息链。
@@ -155,6 +164,33 @@ class PluginRuntimeManager(
             return ["third_party", "builtin"]
         return ["builtin", "third_party"]
 
+    @staticmethod
+    def _instantiate_supervisor(supervisor_cls: Any, **kwargs: Any) -> Any:
+        """兼容不同构造签名地实例化 Supervisor。
+
+        Args:
+            supervisor_cls: 目标 Supervisor 类。
+            **kwargs: 期望传入的构造参数。
+
+        Returns:
+            Any: 实例化后的 Supervisor。
+        """
+
+        signature = inspect.signature(supervisor_cls)
+        accepts_var_keyword = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        )
+        if accepts_var_keyword:
+            return supervisor_cls(**kwargs)
+
+        supported_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key in signature.parameters
+        }
+        return supervisor_cls(**supported_kwargs)
+
     # ─── 生命周期 ─────────────────────────────────────────────
 
     async def start(self) -> None:
@@ -185,6 +221,7 @@ class PluginRuntimeManager(
             logger.info("未找到任何插件目录，跳过插件运行时启动")
             return
 
+        self.ensure_builtin_hook_specs_registered()
         platform_io_manager = get_platform_io_manager()
 
         # 从配置读取自定义 IPC socket 路径（留空则自动生成）
@@ -196,17 +233,21 @@ class PluginRuntimeManager(
 
         # 创建两个 Supervisor，各自拥有独立的 socket / Runner 子进程
         if builtin_dirs:
-            self._builtin_supervisor = PluginSupervisor(
+            self._builtin_supervisor = self._instantiate_supervisor(
+                PluginSupervisor,
                 plugin_dirs=builtin_dirs,
                 group_name="builtin",
+                hook_spec_registry=self._hook_spec_registry,
                 socket_path=builtin_socket,
             )
             self._register_capability_impls(self._builtin_supervisor)
 
         if third_party_dirs:
-            self._third_party_supervisor = PluginSupervisor(
+            self._third_party_supervisor = self._instantiate_supervisor(
+                PluginSupervisor,
                 plugin_dirs=third_party_dirs,
                 group_name="third_party",
+                hook_spec_registry=self._hook_spec_registry,
                 socket_path=third_party_socket,
             )
             self._register_capability_impls(self._third_party_supervisor)
@@ -328,6 +369,7 @@ class PluginRuntimeManager(
             spec: 需要注册的 Hook 规格。
         """
 
+        self.ensure_builtin_hook_specs_registered()
         self._hook_dispatcher.register_hook_spec(spec)
 
     def register_hook_specs(self, specs: Sequence[HookSpec]) -> None:
@@ -337,7 +379,40 @@ class PluginRuntimeManager(
             specs: 需要注册的 Hook 规格序列。
         """
 
+        self.ensure_builtin_hook_specs_registered()
         self._hook_dispatcher.register_hook_specs(specs)
+
+    def unregister_hook_spec(self, hook_name: str) -> bool:
+        """注销指定命名 Hook 规格。
+
+        Args:
+            hook_name: 目标 Hook 名称。
+
+        Returns:
+            bool: 是否成功注销。
+        """
+
+        self.ensure_builtin_hook_specs_registered()
+        return self._hook_dispatcher.unregister_hook_spec(hook_name)
+
+    def list_hook_specs(self) -> List[HookSpec]:
+        """返回当前全部命名 Hook 规格。
+
+        Returns:
+            List[HookSpec]: 当前已注册的 Hook 规格列表。
+        """
+
+        self.ensure_builtin_hook_specs_registered()
+        return self._hook_dispatcher.list_hook_specs()
+
+    def ensure_builtin_hook_specs_registered(self) -> None:
+        """确保内置 Hook 规格已经注册到共享中心表。"""
+
+        if self._builtin_hook_specs_registered:
+            return
+
+        register_builtin_hook_specs(self._hook_spec_registry)
+        self._builtin_hook_specs_registered = True
 
     def _build_registered_dependency_map(self) -> Dict[str, Set[str]]:
         """根据当前已注册插件构建全局依赖图。"""
@@ -542,8 +617,8 @@ class PluginRuntimeManager(
             config_data: 待校验的配置内容。
 
         Returns:
-            Dict[str, Any] | None: 校验成功时返回规范化后的配置；若插件当前未加载
-            或运行时不可用，则返回 ``None`` 以便调用方回退到静态 Schema 方案。
+            Dict[str, Any] | None: 校验成功时返回规范化后的配置；若插件不存在、
+            当前不可路由或运行时不可用，则返回 ``None`` 以便调用方回退到弱推断方案。
 
         Raises:
             ValueError: 插件已加载，但配置校验失败时抛出。
@@ -559,6 +634,8 @@ class PluginRuntimeManager(
             return None
 
         if supervisor is None:
+            supervisor = self._find_supervisor_by_plugin_directory(plugin_id)
+        if supervisor is None:
             return None
 
         try:
@@ -567,6 +644,54 @@ class PluginRuntimeManager(
             raise
         except Exception as exc:
             logger.warning(f"插件 {plugin_id} 运行时配置校验不可用，将回退到静态 Schema: {exc}")
+            return None
+
+    async def inspect_plugin_config(
+        self,
+        plugin_id: str,
+        config_data: Optional[Dict[str, Any]] = None,
+        *,
+        use_provided_config: bool = False,
+    ) -> InspectPluginConfigResultPayload | None:
+        """请求运行时解析插件配置元数据。
+
+        Args:
+            plugin_id: 目标插件 ID。
+            config_data: 可选的配置内容。
+            use_provided_config: 是否优先使用传入的配置内容而不是磁盘配置。
+
+        Returns:
+            InspectPluginConfigResultPayload | None: 解析成功时返回结构化结果；若插件
+            当前不可路由或运行时不可用，则返回 ``None``。
+
+        Raises:
+            ValueError: 插件存在，但运行时明确拒绝解析请求时抛出。
+        """
+
+        if not self._started:
+            return None
+
+        try:
+            supervisor = self._get_supervisor_for_plugin(plugin_id)
+        except RuntimeError as exc:
+            logger.warning(f"插件 {plugin_id} 配置解析路由失败: {exc}")
+            return None
+
+        if supervisor is None:
+            supervisor = self._find_supervisor_by_plugin_directory(plugin_id)
+        if supervisor is None:
+            return None
+
+        try:
+            return await supervisor.inspect_plugin_config(
+                plugin_id=plugin_id,
+                config_data=config_data,
+                use_provided_config=use_provided_config,
+            )
+        except ValueError:
+            raise
+        except Exception as exc:
+            logger.warning(f"插件 {plugin_id} 配置解析不可用: {exc}")
             return None
 
     @staticmethod
@@ -771,7 +896,15 @@ class PluginRuntimeManager(
         return matches[0] if matches else None
 
     async def load_plugin_globally(self, plugin_id: str, reason: str = "manual") -> bool:
-        """加载或重载单个插件，并为其补齐跨 Supervisor 外部依赖。"""
+        """加载或重载单个插件，并为其补齐跨 Supervisor 外部依赖。
+
+        Args:
+            plugin_id: 目标插件 ID。
+            reason: 加载或重载原因。
+
+        Returns:
+            bool: 插件最终是否处于已加载状态。
+        """
 
         normalized_plugin_id = str(plugin_id or "").strip()
         if not normalized_plugin_id:
@@ -789,11 +922,12 @@ class PluginRuntimeManager(
         if supervisor is None:
             return False
 
-        return await supervisor.reload_plugins(
+        reloaded = await supervisor.reload_plugins(
             plugin_ids=[normalized_plugin_id],
             reason=reason,
             external_available_plugins=self._build_external_available_plugins_for_supervisor(supervisor),
         )
+        return reloaded and normalized_plugin_id in supervisor.get_loaded_plugin_ids()
 
     @classmethod
     def _find_duplicate_plugin_ids(cls, plugin_dirs: List[Path]) -> Dict[str, List[Path]]:
@@ -920,15 +1054,16 @@ class PluginRuntimeManager(
         return None
 
     def _refresh_plugin_config_watch_subscriptions(self) -> None:
-        """按当前已注册插件集合刷新 config.toml 的单插件订阅。
+        """按当前可识别插件集合刷新 config.toml 的单插件订阅。
 
         当插件热重载后，插件集合或目录位置可能发生变化，因此需要重新对齐
         watcher 的订阅，确保每个插件配置变更只触发对应 plugin_id。
+        这里不仅覆盖当前已注册插件，也覆盖已存在但暂未激活的合法插件。
         """
         if self._plugin_file_watcher is None:
             return
 
-        desired_plugin_paths = dict(self._iter_registered_plugin_paths())
+        desired_plugin_paths = dict(self._iter_watchable_plugin_paths())
         self._plugin_path_cache = desired_plugin_paths.copy()
         desired_config_paths = {
             plugin_id: plugin_path / "config.toml" for plugin_id, plugin_path in desired_plugin_paths.items()
@@ -970,6 +1105,18 @@ class PluginRuntimeManager(
                 if plugin_path := self._get_plugin_path_for_supervisor(supervisor, plugin_id):
                     yield plugin_id, plugin_path
 
+    def _iter_watchable_plugin_paths(self) -> Iterable[Tuple[str, Path]]:
+        """迭代应被配置监听器追踪的插件目录。
+
+        Returns:
+            Iterable[Tuple[str, Path]]: ``(plugin_id, plugin_path)`` 迭代器。
+        """
+
+        watchable_plugin_paths = dict(self._iter_discovered_plugin_paths(self._iter_plugin_dirs()))
+        for plugin_id, plugin_path in self._iter_registered_plugin_paths():
+            watchable_plugin_paths.setdefault(plugin_id, plugin_path)
+        yield from watchable_plugin_paths.items()
+
     def _get_plugin_config_path_for_supervisor(self, supervisor: Any, plugin_id: str) -> Optional[Path]:
         """从指定 Supervisor 的插件目录中定位某个插件的 config.toml。"""
         plugin_path = self._get_plugin_path_for_supervisor(supervisor, plugin_id)
@@ -993,18 +1140,43 @@ class PluginRuntimeManager(
             return
 
         if supervisor is None:
+            supervisor = self._find_supervisor_by_plugin_directory(plugin_id)
+        if supervisor is None:
+            return
+
+        plugin_is_loaded = plugin_id in getattr(supervisor, "_registered_plugins", {})
+
+        try:
+            snapshot = await supervisor.inspect_plugin_config(plugin_id)
+        except Exception as exc:
+            logger.warning(f"插件 {plugin_id} 配置文件变更解析失败: {exc}")
             return
 
         try:
-            config_payload = self._load_plugin_config_for_supervisor(supervisor, plugin_id)
-            delivered = await supervisor.notify_plugin_config_updated(
-                plugin_id=plugin_id,
-                config_data=config_payload,
-                config_version="",
-                config_scope="self",
-            )
-            if not delivered:
-                logger.warning(f"插件 {plugin_id} 配置文件变更后通知失败")
+            if plugin_is_loaded and snapshot.enabled:
+                delivered = await supervisor.notify_plugin_config_updated(
+                    plugin_id=plugin_id,
+                    config_data=dict(snapshot.normalized_config),
+                    config_version="",
+                    config_scope="self",
+                )
+                if not delivered:
+                    logger.warning(f"插件 {plugin_id} 配置文件变更后通知失败")
+                return
+
+            if plugin_is_loaded and not snapshot.enabled:
+                reloaded = await self.reload_plugins_globally([plugin_id], reason="config_disabled")
+                if not reloaded:
+                    logger.warning(f"插件 {plugin_id} 禁用配置已写入，但运行时卸载失败")
+                return
+
+            if not snapshot.enabled:
+                logger.info(f"插件 {plugin_id} 当前处于禁用状态，跳过自动加载")
+                return
+
+            loaded = await self.load_plugin_globally(plugin_id, reason="config_enabled")
+            if not loaded:
+                logger.warning(f"插件 {plugin_id} 配置文件变更后自动加载失败")
         except Exception as exc:
             logger.warning(f"插件 {plugin_id} 配置文件变更处理失败: {exc}")
 

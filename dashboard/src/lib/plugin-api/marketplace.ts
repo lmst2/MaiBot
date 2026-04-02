@@ -1,9 +1,9 @@
 import type { ApiResponse } from '@/types/api'
 import type { PluginInfo } from '@/types/plugin'
 
-import { getWsBaseUrl } from '@/lib/api-base'
 import { fetchWithAuth } from '@/lib/fetch-with-auth'
 import { parseResponse } from '@/lib/api-helpers'
+import { pluginProgressClient } from '@/lib/plugin-progress-client'
 import type { GitStatus, MaimaiVersion } from './types'
 
 /**
@@ -211,41 +211,13 @@ export function isPluginCompatible(
  */
 export async function connectPluginProgressWebSocket(
   onProgress: (progress: import('./types').PluginLoadProgress) => void,
-  onError?: (error: Event) => void
-): Promise<WebSocket | null> {
-  const wsBase = await getWsBaseUrl()
-  const wsUrl = `${wsBase}/api/webui/ws/plugin-progress`
-  
-  // 使用 ws-utils 创建 WebSocket
-  const { createReconnectingWebSocket } = await import('@/lib/ws-utils')
-  const wsControl = createReconnectingWebSocket(wsUrl, {
-    onMessage: (data: string) => {
-      try {
-        const progressData = JSON.parse(data) as import('./types').PluginLoadProgress
-        onProgress(progressData)
-      } catch (error) {
-        console.error('Failed to parse progress data:', error)
-      }
-    },
-    onOpen: () => {
-      console.log('Plugin progress WebSocket connected')
-    },
-    onClose: () => {
-      console.log('Plugin progress WebSocket disconnected')
-    },
-    onError: (error) => {
-      console.error('Plugin progress WebSocket error:', error)
-      onError?.(error)
-    },
-    heartbeatInterval: 30000,
-    maxRetries: 10,
-    backoffBase: 1000,
-    maxBackoff: 30000,
-  })
-  
-  // 启动连接
-  await wsControl.connect()
-  
-  // 返回 WebSocket 实例(用于外部检查连接状态)
-  return wsControl.getWebSocket()
+  onError?: (error: Error) => void
+): Promise<() => Promise<void>> {
+  try {
+    return await pluginProgressClient.subscribe(onProgress)
+  } catch (error) {
+    const normalizedError = error instanceof Error ? error : new Error('插件进度订阅失败')
+    onError?.(normalizedError)
+    return async () => {}
+  }
 }

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from time import perf_counter
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 import asyncio
 import json
@@ -26,6 +26,15 @@ from src.llm_models.model_client.base_client import BaseClient
 from src.llm_models.payload_content.message import Message, MessageBuilder, RoleType
 from src.llm_models.payload_content.resp_format import RespFormat, RespFormatType
 from src.llm_models.payload_content.tool_option import ToolCall, ToolDefinitionInput, ToolOption, normalize_tool_options
+from src.plugin_runtime.hook_payloads import (
+    deserialize_prompt_messages,
+    deserialize_tool_calls,
+    serialize_prompt_messages,
+    serialize_tool_calls,
+    serialize_tool_definitions,
+)
+from src.plugin_runtime.hook_schema_utils import build_object_schema
+from src.plugin_runtime.host.hook_spec_registry import HookSpec, HookSpecRegistry
 from src.services.llm_service import LLMServiceClient
 
 from .builtin_tools import get_builtin_tools
@@ -56,6 +65,123 @@ class ToolFilterSelection(BaseModel):
 
 
 logger = get_logger("maisaka_chat_loop")
+
+
+def register_maisaka_hook_specs(registry: HookSpecRegistry) -> List[HookSpec]:
+    """注册 Maisaka 规划器内置 Hook 规格。
+
+    Args:
+        registry: 目标 Hook 规格注册中心。
+
+    Returns:
+        List[HookSpec]: 实际注册的 Hook 规格列表。
+    """
+
+    return registry.register_hook_specs(
+        [
+            HookSpec(
+                name="maisaka.planner.before_request",
+                description="在 Maisaka 向模型发起规划请求前触发，可改写消息窗口与工具定义。",
+                parameters_schema=build_object_schema(
+                    {
+                        "messages": {
+                            "type": "array",
+                            "description": "即将发给模型的 PromptMessage 列表。",
+                        },
+                        "tool_definitions": {
+                            "type": "array",
+                            "description": "当前候选工具定义列表。",
+                        },
+                        "selected_history_count": {
+                            "type": "integer",
+                            "description": "当前选中的上下文消息数量。",
+                        },
+                        "built_message_count": {
+                            "type": "integer",
+                            "description": "实际发送给模型的消息数量。",
+                        },
+                        "selection_reason": {
+                            "type": "string",
+                            "description": "上下文选择说明。",
+                        },
+                        "session_id": {
+                            "type": "string",
+                            "description": "当前会话 ID。",
+                        },
+                    },
+                    required=[
+                        "messages",
+                        "tool_definitions",
+                        "selected_history_count",
+                        "built_message_count",
+                        "selection_reason",
+                        "session_id",
+                    ],
+                ),
+                default_timeout_ms=6000,
+                allow_abort=False,
+                allow_kwargs_mutation=True,
+            ),
+            HookSpec(
+                name="maisaka.planner.after_response",
+                description="在 Maisaka 收到模型响应后触发，可调整文本结果与工具调用列表。",
+                parameters_schema=build_object_schema(
+                    {
+                        "response": {
+                            "type": "string",
+                            "description": "模型返回的文本内容。",
+                        },
+                        "tool_calls": {
+                            "type": "array",
+                            "description": "模型返回的工具调用列表。",
+                        },
+                        "selected_history_count": {
+                            "type": "integer",
+                            "description": "当前选中的上下文消息数量。",
+                        },
+                        "built_message_count": {
+                            "type": "integer",
+                            "description": "实际发送给模型的消息数量。",
+                        },
+                        "selection_reason": {
+                            "type": "string",
+                            "description": "上下文选择说明。",
+                        },
+                        "session_id": {
+                            "type": "string",
+                            "description": "当前会话 ID。",
+                        },
+                        "prompt_tokens": {
+                            "type": "integer",
+                            "description": "输入 Token 数。",
+                        },
+                        "completion_tokens": {
+                            "type": "integer",
+                            "description": "输出 Token 数。",
+                        },
+                        "total_tokens": {
+                            "type": "integer",
+                            "description": "总 Token 数。",
+                        },
+                    },
+                    required=[
+                        "response",
+                        "tool_calls",
+                        "selected_history_count",
+                        "built_message_count",
+                        "selection_reason",
+                        "session_id",
+                        "prompt_tokens",
+                        "completion_tokens",
+                        "total_tokens",
+                    ],
+                ),
+                default_timeout_ms=6000,
+                allow_abort=False,
+                allow_kwargs_mutation=True,
+            ),
+        ]
+    )
 
 
 class MaisakaChatLoopService:
@@ -104,6 +230,35 @@ class MaisakaChatLoopService:
         """返回当前人格提示词。"""
 
         return self._personality_prompt
+
+    @staticmethod
+    def _get_runtime_manager() -> Any:
+        """获取插件运行时管理器。
+
+        Returns:
+            Any: 插件运行时管理器单例。
+        """
+
+        from src.plugin_runtime.integration import get_plugin_runtime_manager
+
+        return get_plugin_runtime_manager()
+
+    @staticmethod
+    def _coerce_int(value: Any, default: int) -> int:
+        """将任意值安全转换为整数。
+
+        Args:
+            value: 待转换的输入值。
+            default: 转换失败时的默认值。
+
+        Returns:
+            int: 转换后的整数结果。
+        """
+
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
 
     def _build_personality_prompt(self) -> str:
         """构造人格提示词。"""
@@ -580,6 +735,26 @@ class MaisakaChatLoopService:
         else:
             all_tools = [*get_builtin_tools(), *self._extra_tools]
 
+        before_request_result = await self._get_runtime_manager().invoke_hook(
+            "maisaka.planner.before_request",
+            messages=serialize_prompt_messages(built_messages),
+            tool_definitions=serialize_tool_definitions(all_tools),
+            selected_history_count=len(selected_history),
+            built_message_count=len(built_messages),
+            selection_reason=selection_reason,
+            session_id=self._session_id,
+        )
+        before_request_kwargs = before_request_result.kwargs
+        raw_messages = before_request_kwargs.get("messages")
+        if isinstance(raw_messages, list):
+            try:
+                built_messages = deserialize_prompt_messages(raw_messages)
+            except Exception as exc:
+                logger.warning(f"Hook maisaka.planner.before_request 返回的 messages 无法反序列化，已忽略: {exc}")
+        raw_tool_definitions = before_request_kwargs.get("tool_definitions")
+        if isinstance(raw_tool_definitions, list):
+            all_tools = [item for item in raw_tool_definitions if isinstance(item, dict)]
+
         ordered_panels = PromptCLIVisualizer.build_prompt_panels(
             built_messages,
             image_display_mode=global_config.maisaka.terminal_image_display_mode,
@@ -625,33 +800,63 @@ class MaisakaChatLoopService:
         )
         logger.info(f"本轮Prompt统计: {prompt_stats_text}")
 
+        final_response = generation_result.response or ""
+        final_tool_calls = list(generation_result.tool_calls or [])
+        after_response_result = await self._get_runtime_manager().invoke_hook(
+            "maisaka.planner.after_response",
+            response=final_response,
+            tool_calls=serialize_tool_calls(final_tool_calls),
+            selected_history_count=len(selected_history),
+            built_message_count=len(built_messages),
+            selection_reason=selection_reason,
+            session_id=self._session_id,
+            prompt_tokens=generation_result.prompt_tokens,
+            completion_tokens=generation_result.completion_tokens,
+            total_tokens=generation_result.total_tokens,
+        )
+        after_response_kwargs = after_response_result.kwargs
+        if "response" in after_response_kwargs:
+            final_response = str(after_response_kwargs.get("response") or "")
+        raw_tool_calls = after_response_kwargs.get("tool_calls")
+        if isinstance(raw_tool_calls, list):
+            try:
+                final_tool_calls = deserialize_tool_calls(raw_tool_calls)
+            except Exception as exc:
+                logger.warning(f"Hook maisaka.planner.after_response 返回的 tool_calls 无法反序列化，已忽略: {exc}")
+        prompt_tokens = self._coerce_int(after_response_kwargs.get("prompt_tokens"), generation_result.prompt_tokens)
+        completion_tokens = self._coerce_int(
+            after_response_kwargs.get("completion_tokens"),
+            generation_result.completion_tokens,
+        )
+        total_tokens = self._coerce_int(after_response_kwargs.get("total_tokens"), generation_result.total_tokens)
+
         tool_call_summaries = [
             {
                 "调用编号": getattr(tool_call, "call_id", getattr(tool_call, "id", None)),
                 "工具名": getattr(tool_call, "func_name", getattr(tool_call, "name", None)),
                 "参数": getattr(tool_call, "args", getattr(tool_call, "arguments", None)),
             }
-            for tool_call in (generation_result.tool_calls or [])
+            for tool_call in final_tool_calls
         ]
         logger.info(
-            f"Maisaka 规划器返回结果: 内容={generation_result.response or ''!r} "
+            f"Maisaka 规划器返回结果: 内容={final_response!r} "
             f"工具调用={tool_call_summaries}"
         )
 
         raw_message = AssistantMessage(
-            content=generation_result.response or "",
+            content=final_response,
             timestamp=datetime.now(),
-            tool_calls=generation_result.tool_calls or [],
+            tool_calls=final_tool_calls,
         )
         return ChatResponse(
-            content=generation_result.response,
-            tool_calls=generation_result.tool_calls or [],
+            content=final_response or None,
+            tool_calls=final_tool_calls,
             raw_message=raw_message,
             selected_history_count=len(selected_history),
-            prompt_tokens=generation_result.prompt_tokens,
+            prompt_tokens=prompt_tokens,
             built_message_count=len(built_messages),
-            completion_tokens=generation_result.completion_tokens,
-            total_tokens=generation_result.total_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
         )
 
     @staticmethod

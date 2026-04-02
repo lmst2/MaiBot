@@ -54,6 +54,84 @@ class MaisakaReasoningEngine:
         self._runtime = runtime
         self._last_reasoning_content: str = ""
 
+    @staticmethod
+    def _get_runtime_manager() -> Any:
+        """获取插件运行时管理器。
+
+        Returns:
+            Any: 插件运行时管理器单例。
+        """
+
+        from src.plugin_runtime.integration import get_plugin_runtime_manager
+
+        return get_plugin_runtime_manager()
+
+    @staticmethod
+    def _normalize_words(raw_words: Any) -> list[str]:
+        """清洗黑话查询词条列表。
+
+        Args:
+            raw_words: 原始词条列表。
+
+        Returns:
+            list[str]: 去重去空白后的词条列表。
+        """
+
+        if not isinstance(raw_words, list):
+            return []
+
+        normalized_words: list[str] = []
+        seen_words: set[str] = set()
+        for item in raw_words:
+            if not isinstance(item, str):
+                continue
+            word = item.strip()
+            if not word or word in seen_words:
+                continue
+            seen_words.add(word)
+            normalized_words.append(word)
+        return normalized_words
+
+    @staticmethod
+    def _normalize_jargon_query_results(raw_results: Any) -> list[dict[str, object]]:
+        """规范化黑话查询结果列表。
+
+        Args:
+            raw_results: Hook 返回的结果列表。
+
+        Returns:
+            list[dict[str, object]]: 清洗后的结果列表。
+        """
+
+        if not isinstance(raw_results, list):
+            return []
+
+        normalized_results: list[dict[str, object]] = []
+        for raw_item in raw_results:
+            if not isinstance(raw_item, dict):
+                continue
+            word = str(raw_item.get("word") or "").strip()
+            matches = raw_item.get("matches")
+            normalized_matches: list[dict[str, str]] = []
+            if isinstance(matches, list):
+                for match in matches:
+                    if not isinstance(match, dict):
+                        continue
+                    content = str(match.get("content") or "").strip()
+                    meaning = str(match.get("meaning") or "").strip()
+                    if not content or not meaning:
+                        continue
+                    normalized_matches.append({"content": content, "meaning": meaning})
+
+            normalized_results.append(
+                {
+                    "word": word,
+                    "found": bool(raw_item.get("found", bool(normalized_matches))),
+                    "matches": normalized_matches,
+                }
+            )
+        return normalized_results
+
     def build_builtin_tool_handlers(self) -> dict[str, "BuiltinToolHandler"]:
         """构造 Maisaka 内置工具处理器映射。
 
@@ -1012,6 +1090,35 @@ class MaisakaReasoningEngine:
                 "查询黑话工具至少需要一个非空词条。",
             )
 
+        limit = 5
+        case_sensitive = False
+        enable_fuzzy_fallback = True
+        before_search_result = await self._get_runtime_manager().invoke_hook(
+            "jargon.query.before_search",
+            words=list(words),
+            session_id=self._runtime.session_id,
+            limit=limit,
+            case_sensitive=case_sensitive,
+            enable_fuzzy_fallback=enable_fuzzy_fallback,
+            abort_message="黑话查询已被 Hook 中止。",
+        )
+        if before_search_result.aborted:
+            abort_message = str(before_search_result.kwargs.get("abort_message") or "黑话查询已被 Hook 中止。").strip()
+            return self._build_tool_failure_result(tool_call.func_name, abort_message or "黑话查询已被 Hook 中止。")
+
+        before_search_kwargs = before_search_result.kwargs
+        if before_search_kwargs.get("words") is not None:
+            words = self._normalize_words(before_search_kwargs.get("words"))
+        if not words:
+            return self._build_tool_failure_result(tool_call.func_name, "Hook 过滤后没有可查询的黑话词条。")
+        try:
+            limit = int(before_search_kwargs.get("limit", limit))
+        except (TypeError, ValueError):
+            limit = 5
+        limit = max(limit, 1)
+        case_sensitive = bool(before_search_kwargs.get("case_sensitive", case_sensitive))
+        enable_fuzzy_fallback = bool(before_search_kwargs.get("enable_fuzzy_fallback", enable_fuzzy_fallback))
+
         logger.info(f"{self._runtime.log_prefix} 已触发黑话查询: 词条={words!r}")
 
         results: list[dict[str, object]] = []
@@ -1019,17 +1126,19 @@ class MaisakaReasoningEngine:
             exact_matches = search_jargon(
                 keyword=word,
                 chat_id=self._runtime.session_id,
-                limit=5,
-                case_sensitive=False,
+                limit=limit,
+                case_sensitive=case_sensitive,
                 fuzzy=False,
             )
-            matched_entries = exact_matches or search_jargon(
-                keyword=word,
-                chat_id=self._runtime.session_id,
-                limit=5,
-                case_sensitive=False,
-                fuzzy=True,
-            )
+            matched_entries = exact_matches
+            if not matched_entries and enable_fuzzy_fallback:
+                matched_entries = search_jargon(
+                    keyword=word,
+                    chat_id=self._runtime.session_id,
+                    limit=limit,
+                    case_sensitive=case_sensitive,
+                    fuzzy=True,
+                )
 
             results.append(
                 {
@@ -1038,6 +1147,27 @@ class MaisakaReasoningEngine:
                     "matches": matched_entries,
                 }
             )
+
+        after_search_result = await self._get_runtime_manager().invoke_hook(
+            "jargon.query.after_search",
+            words=list(words),
+            session_id=self._runtime.session_id,
+            limit=limit,
+            case_sensitive=case_sensitive,
+            enable_fuzzy_fallback=enable_fuzzy_fallback,
+            results=list(results),
+            abort_message="黑话查询结果已被 Hook 中止。",
+        )
+        if after_search_result.aborted:
+            abort_message = str(after_search_result.kwargs.get("abort_message") or "黑话查询结果已被 Hook 中止。").strip()
+            return self._build_tool_failure_result(
+                tool_call.func_name,
+                abort_message or "黑话查询结果已被 Hook 中止。",
+            )
+
+        raw_results = after_search_result.kwargs.get("results")
+        if raw_results is not None:
+            results = self._normalize_jargon_query_results(raw_results)
 
         logger.info(f"{self._runtime.log_prefix} 黑话查询完成: 结果={results!r}")
         return self._build_tool_success_result(

@@ -18,28 +18,29 @@ install(extra_lines=3)
 logger = get_logger("sender")
 
 # WebUI 聊天室的消息广播器（延迟导入避免循环依赖）
-_webui_chat_broadcaster: Optional[Tuple[Any, Optional[str]]] = None
+_webui_chat_broadcaster: Optional[Tuple[Any, Optional[str], Optional[str]]] = None
 
 # 虚拟群 ID 前缀（与 chat_routes.py 保持一致）
 VIRTUAL_GROUP_ID_PREFIX = "webui_virtual_group_"
 
 
 # TODO: 重构完成后完成webui相关
-def get_webui_chat_broadcaster() -> Tuple[Any, Optional[str]]:
+def get_webui_chat_broadcaster() -> Tuple[Any, Optional[str], Optional[str]]:
     """获取 WebUI 聊天室广播器。
 
     Returns:
-        Tuple[Any, Optional[str]]: ``(chat_manager, platform_name)`` 二元组；
+        Tuple[Any, Optional[str], Optional[str]]: ``(chat_manager, platform_name, default_group_id)`` 三元组；
         若 WebUI 相关模块不可用，则元素会退化为 ``None``。
     """
     global _webui_chat_broadcaster
     if _webui_chat_broadcaster is None:
         try:
             from src.webui.routers.chat import WEBUI_CHAT_PLATFORM, chat_manager
+            from src.webui.routers.chat.service import WEBUI_CHAT_GROUP_ID
 
-            _webui_chat_broadcaster = (chat_manager, WEBUI_CHAT_PLATFORM)
+            _webui_chat_broadcaster = (chat_manager, WEBUI_CHAT_PLATFORM, WEBUI_CHAT_GROUP_ID)
         except ImportError:
-            _webui_chat_broadcaster = (None, None)
+            _webui_chat_broadcaster = (None, None, None)
     return _webui_chat_broadcaster
 
 
@@ -76,7 +77,7 @@ async def _send_message(message: SessionMessage, show_log: bool = True) -> bool:
 
     try:
         # 检查是否是 WebUI 平台的消息，或者是 WebUI 虚拟群的消息
-        chat_manager, webui_platform = get_webui_chat_broadcaster()
+        chat_manager, webui_platform, default_group_id = get_webui_chat_broadcaster()
         is_webui_message = (platform == webui_platform) or is_webui_virtual_group(group_id)
 
         if is_webui_message and chat_manager is not None:
@@ -97,8 +98,9 @@ async def _send_message(message: SessionMessage, show_log: bool = True) -> bool:
                 message_type = "rich"
                 segments = message_segments
 
-            await chat_manager.broadcast(
-                {
+            await chat_manager.broadcast_to_group(
+                group_id=group_id or default_group_id or "",
+                message={
                     "type": "bot_message",
                     "content": message.processed_plain_text,
                     "message_type": message_type,
@@ -110,7 +112,7 @@ async def _send_message(message: SessionMessage, show_log: bool = True) -> bool:
                         "avatar": None,
                         "is_bot": True,
                     },
-                }
+                },
             )
 
             # 注意：机器人消息会由 MessageStorage.store_message 自动保存到数据库

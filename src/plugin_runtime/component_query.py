@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Optional, Tuple, cast
 
 from src.common.logger import get_logger
@@ -907,6 +908,28 @@ class ComponentQueryService:
         if registration is None:
             return None
         return dict(registration.config_schema)
+
+    def list_hook_specs(self) -> list[dict[str, Any]]:
+        """返回当前运行时公开的 Hook 规格清单。
+
+        Returns:
+            list[dict[str, Any]]: 可直接序列化给 WebUI 的 Hook 规格列表。
+        """
+
+        runtime_manager = self._get_runtime_manager()
+        return [
+            {
+                "name": spec.name,
+                "description": spec.description,
+                "parameters_schema": deepcopy(spec.parameters_schema),
+                "default_timeout_ms": spec.default_timeout_ms,
+                "allow_blocking": spec.allow_blocking,
+                "allow_observe": spec.allow_observe,
+                "allow_abort": spec.allow_abort,
+                "allow_kwargs_mutation": spec.allow_kwargs_mutation,
+            }
+            for spec in runtime_manager.list_hook_specs()
+        ]
 
 
 component_query_service = ComponentQueryService()

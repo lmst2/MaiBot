@@ -18,11 +18,11 @@ from src.webui.routers.expression import router as expression_router
 from src.webui.routers.jargon import router as jargon_router
 from src.webui.routers.model import router as model_router
 from src.webui.routers.person import router as person_router
-from src.webui.routers.plugin import get_progress_router
 from src.webui.routers.plugin import router as plugin_router
 from src.webui.routers.statistics import router as statistics_router
 from src.webui.routers.system import router as system_router
 from src.webui.routers.websocket.auth import router as ws_auth_router
+from src.webui.routers.websocket.unified import router as unified_ws_router
 
 logger = get_logger("webui.api")
 
@@ -43,14 +43,14 @@ router.include_router(jargon_router)
 router.include_router(emoji_router)
 # 注册插件管理路由
 router.include_router(plugin_router)
-# 注册插件进度 WebSocket 路由
-router.include_router(get_progress_router())
 # 注册系统控制路由
 router.include_router(system_router)
 # 注册模型列表获取路由
 router.include_router(model_router)
 # 注册 WebSocket 认证路由
 router.include_router(ws_auth_router)
+# 注册统一 WebSocket 路由
+router.include_router(unified_ws_router)
 
 
 class TokenVerifyRequest(BaseModel):
