@@ -1,7 +1,7 @@
 from typing import Tuple
 
 from .routes import router
-from .support import WEBUI_CHAT_PLATFORM, ChatConnectionManager, chat_manager
+from .service import WEBUI_CHAT_PLATFORM, ChatConnectionManager, chat_manager
 
 
 def get_webui_chat_broadcaster() -> Tuple[ChatConnectionManager, str]:

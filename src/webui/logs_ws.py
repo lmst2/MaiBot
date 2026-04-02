@@ -9,6 +9,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from src.common.logger import get_logger
 from src.webui.core import get_token_manager
 from src.webui.routers.websocket.auth import verify_ws_token
+from src.webui.routers.websocket.manager import websocket_manager
 
 logger = get_logger("webui.logs_ws")
 router = APIRouter()
@@ -148,24 +149,9 @@ async def broadcast_log(log_data: Dict):
     Args:
         log_data: 日志数据字典
     """
-    if not active_connections:
-        return
-
-    # 格式化为 JSON
-    message = json.dumps(log_data, ensure_ascii=False)
-
-    # 记录需要断开的连接
-    disconnected = set()
-
-    # 广播到所有客户端
-    for connection in active_connections:
-        try:
-            await connection.send_text(message)
-        except Exception:
-            # 发送失败，标记为断开
-            disconnected.add(connection)
-
-    # 清理断开的连接
-    if disconnected:
-        active_connections.difference_update(disconnected)
-        logger.debug(f"清理了 {len(disconnected)} 个断开的 WebSocket 连接")
+    await websocket_manager.broadcast_to_topic(
+        domain="logs",
+        topic="main",
+        event="entry",
+        data={"entry": log_data},
+    )

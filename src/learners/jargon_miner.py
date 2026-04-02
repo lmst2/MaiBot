@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Callable, Dict, List, Optional, Set, TypedDict
+from typing import Any, Callable, Dict, List, Optional, Set, TypedDict
 
 import asyncio
 import json
@@ -9,13 +9,15 @@ from json_repair import repair_json
 from sqlmodel import select
 
 from src.common.data_models.jargon_data_model import MaiJargon
+from src.common.data_models.llm_service_data_models import LLMGenerationOptions
 from src.common.database.database import get_db_session
 from src.common.database.database_model import Jargon
 from src.common.logger import get_logger
 from src.config.config import global_config
-from src.common.data_models.llm_service_data_models import LLMGenerationOptions
-from src.services.llm_service import LLMServiceClient
+from src.plugin_runtime.hook_schema_utils import build_object_schema
+from src.plugin_runtime.host.hook_spec_registry import HookSpec, HookSpecRegistry
 from src.prompt.prompt_manager import prompt_manager
+from src.services.llm_service import LLMServiceClient
 
 from .expression_utils import is_single_char_jargon
 
@@ -35,8 +37,140 @@ class JargonMeaningEntry(TypedDict):
     meaning: str
 
 
+def register_jargon_hook_specs(registry: HookSpecRegistry) -> List[HookSpec]:
+    """注册 jargon 系统内置 Hook 规格。
+
+    Args:
+        registry: 目标 Hook 规格注册中心。
+
+    Returns:
+        List[HookSpec]: 实际注册的 Hook 规格列表。
+    """
+
+    return registry.register_hook_specs(
+        [
+            HookSpec(
+                name="jargon.query.before_search",
+                description="Maisaka 黑话查询工具执行检索前触发，可改写词条列表、检索参数或直接中止。",
+                parameters_schema=build_object_schema(
+                    {
+                        "words": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "准备查询的黑话词条列表。",
+                        },
+                        "session_id": {"type": "string", "description": "当前会话 ID。"},
+                        "limit": {"type": "integer", "description": "单个词条的最大返回条数。"},
+                        "case_sensitive": {"type": "boolean", "description": "是否大小写敏感。"},
+                        "enable_fuzzy_fallback": {"type": "boolean", "description": "是否允许精确命中失败后回退模糊检索。"},
+                        "abort_message": {"type": "string", "description": "Hook 主动中止时的失败提示。"},
+                    },
+                    required=["words", "session_id", "limit", "case_sensitive", "enable_fuzzy_fallback"],
+                ),
+                default_timeout_ms=5000,
+                allow_abort=True,
+                allow_kwargs_mutation=True,
+            ),
+            HookSpec(
+                name="jargon.query.after_search",
+                description="Maisaka 黑话查询工具完成检索后触发，可改写结果列表或中止返回。",
+                parameters_schema=build_object_schema(
+                    {
+                        "words": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "实际查询的黑话词条列表。",
+                        },
+                        "session_id": {"type": "string", "description": "当前会话 ID。"},
+                        "limit": {"type": "integer", "description": "单个词条的最大返回条数。"},
+                        "case_sensitive": {"type": "boolean", "description": "是否大小写敏感。"},
+                        "enable_fuzzy_fallback": {"type": "boolean", "description": "是否启用了模糊检索回退。"},
+                        "results": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                            "description": "查询结果列表。",
+                        },
+                        "abort_message": {"type": "string", "description": "Hook 主动中止时的失败提示。"},
+                    },
+                    required=["words", "session_id", "limit", "case_sensitive", "enable_fuzzy_fallback", "results"],
+                ),
+                default_timeout_ms=5000,
+                allow_abort=True,
+                allow_kwargs_mutation=True,
+            ),
+            HookSpec(
+                name="jargon.extract.before_persist",
+                description="黑话条目准备写入数据库前触发，可改写去重后的条目列表或跳过本次持久化。",
+                parameters_schema=build_object_schema(
+                    {
+                        "session_id": {"type": "string", "description": "当前会话 ID。"},
+                        "session_name": {"type": "string", "description": "当前会话展示名称。"},
+                        "entries": {
+                            "type": "array",
+                            "items": {"type": "object"},
+                            "description": "即将持久化的黑话条目列表。",
+                        },
+                    },
+                    required=["session_id", "session_name", "entries"],
+                ),
+                default_timeout_ms=5000,
+                allow_abort=True,
+                allow_kwargs_mutation=True,
+            ),
+            HookSpec(
+                name="jargon.inference.before_finalize",
+                description="黑话含义推断完成、写回数据库前触发，可改写最终判定与含义结果。",
+                parameters_schema=build_object_schema(
+                    {
+                        "session_id": {"type": "string", "description": "当前会话 ID。"},
+                        "session_name": {"type": "string", "description": "当前会话展示名称。"},
+                        "content": {"type": "string", "description": "当前黑话词条。"},
+                        "count": {"type": "integer", "description": "当前词条累计命中次数。"},
+                        "raw_content_list": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "用于推断的原始上下文片段列表。",
+                        },
+                        "inference_with_context": {"type": "object", "description": "基于上下文的推断结果。"},
+                        "inference_with_content_only": {"type": "object", "description": "仅基于词条内容的推断结果。"},
+                        "comparison_result": {"type": "object", "description": "比较阶段输出结果。"},
+                        "is_jargon": {"type": "boolean", "description": "当前推断是否判定为黑话。"},
+                        "meaning": {"type": "string", "description": "当前推断出的黑话含义。"},
+                        "is_complete": {"type": "boolean", "description": "当前是否已完成全部推断流程。"},
+                        "last_inference_count": {"type": "integer", "description": "本次推断完成后应写回的 last_inference_count。"},
+                    },
+                    required=[
+                        "session_id",
+                        "session_name",
+                        "content",
+                        "count",
+                        "raw_content_list",
+                        "inference_with_context",
+                        "inference_with_content_only",
+                        "comparison_result",
+                        "is_jargon",
+                        "meaning",
+                        "is_complete",
+                        "last_inference_count",
+                    ],
+                ),
+                default_timeout_ms=5000,
+                allow_abort=True,
+                allow_kwargs_mutation=True,
+            ),
+        ]
+    )
+
+
 class JargonMiner:
     def __init__(self, session_id: str, session_name: str) -> None:
+        """初始化黑话学习器。
+
+        Args:
+            session_id: 当前会话 ID。
+            session_name: 当前会话展示名称。
+        """
+
         self.session_id = session_id
         self.session_name = session_name
 
@@ -46,13 +180,92 @@ class JargonMiner:
         # 黑话提取锁，防止并发执行
         self._extraction_lock = asyncio.Lock()
 
+    @staticmethod
+    def _get_runtime_manager() -> Any:
+        """获取插件运行时管理器。
+
+        Returns:
+            Any: 插件运行时管理器单例。
+        """
+
+        from src.plugin_runtime.integration import get_plugin_runtime_manager
+
+        return get_plugin_runtime_manager()
+
+    @staticmethod
+    def _coerce_int(value: Any, default: int) -> int:
+        """将任意值安全转换为整数。
+
+        Args:
+            value: 待转换的值。
+            default: 转换失败时使用的默认值。
+
+        Returns:
+            int: 转换后的整数结果。
+        """
+
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _serialize_jargon_entries(entries: List[JargonEntry]) -> List[Dict[str, object]]:
+        """将黑话条目列表序列化为 Hook 可传输结构。
+
+        Args:
+            entries: 原始黑话条目列表。
+
+        Returns:
+            List[Dict[str, object]]: 序列化后的条目列表。
+        """
+
+        return [
+            {
+                "content": str(entry["content"]).strip(),
+                "raw_content": sorted(str(item).strip() for item in entry["raw_content"] if str(item).strip()),
+            }
+            for entry in entries
+            if str(entry["content"]).strip()
+        ]
+
+    @staticmethod
+    def _deserialize_jargon_entries(raw_entries: Any) -> List[JargonEntry]:
+        """从 Hook 载荷恢复黑话条目列表。
+
+        Args:
+            raw_entries: Hook 返回的条目数据。
+
+        Returns:
+            List[JargonEntry]: 恢复后的黑话条目列表。
+        """
+
+        if not isinstance(raw_entries, list):
+            return []
+
+        normalized_entries: List[JargonEntry] = []
+        for raw_entry in raw_entries:
+            if not isinstance(raw_entry, dict):
+                continue
+            content = str(raw_entry.get("content") or "").strip()
+            if not content:
+                continue
+            raw_content_values = raw_entry.get("raw_content")
+            raw_content: Set[str] = set()
+            if isinstance(raw_content_values, list):
+                raw_content = {str(item).strip() for item in raw_content_values if str(item).strip()}
+            normalized_entries.append({"content": content, "raw_content": raw_content})
+        return normalized_entries
+
     def get_cached_jargons(self) -> List[str]:
         """获取缓存中的所有黑话列表"""
         return list(self.cache.keys())
 
     async def infer_meaning(self, jargon_obj: MaiJargon) -> None:
-        """
-        对jargon进行含义推断
+        """对黑话条目执行含义推断。
+
+        Args:
+            jargon_obj: 待推断的黑话数据对象。
         """
         content = jargon_obj.content
         # 解析raw_content列表
@@ -175,15 +388,45 @@ class JargonMiner:
         is_similar = comparison_result.get("is_similar", False)
         is_jargon = not is_similar  # 如果相似，说明不是黑话；如果有差异，说明是黑话
 
+        finalized_meaning = inference1.get("meaning", "") if is_jargon else ""
+        is_complete = (jargon_obj.count or 0) >= 100
+        last_inference_count = jargon_obj.count or 0
+        finalize_result = await self._get_runtime_manager().invoke_hook(
+            "jargon.inference.before_finalize",
+            session_id=self.session_id,
+            session_name=self.session_name,
+            content=content,
+            count=current_count,
+            raw_content_list=list(raw_content_list),
+            inference_with_context=dict(inference1),
+            inference_with_content_only=dict(inference2),
+            comparison_result=dict(comparison_result),
+            is_jargon=is_jargon,
+            meaning=finalized_meaning,
+            is_complete=is_complete,
+            last_inference_count=last_inference_count,
+        )
+        if finalize_result.aborted:
+            logger.info(f"jargon {content} 的推断结果被 Hook 中止写回")
+            return
+
+        finalize_kwargs = finalize_result.kwargs
+        is_jargon = bool(finalize_kwargs.get("is_jargon", is_jargon))
+        finalized_meaning = str(finalize_kwargs.get("meaning", finalized_meaning) or "").strip() if is_jargon else ""
+        is_complete = bool(finalize_kwargs.get("is_complete", is_complete))
+        last_inference_count = self._coerce_int(
+            finalize_kwargs.get("last_inference_count"),
+            last_inference_count,
+        )
+
         # 更新数据库记录
         jargon_obj.is_jargon = is_jargon
-        jargon_obj.meaning = inference1.get("meaning", "") if is_jargon else ""
+        jargon_obj.meaning = finalized_meaning
         # 更新最后一次判定的count值，避免重启后重复判定
-        jargon_obj.last_inference_count = jargon_obj.count or 0
+        jargon_obj.last_inference_count = last_inference_count
 
         # 如果count>=100，标记为完成，不再进行推断
-        if (jargon_obj.count or 0) >= 100:
-            jargon_obj.is_complete = True
+        jargon_obj.is_complete = is_complete
 
         try:
             self._modify_jargon_entry(jargon_obj)
@@ -232,6 +475,22 @@ class JargonMiner:
                 merged_entries[content] = {"content": content, "raw_content": set(raw_list)}
 
         uniq_entries: List[JargonEntry] = list(merged_entries.values())
+        before_persist_result = await self._get_runtime_manager().invoke_hook(
+            "jargon.extract.before_persist",
+            session_id=self.session_id,
+            session_name=self.session_name,
+            entries=self._serialize_jargon_entries(uniq_entries),
+        )
+        if before_persist_result.aborted:
+            logger.info(f"[{self.session_name}] 黑话提取结果被 Hook 中止，不写入数据库")
+            return
+
+        raw_hook_entries = before_persist_result.kwargs.get("entries")
+        if raw_hook_entries is not None:
+            uniq_entries = self._deserialize_jargon_entries(raw_hook_entries)
+            if not uniq_entries:
+                logger.info(f"[{self.session_name}] Hook 过滤后没有可写入的黑话条目")
+                return
 
         saved = 0
         updated = 0
