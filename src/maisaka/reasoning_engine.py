@@ -33,6 +33,7 @@ from .message_adapter import (
     clone_message_sequence,
     format_speaker_content,
 )
+from .planner_message_utils import build_planner_user_prefix_from_session_message
 
 if TYPE_CHECKING:
     from .runtime import MaisakaHeartFlowChatting
@@ -226,7 +227,7 @@ class MaisakaReasoningEngine:
 
     async def _build_message_sequence(self, message: SessionMessage) -> tuple[MessageSequence, str]:
         message_sequence = MessageSequence([])
-        planner_prefix = self._build_planner_user_prefix(message)
+        planner_prefix = build_planner_user_prefix_from_session_message(message)
 
         appended_component = False
         if global_config.maisaka.direct_image_input:
@@ -254,22 +255,6 @@ class MaisakaReasoningEngine:
                 legacy_visible_text = self._build_legacy_visible_text_from_text(message, content)
 
         return message_sequence, legacy_visible_text
-
-    @staticmethod
-    def _build_planner_user_prefix(message: SessionMessage) -> str:
-        user_info = message.message_info.user_info
-        timestamp_text = message.timestamp.strftime("%H:%M:%S")
-        user_name = user_info.user_nickname or user_info.user_id
-        group_card = user_info.user_cardname or ""
-        prefix_parts = [
-            f"[时间]{timestamp_text}\n",
-            f"[用户]{user_name}\n",
-            f"[用户群昵称]{group_card}\n",
-        ]
-        if not message.is_notify and message.message_id:
-            prefix_parts.append(f"[msg_id]{message.message_id}\n")
-        prefix_parts.append("[发言内容]")
-        return "".join(prefix_parts)
 
     def _build_legacy_visible_text(self, message: SessionMessage, source_sequence: MessageSequence) -> str:
         user_info = message.message_info.user_info

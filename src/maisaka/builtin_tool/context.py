@@ -14,6 +14,7 @@ from src.core.tooling import ToolExecutionResult
 
 from ..context_messages import SessionBackedMessage
 from ..message_adapter import format_speaker_content
+from ..planner_message_utils import build_planner_prefix, build_session_backed_text_message
 
 if TYPE_CHECKING:
     from ..reasoning_engine import MaisakaReasoningEngine
@@ -141,20 +142,9 @@ class BuiltinToolRuntimeContext:
 
         bot_name = global_config.bot.nickname.strip() or "MaiSaka"
         reply_timestamp = datetime.now()
-        planner_prefix = (
-            f"[时间]{reply_timestamp.strftime('%H:%M:%S')}\n"
-            f"[用户]{bot_name}\n"
-            "[用户群昵称]\n"
-            "[msg_id]\n"
-            "[发言内容]"
-        )
-        history_message = SessionBackedMessage(
-            raw_message=MessageSequence([TextComponent(f"{planner_prefix}{reply_text}")]),
-            visible_text=format_speaker_content(
-                bot_name,
-                reply_text,
-                reply_timestamp,
-            ),
+        history_message = build_session_backed_text_message(
+            speaker_name=bot_name,
+            text=reply_text,
             timestamp=reply_timestamp,
             source_kind="guided_reply",
         )
@@ -170,12 +160,9 @@ class BuiltinToolRuntimeContext:
 
         bot_name = global_config.bot.nickname.strip() or "MaiSaka"
         reply_timestamp = datetime.now()
-        planner_prefix = (
-            f"[时间]{reply_timestamp.strftime('%H:%M:%S')}\n"
-            f"[用户]{bot_name}\n"
-            "[用户群昵称]\n"
-            "[msg_id]\n"
-            "[发言内容]"
+        planner_prefix = build_planner_prefix(
+            timestamp=reply_timestamp,
+            user_name=bot_name,
         )
         history_message = SessionBackedMessage(
             raw_message=MessageSequence(

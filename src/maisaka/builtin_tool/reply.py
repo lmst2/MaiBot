@@ -3,6 +3,7 @@
 from typing import Optional
 
 from src.chat.replyer.replyer_manager import replyer_manager
+from src.cli.maisaka_cli_sender import CLI_PLATFORM_NAME, render_cli_message
 from src.common.logger import get_logger
 from src.core.tooling import ToolExecutionContext, ToolExecutionResult, ToolInvocation, ToolSpec
 from src.services import send_service
@@ -134,17 +135,22 @@ async def handle_tool(
     combined_reply_text = "".join(reply_segments)
     try:
         sent = False
-        for index, segment in enumerate(reply_segments):
-            sent = await send_service.text_to_stream(
-                text=segment,
-                stream_id=tool_ctx.runtime.session_id,
-                set_reply=quote_reply if index == 0 else False,
-                reply_message=target_message if quote_reply and index == 0 else None,
-                selected_expressions=reply_result.selected_expression_ids or None,
-                typing=index > 0,
-            )
-            if not sent:
-                break
+        if tool_ctx.runtime.chat_stream.platform == CLI_PLATFORM_NAME:
+            for segment in reply_segments:
+                render_cli_message(segment)
+            sent = True
+        else:
+            for index, segment in enumerate(reply_segments):
+                sent = await send_service.text_to_stream(
+                    text=segment,
+                    stream_id=tool_ctx.runtime.session_id,
+                    set_reply=quote_reply if index == 0 else False,
+                    reply_message=target_message if quote_reply and index == 0 else None,
+                    selected_expressions=reply_result.selected_expression_ids or None,
+                    typing=index > 0,
+                )
+                if not sent:
+                    break
     except Exception:
         logger.exception(
             f"{tool_ctx.runtime.log_prefix} 发送文字消息时发生异常，目标消息编号={target_message_id}"

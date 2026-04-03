@@ -5,6 +5,8 @@ from typing import Any, Optional, Sequence
 
 import random
 
+from src.chat.message_receive.chat_manager import chat_manager
+from src.cli.maisaka_cli_sender import CLI_PLATFORM_NAME, render_cli_message
 from src.common.data_models.image_data_model import MaiEmoji
 from src.common.data_models.llm_service_data_models import LLMGenerationOptions
 from src.common.logger import get_logger
@@ -291,13 +293,23 @@ async def send_emoji_for_maisaka(
         )
 
     try:
-        sent = await send_service.emoji_to_stream(
-            emoji_base64=emoji_base64,
-            stream_id=stream_id,
-            storage_message=True,
-            set_reply=False,
-            reply_message=None,
-        )
+        target_session = chat_manager.get_session_by_session_id(stream_id)
+        if target_session is not None and target_session.platform == CLI_PLATFORM_NAME:
+            preview_message = (
+                f"已发送表情包：{selected_emoji.description.strip()}"
+                if selected_emoji.description.strip()
+                else "[表情包]"
+            )
+            render_cli_message(preview_message)
+            sent = True
+        else:
+            sent = await send_service.emoji_to_stream(
+                emoji_base64=emoji_base64,
+                stream_id=stream_id,
+                storage_message=True,
+                set_reply=False,
+                reply_message=None,
+            )
     except Exception as exc:
         return MaisakaEmojiSendResult(
             success=False,

@@ -40,6 +40,7 @@ from src.services.llm_service import LLMServiceClient
 from .builtin_tool import get_builtin_tools
 from .context_messages import AssistantMessage, LLMContextMessage, SessionBackedMessage, ToolResultMessage
 from .message_adapter import format_speaker_content
+from .planner_message_utils import build_session_backed_text_message
 from .prompt_cli_renderer import PromptCLIVisualizer
 
 
@@ -921,36 +922,3 @@ class MaisakaChatLoopService:
         if first_valid_index == 0:
             return selected_history
         return selected_history[first_valid_index:]
-
-    @staticmethod
-    def build_chat_context(user_text: str) -> List[LLMContextMessage]:
-        """根据用户输入构造最小对话上下文。
-
-        Args:
-            user_text: 用户输入文本。
-
-        Returns:
-            List[LLMContextMessage]: 构造好的上下文消息列表。
-        """
-
-        timestamp = datetime.now()
-        visible_text = format_speaker_content(
-            global_config.maisaka.user_name.strip() or "用户",
-            user_text,
-            timestamp,
-        )
-        planner_prefix = (
-            f"[时间]{timestamp.strftime('%H:%M:%S')}\n"
-            f"[用户]{global_config.maisaka.user_name.strip() or '用户'}\n"
-            "[用户群昵称]\n"
-            "[msg_id]\n"
-            "[发言内容]"
-        )
-        return [
-            SessionBackedMessage(
-                raw_message=MessageSequence([TextComponent(f"{planner_prefix}{user_text}")]),
-                visible_text=visible_text,
-                timestamp=timestamp,
-                source_kind="user",
-            )
-        ]
