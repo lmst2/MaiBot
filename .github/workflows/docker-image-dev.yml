@@ -25,7 +25,6 @@ jobs:
         with:
           ref: dev
           fetch-depth: 0
-          submodules: recursive
 
       # Clone required dependencies
       # - name: Clone maim_message
@@ -33,17 +32,6 @@ jobs:
 
       - name: Clone lpmm
         run: git clone https://github.com/Mai-with-u/MaiMBot-LPMM.git MaiMBot-LPMM
-
-      - name: Verify A_Memorix submodule alignment
-        run: |
-          set -euo pipefail
-          git -C plugins/A_memorix fetch origin MaiBot_branch --depth=1
-          LOCAL_SHA=$(git -C plugins/A_memorix rev-parse HEAD)
-          REMOTE_SHA=$(git -C plugins/A_memorix rev-parse FETCH_HEAD)
-          if [ "${LOCAL_SHA}" != "${REMOTE_SHA}" ]; then
-            echo "plugins/A_memorix is stale: local=${LOCAL_SHA}, remote=${REMOTE_SHA}" >&2
-            exit 1
-          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -91,7 +79,6 @@ jobs:
         with:
           ref: dev
           fetch-depth: 0
-          submodules: recursive
 
       # Clone required dependencies
       # - name: Clone maim_message
@@ -99,17 +86,6 @@ jobs:
 
       - name: Clone lpmm
         run: git clone https://github.com/Mai-with-u/MaiMBot-LPMM.git MaiMBot-LPMM
-
-      - name: Verify A_Memorix submodule alignment
-        run: |
-          set -euo pipefail
-          git -C plugins/A_memorix fetch origin MaiBot_branch --depth=1
-          LOCAL_SHA=$(git -C plugins/A_memorix rev-parse HEAD)
-          REMOTE_SHA=$(git -C plugins/A_memorix rev-parse FETCH_HEAD)
-          if [ "${LOCAL_SHA}" != "${REMOTE_SHA}" ]; then
-            echo "plugins/A_memorix is stale: local=${LOCAL_SHA}, remote=${REMOTE_SHA}" >&2
-            exit 1
-          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

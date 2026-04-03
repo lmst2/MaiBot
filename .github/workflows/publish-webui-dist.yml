@@ -19,8 +19,6 @@ jobs:
     environment: webui
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

@@ -23,7 +23,6 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.head_ref || github.ref_name }}
-          submodules: recursive
       - name: Install Ruff and Run Checks
         uses: astral-sh/ruff-action@v3
         with:

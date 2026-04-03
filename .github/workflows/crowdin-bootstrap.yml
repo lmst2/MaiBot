@@ -36,7 +36,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.base_branch }}
-          submodules: recursive
 
       - name: Bootstrap committed target translations into Crowdin
         uses: crowdin/github-action@v2
