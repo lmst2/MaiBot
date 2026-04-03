@@ -150,6 +150,57 @@ class MessageUtils:
             session.add(db_message)
 
     @staticmethod
+    def update_message_id(old_message_id: str, new_message_id: str) -> bool:
+        """将已入库消息的临时 ID 回填为平台真实 ID。
+
+        Args:
+            old_message_id: 发送阶段生成的内部临时消息 ID。
+            new_message_id: 适配器回传的真实平台消息 ID。
+
+        Returns:
+            bool: 存在并成功更新目标消息时返回 ``True``，否则返回 ``False``。
+        """
+        normalized_old_message_id = str(old_message_id).strip()
+        normalized_new_message_id = str(new_message_id).strip()
+        if not normalized_old_message_id or not normalized_new_message_id:
+            return False
+        if normalized_old_message_id == normalized_new_message_id:
+            return False
+
+        from src.common.database.database import get_db_session
+        from src.common.database.database_model import Messages
+
+        with get_db_session() as session:
+            existing_target = session.exec(
+                select(Messages).filter_by(message_id=normalized_new_message_id).limit(1)
+            ).first()
+            if existing_target is not None:
+                logger.warning(
+                    "消息 ID 回填时发现真实 ID 已存在，已跳过更新: "
+                    f"{normalized_old_message_id} -> {normalized_new_message_id}"
+                )
+                return False
+
+            source_messages = session.exec(
+                select(Messages).filter_by(message_id=normalized_old_message_id)
+            ).all()
+            if not source_messages:
+                return False
+
+            for source_message in source_messages:
+                source_message.message_id = normalized_new_message_id
+                session.add(source_message)
+
+            reply_target_messages = session.exec(
+                select(Messages).filter_by(reply_to=normalized_old_message_id)
+            ).all()
+            for reply_target_message in reply_target_messages:
+                reply_target_message.reply_to = normalized_new_message_id
+                session.add(reply_target_message)
+
+        return True
+
+    @staticmethod
     async def build_readable_message(
         messages: List["SessionMessage"],
         *,

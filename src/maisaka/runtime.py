@@ -1,6 +1,6 @@
 ﻿"""Maisaka 非 CLI 运行时。"""
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import asyncio
 import time
@@ -450,27 +450,54 @@ class MaisakaHeartFlowChatting:
         *,
         selected_history_count: int,
         prompt_tokens: int,
+        planner_response: str = "",
+        tool_calls: Optional[list[Any]] = None,
+        tool_results: Optional[list[str]] = None,
     ) -> None:
-        """在终端展示当前聊天流的上下文占用情况。"""
+        """在终端展示当前聊天流的上下文占用、规划结果与工具摘要。"""
         if not global_config.maisaka.show_thinking:
             return
 
         session_name = chat_manager.get_session_name(self.session_id) or self.session_id
-        body = "\n".join(
-            [
-                f"聊天流: {session_name}",
-                f"Chat ID: {self.session_id}",
-                f"上下文占用: {selected_history_count}条 / {self._format_token_count(prompt_tokens)}",
-            ]
-        )
+        body_lines = [
+            f"聊天流: {session_name}",
+            f"Chat ID: {self.session_id}",
+            f"上下文占用: {selected_history_count}条 / {self._format_token_count(prompt_tokens)}",
+        ]
+
+        normalized_response = planner_response.strip()
+        if normalized_response:
+            body_lines.extend(["", "Maisaka 返回:", normalized_response])
+
+        normalized_tool_calls = self._build_tool_call_summary_lines(tool_calls or [])
+        if normalized_tool_calls:
+            body_lines.extend(["", "工具调用:", *normalized_tool_calls])
+
+        normalized_tool_results = [result.strip() for result in tool_results or [] if isinstance(result, str) and result.strip()]
+        if normalized_tool_results:
+            body_lines.extend(["", "工具结果:", *normalized_tool_results])
+
         console.print(
             Panel(
-                Text(body),
-                title="MaiSaka 上下文占用",
+                Text("\n".join(body_lines)),
+                title="MaiSaka 上下文与结果",
                 border_style="bright_blue",
                 padding=(0, 1),
             )
         )
+
+    @staticmethod
+    def _build_tool_call_summary_lines(tool_calls: list[Any]) -> list[str]:
+        """构建工具调用摘要文本。"""
+        summary_lines: list[str] = []
+        for tool_call in tool_calls:
+            tool_name = str(getattr(tool_call, "func_name", getattr(tool_call, "name", "")) or "").strip() or "unknown"
+            tool_args = getattr(tool_call, "args", getattr(tool_call, "arguments", None))
+            if isinstance(tool_args, dict) and tool_args:
+                summary_lines.append(f"- {tool_name}: {tool_args}")
+            else:
+                summary_lines.append(f"- {tool_name}")
+        return summary_lines
 
     def _log_cycle_started(self, cycle_detail: CycleDetail, round_index: int) -> None:
         logger.info(

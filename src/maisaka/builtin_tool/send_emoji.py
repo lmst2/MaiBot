@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 from src.chat.emoji_system.maisaka_tool import send_emoji_for_maisaka
 from src.common.logger import get_logger
 from src.core.tooling import ToolExecutionContext, ToolExecutionResult, ToolInvocation, ToolSpec
+from src.maisaka.context_messages import LLMContextMessage
 
 from .context import BuiltinToolRuntimeContext
 
@@ -42,9 +43,9 @@ async def handle_tool(
     del context
     emotion = str(invocation.arguments.get("emotion") or "").strip()
     context_texts = [
-        message.get_history_text()
+        message.processed_plain_text.strip()
         for message in tool_ctx.runtime._chat_history[-5:]
-        if message.get_history_text().strip()
+        if isinstance(message, LLMContextMessage) and message.processed_plain_text.strip()
     ]
     structured_result: Dict[str, Any] = {
         "success": False,

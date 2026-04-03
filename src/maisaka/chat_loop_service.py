@@ -821,19 +821,6 @@ class MaisakaChatLoopService:
         )
         total_tokens = self._coerce_int(after_response_kwargs.get("total_tokens"), generation_result.total_tokens)
 
-        tool_call_summaries = [
-            {
-                "调用编号": getattr(tool_call, "call_id", getattr(tool_call, "id", None)),
-                "工具名": getattr(tool_call, "func_name", getattr(tool_call, "name", None)),
-                "参数": getattr(tool_call, "args", getattr(tool_call, "arguments", None)),
-            }
-            for tool_call in final_tool_calls
-        ]
-        logger.info(
-            f"Maisaka 规划器返回结果: 内容={final_response!r} "
-            f"工具调用={tool_call_summaries}"
-        )
-
         raw_message = AssistantMessage(
             content=final_response,
             timestamp=datetime.now(),

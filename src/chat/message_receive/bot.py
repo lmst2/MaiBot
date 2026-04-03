@@ -466,8 +466,23 @@ class ChatBot:
             return
         mmc_message_id = message_data.get("echo")
         actual_message_id = message_data.get("actual_id")
-        # TODO: Implement message ID update in new architecture
-        logger.debug(f"收到回送消息ID: {mmc_message_id} -> {actual_message_id}")
+        normalized_mmc_message_id = str(mmc_message_id or "").strip()
+        normalized_actual_message_id = str(actual_message_id or "").strip()
+        if not normalized_mmc_message_id or not normalized_actual_message_id:
+            return
+
+        updated = MessageUtils.update_message_id(
+            old_message_id=normalized_mmc_message_id,
+            new_message_id=normalized_actual_message_id,
+        )
+        if updated:
+            logger.debug(f"收到回送消息ID: {normalized_mmc_message_id} -> {normalized_actual_message_id}")
+            return
+
+        logger.debug(
+            "收到回送消息 ID，但未找到可回填的本地消息: "
+            f"{normalized_mmc_message_id} -> {normalized_actual_message_id}"
+        )
 
     async def message_process(self, message_data: Dict[str, Any]) -> None:
         """处理统一格式的入站消息字典。
