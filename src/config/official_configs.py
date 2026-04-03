@@ -403,6 +403,60 @@ class MemoryConfig(ConfigBase):
 
     __ui_parent__ = "emoji"
 
+    max_agent_iterations: int = Field(
+        default=5,
+        ge=1,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "layers",
+        },
+    )
+    """记忆思考深度（最低为1）"""
+
+    agent_timeout_seconds: float = Field(
+        default=120.0,
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "clock",
+        },
+    )
+    """最长回忆时间（秒）"""
+
+    global_memory: bool = Field(
+        default=False,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "globe",
+        },
+    )
+    """是否允许记忆检索在聊天记录中进行全局查询（忽略当前chat_id，仅对 search_chat_history 等工具生效）"""
+
+    global_memory_blacklist: list[TargetItem] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "shield-off",
+        },
+    )
+    """_wrap_全局记忆黑名单，当启用全局记忆时，不将特定聊天流纳入检索"""
+
+    long_term_auto_summary_enabled: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "book-open",
+        },
+    )
+    """是否自动启动聊天总结并导入长期记忆"""
+
+    person_fact_writeback_enabled: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "user-round-pen",
+        },
+    )
+    """是否在发送回复后自动提取并写回人物事实到长期记忆"""
     chat_history_topic_check_message_threshold: int = Field(
         default=80,
         ge=1,

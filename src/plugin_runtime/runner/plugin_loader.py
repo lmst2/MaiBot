@@ -469,37 +469,39 @@ class PluginLoader:
         sys.modules[module_name] = module
 
         plugin_parent_dir = plugin_dir.parent
+        src_root = Path("src").resolve()
         try:
-            with self._temporary_sys_path_entry(plugin_parent_dir):
-                spec.loader.exec_module(module)
+            with self._temporary_sys_path_entry(src_root):
+                with self._temporary_sys_path_entry(plugin_parent_dir):
+                    spec.loader.exec_module(module)
 
-                # 优先使用新版 create_plugin 工厂函数
-                create_plugin = getattr(module, "create_plugin", None)
-                if create_plugin is not None:
-                    instance = create_plugin()
-                    self._validate_sdk_plugin_contract(plugin_id, instance)
-                    logger.info(f"插件 {plugin_id} v{manifest.version} 加载成功")
-                    return PluginMeta(
-                        plugin_id=plugin_id,
-                        plugin_dir=str(plugin_dir),
-                        module_name=module_name,
-                        plugin_instance=instance,
-                        manifest=manifest,
-                    )
+                    # 优先使用新版 create_plugin 工厂函数
+                    create_plugin = getattr(module, "create_plugin", None)
+                    if create_plugin is not None:
+                        instance = create_plugin()
+                        self._validate_sdk_plugin_contract(plugin_id, instance)
+                        logger.info(f"插件 {plugin_id} v{manifest.version} 加载成功")
+                        return PluginMeta(
+                            plugin_id=plugin_id,
+                            plugin_dir=str(plugin_dir),
+                            module_name=module_name,
+                            plugin_instance=instance,
+                            manifest=manifest,
+                        )
 
-                # 回退：检测旧版 @register_plugin 标记的 BasePlugin 子类
-                instance = self._try_load_legacy_plugin(module, plugin_id)
-                if instance is not None:
-                    logger.info(
-                        f"插件 {plugin_id} v{manifest.version} 通过旧版兼容层加载成功（请尽快迁移到 maibot_sdk）"
-                    )
-                    return PluginMeta(
-                        plugin_id=plugin_id,
-                        plugin_dir=str(plugin_dir),
-                        module_name=module_name,
-                        plugin_instance=instance,
-                        manifest=manifest,
-                    )
+                    # 回退：检测旧版 @register_plugin 标记的 BasePlugin 子类
+                    instance = self._try_load_legacy_plugin(module, plugin_id)
+                    if instance is not None:
+                        logger.info(
+                            f"插件 {plugin_id} v{manifest.version} 通过旧版兼容层加载成功（请尽快迁移到 maibot_sdk）"
+                        )
+                        return PluginMeta(
+                            plugin_id=plugin_id,
+                            plugin_dir=str(plugin_dir),
+                            module_name=module_name,
+                            plugin_instance=instance,
+                            manifest=manifest,
+                        )
         except Exception:
             sys.modules.pop(module_name, None)
             raise

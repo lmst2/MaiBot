@@ -16,6 +16,7 @@ from src.webui.routers.config import router as config_router
 from src.webui.routers.emoji import router as emoji_router
 from src.webui.routers.expression import router as expression_router
 from src.webui.routers.jargon import router as jargon_router
+from src.webui.routers.memory import router as memory_router
 from src.webui.routers.model import router as model_router
 from src.webui.routers.person import router as person_router
 from src.webui.routers.plugin import router as plugin_router
@@ -47,6 +48,8 @@ router.include_router(plugin_router)
 router.include_router(system_router)
 # 注册模型列表获取路由
 router.include_router(model_router)
+# 注册长期记忆管理路由
+router.include_router(memory_router)
 # 注册 WebSocket 认证路由
 router.include_router(ws_auth_router)
 # 注册统一 WebSocket 路由

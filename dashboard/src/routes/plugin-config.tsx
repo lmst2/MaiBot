@@ -76,6 +76,53 @@ interface FieldRendererProps {
   sectionName: string
 }
 
+function getNestedRecord(config: Record<string, unknown>, path: string): Record<string, unknown> | undefined {
+  const parts = path.split('.').filter(Boolean)
+  let current: unknown = config
+
+  for (const part of parts) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+      return undefined
+    }
+    current = (current as Record<string, unknown>)[part]
+  }
+
+  if (!current || typeof current !== 'object' || Array.isArray(current)) {
+    return undefined
+  }
+
+  return current as Record<string, unknown>
+}
+
+function setNestedField(
+  config: Record<string, unknown>,
+  path: string,
+  fieldName: string,
+  value: unknown,
+): Record<string, unknown> {
+  const parts = path.split('.').filter(Boolean)
+  const nextConfig: Record<string, unknown> = { ...config }
+  let currentTarget = nextConfig
+  let currentSource: Record<string, unknown> | undefined = config
+
+  for (const part of parts) {
+    const sourceValue: unknown = currentSource?.[part]
+    const nextValue =
+      sourceValue && typeof sourceValue === 'object' && !Array.isArray(sourceValue)
+        ? { ...(sourceValue as Record<string, unknown>) }
+        : {}
+    currentTarget[part] = nextValue
+    currentTarget = nextValue
+    currentSource =
+      sourceValue && typeof sourceValue === 'object' && !Array.isArray(sourceValue)
+        ? (sourceValue as Record<string, unknown>)
+        : undefined
+  }
+
+  currentTarget[fieldName] = value
+  return nextConfig
+}
+
 function FieldRenderer({ field, value, onChange }: FieldRendererProps) {
   const [showPassword, setShowPassword] = useState(false)
 
@@ -91,7 +138,7 @@ function FieldRenderer({ field, value, onChange }: FieldRendererProps) {
             )}
           </div>
           <Switch
-            checked={Boolean(value)}
+            checked={Boolean(value ?? field.default)}
             onCheckedChange={onChange}
             disabled={field.disabled}
           />
@@ -222,7 +269,7 @@ function FieldRenderer({ field, value, onChange }: FieldRendererProps) {
         <div className="space-y-2">
           <Label>{field.label}</Label>
           <ListFieldEditor
-            value={Array.isArray(value) ? value : []}
+            value={Array.isArray(value) ? value : (Array.isArray(field.default) ? field.default : [])}
             onChange={(newValue) => onChange(newValue)}
             itemType={field.item_type ?? 'string'}
             itemFields={field.item_fields}
@@ -267,6 +314,7 @@ interface SectionRendererProps {
 
 function SectionRenderer({ section, config, onChange }: SectionRendererProps) {
   const [isOpen, setIsOpen] = useState(!section.collapsed)
+  const sectionConfig = getNestedRecord(config, section.name)
   
   // 按 order 排序字段
   const sortedFields = Object.entries(section.fields)
@@ -304,7 +352,7 @@ function SectionRenderer({ section, config, onChange }: SectionRendererProps) {
               <FieldRenderer
                 key={fieldName}
                 field={field}
-                value={(config[section.name] as Record<string, unknown>)?.[fieldName]}
+                value={sectionConfig?.[fieldName]}
                 onChange={(value) => onChange(section.name, fieldName, value)}
                 sectionName={section.name}
               />
@@ -405,13 +453,7 @@ function PluginConfigEditor({ plugin, onBack }: PluginConfigEditorProps) {
 
   // 处理字段变化
   const handleFieldChange = (sectionName: string, fieldName: string, value: unknown) => {
-    setConfig(prev => ({
-      ...prev,
-      [sectionName]: {
-        ...(prev[sectionName] as Record<string, unknown> || {}),
-        [fieldName]: value
-      }
-    }))
+    setConfig(prev => setNestedField(prev, sectionName, fieldName, value))
   }
 
   // 保存配置

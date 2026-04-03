@@ -195,6 +195,9 @@ def get_plugins_dir() -> Path:
     plugins_dir.mkdir(exist_ok=True)
     return plugins_dir
 
+def get_plugin_config_path(plugin_id: str, plugin_path: Path) -> Path:
+    return resolve_plugin_file_path(plugin_path, "config.toml")
+
 
 def get_plugin_candidate_paths(plugin_id: str) -> Tuple[Path, Path]:
     plugins_dir = get_plugins_dir()

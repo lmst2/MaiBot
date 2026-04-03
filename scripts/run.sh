@@ -830,6 +830,7 @@ run_installation() {
         echo -e "${RED}克隆MaiCore仓库失败！${RESET}"
         exit 1
     }
+    echo -e "${GREEN}A_Memorix 已内置到源码，无需初始化子模块。${RESET}"
 
     echo -e "${GREEN}克隆 maim_message 包仓库...${RESET}"
     git clone $GITHUB_REPO/MaiM-with-u/maim_message.git || {
