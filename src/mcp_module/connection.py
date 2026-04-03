@@ -14,7 +14,7 @@ import httpx
 from src.cli.console import console
 from src.core.tooling import ToolExecutionResult
 
-from .config import MCPClientRuntimeConfig, MCPRootRuntimeConfig, MCPServerRuntimeConfig
+from .config import MCPClientRuntimeConfig, MCPServerRuntimeConfig
 from .hooks import MCPHostCallbacks
 from .models import (
     MCPPromptResult,

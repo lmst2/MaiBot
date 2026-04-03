@@ -244,15 +244,45 @@ class ChatConfig(ConfigBase):
         },
     )
     """每个聊天流最大保存的Plan/Reply日志数量，超过此数量时会自动删除最老的日志"""
-
-    llm_quote: bool = Field(
-        default=False,
+    private_plan_style: str = Field(
+        default=(
+            "1.思考**所有**的可用的action中的**每个动作**是否符合当下条件，如果动作使用条件符合聊天内容就使用\n"
+            "2.如果相同的内容已经被执行，请不要重复执行\n"
+            "3.某句话如果已经被回复过，不要重复回复"
+        ),
         json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "quote",
+            "x-widget": "textarea",
+            "x-icon": "user",
         },
     )
-    """是否在 reply action 中启用 quote 参数，启用后 LLM 可以控制是否引用消息"""
+    """_wrap_私聊说话规则，行为风格"""
+
+    group_chat_prompt: str = Field(
+        default="不要回复的太频繁！控制回复的频率，不要每个人的消息都回复，只回复你感兴趣的或者主动提及你的。",
+        json_schema_extra={
+            "x-widget": "textarea",
+            "x-icon": "users",
+        },
+    )
+    """_wrap_群聊通用注意事项"""
+
+    private_chat_prompts: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "textarea",
+            "x-icon": "user",
+        },
+    )
+    """_wrap_私聊通用注意事项"""
+
+    chat_prompts: list["ExtraPromptItem"] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "list",
+        },
+    )
+    """_wrap_为指定聊天添加额外的 prompt 配置列表"""
 
     enable_talk_value_rules: bool = Field(
         default=True,
@@ -410,7 +440,6 @@ class MemoryConfig(ConfigBase):
         },
     )
     """是否在发送回复后自动提取并写回人物事实到长期记忆"""
-
     chat_history_topic_check_message_threshold: int = Field(
         default=80,
         ge=1,
@@ -462,10 +491,6 @@ class MemoryConfig(ConfigBase):
 
     def model_post_init(self, context: Optional[dict] = None) -> None:
         """验证配置值"""
-        if self.max_agent_iterations < 1:
-            raise ValueError(f"max_agent_iterations 必须至少为1，当前值: {self.max_agent_iterations}")
-        if self.agent_timeout_seconds <= 0:
-            raise ValueError(f"agent_timeout_seconds 必须大于0，当前值: {self.agent_timeout_seconds}")
         if self.chat_history_topic_check_message_threshold < 1:
             raise ValueError(
                 f"chat_history_topic_check_message_threshold 必须至少为1，当前值: {self.chat_history_topic_check_message_threshold}"
@@ -1070,37 +1095,11 @@ class ExtraPromptItem(ConfigBase):
     """额外的prompt内容"""
 
     def model_post_init(self, context: Optional[dict] = None) -> None:
+        if not self.platform and not self.item_id and not self.prompt:
+            return super().model_post_init(context)
         if not self.platform or not self.item_id or not self.prompt:
             raise ValueError("ExtraPromptItem 中 platform, id 和 prompt 不能为空")
         return super().model_post_init(context)
-
-
-class ExperimentalConfig(ConfigBase):
-    """实验功能配置类"""
-
-    __ui_parent__ = "debug"
-
-    private_plan_style: str = Field(
-        default=(
-            "1.思考**所有**的可用的action中的**每个动作**是否符合当下条件，如果动作使用条件符合聊天内容就使用"
-            "2.如果相同的内容已经被执行，请不要重复执行"
-            "3.某句话如果已经被回复过，不要重复回复"
-        ),
-        json_schema_extra={
-            "x-widget": "textarea",
-            "x-icon": "user",
-        },
-    )
-    """_wrap_私聊说话规则，行为风格（实验性功能）"""
-
-    chat_prompts: list[ExtraPromptItem] = Field(
-        default_factory=lambda: [],
-        json_schema_extra={
-            "x-widget": "custom",
-            "x-icon": "list",
-        },
-    )
-    """_wrap_为指定聊天添加额外的prompt配置列表"""
 
 
 class MaimMessageConfig(ConfigBase):
@@ -1473,7 +1472,6 @@ class MaiSakaConfig(ConfigBase):
 
     __ui_label__ = "MaiSaka"
     __ui_icon__ = "message-circle"
-    __ui_parent__ = "experimental"
 
     enable_knowledge_module: bool = Field(
         default=True,
@@ -1483,16 +1481,6 @@ class MaiSakaConfig(ConfigBase):
         },
     )
     """启用知识库模块"""
-
-    show_analyze_cognition_prompt: bool = Field(
-        default=False,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "terminal",
-        },
-    )
-    """是否在 CLI 中显示 analyze_cognition 的 Prompt"""
-
     show_thinking: bool = Field(
         default=True,
         json_schema_extra={
@@ -1528,6 +1516,15 @@ class MaiSakaConfig(ConfigBase):
         },
     )
     """是否将新接收的用户发言合并为单个用户消息"""
+
+    replyer_generator_type: Literal["legacy", "multi"] = Field(
+        default="legacy",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "git-branch",
+        },
+    )
+    """Maisaka replyer 生成器类型：legacy（旧版单 prompt）/ multi（多消息版）"""
 
     max_internal_rounds: int = Field(
         default=6,
@@ -1568,24 +1565,14 @@ class MaiSakaConfig(ConfigBase):
     )
     """工具筛选阶段最多保留的非内置工具数量"""
 
-    terminal_image_preview: bool = Field(
-        default=False,
+    terminal_image_display_mode: Literal["legacy", "path_link"] = Field(
+        default="legacy",
         json_schema_extra={
-            "x-widget": "switch",
+            "x-widget": "select",
             "x-icon": "image",
         },
     )
-    """是否渲染低分辨率终端预览图片"""
-
-    terminal_image_preview_width: int = Field(
-        default=24,
-        ge=8,
-        json_schema_extra={
-            "x-widget": "input",
-            "x-icon": "columns",
-        },
-    )
-    """Maisaka终端图片预览的字符宽度"""
+    """图片展示模式：legacy（仅显示元信息）/ path_link（可点击本地路径）"""
 
 
 class MCPAuthorizationConfig(ConfigBase):
@@ -1969,6 +1956,129 @@ class MCPConfig(ConfigBase):
         return super().model_post_init(context)
 
 
+class PluginRuntimeRenderConfig(ConfigBase):
+    """插件运行时浏览器渲染配置。"""
+
+    enabled: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "image",
+        },
+    )
+    """是否启用插件运行时浏览器渲染能力"""
+
+    browser_ws_endpoint: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "link",
+        },
+    )
+    """优先复用的现有 Chromium CDP 地址，可填写 ws/http 端点"""
+
+    executable_path: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "folder",
+        },
+    )
+    """浏览器可执行文件路径，留空时自动探测本机 Chrome/Chromium"""
+
+    browser_install_root: str = Field(
+        default="data/playwright-browsers",
+        json_schema_extra={
+            "x-widget": "input",
+            "x-icon": "hard-drive",
+        },
+    )
+    """Playwright 托管浏览器目录，自动下载 Chromium 时会复用该目录"""
+
+    headless: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "monitor",
+        },
+    )
+    """是否以无头模式启动浏览器"""
+
+    launch_args: list[str] = Field(
+        default_factory=lambda: [
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+            "--disable-setuid-sandbox",
+            "--no-sandbox",
+            "--no-zygote",
+        ],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "terminal",
+        },
+    )
+    """浏览器启动参数列表"""
+
+    concurrency_limit: int = Field(
+        default=2,
+        ge=1,
+        json_schema_extra={
+            "x-widget": "number",
+            "x-icon": "layers",
+        },
+    )
+    """同时允许进行的最大渲染任务数"""
+
+    startup_timeout_sec: float = Field(
+        default=20.0,
+        gt=0,
+        json_schema_extra={
+            "x-widget": "number",
+            "x-icon": "clock",
+        },
+    )
+    """浏览器连接或启动超时时间（秒）"""
+
+    render_timeout_sec: float = Field(
+        default=15.0,
+        gt=0,
+        json_schema_extra={
+            "x-widget": "number",
+            "x-icon": "timer",
+        },
+    )
+    """单次渲染默认超时时间（秒）"""
+
+    auto_download_chromium: bool = Field(
+        default=True,
+        json_schema_extra={
+            "x-widget": "switch",
+            "x-icon": "download",
+        },
+    )
+    """未检测到可用浏览器时，是否自动下载 Playwright Chromium"""
+
+    download_connection_timeout_sec: float = Field(
+        default=120.0,
+        gt=0,
+        json_schema_extra={
+            "x-widget": "number",
+            "x-icon": "cloud-lightning",
+        },
+    )
+    """自动下载 Chromium 时的连接超时时间（秒）"""
+
+    restart_after_render_count: int = Field(
+        default=200,
+        ge=0,
+        json_schema_extra={
+            "x-widget": "number",
+            "x-icon": "refresh-cw",
+        },
+    )
+    """累计渲染指定次数后自动重建本地浏览器，0 表示关闭该策略"""
+
+
 class PluginRuntimeConfig(ConfigBase):
     """插件运行时配置类"""
 
@@ -2031,3 +2141,6 @@ class PluginRuntimeConfig(ConfigBase):
     自定义 IPC Socket 路径（仅 Linux/macOS 生效）
     留空则自动生成临时路径
     """
+
+    render: PluginRuntimeRenderConfig = Field(default_factory=PluginRuntimeRenderConfig)
+    """浏览器渲染能力配置"""

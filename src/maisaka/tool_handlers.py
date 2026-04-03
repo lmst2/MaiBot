@@ -32,19 +32,6 @@ class ToolHandlerContext:
         self.last_user_input_time: Optional[datetime] = None
 
 
-async def handle_stop(tc: ToolCall, chat_history: list[LLMContextMessage]) -> None:
-    """处理 stop 工具。"""
-    console.print("[accent]调用工具: stop()[/accent]")
-    chat_history.append(
-        ToolResultMessage(
-            content="当前轮次结束后将停止对话循环。",
-            timestamp=datetime.now(),
-            tool_call_id=tc.call_id,
-            tool_name=tc.func_name,
-        )
-    )
-
-
 async def handle_wait(tc: ToolCall, chat_history: list[LLMContextMessage], ctx: ToolHandlerContext) -> str:
     """处理 wait 工具。"""
     seconds = (tc.args or {}).get("seconds", 30)

@@ -18,7 +18,35 @@ import re
 from src.common.logger import get_logger
 from src.core.tooling import build_tool_detailed_description
 
+from .hook_spec_registry import HookSpecRegistry
+
 logger = get_logger("plugin_runtime.host.component_registry")
+
+
+class ComponentRegistrationError(ValueError):
+    """组件注册失败异常。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        component_name: str = "",
+        component_type: str = "",
+        plugin_id: str = "",
+    ) -> None:
+        """初始化组件注册失败异常。
+
+        Args:
+            message: 原始错误信息。
+            component_name: 组件名称。
+            component_type: 组件类型。
+            plugin_id: 插件 ID。
+        """
+
+        self.component_name = str(component_name or "").strip()
+        self.component_type = str(component_type or "").strip()
+        self.plugin_id = str(plugin_id or "").strip()
+        super().__init__(message)
 
 
 class ComponentTypes(str, Enum):
@@ -359,7 +387,14 @@ class ComponentRegistry:
     供业务层查询可用组件、匹配命令、调度 action/event 等。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, hook_spec_registry: Optional[HookSpecRegistry] = None) -> None:
+        """初始化组件注册表。
+
+        Args:
+            hook_spec_registry: 可选的 Hook 规格注册中心；提供后会在注册
+                HookHandler 时执行规格校验。
+        """
+
         # 全量索引
         self._components: Dict[str, ComponentEntry] = {}  # full_name -> comp
 
@@ -370,6 +405,7 @@ class ComponentRegistry:
 
         # 按插件索引
         self._by_plugin: Dict[str, List[ComponentEntry]] = {}
+        self._hook_spec_registry = hook_spec_registry
 
     @staticmethod
     def _convert_action_metadata_to_tool_metadata(
@@ -475,77 +511,211 @@ class ComponentRegistry:
             type_dict.clear()
         self._by_plugin.clear()
 
-    # ====== 注册 / 注销 ======
-    def register_component(self, name: str, component_type: str, plugin_id: str, metadata: Dict[str, Any]) -> bool:
-        """注册单个组件
+    @staticmethod
+    def _is_legacy_action_component(component: ComponentEntry) -> bool:
+        """判断组件是否为兼容旧 Action 的 Tool 条目。
 
         Args:
-            name: 组件名称（不含插件id前缀）
-            component_type: 组件类型（如 `ACTION`、`COMMAND` 等）
-            plugin_id: 插件id
-            metadata: 组件元数据
+            component: 待判断的组件条目。
+
         Returns:
-            success (bool): 是否成功注册（失败原因通常是组件类型无效）
+            bool: 是否为兼容旧 Action 组件。
         """
+
+        if not isinstance(component, ToolEntry):
+            return False
+        return str(component.metadata.get("legacy_component_type", "") or "").strip().upper() == "ACTION"
+
+    def _validate_hook_handler_entry(self, component: HookHandlerEntry) -> None:
+        """校验 HookHandler 是否满足已注册的 Hook 规格。
+
+        Args:
+            component: 待校验的 HookHandler 条目。
+
+        Raises:
+            ComponentRegistrationError: HookHandler 声明不合法时抛出。
+        """
+
+        if self._hook_spec_registry is None:
+            return
+
+        hook_spec = self._hook_spec_registry.get_hook_spec(component.hook)
+        if hook_spec is None:
+            raise ComponentRegistrationError(
+                f"HookHandler {component.full_name} 声明了未注册的 Hook: {component.hook}",
+                component_name=component.name,
+                component_type=component.component_type.value,
+                plugin_id=component.plugin_id,
+            )
+
+        if component.is_blocking and not hook_spec.allow_blocking:
+            raise ComponentRegistrationError(
+                f"HookHandler {component.full_name} 不能注册为 blocking：Hook {component.hook} 不允许 blocking 处理器",
+                component_name=component.name,
+                component_type=component.component_type.value,
+                plugin_id=component.plugin_id,
+            )
+
+        if component.is_observe and not hook_spec.allow_observe:
+            raise ComponentRegistrationError(
+                f"HookHandler {component.full_name} 不能注册为 observe：Hook {component.hook} 不允许 observe 处理器",
+                component_name=component.name,
+                component_type=component.component_type.value,
+                plugin_id=component.plugin_id,
+            )
+
+        if component.error_policy == "abort" and not hook_spec.allow_abort:
+            raise ComponentRegistrationError(
+                f"HookHandler {component.full_name} 不能使用 error_policy=abort：Hook {component.hook} 不允许 abort",
+                component_name=component.name,
+                component_type=component.component_type.value,
+                plugin_id=component.plugin_id,
+            )
+
+    def _build_component_entry(
+        self,
+        name: str,
+        component_type: str,
+        plugin_id: str,
+        metadata: Dict[str, Any],
+    ) -> ComponentEntry:
+        """根据声明构造组件条目。
+
+        Args:
+            name: 组件名称。
+            component_type: 组件类型。
+            plugin_id: 插件 ID。
+            metadata: 组件元数据。
+
+        Returns:
+            ComponentEntry: 已构造并完成校验的组件条目。
+
+        Raises:
+            ComponentRegistrationError: 组件声明不合法时抛出。
+        """
+
         try:
             normalized_type = self._normalize_component_type(component_type)
             normalized_metadata = dict(metadata)
             if normalized_type == ComponentTypes.ACTION:
                 normalized_metadata = self._convert_action_metadata_to_tool_metadata(name, normalized_metadata)
-                comp = ToolEntry(name, ComponentTypes.TOOL.value, plugin_id, normalized_metadata)
+                component = ToolEntry(name, ComponentTypes.TOOL.value, plugin_id, normalized_metadata)
             elif normalized_type == ComponentTypes.COMMAND:
-                comp = CommandEntry(name, normalized_type.value, plugin_id, normalized_metadata)
+                component = CommandEntry(name, normalized_type.value, plugin_id, normalized_metadata)
             elif normalized_type == ComponentTypes.TOOL:
-                comp = ToolEntry(name, normalized_type.value, plugin_id, normalized_metadata)
+                component = ToolEntry(name, normalized_type.value, plugin_id, normalized_metadata)
             elif normalized_type == ComponentTypes.EVENT_HANDLER:
-                comp = EventHandlerEntry(name, normalized_type.value, plugin_id, normalized_metadata)
+                component = EventHandlerEntry(name, normalized_type.value, plugin_id, normalized_metadata)
             elif normalized_type == ComponentTypes.HOOK_HANDLER:
-                comp = HookHandlerEntry(name, normalized_type.value, plugin_id, normalized_metadata)
+                component = HookHandlerEntry(name, normalized_type.value, plugin_id, normalized_metadata)
+                self._validate_hook_handler_entry(component)
             elif normalized_type == ComponentTypes.MESSAGE_GATEWAY:
-                comp = MessageGatewayEntry(name, normalized_type.value, plugin_id, normalized_metadata)
+                component = MessageGatewayEntry(name, normalized_type.value, plugin_id, normalized_metadata)
             else:
-                raise ValueError(f"组件类型 {component_type} 不存在")
-        except ValueError:
-            logger.error(f"组件类型 {component_type} 不存在")
-            return False
+                raise ComponentRegistrationError(
+                    f"组件类型 {component_type} 不存在",
+                    component_name=name,
+                    component_type=component_type,
+                    plugin_id=plugin_id,
+                )
+        except ComponentRegistrationError:
+            raise
+        except Exception as exc:
+            raise ComponentRegistrationError(
+                str(exc),
+                component_name=name,
+                component_type=component_type,
+                plugin_id=plugin_id,
+            ) from exc
 
-        if comp.full_name in self._components:
-            logger.warning(f"组件 {comp.full_name} 已存在，覆盖")
-            old_comp = self._components[comp.full_name]
-            # 从 _by_plugin 列表中移除旧条目，防止幽灵组件堆积
-            old_list = self._by_plugin.get(old_comp.plugin_id)
-            if old_list is not None:
-                with contextlib.suppress(ValueError):
-                    old_list.remove(old_comp)
-            # 从旧类型索引中移除，防止类型变更时幽灵残留
-            if old_type_dict := self._by_type.get(old_comp.component_type):
-                old_type_dict.pop(comp.full_name, None)
+        return component
 
-        self._components[comp.full_name] = comp
-        self._by_type[comp.component_type][comp.full_name] = comp
-        self._by_plugin.setdefault(plugin_id, []).append(comp)
+    def _remove_existing_component_entry(self, component: ComponentEntry) -> None:
+        """移除同名旧组件条目。
 
+        Args:
+            component: 即将写入的新组件条目。
+        """
+
+        if component.full_name not in self._components:
+            return
+
+        logger.warning(f"组件 {component.full_name} 已存在，覆盖")
+        old_component = self._components[component.full_name]
+        old_list = self._by_plugin.get(old_component.plugin_id)
+        if old_list is not None:
+            with contextlib.suppress(ValueError):
+                old_list.remove(old_component)
+        if old_type_dict := self._by_type.get(old_component.component_type):
+            old_type_dict.pop(component.full_name, None)
+
+    def _add_component_entry(self, component: ComponentEntry) -> None:
+        """写入单个组件条目到全部索引。
+
+        Args:
+            component: 待写入的组件条目。
+        """
+
+        self._remove_existing_component_entry(component)
+        self._components[component.full_name] = component
+        self._by_type[component.component_type][component.full_name] = component
+        self._by_plugin.setdefault(component.plugin_id, []).append(component)
+
+    # ====== 注册 / 注销 ======
+    def register_component(self, name: str, component_type: str, plugin_id: str, metadata: Dict[str, Any]) -> bool:
+        """注册单个组件。
+
+        Args:
+            name: 组件名称（不含插件 ID 前缀）。
+            component_type: 组件类型（如 ``ACTION``、``COMMAND`` 等）。
+            plugin_id: 插件 ID。
+            metadata: 组件元数据。
+
+        Returns:
+            bool: 注册成功时恒为 ``True``。
+
+        Raises:
+            ComponentRegistrationError: 组件声明不合法时抛出。
+        """
+
+        component = self._build_component_entry(name, component_type, plugin_id, metadata)
+        self._add_component_entry(component)
         return True
 
     def register_plugin_components(self, plugin_id: str, components: List[Dict[str, Any]]) -> int:
-        """批量注册一个插件的所有组件，返回成功注册数。
+        """批量替换一个插件的组件集合。
+
+        该方法会先完整校验所有组件声明，只有全部通过后才会替换旧组件，
+        从而避免插件进入半注册状态。
+
         Args:
-            plugin_id (str): 插件id
-            components (List[Dict[str, Any]]): 组件字典列表，每个组件包含 name, component_type, metadata 等字段
+            plugin_id: 插件 ID。
+            components: 组件声明字典列表。
+
         Returns:
-            count (int): 成功注册的组件数量
+            int: 实际注册的组件数量。
+
+        Raises:
+            ComponentRegistrationError: 任一组件声明不合法时抛出。
         """
-        count = 0
-        for comp_data in components:
-            ok = self.register_component(
-                name=comp_data.get("name", ""),
-                component_type=comp_data.get("component_type", ""),
-                plugin_id=plugin_id,
-                metadata=comp_data.get("metadata", {}),
+
+        prepared_components: List[ComponentEntry] = []
+        for component_data in components:
+            prepared_components.append(
+                self._build_component_entry(
+                    name=str(component_data.get("name", "") or ""),
+                    component_type=str(component_data.get("component_type", "") or ""),
+                    plugin_id=plugin_id,
+                    metadata=component_data.get("metadata", {})
+                    if isinstance(component_data.get("metadata"), dict)
+                    else {},
+                )
             )
-            if ok:
-                count += 1
-        return count
+
+        self.remove_components_by_plugin(plugin_id)
+        for component in prepared_components:
+            self._add_component_entry(component)
+        return len(prepared_components)
 
     def remove_components_by_plugin(self, plugin_id: str) -> int:
         """移除某个插件的所有组件，返回移除数量。
@@ -652,6 +822,17 @@ class ComponentRegistry:
         except ValueError:
             logger.error(f"组件类型 {component_type} 不存在")
             raise
+
+        if comp_type == ComponentTypes.ACTION:
+            action_components = [
+                component
+                for component in self._by_type.get(ComponentTypes.TOOL, {}).values()
+                if self._is_legacy_action_component(component)
+            ]
+            if enabled_only:
+                return [component for component in action_components if self.check_component_enabled(component, session_id)]
+            return action_components
+
         type_dict = self._by_type.get(comp_type, {})
         if enabled_only:
             return [c for c in type_dict.values() if self.check_component_enabled(c, session_id)]
@@ -854,6 +1035,34 @@ class ComponentRegistry:
                 tools.append(comp)
         return tools
 
+    def get_tools_for_llm(self, *, enabled_only: bool = True, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """兼容旧接口，返回可供 LLM 使用的工具条目列表。
+
+        Args:
+            enabled_only: 是否仅返回启用的组件。
+            session_id: 可选的会话 ID，若提供则考虑会话禁用状态。
+
+        Returns:
+            List[Dict[str, Any]]: 兼容旧结构的工具组件字典列表。
+        """
+
+        return [
+            {
+                "name": tool.full_name,
+                "description": tool.description,
+                "parameters": (
+                    dict(tool.parameters_raw)
+                    if isinstance(tool.parameters_raw, dict) and tool.parameters_raw
+                    else tool._get_parameters_schema() or {}
+                ),
+                "parameters_raw": tool.parameters_raw,
+                "enabled": tool.enabled,
+                "plugin_id": tool.plugin_id,
+            }
+            for tool in self.get_tools(enabled_only=enabled_only, session_id=session_id)
+            if not self._is_legacy_action_component(tool)
+        ]
+
     # ====== 统计信息 ======
     def get_stats(self) -> StatusDict:
         """获取注册统计。
@@ -863,9 +1072,21 @@ class ComponentRegistry:
         """
         return StatusDict(
             total=len(self._components),
-            action=len(self._by_type[ComponentTypes.ACTION]),
+            action=len(
+                [
+                    component
+                    for component in self._by_type.get(ComponentTypes.TOOL, {}).values()
+                    if self._is_legacy_action_component(component)
+                ]
+            ),
             command=len(self._by_type[ComponentTypes.COMMAND]),
-            tool=len(self._by_type[ComponentTypes.TOOL]),
+            tool=len(
+                [
+                    component
+                    for component in self._by_type.get(ComponentTypes.TOOL, {}).values()
+                    if not self._is_legacy_action_component(component)
+                ]
+            ),
             event_handler=len(self._by_type[ComponentTypes.EVENT_HANDLER]),
             hook_handler=len(self._by_type[ComponentTypes.HOOK_HANDLER]),
             message_gateway=len(self._by_type[ComponentTypes.MESSAGE_GATEWAY]),

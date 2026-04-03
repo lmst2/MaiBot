@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import type { ConfigSchema, FieldSchema } from '@/types/config-schema'
 
 /**
  * Hook type for field-level customization
@@ -13,6 +14,7 @@ export interface FieldHookComponentProps {
   value: unknown
   onChange?: (value: unknown) => void
   children?: ReactNode
+  schema?: ConfigSchema | FieldSchema
 }
 
 /**

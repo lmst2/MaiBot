@@ -1,8 +1,7 @@
 """Maisaka 推理引擎。"""
 
-from base64 import b64decode
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional
 
 import asyncio
 import difflib
@@ -10,24 +9,19 @@ import json
 import time
 import traceback
 
-from sqlmodel import col, select
-
 from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.chat.message_receive.message import SessionMessage
-from src.chat.replyer.replyer_manager import replyer_manager
 from src.chat.utils.utils import process_llm_response
-from src.common.data_models.message_component_data_model import EmojiComponent, MessageSequence, TextComponent
-from src.common.database.database import get_db_session
-from src.common.database.database_model import PersonInfo
+from src.common.data_models.message_component_data_model import EmojiComponent, ImageComponent, MessageSequence, TextComponent
 from src.common.logger import get_logger
 from src.config.config import global_config
 from src.core.tooling import ToolExecutionContext, ToolExecutionResult, ToolInvocation, ToolSpec
-from src.know_u.knowledge_store import get_knowledge_store
-from src.learners.jargon_explainer import search_jargon
 from src.llm_models.exceptions import ReqAbortException
 from src.llm_models.payload_content.tool_option import ToolCall
-from src.services import database_service as database_api, send_service
+from src.services import database_service as database_api
 
+from .builtin_tool import build_builtin_tool_handlers as build_split_builtin_tool_handlers
+from .builtin_tool.context import BuiltinToolRuntimeContext
 from .context_messages import (
     AssistantMessage,
     LLMContextMessage,
@@ -39,6 +33,7 @@ from .message_adapter import (
     clone_message_sequence,
     format_speaker_content,
 )
+from .planner_message_utils import build_planner_user_prefix_from_session_message
 
 if TYPE_CHECKING:
     from .runtime import MaisakaHeartFlowChatting
@@ -54,6 +49,12 @@ class MaisakaReasoningEngine:
         self._runtime = runtime
         self._last_reasoning_content: str = ""
 
+    @property
+    def last_reasoning_content(self) -> str:
+        """返回最近一轮思考文本。"""
+
+        return self._last_reasoning_content
+
     def build_builtin_tool_handlers(self) -> dict[str, "BuiltinToolHandler"]:
         """构造 Maisaka 内置工具处理器映射。
 
@@ -61,15 +62,7 @@ class MaisakaReasoningEngine:
             dict[str, BuiltinToolHandler]: 工具名到处理器的映射。
         """
 
-        return {
-            "reply": self._invoke_reply_tool,
-            "no_reply": self._invoke_no_reply_tool,
-            "query_jargon": self._invoke_query_jargon_tool,
-            "query_person_info": self._invoke_query_person_info_tool,
-            "wait": self._invoke_wait_tool,
-            "stop": self._invoke_stop_tool,
-            "send_emoji": self._invoke_send_emoji_tool,
-        }
+        return build_split_builtin_tool_handlers(BuiltinToolRuntimeContext(self, self._runtime))
 
     async def run_loop(self) -> None:
         """独立消费消息批次，并执行对应的内部思考轮次。"""
@@ -132,6 +125,10 @@ class MaisakaReasoningEngine:
                                 logger.info(f"{self._runtime.log_prefix} 当前思考与上一轮过于相似，已替换为重新思考提示")
 
                             self._last_reasoning_content = reasoning_content
+                            self._runtime._render_context_usage_panel(
+                                selected_history_count=response.selected_history_count,
+                                prompt_tokens=response.prompt_tokens,
+                            )
                             self._runtime._chat_history.append(response.raw_message)
 
                             if response.tool_calls:
@@ -230,15 +227,13 @@ class MaisakaReasoningEngine:
 
     async def _build_message_sequence(self, message: SessionMessage) -> tuple[MessageSequence, str]:
         message_sequence = MessageSequence([])
-        planner_prefix = self._build_planner_user_prefix(message)
+        planner_prefix = build_planner_user_prefix_from_session_message(message)
 
         appended_component = False
-        if global_config.maisaka.direct_image_input:
-            source_sequence = getattr(message, "maisaka_original_raw_message", message.raw_message)
-        else:
-            source_sequence = message.raw_message
-
+        source_sequence = message.raw_message
         planner_components = clone_message_sequence(source_sequence).components
+        if global_config.maisaka.direct_image_input:
+            await self._hydrate_visual_components(planner_components)
         if planner_components and isinstance(planner_components[0], TextComponent):
             planner_components[0].text = planner_prefix + planner_components[0].text
         else:
@@ -259,21 +254,23 @@ class MaisakaReasoningEngine:
 
         return message_sequence, legacy_visible_text
 
-    @staticmethod
-    def _build_planner_user_prefix(message: SessionMessage) -> str:
-        user_info = message.message_info.user_info
-        timestamp_text = message.timestamp.strftime("%H:%M:%S")
-        user_name = user_info.user_nickname or user_info.user_id
-        group_card = user_info.user_cardname or ""
-        prefix_parts = [
-            f"[时间]{timestamp_text}\n",
-            f"[用户]{user_name}\n",
-            f"[用户群昵称]{group_card}\n",
-        ]
-        if not message.is_notify and message.message_id:
-            prefix_parts.append(f"[msg_id]{message.message_id}\n")
-        prefix_parts.append("[发言内容]")
-        return "".join(prefix_parts)
+    async def _hydrate_visual_components(self, planner_components: list[object]) -> None:
+        """在 Maisaka 真正需要图片或表情时，按需回填二进制数据。"""
+        load_tasks: list[asyncio.Task[None]] = []
+        for component in planner_components:
+            if isinstance(component, ImageComponent) and not component.binary_data:
+                load_tasks.append(asyncio.create_task(component.load_image_binary()))
+                continue
+            if isinstance(component, EmojiComponent) and not component.binary_data:
+                load_tasks.append(asyncio.create_task(component.load_emoji_binary()))
+
+        if not load_tasks:
+            return
+
+        results = await asyncio.gather(*load_tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning(f"{self._runtime.log_prefix} 回填图片或表情二进制数据失败，Maisaka 将退化为文本占位: {result}")
 
     def _build_legacy_visible_text(self, message: SessionMessage, source_sequence: MessageSequence) -> str:
         user_info = message.message_info.user_info
@@ -325,14 +322,47 @@ class MaisakaReasoningEngine:
         trimmed_history = list(self._runtime._chat_history)
         removed_count = 0
 
-        while conversation_message_count >= self._runtime._max_context_size and trimmed_history:
+        while conversation_message_count > self._runtime._max_context_size and trimmed_history:
             removed_message = trimmed_history.pop(0)
             removed_count += 1
             if removed_message.count_in_context:
                 conversation_message_count -= 1
 
+        trimmed_history, pruned_orphan_count = self._drop_leading_orphan_tool_results(trimmed_history)
+        removed_count += pruned_orphan_count
+
         self._runtime._chat_history = trimmed_history
         self._runtime._log_history_trimmed(removed_count, conversation_message_count)
+
+    @staticmethod
+    def _drop_leading_orphan_tool_results(
+        chat_history: list[LLMContextMessage],
+    ) -> tuple[list[LLMContextMessage], int]:
+        """清理历史前缀中缺少对应 assistant tool_call 的工具结果消息。"""
+
+        if not chat_history:
+            return chat_history, 0
+
+        available_tool_call_ids = {
+            tool_call.call_id
+            for message in chat_history
+            if isinstance(message, AssistantMessage)
+            for tool_call in message.tool_calls
+            if tool_call.call_id
+        }
+
+        first_valid_index = 0
+        while first_valid_index < len(chat_history):
+            message = chat_history[first_valid_index]
+            if not isinstance(message, ToolResultMessage):
+                break
+            if message.tool_call_id in available_tool_call_ids:
+                break
+            first_valid_index += 1
+
+        if first_valid_index == 0:
+            return chat_history, 0
+        return chat_history[first_valid_index:], first_valid_index
 
     @staticmethod
     def _calculate_similarity(text1: str, text2: str) -> float:
@@ -570,7 +600,7 @@ class MaisakaReasoningEngine:
             wait_seconds = invocation.arguments.get("seconds", 30)
             return f"你让当前对话先等待 {wait_seconds} 秒。"
 
-        if invocation.tool_name == "stop":
+        if invocation.tool_name == "no_reply":
             return "你暂停了当前对话循环，等待新的外部消息。"
 
         if invocation.tool_name == "query_jargon":
@@ -671,163 +701,6 @@ class MaisakaReasoningEngine:
             )
         )
 
-    @staticmethod
-    def _build_tool_call_from_invocation(invocation: ToolInvocation) -> ToolCall:
-        """将统一工具调用对象恢复为 `ToolCall` 兼容对象。
-
-        Args:
-            invocation: 统一工具调用对象。
-
-        Returns:
-            ToolCall: 兼容旧内部逻辑的工具调用对象。
-        """
-
-        return ToolCall(
-            call_id=invocation.call_id or f"{invocation.tool_name}_call",
-            func_name=invocation.tool_name,
-            args=dict(invocation.arguments),
-        )
-
-    @staticmethod
-    def _build_tool_success_result(
-        tool_name: str,
-        content: str = "",
-        structured_content: Any = None,
-        metadata: Optional[dict[str, Any]] = None,
-    ) -> ToolExecutionResult:
-        """构造统一工具成功结果。
-
-        Args:
-            tool_name: 工具名称。
-            content: 结果文本。
-            structured_content: 结构化结果。
-            metadata: 附加元数据。
-
-        Returns:
-            ToolExecutionResult: 统一工具成功结果。
-        """
-
-        return ToolExecutionResult(
-            tool_name=tool_name,
-            success=True,
-            content=content,
-            structured_content=structured_content,
-            metadata=dict(metadata or {}),
-        )
-
-    @staticmethod
-    def _build_tool_failure_result(
-        tool_name: str,
-        error_message: str,
-        structured_content: Any = None,
-        metadata: Optional[dict[str, Any]] = None,
-    ) -> ToolExecutionResult:
-        """构造统一工具失败结果。
-
-        Args:
-            tool_name: 工具名称。
-            error_message: 错误信息。
-            structured_content: 结构化结果。
-            metadata: 附加元数据。
-
-        Returns:
-            ToolExecutionResult: 统一工具失败结果。
-        """
-
-        return ToolExecutionResult(
-            tool_name=tool_name,
-            success=False,
-            error_message=error_message,
-            structured_content=structured_content,
-            metadata=dict(metadata or {}),
-        )
-
-    async def _invoke_reply_tool(
-        self,
-        invocation: ToolInvocation,
-        context: Optional[ToolExecutionContext] = None,
-    ) -> ToolExecutionResult:
-        """执行 reply 内置工具。"""
-
-        latest_thought = context.reasoning if context is not None else invocation.reasoning
-        return await self._handle_reply(self._build_tool_call_from_invocation(invocation), latest_thought)
-
-    async def _invoke_no_reply_tool(
-        self,
-        invocation: ToolInvocation,
-        context: Optional[ToolExecutionContext] = None,
-    ) -> ToolExecutionResult:
-        """执行 no_reply 内置工具。"""
-
-        del context
-        return self._build_tool_success_result(invocation.tool_name, "本轮未发送可见回复。")
-
-    async def _invoke_query_jargon_tool(
-        self,
-        invocation: ToolInvocation,
-        context: Optional[ToolExecutionContext] = None,
-    ) -> ToolExecutionResult:
-        """执行 query_jargon 内置工具。"""
-
-        del context
-        return await self._handle_query_jargon(self._build_tool_call_from_invocation(invocation))
-
-    async def _invoke_query_person_info_tool(
-        self,
-        invocation: ToolInvocation,
-        context: Optional[ToolExecutionContext] = None,
-    ) -> ToolExecutionResult:
-        """执行 query_person_info 内置工具。"""
-
-        del context
-        return await self._handle_query_person_info(self._build_tool_call_from_invocation(invocation))
-
-    async def _invoke_wait_tool(
-        self,
-        invocation: ToolInvocation,
-        context: Optional[ToolExecutionContext] = None,
-    ) -> ToolExecutionResult:
-        """执行 wait 内置工具。"""
-
-        del context
-        seconds = invocation.arguments.get("seconds", 30)
-        try:
-            wait_seconds = int(seconds)
-        except (TypeError, ValueError):
-            wait_seconds = 30
-        wait_seconds = max(0, wait_seconds)
-        self._runtime._enter_wait_state(seconds=wait_seconds, tool_call_id=invocation.call_id)
-        return self._build_tool_success_result(
-            invocation.tool_name,
-            f"当前对话循环进入等待状态，最长等待 {wait_seconds} 秒。",
-            metadata={"pause_execution": True},
-        )
-
-    async def _invoke_stop_tool(
-        self,
-        invocation: ToolInvocation,
-        context: Optional[ToolExecutionContext] = None,
-    ) -> ToolExecutionResult:
-        """执行 stop 内置工具。"""
-
-        del context
-        self._runtime._enter_stop_state()
-        return self._build_tool_success_result(
-            invocation.tool_name,
-            "当前对话循环已暂停，等待新消息到来。",
-            metadata={"pause_execution": True},
-        )
-
-    async def _invoke_send_emoji_tool(
-        self,
-        invocation: ToolInvocation,
-        context: Optional[ToolExecutionContext] = None,
-    ) -> ToolExecutionResult:
-        """执行 send_emoji 内置工具。"""
-
-        del context
-        return await self._handle_send_emoji(self._build_tool_call_from_invocation(invocation))
-
     async def _handle_tool_calls(
         self,
         tool_calls: list[ToolCall],
@@ -880,667 +753,3 @@ class MaisakaReasoningEngine:
 
         return False
 
-    async def _handle_query_jargon(self, tool_call: ToolCall) -> ToolExecutionResult:
-        """查询黑话解释并返回统一工具结果。
-
-        Args:
-            tool_call: 当前工具调用。
-
-        Returns:
-            ToolExecutionResult: 统一工具执行结果。
-        """
-
-        tool_args = tool_call.args or {}
-        raw_words = tool_args.get("words")
-
-        if not isinstance(raw_words, list):
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                "查询黑话工具需要提供 `words` 数组参数。",
-            )
-
-        words: list[str] = []
-        seen_words: set[str] = set()
-        for item in raw_words:
-            if not isinstance(item, str):
-                continue
-            word = item.strip()
-            if not word or word in seen_words:
-                continue
-            seen_words.add(word)
-            words.append(word)
-
-        if not words:
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                "查询黑话工具至少需要一个非空词条。",
-            )
-
-        logger.info(f"{self._runtime.log_prefix} 已触发黑话查询: 词条={words!r}")
-
-        results: list[dict[str, object]] = []
-        for word in words:
-            exact_matches = search_jargon(
-                keyword=word,
-                chat_id=self._runtime.session_id,
-                limit=5,
-                case_sensitive=False,
-                fuzzy=False,
-            )
-            matched_entries = exact_matches or search_jargon(
-                keyword=word,
-                chat_id=self._runtime.session_id,
-                limit=5,
-                case_sensitive=False,
-                fuzzy=True,
-            )
-
-            results.append(
-                {
-                    "word": word,
-                    "found": bool(matched_entries),
-                    "matches": matched_entries,
-                }
-            )
-
-        logger.info(f"{self._runtime.log_prefix} 黑话查询完成: 结果={results!r}")
-        return self._build_tool_success_result(
-            tool_call.func_name,
-            json.dumps({"results": results}, ensure_ascii=False),
-            structured_content={"results": results},
-        )
-
-    async def _handle_query_person_info(self, tool_call: ToolCall) -> ToolExecutionResult:
-        """查询指定人物的档案和相关知识。
-
-        Args:
-            tool_call: 当前工具调用。
-
-        Returns:
-            ToolExecutionResult: 统一工具执行结果。
-        """
-
-        tool_args = tool_call.args or {}
-        raw_person_name = tool_args.get("person_name")
-        raw_limit = tool_args.get("limit", 3)
-
-        if not isinstance(raw_person_name, str):
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                "查询人物信息工具需要提供字符串类型的 `person_name` 参数。",
-            )
-
-        person_name = raw_person_name.strip()
-        if not person_name:
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                "查询人物信息工具需要提供非空的 `person_name` 参数。",
-            )
-
-        try:
-            limit = max(1, min(int(raw_limit), 10))
-        except (TypeError, ValueError):
-            limit = 3
-
-        logger.info(
-            f"{self._runtime.log_prefix} 已触发人物信息查询: "
-            f"人物名={person_name!r} 限制条数={limit}"
-        )
-
-        persons = self._query_person_records(person_name, limit)
-        result = {
-            "query": person_name,
-            "persons": persons,
-            "related_knowledge": self._query_related_knowledge(person_name, persons, limit),
-        }
-
-        logger.info(
-            f"{self._runtime.log_prefix} 人物信息查询完成: "
-            f"人物记录数={len(result['persons'])} 相关知识数={len(result['related_knowledge'])}"
-        )
-        return self._build_tool_success_result(
-            tool_call.func_name,
-            json.dumps(result, ensure_ascii=False),
-            structured_content=result,
-        )
-
-    def _query_person_records(self, person_name: str, limit: int) -> list[dict[str, Any]]:
-        """按名称、昵称或用户 ID 查询人物档案。"""
-        with get_db_session() as session:
-            records = session.exec(
-                select(PersonInfo)
-                .where(
-                    col(PersonInfo.person_name).contains(person_name)
-                    | col(PersonInfo.user_nickname).contains(person_name)
-                    | col(PersonInfo.user_id).contains(person_name)
-                )
-                .order_by(col(PersonInfo.last_known_time).desc(), col(PersonInfo.id).desc())
-                .limit(limit)
-            ).all()
-
-        persons: list[dict[str, Any]] = []
-        for record in records:
-            memory_points: list[str] = []
-            if record.memory_points:
-                try:
-                    parsed_points = json.loads(record.memory_points)
-                    if isinstance(parsed_points, list):
-                        memory_points = [str(point).strip() for point in parsed_points if str(point).strip()]
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    memory_points = []
-
-            persons.append(
-                {
-                    "person_id": record.person_id,
-                    "person_name": record.person_name or "",
-                    "user_nickname": record.user_nickname,
-                    "user_id": record.user_id,
-                    "platform": record.platform,
-                    "name_reason": record.name_reason or "",
-                    "is_known": record.is_known,
-                    "know_counts": record.know_counts,
-                    "memory_points": memory_points[:20],
-                    "last_known_time": (
-                        record.last_known_time.isoformat() if record.last_known_time is not None else None
-                    ),
-                }
-            )
-
-        return persons
-
-    def _query_related_knowledge(
-        self,
-        person_name: str,
-        persons: list[dict[str, Any]],
-        limit: int,
-    ) -> list[dict[str, Any]]:
-        """从 Maisaka knowledge 中补充检索与该人物相关的条目。"""
-        store = get_knowledge_store()
-        knowledge_items: list[dict[str, Any]] = []
-        seen_ids: set[str] = set()
-
-        for person in persons:
-            matched_items = store.get_knowledge_by_user(
-                platform=str(person.get("platform", "")).strip(),
-                user_id=str(person.get("user_id", "")).strip(),
-                user_nickname=str(person.get("user_nickname", "")).strip(),
-                person_name=str(person.get("person_name", "")).strip(),
-                limit=max(limit, 5),
-            )
-            for item in matched_items:
-                item_id = str(item.get("id", "")).strip()
-                if item_id and item_id in seen_ids:
-                    continue
-                if item_id:
-                    seen_ids.add(item_id)
-                knowledge_items.append(item)
-
-        if not knowledge_items:
-            fallback_items = store.search_knowledge(person_name, limit=max(limit, 5))
-            for item in fallback_items:
-                item_id = str(item.get("id", "")).strip()
-                if item_id and item_id in seen_ids:
-                    continue
-                if item_id:
-                    seen_ids.add(item_id)
-                knowledge_items.append(item)
-
-        results: list[dict[str, Any]] = []
-        for item in knowledge_items:
-            results.append(
-                {
-                    "id": str(item.get("id", "")).strip(),
-                    "category_id": str(item.get("category_id", "")).strip(),
-                    "category_name": str(item.get("category_name", "")).strip(),
-                    "content": str(item.get("content", "")).strip(),
-                    "metadata": item.get("metadata", {}),
-                    "created_at": item.get("created_at"),
-                }
-            )
-        return results
-
-    async def _handle_reply(
-        self,
-        tool_call: ToolCall,
-        latest_thought: str,
-    ) -> ToolExecutionResult:
-        """执行 reply 工具并生成可见回复。
-
-        Args:
-            tool_call: 当前工具调用。
-            latest_thought: 当前轮的最新思考文本。
-
-        Returns:
-            ToolExecutionResult: 统一工具执行结果。
-        """
-
-        tool_args = tool_call.args or {}
-        target_message_id = str(tool_args.get("msg_id") or "").strip()
-        quote_reply = bool(tool_args.get("quote", True))
-        raw_unknown_words = tool_args.get("unknown_words")
-        unknown_words = raw_unknown_words if isinstance(raw_unknown_words, list) else None
-        if not target_message_id:
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                "回复工具需要提供有效的 `msg_id` 参数。",
-            )
-
-        target_message = self._runtime._source_messages_by_id.get(target_message_id)
-        if target_message is None:
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                f"未找到要回复的目标消息，msg_id={target_message_id}",
-            )
-
-        logger.info(
-            f"{self._runtime.log_prefix} 已触发回复工具: "
-            f"目标消息编号={target_message_id} 引用回复={quote_reply} 最新思考={latest_thought!r}"
-        )
-        logger.info(f"{self._runtime.log_prefix} 正在获取 Maisaka 回复生成器")
-        try:
-            replyer = replyer_manager.get_replyer(
-                chat_stream=self._runtime.chat_stream,
-                request_type="maisaka_replyer",
-                replyer_type="maisaka",
-            )
-        except Exception:
-            logger.exception(
-                f"{self._runtime.log_prefix} 获取回复生成器时发生异常: "
-                f"目标消息编号={target_message_id}"
-            )
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                "获取 Maisaka 回复生成器时发生异常。",
-            )
-
-        if replyer is None:
-            logger.error(f"{self._runtime.log_prefix} 获取 Maisaka 回复生成器失败")
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                "Maisaka 回复生成器当前不可用。",
-            )
-
-        from src.chat.replyer.maisaka_generator import MaisakaReplyGenerator
-
-        replyer = cast(MaisakaReplyGenerator, replyer)
-        logger.info(f"{self._runtime.log_prefix} 已成功获取 Maisaka 回复生成器")
-
-        logger.info(f"{self._runtime.log_prefix} 正在调用回复生成接口: 目标消息编号={target_message_id}")
-        try:
-            success, reply_result = await replyer.generate_reply_with_context(
-                reply_reason=latest_thought,
-                stream_id=self._runtime.session_id,
-                reply_message=target_message,
-                chat_history=self._runtime._chat_history,
-                unknown_words=unknown_words,
-                log_reply=False,
-            )
-        except Exception as exc:
-            import traceback
-            logger.error(
-                f"{self._runtime.log_prefix} 回复生成器执行异常: 目标消息编号={target_message_id} "
-                f"异常类型={type(exc).__name__} 异常信息={str(exc)}\n{traceback.format_exc()}"
-            )
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                "生成可见回复时发生异常。",
-            )
-
-        logger.info(
-            f"{self._runtime.log_prefix} 回复生成完成: "
-            f"成功={success} 回复文本={reply_result.completion.response_text!r} "
-            f"错误信息={reply_result.error_message!r}"
-        )
-        reply_text = reply_result.completion.response_text.strip() if success else ""
-        if not reply_text:
-            logger.warning(
-                f"{self._runtime.log_prefix} 回复生成器返回空文本: "
-                f"目标消息编号={target_message_id} 错误信息={reply_result.error_message!r}"
-            )
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                "生成可见回复失败。",
-            )
-
-        reply_segments = self._post_process_reply_text(reply_text)
-        combined_reply_text = "".join(reply_segments)
-        logger.info(
-            f"{self._runtime.log_prefix} 回复后处理完成: "
-            f"目标消息编号={target_message_id} 分段数={len(reply_segments)} "
-            f"分段内容={reply_segments!r}"
-        )
-
-        logger.info(
-            f"{self._runtime.log_prefix} 正在发送引导回复: "
-            f"目标消息编号={target_message_id} 引用回复={quote_reply} 回复分段={reply_segments!r}"
-        )
-        try:
-            sent = False
-            for index, segment in enumerate(reply_segments):
-                sent = await send_service.text_to_stream(
-                    text=segment,
-                    stream_id=self._runtime.session_id,
-                    set_reply=quote_reply if index == 0 else False,
-                    reply_message=target_message if quote_reply and index == 0 else None,
-                    selected_expressions=reply_result.selected_expression_ids or None,
-                    typing=index > 0,
-                )
-                if not sent:
-                    break
-        except Exception:
-            logger.exception(
-                f"{self._runtime.log_prefix} 发送文字消息时发生异常，目标消息编号={target_message_id}"
-            )
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                "发送可见回复时发生异常。",
-            )
-
-        logger.info(
-            f"{self._runtime.log_prefix} 引导回复发送结果: "
-            f"目标消息编号={target_message_id} 发送成功={sent}"
-        )
-        if not sent:
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                "可见回复生成成功，但发送失败。",
-                structured_content={
-                    "msg_id": target_message_id,
-                    "quote": quote_reply,
-                    "reply_segments": reply_segments,
-                },
-            )
-
-        target_user_info = target_message.message_info.user_info
-        target_user_name = (
-            target_user_info.user_cardname
-            or target_user_info.user_nickname
-            or target_user_info.user_id
-        )
-
-        bot_name = global_config.bot.nickname.strip() or "MaiSaka"
-        reply_timestamp = datetime.now()
-        planner_prefix = (
-            f"[时间]{reply_timestamp.strftime('%H:%M:%S')}\n"
-            f"[用户]{bot_name}\n"
-            "[用户群昵称]\n"
-            "[msg_id]\n"
-            "[发言内容]"
-        )
-        history_message = SessionBackedMessage(
-            raw_message=MessageSequence([TextComponent(f"{planner_prefix}{combined_reply_text}")]),
-            visible_text="",
-            timestamp=reply_timestamp,
-            source_kind="guided_reply",
-        )
-        visible_reply_text = format_speaker_content(
-            bot_name,
-            combined_reply_text,
-            reply_timestamp,
-        )
-        history_message.visible_text = visible_reply_text
-        self._runtime._chat_history.append(history_message)
-        return self._build_tool_success_result(
-            tool_call.func_name,
-            "回复已生成并发送。",
-            structured_content={
-                "msg_id": target_message_id,
-                "quote": quote_reply,
-                "reply_text": combined_reply_text,
-                "reply_segments": reply_segments,
-                "target_user_name": target_user_name,
-            },
-        )
-
-    async def _handle_send_emoji(self, tool_call: ToolCall) -> ToolExecutionResult:
-        """处理发送表情包的工具调用。
-
-        Args:
-            tool_call: 工具调用对象。
-
-        Returns:
-            ToolExecutionResult: 统一工具执行结果。
-        """
-        from src.chat.emoji_system.emoji_manager import emoji_manager
-        from src.common.utils.utils_image import ImageUtils
-        import random
-
-        tool_args = tool_call.args or {}
-        emotion = str(tool_args.get("emotion") or "").strip()
-
-        logger.info(f"{self._runtime.log_prefix} 已触发表情包发送工具: 情绪={emotion!r}")
-
-        # 获取表情包列表
-        if not emoji_manager.emojis:
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                "当前表情包库中没有可用表情。",
-            )
-
-        # 根据情感选择表情包
-        selected_emoji = None
-        if emotion:
-            # 尝试找到匹配情感的表情包
-            matching_emojis = [
-                emoji for emoji in emoji_manager.emojis
-                if emotion.lower() in (e.lower() for e in emoji.emotion)
-            ]
-            if matching_emojis:
-                selected_emoji = random.choice(matching_emojis)
-                logger.info(
-                    f"{self._runtime.log_prefix} 找到 {len(matching_emojis)} 个匹配情绪 {emotion!r} 的表情包，"
-                    f"已选择：{selected_emoji.description}"
-                )
-
-        # 如果没有找到匹配的情感表情包，随机选择一个
-        if selected_emoji is None:
-            selected_emoji = random.choice(emoji_manager.emojis)
-            logger.info(
-                f"{self._runtime.log_prefix} 没有表情包匹配情绪 {emotion!r}，"
-                f"已随机选择：{selected_emoji.description}"
-            )
-
-        # 更新表情包使用次数
-        emoji_manager.update_emoji_usage(selected_emoji)
-
-        # 获取表情包的 base64 数据
-        try:
-            emoji_base64 = ImageUtils.image_path_to_base64(str(selected_emoji.full_path))
-            if not emoji_base64:
-                raise ValueError("表情图片转换为 base64 失败")
-        except Exception as exc:
-            logger.error(
-                f"{self._runtime.log_prefix} 表情图片转换为 base64 失败: {exc}"
-            )
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                f"发送表情包失败：{exc}",
-            )
-
-        # 发送表情包
-        try:
-            sent = await send_service.emoji_to_stream(
-                emoji_base64=emoji_base64,
-                stream_id=self._runtime.session_id,
-                storage_message=True,
-                set_reply=False,
-                reply_message=None,
-            )
-        except Exception as exc:
-            logger.exception(
-                f"{self._runtime.log_prefix} 发送表情包时发生异常: {exc}"
-            )
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                f"发送表情包时发生异常：{exc}",
-            )
-
-        if sent:
-            logger.info(
-                f"{self._runtime.log_prefix} 表情包发送成功: "
-                f"描述={selected_emoji.description!r} 情绪标签={selected_emoji.emotion}"
-            )
-            return self._build_tool_success_result(
-                tool_call.func_name,
-                f"已发送表情包：{selected_emoji.description}（情绪：{', '.join(selected_emoji.emotion)}）",
-                structured_content={
-                    "description": selected_emoji.description,
-                    "emotion": list(selected_emoji.emotion),
-                },
-            )
-        logger.warning(f"{self._runtime.log_prefix} 表情包发送失败")
-        return self._build_tool_failure_result(
-            tool_call.func_name,
-            "发送表情包失败。",
-        )
-
-    async def _handle_send_emoji(self, tool_call: ToolCall) -> ToolExecutionResult:
-        """?????????????"""
-        from src.chat.emoji_system.emoji_manager import emoji_manager
-        from src.common.utils.utils_image import ImageUtils
-        import random
-
-        tool_args = tool_call.args or {}
-        emotion = str(tool_args.get("emotion") or "").strip()
-        structured_result: dict[str, Any] = {
-            "success": False,
-            "message": "",
-            "description": "",
-            "emotion": [],
-            "requested_emotion": emotion,
-        }
-
-        logger.info(f"{self._runtime.log_prefix} ??????????: ??={emotion!r}")
-
-        if not emoji_manager.emojis:
-            structured_result["message"] = "??????????????"
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                structured_result["message"],
-                structured_content=structured_result,
-            )
-
-        selected_emoji = None
-        if emotion:
-            matching_emojis = [
-                emoji
-                for emoji in emoji_manager.emojis
-                if emotion.lower() in (item.lower() for item in emoji.emotion)
-            ]
-            if matching_emojis:
-                selected_emoji = random.choice(matching_emojis)
-                logger.info(
-                    f"{self._runtime.log_prefix} ?? {len(matching_emojis)} ????? {emotion!r} ?????"
-                    f"????{selected_emoji.description}"
-                )
-
-        if selected_emoji is None:
-            selected_emoji = random.choice(emoji_manager.emojis)
-            logger.info(
-                f"{self._runtime.log_prefix} ????????? {emotion!r}?"
-                f"??????{selected_emoji.description}"
-            )
-
-        emoji_description = selected_emoji.description.strip()
-        emoji_emotions = [str(item).strip() for item in selected_emoji.emotion if str(item).strip()]
-        structured_result["description"] = emoji_description
-        structured_result["emotion"] = emoji_emotions
-
-        emoji_manager.update_emoji_usage(selected_emoji)
-
-        try:
-            emoji_base64 = ImageUtils.image_path_to_base64(str(selected_emoji.full_path))
-            if not emoji_base64:
-                raise ValueError("??????? base64 ??")
-        except Exception as exc:
-            logger.error(f"{self._runtime.log_prefix} ??????? base64 ??: {exc}")
-            structured_result["message"] = f"????????{exc}"
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                structured_result["message"],
-                structured_content=structured_result,
-            )
-
-        try:
-            sent = await send_service.emoji_to_stream(
-                emoji_base64=emoji_base64,
-                stream_id=self._runtime.session_id,
-                storage_message=True,
-                set_reply=False,
-                reply_message=None,
-            )
-        except Exception as exc:
-            logger.exception(f"{self._runtime.log_prefix} ??????????: {exc}")
-            structured_result["message"] = f"???????????{exc}"
-            return self._build_tool_failure_result(
-                tool_call.func_name,
-                structured_result["message"],
-                structured_content=structured_result,
-            )
-
-        if sent:
-            success_message = (
-                f"???????{emoji_description}????{', '.join(emoji_emotions)}?"
-                if emoji_emotions
-                else f"???????{emoji_description}"
-            )
-            logger.info(
-                f"{self._runtime.log_prefix} ???????: "
-                f"??={selected_emoji.description!r} ????={selected_emoji.emotion}"
-            )
-            self._append_sent_emoji_to_chat_history(
-                emoji_base64=emoji_base64,
-                success_message=success_message,
-            )
-            structured_result["success"] = True
-            structured_result["message"] = success_message
-            return self._build_tool_success_result(
-                tool_call.func_name,
-                success_message,
-                structured_content=structured_result,
-            )
-
-        logger.warning(f"{self._runtime.log_prefix} ???????")
-        structured_result["message"] = "????????"
-        return self._build_tool_failure_result(
-            tool_call.func_name,
-            structured_result["message"],
-            structured_content=structured_result,
-        )
-
-    def _append_sent_emoji_to_chat_history(
-        self,
-        *,
-        emoji_base64: str,
-        success_message: str,
-    ) -> None:
-        """? bot ?????????????? Maisaka ?????"""
-        bot_name = global_config.bot.nickname.strip() or "MaiSaka"
-        reply_timestamp = datetime.now()
-        planner_prefix = (
-            f"[??]{reply_timestamp.strftime('%H:%M:%S')}\n"
-            f"[??]{bot_name}\n"
-            "[?????]\n"
-            "[msg_id]\n"
-            "[????]"
-        )
-        history_message = SessionBackedMessage(
-            raw_message=MessageSequence(
-                [
-                    TextComponent(planner_prefix),
-                    EmojiComponent(
-                        binary_hash="",
-                        content=success_message,
-                        binary_data=b64decode(emoji_base64),
-                    ),
-                ]
-            ),
-            visible_text=format_speaker_content(
-                bot_name,
-                "[???]",
-                reply_timestamp,
-            ),
-            timestamp=reply_timestamp,
-            source_kind="guided_reply",
-        )
-        self._runtime._chat_history.append(history_message)

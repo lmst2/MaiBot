@@ -30,7 +30,14 @@ def recursive_parse_item_to_table(
         if value is None:
             continue
         if isinstance(value, ConfigBase):
-            config_table.add(config_item_name, recursive_parse_item_to_table(value, override_repr=override_repr))
+            config_table.add(
+                config_item_name,
+                recursive_parse_item_to_table(
+                    value,
+                    is_inline_table=is_inline_table,
+                    override_repr=override_repr,
+                ),
+            )
         else:
             config_table.add(
                 config_item_name, convert_field(config_item_name, config_item_info, value, override_repr=override_repr)

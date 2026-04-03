@@ -1,5 +1,5 @@
-这是一个聊天场景中的表情包描述："{description}"
+This is a description of a sticker used in a chat scene: "{description}"
 
-请你识别这个表情包的含义和适用场景，给我简短的描述，每个描述不要超过15个字
-你可以关注其幽默和讽刺意味，动用贴吧，微博，小红书的知识，必须从互联网梗、meme的角度去分析
-请直接输出描述，不要出现任何其他内容，如果有多个描述，可以用逗号分隔
+Please identify the meaning and suitable usage scenarios of this sticker, and give me brief descriptions. Each description should not exceed 15 words.
+You may focus on its humorous and sarcastic meaning, draw on knowledge from Tieba, Weibo, and Xiaohongshu, and you must analyze it from the perspective of internet slang and memes.
+Please directly output the descriptions without any other content. If there are multiple descriptions, separate them with commas.

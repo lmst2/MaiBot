@@ -5,6 +5,10 @@ from typing import Literal, Optional
 import asyncio
 import time
 
+from rich.panel import Panel
+from rich.text import Text
+
+from src.cli.console import console
 from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.chat.message_receive.chat_manager import BotChatSession, chat_manager
 from src.chat.message_receive.message import SessionMessage
@@ -45,7 +49,10 @@ class MaisakaHeartFlowChatting:
 
         session_name = chat_manager.get_session_name(session_id) or session_id
         self.log_prefix = f"[{session_name}]"
-        self._chat_loop_service = MaisakaChatLoopService()
+        self._chat_loop_service = MaisakaChatLoopService(
+            session_id=session_id,
+            is_group_chat=self.chat_stream.is_group_session,
+        )
         self._chat_history: list[LLMContextMessage] = []
         self.history_loop: list[CycleDetail] = []
 
@@ -430,6 +437,40 @@ class MaisakaHeartFlowChatting:
             return None
 
         return GroupInfo(group_id=group_info.group_id, group_name=group_info.group_name)
+
+    @staticmethod
+    def _format_token_count(token_count: int) -> str:
+        """格式化 token 数量展示文本。"""
+        if token_count >= 10_000:
+            return f"{token_count / 1000:.1f}k"
+        return str(token_count)
+
+    def _render_context_usage_panel(
+        self,
+        *,
+        selected_history_count: int,
+        prompt_tokens: int,
+    ) -> None:
+        """在终端展示当前聊天流的上下文占用情况。"""
+        if not global_config.maisaka.show_thinking:
+            return
+
+        session_name = chat_manager.get_session_name(self.session_id) or self.session_id
+        body = "\n".join(
+            [
+                f"聊天流: {session_name}",
+                f"Chat ID: {self.session_id}",
+                f"上下文占用: {selected_history_count}条 / {self._format_token_count(prompt_tokens)}",
+            ]
+        )
+        console.print(
+            Panel(
+                Text(body),
+                title="MaiSaka 上下文占用",
+                border_style="bright_blue",
+                padding=(0, 1),
+            )
+        )
 
     def _log_cycle_started(self, cycle_detail: CycleDetail, round_index: int) -> None:
         logger.info(

@@ -1,25 +1,28 @@
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-
-from rich.traceback import install
-from sqlmodel import select
+from typing import Any, Dict, List, Optional, Tuple
 
 import asyncio
 import hashlib
 import heapq
-import Levenshtein
 import random
 import re
 
-from src.common.logger import get_logger
+from rich.traceback import install
+from sqlmodel import select
+
+import Levenshtein
+
 from src.common.data_models.image_data_model import MaiEmoji
-from src.common.database.database_model import Images, ImageType
-from src.common.database.database import get_db_session, get_db_session_manual
-from src.common.utils.utils_image import ImageUtils
-from src.prompt.prompt_manager import prompt_manager
-from src.config.config import config_manager, global_config
 from src.common.data_models.llm_service_data_models import LLMGenerationOptions, LLMImageOptions
+from src.common.database.database import get_db_session, get_db_session_manual
+from src.common.database.database_model import Images, ImageType
+from src.common.logger import get_logger
+from src.common.utils.utils_image import ImageUtils
+from src.config.config import config_manager, global_config
+from src.plugin_runtime.hook_schema_utils import build_object_schema
+from src.plugin_runtime.host.hook_spec_registry import HookSpec, HookSpecRegistry
+from src.prompt.prompt_manager import prompt_manager
 from src.services.llm_service import LLMServiceClient
 
 logger = get_logger("emoji")
@@ -31,6 +34,171 @@ DATA_DIR = PROJECT_ROOT / "data"
 EMOJI_DIR = DATA_DIR / "emoji"  # 表情包存储目录
 EMOJI_REGISTERED_DIR = DATA_DIR / "emoji_registered"  # 已注册的表情包注册目录
 MAX_EMOJI_FOR_PROMPT = 20  # 最大允许的表情包描述数量于图片替换的 prompt 中
+
+
+def register_emoji_hook_specs(registry: HookSpecRegistry) -> List[HookSpec]:
+    """注册表情包系统内置 Hook 规格。
+
+    Args:
+        registry: 目标 Hook 规格注册中心。
+
+    Returns:
+        List[HookSpec]: 实际注册的 Hook 规格列表。
+    """
+
+    emoji_schema = {
+        "type": "object",
+        "description": "当前表情包的序列化信息，主要包含 file_hash、description、emotions 等字段。",
+    }
+    string_array_schema = {
+        "type": "array",
+        "items": {"type": "string"},
+    }
+    return registry.register_hook_specs(
+        [
+            HookSpec(
+                name="emoji.maisaka.before_select",
+                description="Maisaka 表情发送工具选择表情前触发，可改写情绪、上下文和采样参数，或中止本次选择。",
+                parameters_schema=build_object_schema(
+                    {
+                        "stream_id": {"type": "string", "description": "目标会话 ID。"},
+                        "requested_emotion": {"type": "string", "description": "请求的目标情绪标签。"},
+                        "reasoning": {"type": "string", "description": "本次发送表情的推理理由。"},
+                        "context_texts": {
+                            **string_array_schema,
+                            "description": "最近聊天上下文文本列表。",
+                        },
+                        "sample_size": {"type": "integer", "description": "候选表情采样数量。"},
+                        "abort_message": {
+                            "type": "string",
+                            "description": "当 Hook 主动中止时可附带的失败提示。",
+                        },
+                    },
+                    required=["stream_id", "requested_emotion", "reasoning", "context_texts", "sample_size"],
+                ),
+                default_timeout_ms=5000,
+                allow_abort=True,
+                allow_kwargs_mutation=True,
+            ),
+            HookSpec(
+                name="emoji.maisaka.after_select",
+                description="Maisaka 已选出表情后触发，可替换选中的表情哈希、补充匹配情绪，或中止发送。",
+                parameters_schema=build_object_schema(
+                    {
+                        "stream_id": {"type": "string", "description": "目标会话 ID。"},
+                        "requested_emotion": {"type": "string", "description": "请求的目标情绪标签。"},
+                        "reasoning": {"type": "string", "description": "本次发送表情的推理理由。"},
+                        "context_texts": {
+                            **string_array_schema,
+                            "description": "最近聊天上下文文本列表。",
+                        },
+                        "sample_size": {"type": "integer", "description": "候选表情采样数量。"},
+                        "selected_emoji": emoji_schema,
+                        "selected_emoji_hash": {"type": "string", "description": "选中的表情哈希。"},
+                        "matched_emotion": {"type": "string", "description": "最终命中的情绪标签。"},
+                        "abort_message": {
+                            "type": "string",
+                            "description": "当 Hook 主动中止时可附带的失败提示。",
+                        },
+                    },
+                    required=[
+                        "stream_id",
+                        "requested_emotion",
+                        "reasoning",
+                        "context_texts",
+                        "sample_size",
+                        "matched_emotion",
+                    ],
+                ),
+                default_timeout_ms=5000,
+                allow_abort=True,
+                allow_kwargs_mutation=True,
+            ),
+            HookSpec(
+                name="emoji.register.after_build_description",
+                description="表情包描述生成并通过内容审查后触发，可改写描述文本或拒绝本次注册。",
+                parameters_schema=build_object_schema(
+                    {
+                        "emoji": emoji_schema,
+                        "description": {"type": "string", "description": "当前生成出的表情包描述。"},
+                        "image_format": {"type": "string", "description": "表情图片格式。"},
+                    },
+                    required=["emoji", "description", "image_format"],
+                ),
+                default_timeout_ms=5000,
+                allow_abort=True,
+                allow_kwargs_mutation=True,
+            ),
+            HookSpec(
+                name="emoji.register.after_build_emotion",
+                description="表情包情绪标签生成完成后触发，可改写标签列表或拒绝本次注册。",
+                parameters_schema=build_object_schema(
+                    {
+                        "emoji": emoji_schema,
+                        "description": {"type": "string", "description": "当前表情包描述。"},
+                        "emotions": {
+                            **string_array_schema,
+                            "description": "当前生成出的情绪标签列表。",
+                        },
+                    },
+                    required=["emoji", "description", "emotions"],
+                ),
+                default_timeout_ms=5000,
+                allow_abort=True,
+                allow_kwargs_mutation=True,
+            ),
+        ]
+    )
+
+
+def _get_runtime_manager() -> Any:
+    """获取插件运行时管理器。
+
+    Returns:
+        Any: 插件运行时管理器单例。
+    """
+
+    from src.plugin_runtime.integration import get_plugin_runtime_manager
+
+    return get_plugin_runtime_manager()
+
+
+def _serialize_emoji_for_hook(emoji: Optional[MaiEmoji]) -> Optional[Dict[str, Any]]:
+    """将表情包对象序列化为 Hook 可传输载荷。
+
+    Args:
+        emoji: 待序列化的表情包对象。
+
+    Returns:
+        Optional[Dict[str, Any]]: 序列化后的字典；当表情为空时返回 ``None``。
+    """
+
+    if emoji is None:
+        return None
+
+    return {
+        "file_hash": str(emoji.file_hash or "").strip(),
+        "file_name": emoji.file_name,
+        "full_path": str(emoji.full_path),
+        "description": emoji.description,
+        "emotions": [str(item).strip() for item in emoji.emotion if str(item).strip()],
+        "query_count": int(emoji.query_count),
+    }
+
+
+def _normalize_string_list(raw_values: Any) -> List[str]:
+    """将任意列表值规范化为字符串列表。
+
+    Args:
+        raw_values: 待规范化的原始值。
+
+    Returns:
+        List[str]: 去空白后的字符串列表。
+    """
+
+    if not isinstance(raw_values, list):
+        return []
+    return [str(item).strip() for item in raw_values if str(item).strip()]
 
 
 def _ensure_directories() -> None:
@@ -642,6 +810,22 @@ class EmojiManager:
             if "否" in llm_response:
                 logger.warning(f"[表情包审查] 表情包内容不符合要求，拒绝注册: {target_emoji.file_name}")
                 return False, target_emoji
+        hook_result = await _get_runtime_manager().invoke_hook(
+            "emoji.register.after_build_description",
+            emoji=_serialize_emoji_for_hook(target_emoji),
+            description=description,
+            image_format=image_format,
+        )
+        if hook_result.aborted:
+            logger.info(f"[构建描述] 表情包描述被 Hook 中止注册: {target_emoji.file_name}")
+            return False, target_emoji
+
+        normalized_description = str(hook_result.kwargs.get("description", description) or "").strip()
+        if not normalized_description:
+            logger.warning(f"[构建描述] Hook 返回空描述，拒绝注册: {target_emoji.file_name}")
+            return False, target_emoji
+
+        description = normalized_description
         target_emoji.description = description
         logger.info(f"[构建描述] 成功为表情包构建描述: {target_emoji.description}")
         return True, target_emoji
@@ -686,6 +870,23 @@ class EmojiManager:
             emotions = random.sample(emotions, 3)
         elif len(emotions) > 2:
             emotions = random.sample(emotions, 2)
+
+        hook_result = await _get_runtime_manager().invoke_hook(
+            "emoji.register.after_build_emotion",
+            emoji=_serialize_emoji_for_hook(target_emoji),
+            description=target_emoji.description,
+            emotions=list(emotions),
+        )
+        if hook_result.aborted:
+            logger.info(f"[构建情感标签] 表情包情感标签被 Hook 中止注册: {target_emoji.file_name}")
+            return False, target_emoji
+
+        raw_emotions = hook_result.kwargs.get("emotions")
+        if raw_emotions is not None:
+            emotions = _normalize_string_list(raw_emotions)
+            if not emotions:
+                logger.warning(f"[构建情感标签] Hook 返回空情绪标签，拒绝注册: {target_emoji.file_name}")
+                return False, target_emoji
 
         logger.info(f"[构建情感标签] 成功为表情包构建情感标签: {','.join(emotions)}")
         target_emoji.emotion = emotions

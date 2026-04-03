@@ -5,7 +5,13 @@ from datetime import datetime
 from typing import Optional
 import re
 
-from src.common.data_models.message_component_data_model import EmojiComponent, ImageComponent, MessageSequence, TextComponent
+from src.common.data_models.message_component_data_model import (
+    EmojiComponent,
+    ImageComponent,
+    MessageSequence,
+    ReplyComponent,
+    TextComponent,
+)
 
 SPEAKER_PREFIX_PATTERN = re.compile(
     r"^(?:(?P<timestamp>\d{2}:\d{2}:\d{2}))?(?:\[msg_id:(?P<message_id>[^\]]+)\])?\[(?P<speaker>[^\]]+)\](?P<content>.*)$",
@@ -65,5 +71,11 @@ def build_visible_text_from_sequence(message_sequence: MessageSequence) -> str:
 
         if isinstance(component, ImageComponent):
             parts.append("[图片]")
+            continue
+
+        if isinstance(component, ReplyComponent):
+            target_message_id = component.target_message_id.strip()
+            if target_message_id:
+                parts.append(f"[引用回复]({target_message_id})")
 
     return "".join(parts)

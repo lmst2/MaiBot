@@ -268,11 +268,23 @@ def try_migrate_legacy_bot_config_dict(data: dict[str, Any]) -> MigrationResult:
                 migrated_any = True
                 reasons.append("expression.manual_reflect_operator_id")
 
+    chat = _as_dict(data.get("chat"))
+    if chat is None:
+        chat = {}
+        data["chat"] = chat
+
     mem = _as_dict(data.get("memory"))
     if mem is not None:
-        if _migrate_target_item_list(mem, "global_memory_blacklist"):
-            migrated_any = True
-            reasons.append("memory.global_memory_blacklist")
+        for removed_key in (
+            "agent_timeout_seconds",
+            "global_memory",
+            "global_memory_blacklist",
+            "max_agent_iterations",
+        ):
+            if removed_key in mem:
+                mem.pop(removed_key, None)
+                migrated_any = True
+                reasons.append(f"memory.{removed_key}_removed")
 
     exp = _as_dict(data.get("experimental"))
     if exp is not None:
@@ -280,7 +292,16 @@ def try_migrate_legacy_bot_config_dict(data: dict[str, Any]) -> MigrationResult:
             migrated_any = True
             reasons.append("experimental.chat_prompts")
 
-    chat = _as_dict(data.get("chat"))
+        for key in ("private_plan_style", "group_chat_prompt", "private_chat_prompts", "chat_prompts"):
+            if key in exp and key not in chat:
+                chat[key] = exp[key]
+                migrated_any = True
+                reasons.append(f"experimental.{key}_moved_to_chat")
+
+        data.pop("experimental", None)
+        migrated_any = True
+        reasons.append("experimental_removed")
+
     if chat is not None and "think_mode" in chat:
         chat.pop("think_mode", None)
         migrated_any = True

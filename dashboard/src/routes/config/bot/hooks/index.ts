@@ -10,6 +10,16 @@ export type {
   UseAutoSaveConfig,
   UseAutoSaveReturnGeneric,
 } from './useAutoSave'
+export {
+  ChatTalkValueRulesHook,
+  ExperimentalChatPromptsHook,
+  ExpressionGroupsHook,
+  ExpressionLearningListHook,
+  KeywordRulesHook,
+  MCPRootItemsHook,
+  MCPServersHook,
+  RegexRulesHook,
+} from './complexFieldHooks'
 export { ChatSectionHook } from './ChatSectionHook'
 export { PersonalitySectionHook } from './PersonalitySectionHook'
 export { DebugSectionHook } from './DebugSectionHook'

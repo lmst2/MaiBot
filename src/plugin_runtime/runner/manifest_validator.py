@@ -609,6 +609,7 @@ class ManifestValidator:
         host_version: str = "",
         sdk_version: str = "",
         project_root: Optional[Path] = None,
+        validate_python_package_dependencies: bool = True,
     ) -> None:
         """初始化 Manifest 校验器。
 
@@ -616,10 +617,12 @@ class ManifestValidator:
             host_version: 当前 Host 版本号；留空时自动从主程序 ``pyproject.toml`` 读取。
             sdk_version: 当前 SDK 版本号；留空时自动从运行环境中探测。
             project_root: 项目根目录；留空时自动推断。
+            validate_python_package_dependencies: 是否校验 Python 包依赖与当前环境的关系。
         """
         self._project_root: Path = project_root or self._resolve_project_root()
         self._host_version: str = host_version or self._detect_default_host_version(self._project_root)
         self._sdk_version: str = sdk_version or self._detect_default_sdk_version(self._project_root)
+        self._validate_python_package_dependencies: bool = validate_python_package_dependencies
         self.errors: List[str] = []
         self.warnings: List[str] = []
 
@@ -823,9 +826,10 @@ class ManifestValidator:
         if not sdk_ok:
             self.errors.append(f"SDK 版本不兼容: {sdk_message} (当前 SDK: {self._sdk_version})")
 
-        self._validate_python_package_dependencies(manifest)
+        if self._validate_python_package_dependencies:
+            self._validate_python_package_dependencies_against_runtime(manifest)
 
-    def _validate_python_package_dependencies(self, manifest: PluginManifest) -> None:
+    def _validate_python_package_dependencies_against_runtime(self, manifest: PluginManifest) -> None:
         """校验 Python 包依赖与主程序运行环境是否冲突。
 
         Args:
@@ -864,6 +868,68 @@ class ManifestValidator:
                     f"Python 包依赖冲突: {dependency.name} 需要 {dependency.version_spec}，"
                     f"主程序依赖约束为 {host_specifier or '任意版本'}"
                 )
+
+    def load_host_dependency_requirements(self) -> Dict[str, Requirement]:
+        """读取主程序在 ``pyproject.toml`` 中声明的依赖约束。
+
+        Returns:
+            Dict[str, Requirement]: 以规范化包名为键的依赖约束映射。
+        """
+
+        return self._load_host_dependency_requirements(self._project_root)
+
+    def get_installed_package_version(self, package_name: str) -> Optional[str]:
+        """查询当前运行环境中指定包的安装版本。
+
+        Args:
+            package_name: 需要查询的包名。
+
+        Returns:
+            Optional[str]: 已安装版本号；未安装时返回 ``None``。
+        """
+
+        return self._get_installed_package_version(package_name)
+
+    @staticmethod
+    def build_specifier_set(version_spec: str) -> Optional[SpecifierSet]:
+        """将版本约束文本转换为 ``SpecifierSet``。
+
+        Args:
+            version_spec: 原始版本约束文本。
+
+        Returns:
+            Optional[SpecifierSet]: 转换成功时返回约束对象，否则返回 ``None``。
+        """
+
+        return ManifestValidator._build_specifier_set(version_spec)
+
+    @staticmethod
+    def version_matches_specifier(version: str, version_spec: str) -> bool:
+        """判断版本号是否满足给定约束。
+
+        Args:
+            version: 待判断的版本号。
+            version_spec: 版本约束表达式。
+
+        Returns:
+            bool: 是否满足约束。
+        """
+
+        return ManifestValidator._version_matches_specifier(version, version_spec)
+
+    @classmethod
+    def requirements_may_overlap(cls, left: SpecifierSet, right: SpecifierSet) -> bool:
+        """判断两个版本约束是否可能存在交集。
+
+        Args:
+            left: 左侧版本约束。
+            right: 右侧版本约束。
+
+        Returns:
+            bool: 若两者可能同时满足则返回 ``True``。
+        """
+
+        return cls._requirements_may_overlap(left, right)
 
     def _log_errors(self) -> None:
         """输出当前累计的 Manifest 校验错误。"""

@@ -88,6 +88,15 @@ def _build_parameters_schema_from_property_map(property_map: Dict[str, Any]) -> 
     return parameters_schema
 
 
+def _build_empty_object_schema() -> Dict[str, Any]:
+    """构建无参工具使用的空对象 Schema。"""
+
+    return {
+        "type": "object",
+        "properties": {},
+    }
+
+
 @dataclass(slots=True)
 class ToolParam:
     """工具参数定义。"""
@@ -333,9 +342,8 @@ class ToolOption:
         function_schema: Dict[str, Any] = {
             "name": self.name,
             "description": self.description,
+            "parameters": self.parameters_schema or _build_empty_object_schema(),
         }
-        if self.parameters_schema is not None:
-            function_schema["parameters"] = self.parameters_schema
         return {
             "type": "function",
             "function": function_schema,

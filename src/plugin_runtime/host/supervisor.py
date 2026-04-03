@@ -14,6 +14,7 @@ from src.platform_io import DriverKind, InboundMessageEnvelope, RouteBinding, Ro
 from src.platform_io.drivers import PluginPlatformDriver
 from src.platform_io.route_key_factory import RouteKeyFactory
 from src.plugin_runtime import (
+    ENV_BLOCKED_PLUGIN_REASONS,
     ENV_EXTERNAL_PLUGIN_IDS,
     ENV_GLOBAL_CONFIG_SNAPSHOT,
     ENV_HOST_VERSION,
@@ -27,6 +28,8 @@ from src.plugin_runtime.protocol.envelope import (
     ConfigUpdatedPayload,
     Envelope,
     HealthPayload,
+    InspectPluginConfigPayload,
+    InspectPluginConfigResultPayload,
     MessageGatewayStateUpdatePayload,
     MessageGatewayStateUpdateResultPayload,
     PROTOCOL_VERSION,
@@ -39,6 +42,8 @@ from src.plugin_runtime.protocol.envelope import (
     RunnerReadyPayload,
     ShutdownPayload,
     UnregisterPluginPayload,
+    ValidatePluginConfigPayload,
+    ValidatePluginConfigResultPayload,
 )
 from src.plugin_runtime.protocol.codec import MsgPackCodec
 from src.plugin_runtime.protocol.errors import ErrorCode, RPCError
@@ -50,6 +55,7 @@ from .capability_service import CapabilityService
 from .component_registry import ComponentRegistry
 from .event_dispatcher import EventDispatcher
 from .hook_dispatcher import HookDispatchResult, HookDispatcher
+from .hook_spec_registry import HookSpecRegistry
 from .logger_bridge import RunnerLogBridge
 from .message_gateway import MessageGateway
 from .rpc_server import RPCServer
@@ -58,6 +64,7 @@ if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
 
 logger = get_logger("plugin_runtime.host.runner_manager")
+
 
 @dataclass(slots=True)
 class _MessageGatewayRuntimeState:
@@ -81,6 +88,7 @@ class PluginRunnerSupervisor:
         self,
         plugin_dirs: Optional[List[Path]] = None,
         group_name: str = "third_party",
+        hook_spec_registry: Optional[HookSpecRegistry] = None,
         socket_path: Optional[str] = None,
         health_check_interval_sec: Optional[float] = None,
         max_restart_attempts: Optional[int] = None,
@@ -91,6 +99,7 @@ class PluginRunnerSupervisor:
         Args:
             plugin_dirs: 由当前 Runner 负责加载的插件目录列表。
             group_name: 当前 Supervisor 所属运行时分组名称。
+            hook_spec_registry: 可选的共享 Hook 规格注册中心。
             socket_path: 自定义 IPC 地址；留空时由传输层自动生成。
             health_check_interval_sec: 健康检查间隔，单位秒。
             max_restart_attempts: 自动重启 Runner 的最大次数。
@@ -100,18 +109,19 @@ class PluginRunnerSupervisor:
         self._group_name: str = str(group_name or "third_party").strip() or "third_party"
         self._plugin_dirs: List[Path] = plugin_dirs or []
         self._health_interval: float = health_check_interval_sec or runtime_config.health_check_interval_sec or 30.0
-        self._runner_spawn_timeout: float = (
-            runner_spawn_timeout_sec or runtime_config.runner_spawn_timeout_sec or 30.0
-        )
+        self._runner_spawn_timeout: float = runner_spawn_timeout_sec or runtime_config.runner_spawn_timeout_sec or 30.0
         self._max_restart_attempts: int = max_restart_attempts or runtime_config.max_restart_attempts or 3
 
         self._transport = create_transport_server(socket_path=socket_path)
         self._authorization = AuthorizationManager()
         self._capability_service = CapabilityService(self._authorization)
         self._api_registry = APIRegistry()
-        self._component_registry = ComponentRegistry()
+        self._component_registry = ComponentRegistry(hook_spec_registry=hook_spec_registry)
         self._event_dispatcher = EventDispatcher(self._component_registry)
-        self._hook_dispatcher = HookDispatcher(lambda: [self])
+        self._hook_dispatcher = HookDispatcher(
+            lambda: [self],
+            hook_spec_registry=hook_spec_registry,
+        )
         self._message_gateway = MessageGateway(self._component_registry)
         self._log_bridge = RunnerLogBridge()
 
@@ -122,6 +132,7 @@ class PluginRunnerSupervisor:
         self._registered_plugins: Dict[str, RegisterPluginPayload] = {}
         self._message_gateway_states: Dict[str, Dict[str, _MessageGatewayRuntimeState]] = {}
         self._external_available_plugins: Dict[str, str] = {}
+        self._blocked_plugin_reasons: Dict[str, str] = {}
         self._runner_ready_events: asyncio.Event = asyncio.Event()
         self._runner_ready_payloads: RunnerReadyPayload = RunnerReadyPayload()
         self._health_task: Optional[asyncio.Task[None]] = None
@@ -200,9 +211,19 @@ class PluginRunnerSupervisor:
         Returns:
             Dict[str, str]: 已注册插件版本映射，键为插件 ID，值为插件版本。
         """
-        return {
-            plugin_id: registration.plugin_version
-            for plugin_id, registration in self._registered_plugins.items()
+        return {plugin_id: registration.plugin_version for plugin_id, registration in self._registered_plugins.items()}
+
+    def set_blocked_plugin_reasons(self, blocked_plugin_reasons: Dict[str, str]) -> None:
+        """设置当前 Runner 启动时应拒绝加载的插件列表。
+
+        Args:
+            blocked_plugin_reasons: 需要拒绝加载的插件及原因映射。
+        """
+
+        self._blocked_plugin_reasons = {
+            str(plugin_id or "").strip(): str(reason or "").strip()
+            for plugin_id, reason in blocked_plugin_reasons.items()
+            if str(plugin_id or "").strip() and str(reason or "").strip()
         }
 
     @staticmethod
@@ -550,6 +571,82 @@ class PluginRunnerSupervisor:
 
         return bool(response.payload.get("acknowledged", False))
 
+    async def validate_plugin_config(self, plugin_id: str, config_data: Dict[str, Any]) -> Dict[str, Any]:
+        """请求 Runner 使用插件自身配置模型校验配置。
+
+        Args:
+            plugin_id: 目标插件 ID。
+            config_data: 待校验的配置内容。
+
+        Returns:
+            Dict[str, Any]: 插件模型归一化后的配置字典。
+
+        Raises:
+            ValueError: 插件拒绝该配置或校验失败时抛出。
+        """
+
+        payload = ValidatePluginConfigPayload(config_data=config_data)
+        try:
+            response = await self._rpc_server.send_request(
+                "plugin.validate_config",
+                plugin_id=plugin_id,
+                payload=payload.model_dump(),
+                timeout_ms=10000,
+            )
+        except Exception as exc:
+            raise ValueError(f"插件配置校验请求失败: {exc}") from exc
+
+        if response.error:
+            raise ValueError(str(response.error.get("message", "插件配置校验失败")))
+
+        result = ValidatePluginConfigResultPayload.model_validate(response.payload)
+        if not result.success:
+            raise ValueError("插件配置校验失败")
+        return dict(result.normalized_config)
+
+    async def inspect_plugin_config(
+        self,
+        plugin_id: str,
+        config_data: Optional[Dict[str, Any]] = None,
+        *,
+        use_provided_config: bool = False,
+    ) -> InspectPluginConfigResultPayload:
+        """请求 Runner 解析插件配置元数据。
+
+        Args:
+            plugin_id: 目标插件 ID。
+            config_data: 可选的配置内容。
+            use_provided_config: 是否优先使用传入配置而不是磁盘配置。
+
+        Returns:
+            InspectPluginConfigResultPayload: 插件配置解析结果。
+
+        Raises:
+            ValueError: Runner 无法解析插件或返回了错误响应时抛出。
+        """
+
+        payload = InspectPluginConfigPayload(
+            config_data=config_data or {},
+            use_provided_config=use_provided_config,
+        )
+        try:
+            response = await self._rpc_server.send_request(
+                "plugin.inspect_config",
+                plugin_id=plugin_id,
+                payload=payload.model_dump(),
+                timeout_ms=10000,
+            )
+        except Exception as exc:
+            raise ValueError(f"插件配置解析请求失败: {exc}") from exc
+
+        if response.error:
+            raise ValueError(str(response.error.get("message", "插件配置解析失败")))
+
+        result = InspectPluginConfigResultPayload.model_validate(response.payload)
+        if not result.success:
+            raise ValueError("插件配置解析失败")
+        return result
+
     def get_config_reload_subscribers(self, scope: str) -> List[str]:
         """返回订阅指定全局配置广播的插件列表。
 
@@ -608,6 +705,7 @@ class PluginRunnerSupervisor:
         Raises:
             TimeoutError: 在超时时间内 Runner 未完成初始化。
         """
+
         async def wait_for_ready() -> RunnerReadyPayload:
             """轮询等待 Runner 上报就绪。"""
             while True:
@@ -681,15 +779,25 @@ class PluginRunnerSupervisor:
 
         component_declarations = [component.model_dump() for component in payload.components]
         runtime_components, api_components = self._split_component_declarations(component_declarations)
-        self._component_registry.remove_components_by_plugin(payload.plugin_id)
-        self._api_registry.remove_apis_by_plugin(payload.plugin_id)
-        await self._unregister_all_message_gateway_drivers_for_plugin(payload.plugin_id)
+        try:
+            registered_count = self._component_registry.register_plugin_components(
+                payload.plugin_id,
+                runtime_components,
+            )
+        except Exception as exc:
+            logger.error(f"插件 {payload.plugin_id} 组件注册失败: {exc}")
+            return envelope.make_error_response(
+                ErrorCode.E_BAD_PAYLOAD.value,
+                str(exc),
+                details={
+                    "plugin_id": payload.plugin_id,
+                    "component_count": len(runtime_components),
+                },
+            )
 
-        registered_count = self._component_registry.register_plugin_components(
-            payload.plugin_id,
-            runtime_components,
-        )
+        self._api_registry.remove_apis_by_plugin(payload.plugin_id)
         registered_api_count = self._api_registry.register_plugin_apis(payload.plugin_id, api_components)
+        await self._unregister_all_message_gateway_drivers_for_plugin(payload.plugin_id)
         self._registered_plugins[payload.plugin_id] = payload
         self._message_gateway_states[payload.plugin_id] = {}
 
@@ -1058,7 +1166,9 @@ class PluginRunnerSupervisor:
             route_key = RouteKey(platform=platform)
 
         route_account_id, route_scope = RouteKeyFactory.extract_components(route_metadata)
-        account_id = route_key.account_id or route_account_id or runtime_state.account_id or gateway_entry.account_id or None
+        account_id = (
+            route_key.account_id or route_account_id or runtime_state.account_id or gateway_entry.account_id or None
+        )
         scope = route_key.scope or route_scope or runtime_state.scope or gateway_entry.scope or None
         return RouteKey(
             platform=platform,
@@ -1208,6 +1318,7 @@ class PluginRunnerSupervisor:
         global_config_snapshot = config_manager.get_global_config().model_dump(mode="json")
         global_config_snapshot["model"] = config_manager.get_model_config().model_dump(mode="json")
         return {
+            ENV_BLOCKED_PLUGIN_REASONS: json.dumps(self._blocked_plugin_reasons, ensure_ascii=False),
             ENV_EXTERNAL_PLUGIN_IDS: json.dumps(self._external_available_plugins, ensure_ascii=False),
             ENV_GLOBAL_CONFIG_SNAPSHOT: json.dumps(global_config_snapshot, ensure_ascii=False),
             ENV_HOST_VERSION: PROTOCOL_VERSION,

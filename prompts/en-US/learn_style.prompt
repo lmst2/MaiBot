@@ -1,49 +1,49 @@
 {chat_str}
-你的名字是{bot_name},现在请你完成两个提取任务
-任务1：请从上面这段群聊中用户的语言风格和说话方式
-1. 只考虑文字，不要考虑表情包和图片
-2. 不要总结SELF的发言，因为这是你自己的发言，不要重复学习你自己的发言
-3. 不要涉及具体的人名，也不要涉及具体名词
-4. 思考有没有特殊的梗，一并总结成语言风格
-5. 例子仅供参考，请严格根据群聊内容总结!!!
-注意：总结成如下格式的规律，总结的内容要详细，但具有概括性：
-例如：当"AAAAA"时，可以"BBBBB", AAAAA代表某个场景，不超过20个字。BBBBB代表对应的语言风格，特定句式或表达方式，不超过20个字。
-表达方式在3-5个左右，不要超过10个
+Your name is {bot_name}. Now please complete two extraction tasks.
+Task 1: Please extract the users' language style and speaking patterns from the group chat above.
+1. Only consider text; do not consider stickers or images
+2. Do not summarize SELF's messages, because those are your own messages, so do not repeatedly learn from your own messages
+3. Do not involve specific person names, and do not involve specific nouns
+4. Think about whether there are any special memes, and summarize them into the language style as well
+5. The examples are for reference only. Please summarize strictly according to the group chat content!!!
+Note: Summarize them into rules in the following format. The summary should be detailed but still generalized:
+For example: when "AAAAA", you can "BBBBB". AAAAA represents a certain scenario and should not exceed 20 characters. BBBBB represents the corresponding language style, specific sentence pattern, or expression style and should not exceed 20 characters.
+There should be around 3-5 expression styles, and no more than 10.
 
 
-任务2：请从上面这段聊天内容中提取"可能是黑话"的候选项（黑话/俚语/网络缩写/口头禅）。
-- 必须为对话中真实出现过的短词或短语
-- 必须是你无法理解含义的词语，没有明确含义的词语，请不要选择有明确含义，或者含义清晰的词语
-- 排除：人名、@、表情包/图片中的内容、纯标点、常规功能词（如的、了、呢、啊等）
-- 每个词条长度建议 2-8 个字符（不强制），尽量短小
-- 请你提取出可能的黑话，最多30个黑话，请尽量提取所有
+Task 2: Please extract candidate items from the chat content above that "may be jargon" (jargon/slang/internet abbreviations/catchphrases).
+- They must be short words or phrases that actually appeared in the dialogue
+- They must be words whose meaning you cannot understand; if the meaning is clear, do not select them
+- Exclude: personal names, @, content inside stickers/images, pure punctuation, and regular function words (such as 的, 了, 呢, 啊, etc.)
+- Each term is recommended to be 2-8 characters long (not mandatory), and should be as short as possible
+- Please extract as many possible jargon items as you can, up to 30 in total
 
-黑话必须为以下几种类型：
-- 由字母构成的，汉语拼音首字母的简写词，例如：nb、yyds、xswl
-- 英文词语的缩写，用英文字母概括一个词汇或含义，例如：CPU、GPU、API
-- 中文词语的缩写，用几个汉字概括一个词汇或含义，例如：社死、内卷
+The jargon must be one of the following types:
+- Abbreviations made of letters and formed from the initials of Chinese pinyin, such as: nb, yyds, xswl
+- English abbreviations that summarize a word or meaning with letters, such as: CPU, GPU, API
+- Chinese abbreviations that summarize a word or meaning with a few Chinese characters, such as: 社死, 内卷
 
-输出要求：
-将表达方式，语言风格和黑话以 JSON 数组输出，每个元素为一个对象，结构如下（注意字段名）：
-注意请不要输出重复内容，请对表达方式和黑话进行去重。
+Output requirements:
+Output the expression styles, language styles, and jargon as a JSON array. Each element should be an object with the following structure (pay attention to the field names):
+Please do not output duplicate content. Deduplicate both expression styles and jargon.
 
 [
   {{"situation": "AAAAA", "style": "BBBBB", "source_id": "3"}},
   {{"situation": "CCCC", "style": "DDDD", "source_id": "7"}}
-  {{"situation": "对某件事表示十分惊叹", "style": "使用 我嘞个xxxx", "source_id": "[消息编号]"}},
-  {{"situation": "表示讽刺的赞同，不讲道理", "style": "对对对", "source_id": "[消息编号]"}},
-  {{"situation": "当涉及游戏相关时，夸赞，略带戏谑意味", "style": "使用 这么强！", "source_id": "[消息编号]"}},
-  {{"content": "词条", "source_id": "12"}},
-  {{"content": "词条2", "source_id": "5"}}
+  {{"situation": "expressing strong surprise about something", "style": "use 我嘞个xxxx", "source_id": "[message number]"}},
+  {{"situation": "showing sarcastic agreement without reasoning", "style": "对对对", "source_id": "[message number]"}},
+  {{"situation": "when talking about games, praising with a slightly teasing tone", "style": "use 这么强！", "source_id": "[message number]"}},
+  {{"content": "term", "source_id": "12"}},
+  {{"content": "term2", "source_id": "5"}}
 ]
 
-其中：
-表达方式条目：
-- situation：表示“在什么情境下”的简短概括（不超过20个字）
-- style：表示对应的语言风格或常用表达（不超过20个字）
-- source_id：该表达方式对应的“来源行编号”，即上方聊天记录中方括号里的数字（例如 [3]），请只输出数字本身，不要包含方括号
-黑话jargon条目：
-- content:表示黑话的内容
-- source_id：该黑话对应的“来源行编号”，即上方聊天记录中方括号里的数字（例如 [3]），请只输出数字本身，不要包含方括号
+Where:
+Expression-style entries:
+- situation: a short summary of "under what situation" (no more than 20 characters)
+- style: the corresponding language style or commonly used expression (no more than 20 characters)
+- source_id: the "source line number" corresponding to that expression style, namely the number inside square brackets in the chat log above (for example [3]); output only the number itself, without brackets
+Jargon entries:
+- content: the content of the jargon
+- source_id: the "source line number" corresponding to that jargon, namely the number inside square brackets in the chat log above (for example [3]); output only the number itself, without brackets
 
-现在请你输出 JSON：
+Now please output JSON:

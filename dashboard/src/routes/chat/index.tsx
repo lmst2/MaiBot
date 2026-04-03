@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useToast } from '@/hooks/use-toast'
-import { getWsBaseUrl } from '@/lib/api-base'
+import { chatWsClient } from '@/lib/chat-ws-client'
 import { fetchWithAuth } from '@/lib/fetch-with-auth'
 import { cn } from '@/lib/utils'
 import { Bot, Edit2, Loader2, RefreshCw, User, Send, Wifi, WifiOff, UserCircle2 } from 'lucide-react'
@@ -85,13 +85,16 @@ export function ChatPage() {
   // 持久化用户 ID
   const userIdRef = useRef(getOrCreateUserId())
   
-  // 每个标签页的 WebSocket 连接
-  const wsMapRef = useRef<Map<string, WebSocket>>(new Map())
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const reconnectTimeoutMapRef = useRef<Map<string, number>>(new Map())
   const messageIdCounterRef = useRef(0)
   const processedMessagesMapRef = useRef<Map<string, Set<string>>>(new Map())
+  const sessionUnsubscribeMapRef = useRef<Map<string, () => void>>(new Map())
+  const tabsRef = useRef<ChatTab[]>([])
   const { toast } = useToast()
+
+  useEffect(() => {
+    tabsRef.current = tabs
+  }, [tabs])
 
   // 生成唯一消息 ID
   const generateMessageId = (prefix: string) => {
@@ -197,357 +200,218 @@ export function ChatPage() {
     }
   }, [tempVirtualConfig.platform, personSearchQuery, fetchPersons])
 
-  // 加载聊天历史到指定标签页
-  const loadChatHistoryForTab = useCallback(async (tabId: string, groupId?: string) => {
+  const handleSessionMessage = useCallback((
+    tabId: string,
+    tabType: 'webui' | 'virtual',
+    config: VirtualIdentityConfig | undefined,
+    data: WsMessage,
+  ) => {
+    switch (data.type) {
+      case 'session_info':
+        updateTab(tabId, {
+          sessionInfo: {
+            session_id: data.session_id,
+            user_id: data.user_id,
+            user_name: data.user_name,
+            bot_name: data.bot_name,
+          }
+        })
+        break
+
+      case 'system':
+        addMessageToTab(tabId, {
+          id: generateMessageId('sys'),
+          type: 'system',
+          content: data.content || '',
+          timestamp: data.timestamp || Date.now() / 1000,
+        })
+        break
+
+      case 'user_message': {
+        const senderUserId = data.sender?.user_id
+        const currentUserId = tabType === 'virtual' && config
+          ? config.userId
+          : userIdRef.current
+
+        const normalizeSenderId = senderUserId ? senderUserId.replace(/^webui_user_/, '') : ''
+        const normalizeCurrentId = currentUserId ? currentUserId.replace(/^webui_user_/, '') : ''
+        if (normalizeSenderId && normalizeCurrentId && normalizeSenderId === normalizeCurrentId) {
+          break
+        }
+
+        const processedSet = processedMessagesMapRef.current.get(tabId) || new Set()
+        const contentHash = `user-${data.content}-${Math.floor((data.timestamp || 0) * 1000)}`
+        if (processedSet.has(contentHash)) {
+          break
+        }
+
+        processedSet.add(contentHash)
+        processedMessagesMapRef.current.set(tabId, processedSet)
+        if (processedSet.size > 100) {
+          const firstKey = processedSet.values().next().value
+          if (firstKey) processedSet.delete(firstKey)
+        }
+
+        addMessageToTab(tabId, {
+          id: data.message_id || generateMessageId('user'),
+          type: 'user',
+          content: data.content || '',
+          timestamp: data.timestamp || Date.now() / 1000,
+          sender: data.sender,
+        })
+        break
+      }
+
+      case 'bot_message': {
+        updateTab(tabId, { isTyping: false })
+        const processedSet = processedMessagesMapRef.current.get(tabId) || new Set()
+        const contentHash = `bot-${data.content}-${Math.floor((data.timestamp || 0) * 1000)}`
+        if (processedSet.has(contentHash)) {
+          break
+        }
+
+        processedSet.add(contentHash)
+        processedMessagesMapRef.current.set(tabId, processedSet)
+        if (processedSet.size > 100) {
+          const firstKey = processedSet.values().next().value
+          if (firstKey) processedSet.delete(firstKey)
+        }
+
+        setTabs(prev => prev.map(tab => {
+          if (tab.id !== tabId) return tab
+          const filteredMessages = tab.messages.filter(msg => msg.type !== 'thinking')
+          const newMessage: ChatMessage = {
+            id: generateMessageId('bot'),
+            type: 'bot',
+            content: data.content || '',
+            message_type: (data.message_type === 'rich' ? 'rich' : 'text') as 'text' | 'rich',
+            segments: data.segments,
+            timestamp: data.timestamp || Date.now() / 1000,
+            sender: data.sender,
+          }
+          return {
+            ...tab,
+            messages: [...filteredMessages, newMessage]
+          }
+        }))
+        break
+      }
+
+      case 'typing':
+        updateTab(tabId, { isTyping: data.is_typing || false })
+        break
+
+      case 'error':
+        setTabs(prev => prev.map(tab => {
+          if (tab.id !== tabId) return tab
+          const filteredMessages = tab.messages.filter(msg => msg.type !== 'thinking')
+          return {
+            ...tab,
+            messages: [...filteredMessages, {
+              id: generateMessageId('error'),
+              type: 'error' as const,
+              content: data.content || '发生错误',
+              timestamp: data.timestamp || Date.now() / 1000,
+            }]
+          }
+        }))
+        toast({
+          title: '错误',
+          description: data.content,
+          variant: 'destructive',
+        })
+        break
+
+      case 'history': {
+        const historyMessages = data.messages || []
+        const processedSet = new Set<string>()
+        const formattedMessages: ChatMessage[] = historyMessages.map((msg: {
+          id?: string
+          content: string
+          timestamp: number
+          sender_name?: string
+          sender_id?: string
+          is_bot?: boolean
+        }) => {
+          const isBot = msg.is_bot || false
+          const msgId = msg.id || generateMessageId(isBot ? 'bot' : 'user')
+          const contentHash = `${isBot ? 'bot' : 'user'}-${msg.content}-${Math.floor(msg.timestamp * 1000)}`
+          processedSet.add(contentHash)
+          return {
+            id: msgId,
+            type: isBot ? 'bot' : 'user' as const,
+            content: msg.content,
+            timestamp: msg.timestamp,
+            sender: {
+              name: msg.sender_name || (isBot ? '麦麦' : '用户'),
+              user_id: msg.sender_id,
+              is_bot: isBot,
+            },
+          }
+        })
+
+        processedMessagesMapRef.current.set(tabId, processedSet)
+        updateTab(tabId, { messages: formattedMessages })
+        setIsLoadingHistory(false)
+        break
+      }
+
+      default:
+        break
+    }
+  }, [addMessageToTab, toast, updateTab])
+
+  const ensureSessionListener = useCallback((
+    tabId: string,
+    tabType: 'webui' | 'virtual',
+    config?: VirtualIdentityConfig,
+  ) => {
+    if (sessionUnsubscribeMapRef.current.has(tabId)) {
+      return
+    }
+
+    const unsubscribe = chatWsClient.onSessionMessage(tabId, (message) => {
+      handleSessionMessage(tabId, tabType, config, message as unknown as WsMessage)
+    })
+    sessionUnsubscribeMapRef.current.set(tabId, unsubscribe)
+  }, [handleSessionMessage])
+
+  const openSessionForTab = useCallback(async (
+    tabId: string,
+    tabType: 'webui' | 'virtual',
+    config?: VirtualIdentityConfig,
+  ) => {
+    ensureSessionListener(tabId, tabType, config)
     setIsLoadingHistory(true)
+
     try {
-      const params = new URLSearchParams()
-      params.append('user_id', userIdRef.current)
-      params.append('limit', '50')
-      if (groupId) {
-        params.append('group_id', groupId)
+      if (tabType === 'virtual' && config) {
+        await chatWsClient.openSession(tabId, {
+          user_id: config.userId,
+          user_name: config.userName,
+          platform: config.platform,
+          person_id: config.personId,
+          group_name: config.groupName || 'WebUI虚拟群聊',
+          group_id: config.groupId,
+        })
+      } else {
+        await chatWsClient.openSession(tabId, {
+          user_id: userIdRef.current,
+          user_name: userName,
+        })
       }
-      const url = `/api/chat/history?${params.toString()}`
-      console.log('[Chat] 正在加载历史消息:', url)
-      
-      const response = await fetchWithAuth(url)
-      
-      if (response.ok) {
-        const text = await response.text()
-        try {
-          const data = JSON.parse(text)
-          
-          if (data.messages && data.messages.length > 0) {
-            const historyMessages: ChatMessage[] = data.messages.map((msg: {
-              id: string
-              type: string
-              content: string
-              timestamp: number
-              sender_name?: string
-              user_id?: string
-              is_bot?: boolean
-            }) => ({
-              id: msg.id,
-              type: msg.type as 'user' | 'bot' | 'system' | 'error',
-              content: msg.content,
-              timestamp: msg.timestamp,
-              sender: {
-                name: msg.sender_name || (msg.is_bot ? '麦麦' : 'WebUI用户'),
-                user_id: msg.user_id,
-                is_bot: msg.is_bot
-              }
-            }))
-            
-            // 更新标签页的消息
-            updateTab(tabId, { messages: historyMessages })
-            
-            // 将历史消息添加到去重缓存
-            const processedSet = processedMessagesMapRef.current.get(tabId) || new Set()
-            historyMessages.forEach(msg => {
-              if (msg.type === 'bot') {
-                const contentHash = `bot-${msg.content}-${Math.floor(msg.timestamp * 1000)}`
-                processedSet.add(contentHash)
-              }
-            })
-            processedMessagesMapRef.current.set(tabId, processedSet)
-          }
-        } catch (parseError) {
-          console.error('[Chat] JSON 解析失败:', parseError)
-        }
-      }
-    } catch (e) {
-      console.error('[Chat] 加载历史消息失败:', e)
-    } finally {
-      setIsLoadingHistory(false)
-    }
-  }, [updateTab])
 
-  // 为指定标签页连接 WebSocket（异步，需要先获取认证 token）
-  const connectWebSocketForTab = useCallback(async (tabId: string, tabType: 'webui' | 'virtual', config?: VirtualIdentityConfig) => {
-    // 如果已经有连接，不要重复创建
-    const existingWs = wsMapRef.current.get(tabId)
-    if (existingWs?.readyState === WebSocket.OPEN || 
-        existingWs?.readyState === WebSocket.CONNECTING) {
-      console.log(`[Tab ${tabId}] WebSocket 已存在，跳过连接`)
-      return
-    }
-
-    setIsConnecting(true)
-
-    // 先获取临时 WebSocket token
-    let wsToken: string | null = null
-    try {
-      const tokenResponse = await fetchWithAuth('/api/webui/ws-token')
-      if (tokenResponse.ok) {
-        const tokenData = await tokenResponse.json()
-        if (tokenData.success && tokenData.token) {
-          wsToken = tokenData.token
-        } else {
-          console.warn(`[Tab ${tabId}] 获取 WebSocket token 失败: ${tokenData.message || '未登录'}`)
-          setIsConnecting(false)
-          return
-        }
-      }
+      updateTab(tabId, { isConnected: true })
     } catch (error) {
-      console.error(`[Tab ${tabId}] 获取 WebSocket token 失败:`, error)
-      setIsConnecting(false)
-      return
+      console.error(`[Tab ${tabId}] 打开聊天会话失败:`, error)
+      setIsLoadingHistory(false)
+      toast({
+        title: '连接失败',
+        description: '无法建立聊天会话，请稍后重试',
+        variant: 'destructive',
+      })
     }
-
-    // 此时 wsToken 一定有值（前面已经 return）
-    if (!wsToken) {
-      setIsConnecting(false)
-      return
-    }
-
-    const wsBase = await getWsBaseUrl()
-    const params = new URLSearchParams()
-    
-    // 添加 token 到参数
-    params.append('token', wsToken)
-    
-    if (tabType === 'virtual' && config) {
-      params.append('user_id', config.userId)
-      params.append('user_name', config.userName)
-      params.append('platform', config.platform)
-      params.append('person_id', config.personId)
-      params.append('group_name', config.groupName || 'WebUI虚拟群聊')
-      // 传递稳定的 group_id，确保历史记录能正确加载
-      if (config.groupId) {
-        params.append('group_id', config.groupId)
-      }
-    } else {
-      params.append('user_id', userIdRef.current)
-      params.append('user_name', userName)
-    }
-    
-    const wsUrl = `${wsBase}/api/chat/ws?${params.toString()}`
-    console.log(`[Tab ${tabId}] 正在连接 WebSocket:`, wsUrl)
-
-    try {
-      const ws = new WebSocket(wsUrl)
-      wsMapRef.current.set(tabId, ws)
-
-      ws.onopen = () => {
-        updateTab(tabId, { isConnected: true })
-        setIsConnecting(false)
-        console.log(`[Tab ${tabId}] WebSocket 已连接`)
-      }
-
-      ws.onmessage = (event) => {
-        try {
-          const data: WsMessage = JSON.parse(event.data)
-          
-          switch (data.type) {
-            case 'session_info':
-              updateTab(tabId, {
-                sessionInfo: {
-                  session_id: data.session_id,
-                  user_id: data.user_id,
-                  user_name: data.user_name,
-                  bot_name: data.bot_name,
-                }
-              })
-              break
-
-            case 'system':
-              addMessageToTab(tabId, {
-                id: generateMessageId('sys'),
-                type: 'system',
-                content: data.content || '',
-                timestamp: data.timestamp || Date.now() / 1000,
-              })
-              break
-
-            case 'user_message': {
-              // 检查是否是自己发的消息（已在发送时显示，跳过广播回来的）
-              const senderUserId = data.sender?.user_id
-              const currentUserId = tabType === 'virtual' && config 
-                ? config.userId 
-                : userIdRef.current
-              
-              console.log(`[Tab ${tabId}] 收到 user_message, sender: ${senderUserId}, current: ${currentUserId}`)
-              
-              // 标准化 user_id（去掉可能的前缀）
-              const normalizeSenderId = senderUserId ? senderUserId.replace(/^webui_user_/, '') : ''
-              const normalizeCurrentId = currentUserId ? currentUserId.replace(/^webui_user_/, '') : ''
-              
-              // 如果是自己发的消息，跳过（避免重复显示）
-              if (normalizeSenderId && normalizeCurrentId && normalizeSenderId === normalizeCurrentId) {
-                console.log(`[Tab ${tabId}] 跳过自己的消息（user_id 匹配）`)
-                break
-              }
-              
-              // 额外的消息去重：检查内容和时间戳
-              const processedSet = processedMessagesMapRef.current.get(tabId) || new Set()
-              const contentHash = `user-${data.content}-${Math.floor((data.timestamp || 0) * 1000)}`
-              if (processedSet.has(contentHash)) {
-                console.log(`[Tab ${tabId}] 跳过自己的消息（内容去重）`)
-                break
-              }
-              processedSet.add(contentHash)
-              processedMessagesMapRef.current.set(tabId, processedSet)
-              
-              if (processedSet.size > 100) {
-                const firstKey = processedSet.values().next().value
-                if (firstKey) processedSet.delete(firstKey)
-              }
-              
-              addMessageToTab(tabId, {
-                id: data.message_id || generateMessageId('user'),
-                type: 'user',
-                content: data.content || '',
-                timestamp: data.timestamp || Date.now() / 1000,
-                sender: data.sender,
-              })
-              break
-            }
-
-            case 'bot_message': {
-              updateTab(tabId, { isTyping: false })
-              const processedSet = processedMessagesMapRef.current.get(tabId) || new Set()
-              const contentHash = `bot-${data.content}-${Math.floor((data.timestamp || 0) * 1000)}`
-              if (processedSet.has(contentHash)) {
-                break
-              }
-              processedSet.add(contentHash)
-              processedMessagesMapRef.current.set(tabId, processedSet)
-              
-              if (processedSet.size > 100) {
-                const firstKey = processedSet.values().next().value
-                if (firstKey) processedSet.delete(firstKey)
-              }
-              
-              // 移除"思考中"占位消息，添加真实的机器人回复
-              setTabs(prev => prev.map(tab => {
-                if (tab.id !== tabId) return tab
-                // 过滤掉 thinking 类型的消息
-                const filteredMessages = tab.messages.filter(msg => msg.type !== 'thinking')
-                const newMessage: ChatMessage = {
-                  id: generateMessageId('bot'),
-                  type: 'bot',
-                  content: data.content || '',
-                  message_type: (data.message_type === 'rich' ? 'rich' : 'text') as 'text' | 'rich',
-                  segments: data.segments,
-                  timestamp: data.timestamp || Date.now() / 1000,
-                  sender: data.sender,
-                }
-                return {
-                  ...tab,
-                  messages: [...filteredMessages, newMessage]
-                }
-              }))
-              break
-            }
-
-            case 'typing':
-              updateTab(tabId, { isTyping: data.is_typing || false })
-              break
-
-            case 'error':
-              // 移除"思考中"占位消息，显示错误
-              setTabs(prev => prev.map(tab => {
-                if (tab.id !== tabId) return tab
-                const filteredMessages = tab.messages.filter(msg => msg.type !== 'thinking')
-                return {
-                  ...tab,
-                  messages: [...filteredMessages, {
-                    id: generateMessageId('error'),
-                    type: 'error' as const,
-                    content: data.content || '发生错误',
-                    timestamp: data.timestamp || Date.now() / 1000,
-                  }]
-                }
-              }))
-              toast({
-                title: '错误',
-                description: data.content,
-                variant: 'destructive',
-              })
-              break
-
-            case 'pong':
-              break
-
-            case 'history': {
-              // 处理服务端发送的历史消息
-              const historyMessages = data.messages || []
-              if (historyMessages.length > 0) {
-                const processedSet = processedMessagesMapRef.current.get(tabId) || new Set()
-                const formattedMessages: ChatMessage[] = historyMessages.map((msg: {
-                  id?: string
-                  content: string
-                  timestamp: number
-                  sender_name?: string
-                  sender_id?: string
-                  is_bot?: boolean
-                }) => {
-                  const isBot = msg.is_bot || false
-                  const msgId = msg.id || generateMessageId(isBot ? 'bot' : 'user')
-                  // 添加到去重集合
-                  const contentHash = `${isBot ? 'bot' : 'user'}-${msg.content}-${Math.floor(msg.timestamp * 1000)}`
-                  processedSet.add(contentHash)
-                  return {
-                    id: msgId,
-                    type: isBot ? 'bot' : 'user' as const,
-                    content: msg.content,
-                    timestamp: msg.timestamp,
-                    sender: {
-                      name: msg.sender_name || (isBot ? '麦麦' : '用户'),
-                      user_id: msg.sender_id,
-                      is_bot: isBot,
-                    },
-                  }
-                })
-                processedMessagesMapRef.current.set(tabId, processedSet)
-                // 替换当前标签页的所有消息
-                updateTab(tabId, { messages: formattedMessages })
-                console.log(`[Tab ${tabId}] 已加载 ${formattedMessages.length} 条历史消息`)
-              }
-              break
-            }
-
-            default:
-              console.log('未知消息类型:', data.type)
-          }
-        } catch (e) {
-          console.error('解析消息失败:', e)
-        }
-      }
-
-      ws.onclose = () => {
-        updateTab(tabId, { isConnected: false })
-        setIsConnecting(false)
-        wsMapRef.current.delete(tabId)
-        console.log(`[Tab ${tabId}] WebSocket 已断开`)
-
-        // 清除旧的重连定时器
-        const oldTimeout = reconnectTimeoutMapRef.current.get(tabId)
-        if (oldTimeout) {
-          clearTimeout(oldTimeout)
-        }
-        
-        // 5秒后尝试重连
-        const timeout = window.setTimeout(() => {
-          if (!isUnmountedRef.current) {
-            const tab = tabs.find(t => t.id === tabId)
-            if (tab) {
-              connectWebSocketForTab(tabId, tab.type, tab.virtualConfig)
-            }
-          }
-        }, 5000)
-        reconnectTimeoutMapRef.current.set(tabId, timeout)
-      }
-
-      ws.onerror = (error) => {
-        console.error(`[Tab ${tabId}] WebSocket 错误:`, error)
-        setIsConnecting(false)
-      }
-    } catch (e) {
-      console.error(`[Tab ${tabId}] 创建 WebSocket 失败:`, e)
-      setIsConnecting(false)
-    }
-  }, [userName, updateTab, addMessageToTab, toast, tabs])
+  }, [ensureSessionListener, toast, updateTab, userName])
 
   // 用于追踪组件是否已卸载
   const isUnmountedRef = useRef(false)
@@ -555,69 +419,49 @@ export function ChatPage() {
   // 初始化连接（默认 WebUI 标签页）
   useEffect(() => {
     isUnmountedRef.current = false
-    
-    // 保存 ref 的当前值，用于清理
-    const wsMap = wsMapRef.current
-    const reconnectTimeoutMap = reconnectTimeoutMapRef.current
-    const processedMessagesMap = processedMessagesMapRef.current
-    
-    // 加载默认标签页历史消息
-    loadChatHistoryForTab('webui-default')
-    
-    // 延迟连接
-    const connectTimer = setTimeout(() => {
-      if (!isUnmountedRef.current) {
-        connectWebSocketForTab('webui-default', 'webui')
-        
-        // 恢复的虚拟标签页也需要建立连接
-        tabs.forEach(tab => {
-          if (tab.type === 'virtual' && tab.virtualConfig) {
-            // 初始化去重缓存
-            processedMessagesMap.set(tab.id, new Set())
-            // 建立 WebSocket 连接
-            setTimeout(() => {
-              if (!isUnmountedRef.current) {
-                connectWebSocketForTab(tab.id, 'virtual', tab.virtualConfig)
-              }
-            }, 200)
-          }
-        })
-      }
-    }, 100)
 
-    // 心跳定时器 - 向所有活动连接发送
-    const heartbeat = setInterval(() => {
-      wsMap.forEach((ws) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }))
-        }
-      })
-    }, 30000)
+    const unsubscribeConnection = chatWsClient.onConnectionChange((connected) => {
+      if (isUnmountedRef.current) {
+        return
+      }
+
+      setTabs(prev => prev.map(tab => ({
+        ...tab,
+        isConnected: connected,
+      })))
+    })
+
+    const unsubscribeStatus = chatWsClient.onStatusChange((status) => {
+      if (!isUnmountedRef.current) {
+        setIsConnecting(status === 'connecting')
+      }
+    })
+
+    tabs.forEach(tab => {
+      processedMessagesMapRef.current.set(tab.id, new Set())
+      void openSessionForTab(tab.id, tab.type, tab.virtualConfig)
+    })
 
     return () => {
       isUnmountedRef.current = true
-      clearTimeout(connectTimer)
-      clearInterval(heartbeat)
-      
-      // 清理所有重连定时器
-      reconnectTimeoutMap.forEach((timeout) => {
-        clearTimeout(timeout)
+      unsubscribeConnection()
+      unsubscribeStatus()
+
+      sessionUnsubscribeMapRef.current.forEach((unsubscribe) => {
+        unsubscribe()
       })
-      reconnectTimeoutMap.clear()
-      
-      // 关闭所有 WebSocket 连接
-      wsMap.forEach((ws) => {
-        ws.close()
+      sessionUnsubscribeMapRef.current.clear()
+
+      tabsRef.current.forEach(tab => {
+        void chatWsClient.closeSession(tab.id)
       })
-      wsMap.clear()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // 发送消息到当前活动标签页
-  const sendMessage = useCallback(() => {
-    const ws = wsMapRef.current.get(activeTabId)
-    if (!inputValue.trim() || !ws || ws.readyState !== WebSocket.OPEN) {
+  const sendMessage = useCallback(async () => {
+    if (!inputValue.trim() || !activeTab?.isConnected) {
       return
     }
 
@@ -627,12 +471,6 @@ export function ChatPage() {
 
     const messageContent = inputValue.trim()
     const currentTimestamp = Date.now() / 1000
-
-    ws.send(JSON.stringify({
-      type: 'message',
-      content: messageContent,
-      user_name: displayName,
-    }))
 
     // 添加到去重缓存，防止服务器广播回来的消息重复显示
     const processedSet = processedMessagesMapRef.current.get(activeTabId) || new Set()
@@ -672,13 +510,32 @@ export function ChatPage() {
     addMessageToTab(activeTabId, thinkingMessage)
 
     setInputValue('')
-  }, [inputValue, userName, activeTabId, activeTab, addMessageToTab])
+
+    try {
+      await chatWsClient.sendMessage(activeTabId, messageContent, displayName)
+    } catch (error) {
+      console.error('发送聊天消息失败:', error)
+      setTabs(prev => prev.map(tab => {
+        if (tab.id !== activeTabId) return tab
+        return {
+          ...tab,
+          isTyping: false,
+          messages: tab.messages.filter(msg => msg.type !== 'thinking')
+        }
+      }))
+      toast({
+        title: '发送失败',
+        description: '当前聊天会话不可用，请稍后重试',
+        variant: 'destructive',
+      })
+    }
+  }, [activeTab, activeTabId, addMessageToTab, inputValue, toast, userName])
 
   // 处理键盘事件
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      sendMessage()
+      void sendMessage()
     }
   }
 
@@ -693,13 +550,9 @@ export function ChatPage() {
     setUserName(newName)
     saveUserName(newName)
     setIsEditingName(false)
-    // 通知当前标签页的后端昵称变更
-    const ws = wsMapRef.current.get(activeTabId)
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: 'update_nickname',
-        user_name: newName
-      }))
+
+    if (activeTab?.isConnected) {
+      void chatWsClient.updateNickname(activeTabId, newName)
     }
   }
 
@@ -719,12 +572,7 @@ export function ChatPage() {
 
   // 重新连接当前标签页
   const handleReconnect = () => {
-    const ws = wsMapRef.current.get(activeTabId)
-    if (ws) {
-      ws.close()
-      wsMapRef.current.delete(activeTabId)
-    }
-    connectWebSocketForTab(activeTabId, activeTab?.type || 'webui', activeTab?.virtualConfig)
+    void chatWsClient.restart()
   }
 
   // 打开虚拟身份配置对话框（新建标签页用）
@@ -795,10 +643,10 @@ export function ChatPage() {
     // 初始化去重缓存
     processedMessagesMapRef.current.set(newTabId, new Set())
     
-    // 连接 WebSocket
-    setTimeout(() => {
-      connectWebSocketForTab(newTabId, 'virtual', tempVirtualConfig)
-    }, 100)
+    void openSessionForTab(newTabId, 'virtual', {
+      ...tempVirtualConfig,
+      groupId: stableGroupId,
+    })
     
     toast({
       title: '虚拟身份标签页',
@@ -814,20 +662,14 @@ export function ChatPage() {
     if (tabId === 'webui-default') {
       return
     }
-    
-    // 关闭 WebSocket 连接
-    const ws = wsMapRef.current.get(tabId)
-    if (ws) {
-      ws.close()
-      wsMapRef.current.delete(tabId)
+
+    const unsubscribe = sessionUnsubscribeMapRef.current.get(tabId)
+    if (unsubscribe) {
+      unsubscribe()
+      sessionUnsubscribeMapRef.current.delete(tabId)
     }
-    
-    // 清理重连定时器
-    const timeout = reconnectTimeoutMapRef.current.get(tabId)
-    if (timeout) {
-      clearTimeout(timeout)
-      reconnectTimeoutMapRef.current.delete(tabId)
-    }
+
+    void chatWsClient.closeSession(tabId)
     
     // 清理去重缓存
     processedMessagesMapRef.current.delete(tabId)
@@ -1133,7 +975,7 @@ export function ChatPage() {
               className="flex-1 h-10 sm:h-10"
             />
             <Button
-              onClick={sendMessage}
+              onClick={() => { void sendMessage() }}
               disabled={!activeTab?.isConnected || !inputValue.trim()}
               size="icon"
               className="h-10 w-10 shrink-0"

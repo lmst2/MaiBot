@@ -7,7 +7,7 @@ from typing import Dict, Optional
 
 from src.core.tooling import ToolExecutionContext, ToolExecutionResult, ToolInvocation, ToolProvider, ToolSpec
 
-from .builtin_tools import get_builtin_tool_specs
+from .builtin_tool import get_builtin_tool_specs
 
 BuiltinToolHandler = Callable[[ToolInvocation, Optional[ToolExecutionContext]], Awaitable[ToolExecutionResult]]
 

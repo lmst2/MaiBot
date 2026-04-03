@@ -1,12 +1,12 @@
-from collections.abc import Iterable
-from dataclasses import dataclass, field
-from typing import Any, Callable, Coroutine, Dict, List, Tuple, cast
-
 import asyncio
 import base64
+import binascii
 import io
 import json
 import re
+from collections.abc import Iterable
+from dataclasses import dataclass, field
+from typing import Any, Callable, Coroutine, Dict, List, Tuple, cast
 
 from json_repair import repair_json
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI, AsyncStream
@@ -27,6 +27,7 @@ from openai.types.chat import (
 )
 from openai.types.shared_params.function_definition import FunctionDefinition
 from openai.types.chat.chat_completion_chunk import ChoiceDelta
+from PIL import Image as PILImage
 
 from src.common.logger import get_logger
 from src.config.model_configs import APIProvider, ReasoningParseMode, ToolArgumentParseMode
@@ -61,6 +62,9 @@ from .base_client import (
 )
 
 logger = get_logger("llm_models")
+
+SUPPORTED_OPENAI_IMAGE_FORMATS = {"jpeg", "png", "webp"}
+"""OpenAI 兼容图片输入稳定支持的格式集合。"""
 
 THINK_CONTENT_PATTERN = re.compile(
     r"<think>(?P<think>.*?)</think>(?P<content>.*)|<think>(?P<think_unclosed>.*)|(?P<content_only>.+)",
@@ -149,12 +153,83 @@ def _build_image_content_part(part: ImageMessagePart) -> ChatCompletionContentPa
     Returns:
         ChatCompletionContentPartImageParam: OpenAI 兼容的图片片段。
     """
+    normalized_image = _normalize_image_part_for_openai(part)
+    if normalized_image is None:
+        raise ValueError("图片数据无效，无法构建图片消息片段")
+
+    image_format, image_base64 = normalized_image
     return {
         "type": "image_url",
         "image_url": {
-            "url": f"data:image/{part.normalized_image_format};base64,{part.image_base64}",
+            "url": f"data:image/{image_format};base64,{image_base64}",
         },
     }
+
+
+def _normalize_image_part_for_openai(part: ImageMessagePart) -> Tuple[str, str] | None:
+    """将图片片段规范化为 OpenAI 兼容格式。
+
+    Args:
+        part: 内部图片片段。
+
+    Returns:
+        Tuple[str, str] | None: `(image_format, image_base64)`；无法解析时返回 `None`。
+    """
+    try:
+        image_bytes = base64.b64decode(part.image_base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        logger.warning(f"图片 Base64 解码失败，已跳过该图片片段: {exc}")
+        return None
+
+    try:
+        with PILImage.open(io.BytesIO(image_bytes)) as image:
+            image_format = (image.format or part.normalized_image_format).lower()
+            if image_format in {"jpg", "jpeg"}:
+                image_format = "jpeg"
+
+            if image_format in SUPPORTED_OPENAI_IMAGE_FORMATS:
+                return image_format, part.image_base64
+
+            if image_format == "gif":
+                frame_count = getattr(image, "n_frames", 1)
+                frames: List[PILImage.Image] = []
+                durations: List[int] = []
+
+                for frame_index in range(frame_count):
+                    image.seek(frame_index)
+                    frame = image.copy()
+                    if frame.mode not in {"RGB", "RGBA"}:
+                        frame = frame.convert("RGBA")
+                    frames.append(frame)
+                    durations.append(int(image.info.get("duration", 100) or 100))
+
+                output_buffer = io.BytesIO()
+                save_kwargs: Dict[str, Any] = {
+                    "format": "WEBP",
+                    "save_all": True,
+                    "append_images": frames[1:],
+                    "duration": durations,
+                    "loop": int(image.info.get("loop", 0) or 0),
+                }
+                if frame_count > 1:
+                    save_kwargs["lossless"] = True
+
+                frames[0].save(output_buffer, **save_kwargs)
+                converted_base64 = base64.b64encode(output_buffer.getvalue()).decode("utf-8")
+                return "webp", converted_base64
+
+            image.seek(0)
+            normalized_image = image.copy()
+            if normalized_image.mode not in {"RGB", "RGBA"}:
+                normalized_image = normalized_image.convert("RGBA")
+
+            output_buffer = io.BytesIO()
+            normalized_image.save(output_buffer, format="PNG")
+            converted_base64 = base64.b64encode(output_buffer.getvalue()).decode("utf-8")
+            return "png", converted_base64
+    except Exception as exc:
+        logger.warning(f"图片内容无法被识别为有效图片，已跳过该图片片段: {exc}")
+        return None
 
 
 def _convert_response_format(response_format: RespFormat | None) -> Any:
@@ -222,7 +297,21 @@ def _convert_user_message_content(message: Message) -> str | List[ChatCompletion
         if isinstance(part, TextMessagePart):
             content.append(_build_text_content_part(part.text))
             continue
-        content.append(_build_image_content_part(part))
+
+        normalized_image = _normalize_image_part_for_openai(part)
+        if normalized_image is None:
+            content.append(_build_text_content_part("[图片内容不可用]"))
+            continue
+
+        image_format, image_base64 = normalized_image
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/{image_format};base64,{image_base64}",
+                },
+            }
+        )
     return content
 
 
@@ -314,13 +403,15 @@ def _convert_tool_options(tool_options: List[ToolOption]) -> List[ChatCompletion
     """
     converted_tools: List[ChatCompletionToolParam] = []
     for tool_option in tool_options:
+        parameters_schema = cast(
+            Dict[str, object],
+            tool_option.parameters_schema or {"type": "object", "properties": {}},
+        )
         function_schema: FunctionDefinition = {
             "name": tool_option.name,
             "description": tool_option.description,
+            "parameters": parameters_schema,
         }
-        parameters_schema = tool_option.parameters_schema
-        if parameters_schema is not None:
-            function_schema["parameters"] = cast(Dict[str, object], parameters_schema)
         converted_tools.append(
             {
                 "type": "function",

@@ -1,11 +1,14 @@
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from src.chat.message_receive.chat_manager import BotChatSession, chat_manager as _chat_manager
+from src.chat.replyer.maisaka_replyer_factory import (
+    get_maisaka_replyer_class,
+    get_maisaka_replyer_generator_type,
+)
 from src.common.logger import get_logger
 
 if TYPE_CHECKING:
     from src.chat.replyer.group_generator import DefaultReplyer
-    from src.chat.replyer.maisaka_generator import MaisakaReplyGenerator
     from src.chat.replyer.private_generator import PrivateReplyer
 
 logger = get_logger("ReplyerManager")
@@ -23,14 +26,15 @@ class ReplyerManager:
         chat_id: Optional[str] = None,
         request_type: str = "replyer",
         replyer_type: str = "default",
-    ) -> Optional["DefaultReplyer | MaisakaReplyGenerator | PrivateReplyer"]:
+    ) -> Optional["DefaultReplyer | PrivateReplyer | Any"]:
         """按会话和 replyer 类型获取实例。"""
         stream_id = chat_stream.session_id if chat_stream else chat_id
         if not stream_id:
             logger.warning("[ReplyerManager] 缺少 stream_id，无法获取 replyer")
             return None
 
-        cache_key = f"{replyer_type}:{stream_id}"
+        generator_type = get_maisaka_replyer_generator_type() if replyer_type == "maisaka" else ""
+        cache_key = f"{replyer_type}:{generator_type}:{stream_id}"
         if cache_key in self._repliers:
             logger.info(f"[ReplyerManager] 命中缓存 replyer: cache_key={cache_key}")
             return self._repliers[cache_key]
@@ -47,10 +51,10 @@ class ReplyerManager:
 
         try:
             if replyer_type == "maisaka":
-                logger.info("[ReplyerManager] importing MaisakaReplyGenerator")
-                from src.chat.replyer.maisaka_generator import MaisakaReplyGenerator
+                logger.info(f"[ReplyerManager] 选择 MaisakaReplyGenerator: generator_type={generator_type}")
+                maisaka_replyer_class = get_maisaka_replyer_class()
 
-                replyer = MaisakaReplyGenerator(
+                replyer = maisaka_replyer_class(
                     chat_stream=target_stream,
                     request_type=request_type,
                 )

@@ -81,6 +81,7 @@ def register_capability_impls(manager: "PluginRuntimeManager", supervisor: Plugi
 
     _register("component.get_all_plugins", manager._cap_component_get_all_plugins)
     _register("component.get_plugin_info", manager._cap_component_get_plugin_info)
+    _register("component.get_plugin_config_schema", manager._cap_component_get_plugin_config_schema)
     _register("component.list_loaded_plugins", manager._cap_component_list_loaded_plugins)
     _register("component.list_registered_plugins", manager._cap_component_list_registered_plugins)
     _register("component.enable", manager._cap_component_enable)
@@ -90,4 +91,5 @@ def register_capability_impls(manager: "PluginRuntimeManager", supervisor: Plugi
     _register("component.reload_plugin", manager._cap_component_reload_plugin)
 
     _register("knowledge.search", manager._cap_knowledge_search)
+    _register("render.html2png", manager._cap_render_html2png)
     logger.debug("已注册全部主程序能力实现")

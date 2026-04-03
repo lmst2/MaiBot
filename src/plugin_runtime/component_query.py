@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, Optional, Tuple, cast
 
 from src.common.logger import get_logger
@@ -857,6 +858,78 @@ class ComponentQueryService:
         except Exception as exc:
             logger.error(f"读取插件 {plugin_name} 配置失败: {exc}", exc_info=True)
             return None
+
+    def get_plugin_default_config(self, plugin_name: str) -> Optional[dict]:
+        """获取指定插件注册时上报的默认配置。
+
+        Args:
+            plugin_name: 插件名称。
+
+        Returns:
+            Optional[dict]: 默认配置字典；未找到时返回 ``None``。
+        """
+
+        runtime_manager = self._get_runtime_manager()
+        try:
+            supervisor = runtime_manager._get_supervisor_for_plugin(plugin_name)
+        except RuntimeError as exc:
+            logger.error(f"读取插件默认配置失败: {exc}")
+            return None
+
+        if supervisor is None:
+            return None
+
+        registration = supervisor._registered_plugins.get(plugin_name)
+        if registration is None:
+            return None
+        return dict(registration.default_config)
+
+    def get_plugin_config_schema(self, plugin_name: str) -> Optional[dict]:
+        """获取指定插件注册时上报的配置 Schema。
+
+        Args:
+            plugin_name: 插件名称。
+
+        Returns:
+            Optional[dict]: 配置 Schema；未找到时返回 ``None``。
+        """
+
+        runtime_manager = self._get_runtime_manager()
+        try:
+            supervisor = runtime_manager._get_supervisor_for_plugin(plugin_name)
+        except RuntimeError as exc:
+            logger.error(f"读取插件配置 Schema 失败: {exc}")
+            return None
+
+        if supervisor is None:
+            return None
+
+        registration = supervisor._registered_plugins.get(plugin_name)
+        if registration is None:
+            return None
+        return dict(registration.config_schema)
+
+    def list_hook_specs(self) -> list[dict[str, Any]]:
+        """返回当前运行时公开的 Hook 规格清单。
+
+        Returns:
+            list[dict[str, Any]]: 可直接序列化给 WebUI 的 Hook 规格列表。
+        """
+
+        runtime_manager = self._get_runtime_manager()
+        return [
+            {
+                "name": spec.name,
+                "description": spec.description,
+                "parameters_schema": deepcopy(spec.parameters_schema),
+                "default_timeout_ms": spec.default_timeout_ms,
+                "allow_blocking": spec.allow_blocking,
+                "allow_observe": spec.allow_observe,
+                "allow_abort": spec.allow_abort,
+                "allow_kwargs_mutation": spec.allow_kwargs_mutation,
+            }
+            for spec in runtime_manager.list_hook_specs()
+        ]
 
 
 component_query_service = ComponentQueryService()

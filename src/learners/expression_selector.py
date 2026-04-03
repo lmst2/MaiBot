@@ -1,26 +1,108 @@
+from typing import Any, Dict, List, Optional, Tuple
+
 import json
 import time
 
-from typing import List, Dict, Optional, Any, Tuple
 from json_repair import repair_json
 
-from src.services.llm_service import LLMServiceClient
-from src.config.config import global_config
-from src.common.logger import get_logger
-from src.common.database.database_model import Expression
-from src.common.utils.utils_session import SessionUtils
-from src.prompt.prompt_manager import prompt_manager
-from src.learners.learner_utils_old import weighted_sample
 from src.chat.utils.common_utils import TempMethodsExpression
+from src.common.database.database_model import Expression
+from src.common.logger import get_logger
+from src.common.utils.utils_session import SessionUtils
+from src.config.config import global_config
+from src.learners.learner_utils_old import weighted_sample
+from src.prompt.prompt_manager import prompt_manager
+from src.services.llm_service import LLMServiceClient
 
 logger = get_logger("expression_selector")
 
 
 class ExpressionSelector:
-    def __init__(self):
+    def __init__(self) -> None:
+        """初始化表达方式选择器。"""
+
         self.llm_model = LLMServiceClient(
             task_name="utils", request_type="expression.selector"
         )
+
+    @staticmethod
+    def _get_runtime_manager() -> Any:
+        """获取插件运行时管理器。
+
+        Returns:
+            Any: 插件运行时管理器单例。
+        """
+
+        from src.plugin_runtime.integration import get_plugin_runtime_manager
+
+        return get_plugin_runtime_manager()
+
+    @staticmethod
+    def _coerce_int(value: Any, default: int) -> int:
+        """将任意值安全转换为整数。
+
+        Args:
+            value: 待转换的值。
+            default: 转换失败时的默认值。
+
+        Returns:
+            int: 转换后的整数结果。
+        """
+
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _normalize_selected_expressions(raw_expressions: Any) -> List[Dict[str, Any]]:
+        """从 Hook 载荷恢复表达方式选择结果。
+
+        Args:
+            raw_expressions: Hook 返回的表达方式列表。
+
+        Returns:
+            List[Dict[str, Any]]: 恢复后的表达方式列表。
+        """
+
+        if not isinstance(raw_expressions, list):
+            return []
+
+        normalized_expressions: List[Dict[str, Any]] = []
+        for raw_expression in raw_expressions:
+            if not isinstance(raw_expression, dict):
+                continue
+            expression_id = raw_expression.get("id")
+            situation = str(raw_expression.get("situation") or "").strip()
+            style = str(raw_expression.get("style") or "").strip()
+            source_id = str(raw_expression.get("source_id") or "").strip()
+            if not isinstance(expression_id, int) or not situation or not style or not source_id:
+                continue
+            normalized_expression = dict(raw_expression)
+            normalized_expression["id"] = expression_id
+            normalized_expression["situation"] = situation
+            normalized_expression["style"] = style
+            normalized_expression["source_id"] = source_id
+            normalized_expressions.append(normalized_expression)
+        return normalized_expressions
+
+    @staticmethod
+    def _normalize_selected_expression_ids(raw_ids: Any, expressions: List[Dict[str, Any]]) -> List[int]:
+        """规范化最终选中的表达方式 ID 列表。
+
+        Args:
+            raw_ids: Hook 返回的 ID 列表。
+            expressions: 当前最终表达方式列表。
+
+        Returns:
+            List[int]: 规范化后的 ID 列表。
+        """
+
+        if isinstance(raw_ids, list):
+            normalized_ids = [item for item in raw_ids if isinstance(item, int)]
+            if normalized_ids:
+                return normalized_ids
+        return [expression["id"] for expression in expressions if isinstance(expression.get("id"), int)]
 
     def can_use_expression_for_chat(self, chat_id: str) -> bool:
         """
@@ -214,8 +296,7 @@ class ExpressionSelector:
         reply_reason: Optional[str] = None,
         think_level: int = 1,
     ) -> Tuple[List[Dict[str, Any]], List[int]]:
-        """
-        选择适合的表达方式（使用classic模式：随机选择+LLM选择）
+        """选择适合的表达方式。
 
         Args:
             chat_id: 聊天流ID
@@ -233,11 +314,60 @@ class ExpressionSelector:
             logger.debug(f"聊天流 {chat_id} 不允许使用表达，返回空列表")
             return [], []
 
+        before_select_result = await self._get_runtime_manager().invoke_hook(
+            "expression.select.before_select",
+            chat_id=chat_id,
+            chat_info=chat_info,
+            max_num=max_num,
+            target_message=target_message or "",
+            reply_reason=reply_reason or "",
+            think_level=think_level,
+        )
+        if before_select_result.aborted:
+            logger.info(f"聊天流 {chat_id} 的表达方式选择被 Hook 中止")
+            return [], []
+
+        before_select_kwargs = before_select_result.kwargs
+        chat_id = str(before_select_kwargs.get("chat_id", chat_id) or "").strip() or chat_id
+        chat_info = str(before_select_kwargs.get("chat_info", chat_info) or "")
+        max_num = max(self._coerce_int(before_select_kwargs.get("max_num"), max_num), 1)
+        raw_target_message = before_select_kwargs.get("target_message", target_message or "")
+        target_message = str(raw_target_message or "").strip() or None
+        raw_reply_reason = before_select_kwargs.get("reply_reason", reply_reason or "")
+        reply_reason = str(raw_reply_reason or "").strip() or None
+        think_level = self._coerce_int(before_select_kwargs.get("think_level"), think_level)
+
         # 使用classic模式（随机选择+LLM选择）
         logger.debug(f"使用classic模式为聊天流 {chat_id} 选择表达方式，think_level={think_level}")
-        return await self._select_expressions_classic(
+        selected_expressions, selected_ids = await self._select_expressions_classic(
             chat_id, chat_info, max_num, target_message, reply_reason, think_level
         )
+        after_selection_result = await self._get_runtime_manager().invoke_hook(
+            "expression.select.after_selection",
+            chat_id=chat_id,
+            chat_info=chat_info,
+            max_num=max_num,
+            target_message=target_message or "",
+            reply_reason=reply_reason or "",
+            think_level=think_level,
+            selected_expressions=[dict(item) for item in selected_expressions],
+            selected_expression_ids=list(selected_ids),
+        )
+        if after_selection_result.aborted:
+            logger.info(f"聊天流 {chat_id} 的表达方式选择结果被 Hook 中止")
+            return [], []
+
+        after_selection_kwargs = after_selection_result.kwargs
+        raw_selected_expressions = after_selection_kwargs.get("selected_expressions")
+        if raw_selected_expressions is not None:
+            selected_expressions = self._normalize_selected_expressions(raw_selected_expressions)
+        selected_ids = self._normalize_selected_expression_ids(
+            after_selection_kwargs.get("selected_expression_ids"),
+            selected_expressions,
+        )
+        if selected_expressions:
+            self.update_expressions_last_active_time(selected_expressions)
+        return selected_expressions, selected_ids
 
     async def _select_expressions_classic(
         self,

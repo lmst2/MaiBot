@@ -843,12 +843,6 @@ class LLMOrchestrator:
 
         for _ in range(max_attempts):
             model_info, api_provider, client = self._select_model(exclude_models=failed_models_this_request)
-            if self.request_type.startswith("maisaka_"):
-                logger.info(
-                    f"LLMOrchestrator[{self.request_type}] 已选择模型 model={model_info.name} "
-                    f"provider={api_provider.name} request_type={request_type.value}"
-                )
-
             message_list = []
             if message_factory:
                 message_list = message_factory(client)

@@ -12,7 +12,15 @@ export type FieldType =
   | 'object'
   | 'textarea'
 
-export type XWidgetType = 'slider' | 'select' | 'textarea' | 'switch' | 'custom'
+export type XWidgetType =
+  | 'custom'
+  | 'input'
+  | 'number'
+  | 'password'
+  | 'select'
+  | 'slider'
+  | 'switch'
+  | 'textarea'
 
 export interface FieldSchema {
   name: string

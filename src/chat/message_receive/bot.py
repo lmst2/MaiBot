@@ -1,6 +1,7 @@
+"""聊天消息入口与主链路调度。"""
+
 from contextlib import suppress
-from copy import deepcopy
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import os
 import traceback
@@ -13,12 +14,15 @@ from src.common.utils.utils_message import MessageUtils
 from src.common.utils.utils_session import SessionUtils
 from src.config.config import global_config
 from src.platform_io.route_key_factory import RouteKeyFactory
-
 from src.core.announcement_manager import global_announcement_manager
 from src.plugin_runtime.component_query import component_query_service
+from src.plugin_runtime.hook_payloads import deserialize_session_message, serialize_session_message
+from src.plugin_runtime.hook_schema_utils import build_object_schema
+from src.plugin_runtime.host.hook_dispatcher import HookDispatchResult
+from src.plugin_runtime.host.hook_spec_registry import HookSpec, HookSpecRegistry
 
-from .message import SessionMessage
 from .chat_manager import chat_manager
+from .message import SessionMessage
 
 # 定义日志配置
 
@@ -29,7 +33,137 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..
 logger = get_logger("chat")
 
 
+def register_chat_hook_specs(registry: HookSpecRegistry) -> List[HookSpec]:
+    """注册聊天消息主链内置 Hook 规格。
+
+    Args:
+        registry: 目标 Hook 规格注册中心。
+
+    Returns:
+        List[HookSpec]: 实际注册的 Hook 规格列表。
+    """
+
+    return registry.register_hook_specs(
+        [
+            HookSpec(
+                name="chat.receive.before_process",
+                description="在入站消息执行 `SessionMessage.process()` 之前触发，可拦截或改写消息。",
+                parameters_schema=build_object_schema(
+                    {
+                        "message": {
+                            "type": "object",
+                            "description": "当前入站消息的序列化 SessionMessage。",
+                        },
+                    },
+                    required=["message"],
+                ),
+                default_timeout_ms=8000,
+                allow_abort=True,
+                allow_kwargs_mutation=True,
+            ),
+            HookSpec(
+                name="chat.receive.after_process",
+                description="在入站消息完成轻量预处理后触发，可改写文本、消息体或中止后续链路。",
+                parameters_schema=build_object_schema(
+                    {
+                        "message": {
+                            "type": "object",
+                            "description": "已完成 `process()` 的序列化 SessionMessage。",
+                        },
+                    },
+                    required=["message"],
+                ),
+                default_timeout_ms=8000,
+                allow_abort=True,
+                allow_kwargs_mutation=True,
+            ),
+            HookSpec(
+                name="chat.command.before_execute",
+                description="在命令匹配成功、实际执行前触发，可拦截命令或改写命令上下文。",
+                parameters_schema=build_object_schema(
+                    {
+                        "message": {
+                            "type": "object",
+                            "description": "当前命令消息的序列化 SessionMessage。",
+                        },
+                        "command_name": {
+                            "type": "string",
+                            "description": "命中的命令名称。",
+                        },
+                        "plugin_id": {
+                            "type": "string",
+                            "description": "命令所属插件 ID。",
+                        },
+                        "matched_groups": {
+                            "type": "object",
+                            "description": "命令正则命名捕获结果。",
+                        },
+                    },
+                    required=["message", "command_name", "plugin_id", "matched_groups"],
+                ),
+                default_timeout_ms=5000,
+                allow_abort=True,
+                allow_kwargs_mutation=True,
+            ),
+            HookSpec(
+                name="chat.command.after_execute",
+                description="在命令执行结束后触发，可调整返回文本和是否继续主链处理。",
+                parameters_schema=build_object_schema(
+                    {
+                        "message": {
+                            "type": "object",
+                            "description": "当前命令消息的序列化 SessionMessage。",
+                        },
+                        "command_name": {
+                            "type": "string",
+                            "description": "命令名称。",
+                        },
+                        "plugin_id": {
+                            "type": "string",
+                            "description": "命令所属插件 ID。",
+                        },
+                        "matched_groups": {
+                            "type": "object",
+                            "description": "命令正则命名捕获结果。",
+                        },
+                        "success": {
+                            "type": "boolean",
+                            "description": "命令执行是否成功。",
+                        },
+                        "response": {
+                            "type": "string",
+                            "description": "命令返回文本。",
+                        },
+                        "intercept_message_level": {
+                            "type": "integer",
+                            "description": "命令拦截等级。",
+                        },
+                        "continue_process": {
+                            "type": "boolean",
+                            "description": "命令执行后是否继续后续消息处理。",
+                        },
+                    },
+                    required=[
+                        "message",
+                        "command_name",
+                        "plugin_id",
+                        "matched_groups",
+                        "success",
+                        "intercept_message_level",
+                        "continue_process",
+                    ],
+                ),
+                default_timeout_ms=5000,
+                allow_abort=False,
+                allow_kwargs_mutation=True,
+            ),
+        ]
+    )
+
+
 class ChatBot:
+    """聊天机器人入口协调器。"""
+
     def __init__(self) -> None:
         """初始化聊天机器人入口。"""
 
@@ -43,6 +177,66 @@ class ChatBot:
             logger.debug("确保ChatBot所有任务已启动")
 
             self._started = True
+
+    @staticmethod
+    def _get_runtime_manager() -> Any:
+        """获取插件运行时管理器。
+
+        Returns:
+            Any: 插件运行时管理器单例。
+        """
+
+        from src.plugin_runtime.integration import get_plugin_runtime_manager
+
+        return get_plugin_runtime_manager()
+
+    @staticmethod
+    def _coerce_int(value: Any, default: int) -> int:
+        """将任意值安全转换为整数。
+
+        Args:
+            value: 待转换的值。
+            default: 转换失败时的默认值。
+
+        Returns:
+            int: 转换后的整数结果。
+        """
+
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    async def _invoke_message_hook(
+        self,
+        hook_name: str,
+        message: SessionMessage,
+        **kwargs: Any,
+    ) -> tuple[HookDispatchResult, SessionMessage]:
+        """触发携带会话消息的命名 Hook。
+
+        Args:
+            hook_name: 目标 Hook 名称。
+            message: 当前会话消息。
+            **kwargs: 需要附带传递的额外参数。
+
+        Returns:
+            tuple[HookDispatchResult, SessionMessage]: Hook 聚合结果以及可能被改写后的消息对象。
+        """
+
+        hook_result = await self._get_runtime_manager().invoke_hook(
+            hook_name,
+            message=serialize_session_message(message),
+            **kwargs,
+        )
+        mutated_message = message
+        raw_message = hook_result.kwargs.get("message")
+        if raw_message is not None:
+            try:
+                mutated_message = deserialize_session_message(raw_message)
+            except Exception as exc:
+                logger.warning(f"Hook {hook_name} 返回的 message 无法反序列化，已忽略: {exc}")
+        return hook_result, mutated_message
 
     async def _process_commands(self, message: SessionMessage) -> tuple[bool, Optional[str], bool]:
         """使用统一组件注册表处理命令。
@@ -71,6 +265,25 @@ class ChatBot:
                     return False, None, True
 
                 message.is_command = True
+                before_result, message = await self._invoke_message_hook(
+                    "chat.command.before_execute",
+                    message,
+                    command_name=command_name,
+                    plugin_id=plugin_name,
+                    matched_groups=dict(matched_groups),
+                )
+                if before_result.aborted:
+                    logger.info(f"命令 {command_name} 被 Hook 中止，跳过命令执行")
+                    return True, None, False
+
+                hook_kwargs = before_result.kwargs
+                command_name = str(hook_kwargs.get("command_name", command_name) or command_name)
+                plugin_name = str(hook_kwargs.get("plugin_id", plugin_name) or plugin_name)
+                matched_groups = (
+                    dict(hook_kwargs["matched_groups"])
+                    if isinstance(hook_kwargs.get("matched_groups"), dict)
+                    else dict(matched_groups)
+                )
 
                 # 获取插件配置
                 plugin_config = component_query_service.get_plugin_config(plugin_name)
@@ -82,27 +295,43 @@ class ChatBot:
                         plugin_config=plugin_config,
                         matched_groups=matched_groups,
                     )
-                    self._mark_command_message(message, intercept_message_level)
-
-                    # 记录命令执行结果
-                    if success:
-                        logger.info(f"命令执行成功: {command_name} (拦截等级: {intercept_message_level})")
-                    else:
-                        logger.warning(f"命令执行失败: {command_name} - {response}")
-
-                    # 根据命令的拦截设置决定是否继续处理消息
-                    return (
-                        True,
-                        response,
-                        not bool(intercept_message_level),
-                    )  # 找到命令，根据intercept_message决定是否继续
-
-                except Exception as e:
-                    logger.error(f"执行命令时出错: {command_name} - {e}")
+                    continue_process = not bool(intercept_message_level)
+                except Exception as exc:
+                    logger.error(f"执行命令时出错: {command_name} - {exc}")
                     logger.error(traceback.format_exc())
+                    success = False
+                    response = str(exc)
+                    intercept_message_level = 1
+                    continue_process = False
 
-                    # 命令出错时，根据命令的拦截设置决定是否继续处理消息
-                    return True, str(e), False  # 出错时继续处理消息
+                after_result, message = await self._invoke_message_hook(
+                    "chat.command.after_execute",
+                    message,
+                    command_name=command_name,
+                    plugin_id=plugin_name,
+                    matched_groups=dict(matched_groups),
+                    success=success,
+                    response=response,
+                    intercept_message_level=intercept_message_level,
+                    continue_process=continue_process,
+                )
+                after_kwargs = after_result.kwargs
+                success = bool(after_kwargs.get("success", success))
+                raw_response = after_kwargs.get("response", response)
+                response = None if raw_response is None else str(raw_response)
+                intercept_message_level = self._coerce_int(
+                    after_kwargs.get("intercept_message_level", intercept_message_level),
+                    intercept_message_level,
+                )
+                continue_process = bool(after_kwargs.get("continue_process", continue_process))
+                self._mark_command_message(message, intercept_message_level)
+
+                if success:
+                    logger.info(f"命令执行成功: {command_name} (拦截等级: {intercept_message_level})")
+                else:
+                    logger.warning(f"命令执行失败: {command_name} - {response}")
+
+                return True, response, continue_process
 
             return False, None, True
 
@@ -138,6 +367,17 @@ class ChatBot:
         cmd_result: Optional[str],
         continue_process: bool,
     ) -> bool:
+        """处理命令链结果并决定是否终止主消息链。
+
+        Args:
+            message: 当前命令消息。
+            cmd_result: 命令响应文本。
+            continue_process: 是否继续后续主链处理。
+
+        Returns:
+            bool: ``True`` 表示已经终止后续主链。
+        """
+
         if continue_process:
             return False
 
@@ -145,9 +385,18 @@ class ChatBot:
         logger.info(f"命令处理完成，跳过后续消息处理: {cmd_result}")
         return True
 
-    async def handle_notice_message(self, message: SessionMessage):
+    async def handle_notice_message(self, message: SessionMessage) -> bool:
+        """处理通知类消息。
+
+        Args:
+            message: 当前通知消息。
+
+        Returns:
+            bool: 当前消息是否为通知消息。
+        """
+
         if message.message_id != "notice":
-            return
+            return False
 
         message.is_notify = True
         logger.debug("notice消息")
@@ -203,9 +452,12 @@ class ChatBot:
         return True
 
     async def echo_message_process(self, raw_data: Dict[str, Any]) -> None:
+        """处理消息回送 ID 对应关系。
+
+        Args:
+            raw_data: 平台适配器上报的原始回送载荷。
         """
-        用于专门处理回送消息ID的函数
-        """
+
         message_data: Dict[str, Any] = raw_data.get("content", {})
         if not message_data:
             return
@@ -218,18 +470,10 @@ class ChatBot:
         logger.debug(f"收到回送消息ID: {mmc_message_id} -> {actual_message_id}")
 
     async def message_process(self, message_data: Dict[str, Any]) -> None:
-        """处理转化后的统一格式消息
-        这个函数本质是预处理一些数据，根据配置信息和消息内容，预处理消息，并分发到合适的消息处理器中
-        heart_flow模式：使用思维流系统进行回复
-        - 包含思维流状态管理
-        - 在回复前进行观察和状态更新
-        - 回复后更新思维流状态
-        - 消息过滤
-        - 记忆激活
-        - 意愿计算
-        - 消息生成和发送
-        - 表情包处理
-        - 性能计时
+        """处理统一格式的入站消息字典。
+
+        Args:
+            message_data: 适配器整理后的统一消息字典。
         """
         try:
             # 确保所有任务已启动
@@ -253,7 +497,13 @@ class ChatBot:
             logger.error(f"预处理消息失败: {e}")
             traceback.print_exc()
 
-    async def receive_message(self, message: SessionMessage):
+    async def receive_message(self, message: SessionMessage) -> None:
+        """处理单条入站会话消息。
+
+        Args:
+            message: 待处理的会话消息。
+        """
+
         try:
             group_info = message.message_info.group_info
             user_info = message.message_info.user_info
@@ -272,6 +522,19 @@ class ChatBot:
             )
 
             message.session_id = session_id  # 正确初始化session_id
+            before_process_result, message = await self._invoke_message_hook(
+                "chat.receive.before_process",
+                message,
+            )
+            if before_process_result.aborted:
+                logger.info(f"消息 {message.message_id} 在预处理前被 Hook 中止")
+                return
+
+            group_info = message.message_info.group_info
+            user_info = message.message_info.user_info
+            additional_config = message.message_info.additional_config
+            if isinstance(additional_config, dict):
+                account_id, scope = RouteKeyFactory.extract_components(additional_config)
 
             # TODO: 修复事件预处理部分
             # continue_flag, modified_message = await events_manager.handle_mai_events(
@@ -286,14 +549,24 @@ class ChatBot:
             # if await self.handle_notice_message(message):
             #     pass
 
-            # 处理消息内容，识别表情包等二进制数据并转化为文本描述
-            if global_config.maisaka.direct_image_input:
-                message.maisaka_original_raw_message = deepcopy(message.raw_message)  # type: ignore[attr-defined]
+            # 处理消息内容，识别表情包等二进制数据并转化为文本描述。
+            # 如果 Maisaka 需要直接消费图片，会在后续构建 prompt 时按需回填图片二进制数据，
+            # 这里不再复制整条原始消息。
             # 入站主链优先保证消息尽快入队，避免图片、表情包、语音分析阻塞适配器超时。
             await message.process(
                 enable_heavy_media_analysis=False,
                 enable_voice_transcription=False,
             )
+            after_process_result, message = await self._invoke_message_hook(
+                "chat.receive.after_process",
+                message,
+            )
+            if after_process_result.aborted:
+                logger.info(f"消息 {message.message_id} 在预处理后被 Hook 中止")
+                return
+
+            group_info = message.message_info.group_info
+            user_info = message.message_info.user_info
 
             # 平台层的 @ 检测由底层 is_mentioned_bot_in_message 统一处理；此处不做用户名硬编码匹配
 
