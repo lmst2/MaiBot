@@ -24,9 +24,11 @@ from .builtin_tool import build_builtin_tool_handlers as build_split_builtin_too
 from .builtin_tool.context import BuiltinToolRuntimeContext
 from .context_messages import (
     AssistantMessage,
+    ComplexSessionMessage,
     LLMContextMessage,
     SessionBackedMessage,
     ToolResultMessage,
+    contains_complex_message,
 )
 from .message_adapter import (
     build_visible_text_from_sequence,
@@ -220,26 +222,49 @@ class MaisakaReasoningEngine:
     async def _ingest_messages(self, messages: list[SessionMessage]) -> None:
         """处理传入消息列表，将其转换为历史消息并加入聊天历史缓存。"""
         for message in messages:
-            # 构建用户消息序列
-            user_sequence, visible_text = await self._build_message_sequence(message)
-            if not user_sequence.components:
+            history_message = await self._build_history_message(message)
+            if history_message is None:
                 continue
 
-            history_message = SessionBackedMessage.from_session_message(
-                message,
-                raw_message=user_sequence,
-                visible_text=visible_text,
-                source_kind="user",
-            )
             self._insert_chat_history_message(history_message)
             self._trim_chat_history()
 
-    async def _build_message_sequence(self, message: SessionMessage) -> tuple[MessageSequence, str]:
-        message_sequence = MessageSequence([])
+    async def _build_history_message(self, message: SessionMessage) -> Optional[LLMContextMessage]:
+        """根据真实消息构造对应的上下文消息。"""
+
+        source_sequence = message.raw_message
+        visible_text = self._build_legacy_visible_text(message, source_sequence)
         planner_prefix = build_planner_user_prefix_from_session_message(message)
+        if contains_complex_message(source_sequence):
+            return ComplexSessionMessage.from_session_message(
+                message,
+                planner_prefix=planner_prefix,
+                visible_text=visible_text,
+                source_kind="user",
+            )
+
+        user_sequence = await self._build_message_sequence(message, planner_prefix=planner_prefix)
+        if not user_sequence.components:
+            return None
+
+        return SessionBackedMessage.from_session_message(
+            message,
+            raw_message=user_sequence,
+            visible_text=visible_text,
+            source_kind="user",
+        )
+
+    async def _build_message_sequence(
+        self,
+        message: SessionMessage,
+        *,
+        planner_prefix: str,
+    ) -> MessageSequence:
+        message_sequence = MessageSequence([])
 
         appended_component = False
         source_sequence = message.raw_message
+
         planner_components = clone_message_sequence(source_sequence).components
         if global_config.maisaka.direct_image_input:
             await self._hydrate_visual_components(planner_components)
@@ -252,16 +277,14 @@ class MaisakaReasoningEngine:
             message_sequence.components.append(component)
             appended_component = True
 
-        legacy_visible_text = self._build_legacy_visible_text(message, source_sequence)
         if not appended_component:
             if not message.processed_plain_text:
                 await message.process()
             content = (message.processed_plain_text or "").strip()
             if content:
                 message_sequence.text(planner_prefix + content)
-                legacy_visible_text = self._build_legacy_visible_text_from_text(message, content)
 
-        return message_sequence, legacy_visible_text
+        return message_sequence
 
     async def _hydrate_visual_components(self, planner_components: list[object]) -> None:
         """在 Maisaka 真正需要图片或表情时，按需回填二进制数据。"""
@@ -290,12 +313,6 @@ class MaisakaReasoningEngine:
         for component in clone_message_sequence(source_sequence).components:
             legacy_sequence.components.append(component)
         return build_visible_text_from_sequence(legacy_sequence).strip()
-
-    def _build_legacy_visible_text_from_text(self, message: SessionMessage, content: str) -> str:
-        user_info = message.message_info.user_info
-        speaker_name = user_info.user_cardname or user_info.user_nickname or user_info.user_id
-        visible_message_id = None if message.is_notify else message.message_id
-        return format_speaker_content(speaker_name, content, message.timestamp, visible_message_id).strip()
 
     def _insert_chat_history_message(self, message: LLMContextMessage) -> int:
         """将消息按处理顺序追加到聊天历史末尾。"""
@@ -627,6 +644,12 @@ class MaisakaReasoningEngine:
             if person_name:
                 return f"你查询了人物信息：{person_name}"
             return "你查询了一次人物信息。"
+
+        if invocation.tool_name == "view_complex_message":
+            target_message_id = str(invocation.arguments.get("msg_id") or "").strip()
+            if target_message_id:
+                return f"你查看了复杂消息 {target_message_id} 的完整内容。"
+            return "你查看了一条复杂消息的完整内容。"
 
         brief_description = ""
         if tool_spec is not None:

@@ -290,11 +290,67 @@ class EmojiManager:
         if not emoji_bytes:
             return None
         if not wait_for_build:
+            await self.ensure_emoji_saved(emoji_bytes, emoji_hash=emoji_hash)
             self._schedule_description_build(emoji_hash, emoji_bytes)
             return None
 
         # 找不到尝试构建
         return await self._build_and_cache_emoji_description(emoji_hash, emoji_bytes)
+
+    async def ensure_emoji_saved(
+        self,
+        emoji_bytes: bytes,
+        *,
+        emoji_hash: Optional[str] = None,
+    ) -> MaiEmoji:
+        """先缓存表情包文件与数据库记录，确保后续可按 hash 回填。"""
+        hash_str = emoji_hash or hashlib.sha256(emoji_bytes).hexdigest()
+
+        try:
+            with get_db_session() as session:
+                statement = select(Images).filter_by(image_hash=hash_str, image_type=ImageType.EMOJI).limit(1)
+                if record := session.exec(statement).first():
+                    record_path = Path(record.full_path)
+                    if not record.no_file_flag and record_path.exists():
+                        record.last_used_time = datetime.now()
+                        record.query_count += 1
+                        session.add(record)
+                        return MaiEmoji.from_db_instance(record)
+        except Exception as e:
+            logger.error(f"缓存表情包前查询数据库时出错: {e}")
+            raise e
+
+        logger.info(f"表情包不存在于数据库中，准备缓存新表情包，哈希值: {hash_str}")
+        tmp_file_path = EMOJI_DIR / f"{hash_str}.tmp"
+        with tmp_file_path.open("wb") as file:
+            file.write(emoji_bytes)
+
+        emoji = MaiEmoji(full_path=tmp_file_path, image_bytes=emoji_bytes)
+        await emoji.calculate_hash_format()
+
+        try:
+            with get_db_session() as session:
+                statement = select(Images).filter_by(image_hash=emoji.file_hash, image_type=ImageType.EMOJI).limit(1)
+                if existing_record := session.exec(statement).first():
+                    existing_record.full_path = str(emoji.full_path)
+                    existing_record.no_file_flag = False
+                    existing_record.is_banned = False
+                    existing_record.last_used_time = datetime.now()
+                    existing_record.query_count += 1
+                    session.add(existing_record)
+                else:
+                    image_record = emoji.to_db_instance()
+                    image_record.is_registered = False
+                    image_record.is_banned = False
+                    image_record.no_file_flag = False
+                    image_record.last_used_time = datetime.now()
+                    image_record.query_count = 1
+                    session.add(image_record)
+        except Exception as e:
+            logger.error(f"缓存表情包记录到数据库时出错: {e}")
+            raise e
+
+        return emoji
 
     def _schedule_description_build(self, emoji_hash: str, emoji_bytes: bytes) -> None:
         """调度表情包描述后台构建任务。
@@ -342,48 +398,36 @@ class EmojiManager:
         emoji_hash: str,
         emoji_bytes: bytes,
     ) -> Optional[Tuple[str, List[str]]]:
-        """构建并缓存表情包描述与情感标签。
-
-        Args:
-            emoji_hash: 表情包哈希值。
-            emoji_bytes: 表情包字节数据。
-
-        Returns:
-            Optional[Tuple[str, List[str]]]: 构建成功时返回描述和情感标签，否则返回 ``None``。
-        """
-        logger.info(f"未找到哈希值为 {emoji_hash} 的表情包与其描述，尝试构建描述")
-        full_path = EMOJI_DIR / f"{emoji_hash}.png"
-        try:
-            full_path.write_bytes(emoji_bytes)
-            new_emoji = MaiEmoji(full_path=full_path, image_bytes=emoji_bytes)
-            await new_emoji.calculate_hash_format()
-        except Exception as exc:
-            logger.error(f"缓存表情包文件时出错: {exc}")
-            raise exc
+        """Build and cache emoji description and emotion labels."""
+        logger.info(f"Start building cached emoji description, hash={emoji_hash}")
+        new_emoji = await self.ensure_emoji_saved(emoji_bytes, emoji_hash=emoji_hash)
 
         success_desc, new_emoji = await self.build_emoji_description(new_emoji)
         if not success_desc:
-            logger.error("构建表情包描述失败")
+            logger.error("Build emoji description failed")
             return None
 
         success_emotion, new_emoji = await self.build_emoji_emotion(new_emoji)
         if not success_emotion:
-            logger.error("构建表情包情感标签失败")
+            logger.error("Build emoji emotion labels failed")
             return None
 
         with get_db_session() as session:
             try:
-                image_record = new_emoji.to_db_instance()
-                image_record.is_registered = False
-                image_record.is_banned = False
-                image_record.register_time = datetime.now()
-                image_record.no_file_flag = True
-                session.add(image_record)
+                statement = select(Images).filter_by(image_hash=new_emoji.file_hash, image_type=ImageType.EMOJI).limit(1)
+                if image_record := session.exec(statement).first():
+                    image_record.full_path = str(new_emoji.full_path)
+                    image_record.description = new_emoji.description
+                    image_record.emotion = ",".join(new_emoji.emotion) if new_emoji.emotion else None
+                    image_record.no_file_flag = False
+                    image_record.is_banned = False
+                    session.add(image_record)
             except Exception as exc:
-                logger.error(f"缓存表情包描述时出错: {exc}")
+                logger.error(f"Update cached emoji description failed: {exc}")
         return new_emoji.description, new_emoji.emotion or []
 
     def load_emojis_from_db(self) -> None:
+
         """
         从数据库加载已注册的表情包
 
@@ -397,6 +441,8 @@ class EmojiManager:
                 results = session.exec(statement).all()
                 for record in results:
                     if record.image_type != ImageType.EMOJI:
+                        continue
+                    if not record.is_registered:
                         continue
                     if record.no_file_flag:
                         continue

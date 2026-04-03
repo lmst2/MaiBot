@@ -5,21 +5,28 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from io import BytesIO
-from typing import Optional
+from typing import Optional, Sequence
 import base64
 
 from PIL import Image as PILImage
 
 from src.chat.message_receive.message import SessionMessage
 from src.common.data_models.message_component_data_model import (
+    AtComponent,
+    DictComponent,
     EmojiComponent,
+    ForwardNodeComponent,
     ImageComponent,
     MessageSequence,
     ReplyComponent,
+    StandardMessageComponents,
     TextComponent,
+    VoiceComponent,
 )
 from src.llm_models.payload_content.message import Message, MessageBuilder, RoleType
 from src.llm_models.payload_content.tool_option import ToolCall
+
+FORWARD_PREVIEW_LIMIT = 4
 
 
 def _guess_image_format(image_bytes: bytes) -> Optional[str]:
@@ -69,6 +76,118 @@ def _append_reply_component(builder: MessageBuilder, component: ReplyComponent) 
 
     builder.add_text_content(f"[引用回复]({target_message_id})")
     return True
+
+
+def contains_complex_message(message_sequence: MessageSequence) -> bool:
+    """判断消息序列中是否包含复杂消息组件。"""
+
+    return any(isinstance(component, ForwardNodeComponent) for component in message_sequence.components)
+
+
+async def build_full_complex_message_content(message: SessionMessage) -> str:
+    """构造复杂消息的完整文本内容。"""
+
+    if not message.processed_plain_text:
+        await message.process()
+    return (message.processed_plain_text or "").strip()
+
+
+def _build_complex_message_prompt_text(message_sequence: MessageSequence) -> str:
+    """将复杂消息转换为适合注入 Prompt 的摘要文本。"""
+
+    prompt_parts: list[str] = []
+    for component in message_sequence.components:
+        rendered_text = _render_component_for_prompt(component)
+        if rendered_text:
+            prompt_parts.append(rendered_text)
+    return "\n".join(part for part in prompt_parts if part).strip()
+
+
+def _render_component_for_prompt(component: StandardMessageComponents) -> str:
+    """将单个组件渲染为 Prompt 文本。"""
+
+    if isinstance(component, TextComponent):
+        return (component.text or "").strip()
+
+    if isinstance(component, ImageComponent):
+        return component.content.strip() if component.content else "[图片]"
+
+    if isinstance(component, EmojiComponent):
+        return component.content.strip() if component.content else "[表情包]"
+
+    if isinstance(component, VoiceComponent):
+        return component.content.strip() if component.content else "[语音消息]"
+
+    if isinstance(component, AtComponent):
+        target_name = component.target_user_cardname or component.target_user_nickname or component.target_user_id
+        return f"@{target_name}".strip()
+
+    if isinstance(component, ReplyComponent):
+        sender_name = (
+            component.target_message_sender_cardname
+            or component.target_message_sender_nickname
+            or component.target_message_sender_id
+        )
+        target_content = (component.target_message_content or "").strip()
+        if sender_name and target_content:
+            return f"[回复了{sender_name}的消息: {target_content}]"
+        if target_content:
+            return f"[回复消息: {target_content}]"
+        target_message_id = component.target_message_id.strip()
+        return f"[引用回复]({target_message_id})" if target_message_id else "[回复消息]"
+
+    if isinstance(component, ForwardNodeComponent):
+        return _build_forward_preview_block(component)
+
+    if isinstance(component, DictComponent):
+        raw_type = component.data.get("type") if isinstance(component.data, dict) else None
+        if isinstance(raw_type, str) and raw_type.strip():
+            return f"[{raw_type.strip()}消息]"
+        return "[复杂消息]"
+
+    return ""
+
+
+def _build_forward_preview_block(component: ForwardNodeComponent) -> str:
+    """构造转发消息的预览块。"""
+
+    preview_lines = ["[消息类型]复杂消息", "转发消息", f"预览前{FORWARD_PREVIEW_LIMIT}条："]
+    preview_nodes = component.forward_components[:FORWARD_PREVIEW_LIMIT]
+
+    for node in preview_nodes:
+        sender_name = node.user_cardname or node.user_nickname or node.user_id or "未知用户"
+        content = _render_components_inline(node.content) or "[空消息]"
+        preview_lines.append(f"{sender_name}：{content}")
+
+    total_count = len(component.forward_components)
+    if total_count > FORWARD_PREVIEW_LIMIT:
+        preview_lines.append("......")
+        preview_lines.append(f"共{total_count}条，可以选择使用 view_complex_message 查看完整内容。")
+
+    return "\n".join(preview_lines).strip()
+
+
+def _render_components_inline(components: Sequence[StandardMessageComponents]) -> str:
+    """将组件序列压缩为单行预览文本。"""
+
+    rendered_parts: list[str] = []
+    for component in components:
+        if isinstance(component, ForwardNodeComponent):
+            rendered_parts.append("[转发消息]")
+            continue
+
+        rendered_text = _render_component_for_prompt(component)
+        normalized_text = _normalize_inline_text(rendered_text)
+        if normalized_text:
+            rendered_parts.append(normalized_text)
+
+    return " ".join(rendered_parts).strip()
+
+
+def _normalize_inline_text(text: str) -> str:
+    """将多行文本压缩为适合预览的一行。"""
+
+    return " ".join((text or "").split()).strip()
 
 
 def _build_message_from_sequence(
@@ -206,6 +325,51 @@ class SessionBackedMessage(LLMContextMessage):
             message_id=session_message.message_id,
             original_message=session_message,
             source_kind=source_kind,
+        )
+
+
+@dataclass(slots=True)
+class ComplexSessionMessage(SessionBackedMessage):
+    """复杂消息上下文消息。"""
+
+    prompt_text: str = ""
+    complex_message_type: str = "forward"
+
+    @property
+    def source(self) -> str:
+        return f"{self.source_kind}:{self.complex_message_type}"
+
+    def to_llm_message(self) -> Optional[Message]:
+        message_sequence = MessageSequence([TextComponent(self.prompt_text)])
+        return _build_message_from_sequence(
+            RoleType.User,
+            message_sequence,
+            self.prompt_text,
+        )
+
+    @classmethod
+    def from_session_message(
+        cls,
+        session_message: SessionMessage,
+        *,
+        planner_prefix: str,
+        visible_text: str,
+        source_kind: str = "user",
+    ) -> Optional["ComplexSessionMessage"]:
+        """从真实 SessionMessage 构造复杂消息上下文消息。"""
+
+        prompt_text = _build_complex_message_prompt_text(session_message.raw_message)
+        if not prompt_text:
+            return None
+
+        return cls(
+            raw_message=session_message.raw_message,
+            visible_text=visible_text,
+            timestamp=session_message.timestamp,
+            message_id=session_message.message_id,
+            original_message=session_message,
+            source_kind=source_kind,
+            prompt_text=f"{planner_prefix}{prompt_text}",
         )
 
 
