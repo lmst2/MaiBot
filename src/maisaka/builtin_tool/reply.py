@@ -22,8 +22,7 @@ def get_tool_spec() -> ToolSpec:
         detailed_description=(
             "参数说明：\n"
             "- msg_id：string，必填。要回复的目标用户消息编号。\n"
-            "- quote：boolean，可选。当有非常明确的回复目标时，以引用回复的方式发送，默认 true。\n"
-            "- unknown_words：array，可选。回复前可能需要查询的黑话或词条列表。"
+            "- set_quote：boolean，可选。以引用回复的方式发送，默认 true。"
         ),
         parameters_schema={
             "type": "object",
@@ -32,15 +31,10 @@ def get_tool_spec() -> ToolSpec:
                     "type": "string",
                     "description": "要回复的目标用户消息编号。",
                 },
-                "quote": {
+                "set_quote": {
                     "type": "boolean",
-                    "description": "当有非常明确的回复目标时，以引用回复的方式发送。",
+                    "description": "以引用回复的方式发送这条回复，不用每句都引用。",
                     "default": True,
-                },
-                "unknown_words": {
-                    "type": "array",
-                    "description": "回复前可能需要查询的黑话或词条列表。",
-                    "items": {"type": "string"},
                 },
             },
             "required": ["msg_id"],
@@ -59,9 +53,7 @@ async def handle_tool(
 
     latest_thought = context.reasoning if context is not None else invocation.reasoning
     target_message_id = str(invocation.arguments.get("msg_id") or "").strip()
-    quote_reply = bool(invocation.arguments.get("quote", True))
-    raw_unknown_words = invocation.arguments.get("unknown_words")
-    unknown_words = raw_unknown_words if isinstance(raw_unknown_words, list) else None
+    set_quote = bool(invocation.arguments.get("set_quote", True))
 
     if not target_message_id:
         return tool_ctx.build_failure_result(
@@ -77,8 +69,8 @@ async def handle_tool(
         )
 
     logger.info(
-        f"{tool_ctx.runtime.log_prefix} 已触发回复工具 "
-        f"目标消息编号={target_message_id} 引用回复={quote_reply} 最新思考={latest_thought!r}"
+        f"{tool_ctx.runtime.log_prefix} 已触发回复工具，"
+        f"目标消息编号={target_message_id} 引用回复={set_quote} 最新思考={latest_thought!r}"
     )
     try:
         replyer = replyer_manager.get_replyer(
@@ -108,7 +100,6 @@ async def handle_tool(
             stream_id=tool_ctx.runtime.session_id,
             reply_message=target_message,
             chat_history=tool_ctx.runtime._chat_history,
-            unknown_words=unknown_words,
             log_reply=False,
         )
     except Exception as exc:
@@ -144,8 +135,8 @@ async def handle_tool(
                 sent = await send_service.text_to_stream(
                     text=segment,
                     stream_id=tool_ctx.runtime.session_id,
-                    set_reply=quote_reply if index == 0 else False,
-                    reply_message=target_message if quote_reply and index == 0 else None,
+                    set_reply=set_quote if index == 0 else False,
+                    reply_message=target_message if set_quote and index == 0 else None,
                     selected_expressions=reply_result.selected_expression_ids or None,
                     typing=index > 0,
                 )
@@ -166,7 +157,7 @@ async def handle_tool(
             "可见回复生成成功，但发送失败。",
             structured_content={
                 "msg_id": target_message_id,
-                "quote": quote_reply,
+                "set_quote": set_quote,
                 "reply_segments": reply_segments,
             },
         )
@@ -180,7 +171,7 @@ async def handle_tool(
         "回复已生成并发送。",
         structured_content={
             "msg_id": target_message_id,
-            "quote": quote_reply,
+            "set_quote": set_quote,
             "reply_text": combined_reply_text,
             "reply_segments": reply_segments,
             "target_user_name": target_user_name,

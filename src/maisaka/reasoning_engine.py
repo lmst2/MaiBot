@@ -125,24 +125,33 @@ class MaisakaReasoningEngine:
                                 logger.info(f"{self._runtime.log_prefix} 当前思考与上一轮过于相似，已替换为重新思考提示")
 
                             self._last_reasoning_content = reasoning_content
-                            self._runtime._render_context_usage_panel(
-                                selected_history_count=response.selected_history_count,
-                                prompt_tokens=response.prompt_tokens,
-                            )
                             self._runtime._chat_history.append(response.raw_message)
+                            tool_result_summaries: list[str] = []
 
                             if response.tool_calls:
                                 tool_started_at = time.time()
-                                should_pause = await self._handle_tool_calls(
+                                should_pause, tool_result_summaries = await self._handle_tool_calls(
                                     response.tool_calls,
                                     response.content or "",
                                     anchor_message,
                                 )
                                 cycle_detail.time_records["tool_calls"] = time.time() - tool_started_at
+                                self._runtime._render_context_usage_panel(
+                                    selected_history_count=response.selected_history_count,
+                                    prompt_tokens=response.prompt_tokens,
+                                    planner_response=response.content or "",
+                                    tool_calls=response.tool_calls,
+                                    tool_results=tool_result_summaries,
+                                )
                                 if should_pause:
                                     break
                                 continue
 
+                            self._runtime._render_context_usage_panel(
+                                selected_history_count=response.selected_history_count,
+                                prompt_tokens=response.prompt_tokens,
+                                planner_response=response.content or "",
+                            )
                             if response.content:
                                 continue
 
@@ -701,12 +710,25 @@ class MaisakaReasoningEngine:
             )
         )
 
+    def _build_tool_result_summary(self, tool_call: ToolCall, result: ToolExecutionResult) -> str:
+        """构建用于终端展示的工具结果摘要。"""
+
+        history_content = result.get_history_content().strip()
+        if not history_content:
+            history_content = result.error_message.strip()
+        if not history_content:
+            history_content = "执行成功" if result.success else "执行失败"
+
+        summary_prefix = "[成功]" if result.success else "[失败]"
+        normalized_content = self._truncate_tool_record_text(history_content, max_length=200)
+        return f"- {tool_call.func_name} {summary_prefix}: {normalized_content}"
+
     async def _handle_tool_calls(
         self,
         tool_calls: list[ToolCall],
         latest_thought: str,
         anchor_message: SessionMessage,
-    ) -> bool:
+    ) -> tuple[bool, list[str]]:
         """执行一批统一工具调用。
 
         Args:
@@ -715,8 +737,10 @@ class MaisakaReasoningEngine:
             anchor_message: 当前轮的锚点消息。
 
         Returns:
-            bool: 是否需要暂停当前思考循环。
+            tuple[bool, list[str]]: 是否需要暂停当前思考循环，以及工具结果摘要列表。
         """
+
+        tool_result_summaries: list[str] = []
 
         if self._runtime._tool_registry is None:
             for tool_call in tool_calls:
@@ -728,7 +752,8 @@ class MaisakaReasoningEngine:
                 )
                 await self._store_tool_execution_record(invocation, result, None)
                 self._append_tool_execution_result(tool_call, result)
-            return False
+                tool_result_summaries.append(self._build_tool_result_summary(tool_call, result))
+            return False, tool_result_summaries
 
         execution_context = self._build_tool_execution_context(latest_thought, anchor_message)
         tool_spec_map = {
@@ -744,12 +769,13 @@ class MaisakaReasoningEngine:
                 tool_spec_map.get(invocation.tool_name),
             )
             self._append_tool_execution_result(tool_call, result)
+            tool_result_summaries.append(self._build_tool_result_summary(tool_call, result))
 
             if not result.success and tool_call.func_name == "reply":
                 logger.warning(f"{self._runtime.log_prefix} 回复工具未生成可见消息，将继续下一轮循环")
 
             if bool(result.metadata.get("pause_execution", False)):
-                return True
+                return True, tool_result_summaries
 
-        return False
+        return False, tool_result_summaries
 
