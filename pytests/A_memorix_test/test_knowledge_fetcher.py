@@ -7,7 +7,6 @@ from src.services.memory_service import MemoryHit, MemorySearchResult
 
 
 def test_knowledge_fetcher_resolves_private_memory_context(monkeypatch):
-    monkeypatch.setattr(knowledge_module, "LLMRequest", lambda *args, **kwargs: object())
     monkeypatch.setattr(
         knowledge_module,
         "_chat_manager",
@@ -31,7 +30,6 @@ def test_knowledge_fetcher_resolves_private_memory_context(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_knowledge_fetcher_memory_get_knowledge_uses_memory_service(monkeypatch):
-    monkeypatch.setattr(knowledge_module, "LLMRequest", lambda *args, **kwargs: object())
     monkeypatch.setattr(
         knowledge_module,
         "_chat_manager",
@@ -73,7 +71,6 @@ async def test_knowledge_fetcher_memory_get_knowledge_uses_memory_service(monkey
 
 @pytest.mark.asyncio
 async def test_knowledge_fetcher_falls_back_to_chat_scope_when_person_scope_misses(monkeypatch):
-    monkeypatch.setattr(knowledge_module, "LLMRequest", lambda *args, **kwargs: object())
     monkeypatch.setattr(
         knowledge_module,
         "_chat_manager",

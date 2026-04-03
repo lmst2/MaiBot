@@ -73,7 +73,7 @@ async def test_search_respects_filter_by_default(monkeypatch):
             {
                 "query": "mai",
                 "limit": 5,
-                "mode": "hybrid",
+                "mode": "search",
                 "chat_id": "stream-1",
                 "person_id": "person-1",
                 "time_start": None,

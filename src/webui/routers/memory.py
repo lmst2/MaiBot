@@ -6,14 +6,16 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Depends, File, Form, Query, UploadFile
+import tomlkit
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
+from src.A_memorix.host_service import a_memorix_host_service
 from src.services.memory_service import MemorySearchResult, memory_service
 from src.webui.dependencies import require_auth
 
 
-router = APIRouter(prefix="/api/webui/memory", tags=["memory"], dependencies=[Depends(require_auth)])
+router = APIRouter(prefix="/memory", tags=["memory"], dependencies=[Depends(require_auth)])
 compat_router = APIRouter(prefix="/api", tags=["memory-compat"], dependencies=[Depends(require_auth)])
 STAGING_ROOT = Path(__file__).resolve().parents[3] / "data" / "memory_upload_staging"
 
@@ -80,6 +82,14 @@ class MaintainRequest(BaseModel):
 
 class AutoSaveRequest(BaseModel):
     enabled: bool
+
+
+class MemoryConfigUpdateRequest(BaseModel):
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class MemoryRawConfigUpdateRequest(BaseModel):
+    config: str = ""
 
 
 class TuningApplyProfileRequest(BaseModel):
@@ -156,6 +166,44 @@ def _unwrap_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
 
 async def _graph_get(limit: int) -> dict:
     return await memory_service.graph_admin(action="get_graph", limit=limit)
+
+
+async def _graph_get_node_detail(
+    node_id: str,
+    *,
+    relation_limit: int,
+    paragraph_limit: int,
+    evidence_node_limit: int,
+) -> dict:
+    payload = await memory_service.graph_admin(
+        action="node_detail",
+        node_id=node_id,
+        relation_limit=relation_limit,
+        paragraph_limit=paragraph_limit,
+        evidence_node_limit=evidence_node_limit,
+    )
+    if not bool(payload.get("success", False)):
+        raise HTTPException(status_code=404, detail=str(payload.get("error", "未找到节点详情")))
+    return payload
+
+
+async def _graph_get_edge_detail(
+    source: str,
+    target: str,
+    *,
+    paragraph_limit: int,
+    evidence_node_limit: int,
+) -> dict:
+    payload = await memory_service.graph_admin(
+        action="edge_detail",
+        source=source,
+        target=target,
+        paragraph_limit=paragraph_limit,
+        evidence_node_limit=evidence_node_limit,
+    )
+    if not bool(payload.get("success", False)):
+        raise HTTPException(status_code=404, detail=str(payload.get("error", "未找到边详情")))
+    return payload
 
 
 async def _graph_create_node(payload: NodeRequest) -> dict:
@@ -323,6 +371,42 @@ async def _runtime_auto_save(enabled: bool | None = None) -> dict:
         config = await memory_service.runtime_admin(action="get_config")
         return {"success": bool(config.get("success", False)), "auto_save": bool(config.get("auto_save", False))}
     return await memory_service.runtime_admin(action="set_auto_save", enabled=enabled)
+
+
+async def _memory_config_schema() -> dict:
+    return {
+        "success": True,
+        "schema": a_memorix_host_service.get_config_schema(),
+        "path": str(a_memorix_host_service.get_config_path()),
+    }
+
+
+async def _memory_config_get() -> dict:
+    return {
+        "success": True,
+        "config": a_memorix_host_service.get_config(),
+        "path": str(a_memorix_host_service.get_config_path()),
+    }
+
+
+async def _memory_config_get_raw() -> dict:
+    return {
+        "success": True,
+        "config": a_memorix_host_service.get_raw_config(),
+        "path": str(a_memorix_host_service.get_config_path()),
+    }
+
+
+async def _memory_config_update(payload: MemoryConfigUpdateRequest) -> dict:
+    return await a_memorix_host_service.update_config(payload.config)
+
+
+async def _memory_config_update_raw(payload: MemoryRawConfigUpdateRequest) -> dict:
+    try:
+        tomlkit.loads(payload.config)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"TOML 格式错误: {exc}") from exc
+    return await a_memorix_host_service.update_raw_config(payload.config)
 
 
 async def _maintenance_recycle_bin(limit: int) -> dict:
@@ -565,6 +649,36 @@ async def get_memory_graph(limit: int = Query(200, ge=1, le=5000)):
     return await _graph_get(limit)
 
 
+@router.get("/graph/node-detail")
+async def get_memory_graph_node_detail(
+    node_id: str = Query(..., min_length=1),
+    relation_limit: int = Query(20, ge=1, le=100),
+    paragraph_limit: int = Query(20, ge=1, le=100),
+    evidence_node_limit: int = Query(80, ge=12, le=200),
+):
+    return await _graph_get_node_detail(
+        node_id,
+        relation_limit=relation_limit,
+        paragraph_limit=paragraph_limit,
+        evidence_node_limit=evidence_node_limit,
+    )
+
+
+@router.get("/graph/edge-detail")
+async def get_memory_graph_edge_detail(
+    source: str = Query(..., min_length=1),
+    target: str = Query(..., min_length=1),
+    paragraph_limit: int = Query(20, ge=1, le=100),
+    evidence_node_limit: int = Query(80, ge=12, le=200),
+):
+    return await _graph_get_edge_detail(
+        source,
+        target,
+        paragraph_limit=paragraph_limit,
+        evidence_node_limit=evidence_node_limit,
+    )
+
+
 @router.post("/graph/node")
 async def create_memory_node(payload: NodeRequest):
     return await _graph_create_node(payload)
@@ -701,6 +815,31 @@ async def delete_memory_profile_override(person_id: str):
 @router.post("/runtime/save")
 async def save_memory_runtime():
     return await _runtime_save()
+
+
+@router.get("/config/schema")
+async def get_memory_config_schema():
+    return await _memory_config_schema()
+
+
+@router.get("/config")
+async def get_memory_config():
+    return await _memory_config_get()
+
+
+@router.put("/config")
+async def update_memory_config(payload: MemoryConfigUpdateRequest):
+    return await _memory_config_update(payload)
+
+
+@router.get("/config/raw")
+async def get_memory_config_raw():
+    return await _memory_config_get_raw()
+
+
+@router.put("/config/raw")
+async def update_memory_config_raw(payload: MemoryRawConfigUpdateRequest):
+    return await _memory_config_update_raw(payload)
 
 
 @router.get("/runtime/config")

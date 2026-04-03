@@ -830,14 +830,7 @@ run_installation() {
         echo -e "${RED}克隆MaiCore仓库失败！${RESET}"
         exit 1
     }
-    echo -e "${GREEN}初始化MaiCore子模块...${RESET}"
-    # 使用与主仓一致的 GitHub 加速前缀，避免子模块直连 github.com 失败
-    git -C MaiBot config submodule.plugins/A_memorix.url "$GITHUB_REPO/A-Dawn/A_memorix.git"
-    git -C MaiBot submodule sync --recursive
-    git -C MaiBot submodule update --init --recursive || {
-        echo -e "${RED}初始化MaiCore子模块失败！${RESET}"
-        exit 1
-    }
+    echo -e "${GREEN}A_Memorix 已内置到源码，无需初始化子模块。${RESET}"
 
     echo -e "${GREEN}克隆 maim_message 包仓库...${RESET}"
     git clone $GITHUB_REPO/MaiM-with-u/maim_message.git || {

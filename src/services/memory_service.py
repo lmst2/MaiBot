@@ -3,13 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from src.A_memorix.host_service import a_memorix_host_service
 from src.common.logger import get_logger
-from src.plugin_runtime.integration import get_plugin_runtime_manager
 
 
 logger = get_logger("memory_service")
-
-PLUGIN_ID = "a-dawn.a-memorix"
 
 
 @dataclass
@@ -93,19 +91,11 @@ class PersonProfileResult:
 
 class MemoryService:
     async def _invoke(self, component_name: str, args: Optional[Dict[str, Any]] = None, *, timeout_ms: int = 30000) -> Any:
-        runtime = get_plugin_runtime_manager()
-        if not runtime.is_running:
-            raise RuntimeError("plugin_runtime 未启动")
-        response = await runtime.invoke_plugin(
-            method="plugin.invoke_tool",
-            plugin_id=PLUGIN_ID,
-            component_name=component_name,
-            args=args or {},
+        response = await a_memorix_host_service.invoke(
+            component_name,
+            args or {},
             timeout_ms=max(1000, int(timeout_ms or 30000)),
         )
-        # 兼容新旧运行时返回:
-        # - 旧版: 直接返回工具结果(dict)
-        # - 新版: 返回 Envelope，工具结果在 payload.result 中
         if isinstance(response, dict):
             return response
         payload = getattr(response, "payload", None)

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import asyncio
 import time
 
+from src.A_memorix.host_service import a_memorix_host_service
 from src.learners.expression_auto_check_task import ExpressionAutoCheckTask
 from src.chat.emoji_system.emoji_manager import emoji_manager
 from src.chat.message_receive.bot import chat_bot
@@ -95,6 +96,7 @@ class MainSystem:
 
         # 启动插件运行时（内置插件 + 第三方插件双子进程）
         await get_plugin_runtime_manager().start()
+        await a_memorix_host_service.start()
 
         # 初始化表情管理器
         emoji_manager.load_emojis_from_db()
@@ -169,6 +171,7 @@ async def main() -> None:
     finally:
         emoji_manager.shutdown()
         await memory_automation_service.shutdown()
+        await a_memorix_host_service.stop()
         await get_plugin_runtime_manager().bridge_event("on_stop")
         await get_plugin_runtime_manager().stop()
         await async_task_manager.stop_and_wait_all_tasks()

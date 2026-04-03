@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List
@@ -71,21 +72,11 @@ class _KnownPerson:
 
 
 class _KernelBackedRuntimeManager:
-    is_running = True
-
     def __init__(self, kernel: SDKMemoryKernel) -> None:
         self.kernel = kernel
 
-    async def invoke_plugin(
-        self,
-        *,
-        method: str,
-        plugin_id: str,
-        component_name: str,
-        args: Dict[str, Any] | None,
-        timeout_ms: int,
-    ):
-        del method, plugin_id, timeout_ms
+    async def invoke(self, component_name: str, args: Dict[str, Any] | None, *, timeout_ms: int = 30000):
+        del timeout_ms
         payload = args or {}
         if component_name == "search_memory":
             return await self.kernel.search_memory(
@@ -299,6 +290,12 @@ async def _evaluate_tool_modes(*, session_id: str, dataset: Dict[str, Any]) -> D
     search_case = dataset["search_cases"][0]
     episode_case = dataset["episode_cases"][0]
     aggregate_case = dataset["knowledge_fetcher_cases"][0]
+    first_record = (dataset.get("chat_history_records") or [{}])[0]
+    reference_ts = first_record.get("end_time") or first_record.get("start_time") or 0
+    if reference_ts:
+        time_expression = datetime.fromtimestamp(float(reference_ts)).strftime("%Y/%m/%d")
+    else:
+        time_expression = "最近7天"
     tool_cases = [
         {
             "name": "search",
@@ -318,7 +315,7 @@ async def _evaluate_tool_modes(*, session_id: str, dataset: Dict[str, Any]) -> D
                 "mode": "time",
                 "chat_id": session_id,
                 "limit": 5,
-                "time_expression": "最近7天",
+                "time_expression": time_expression,
             },
             "expected_keywords": ["蓝漆铁盒", "北塔木梯"],
             "minimum_keyword_recall": 0.67,
@@ -402,7 +399,6 @@ async def benchmark_env(monkeypatch, tmp_path):
         return {"ok": True, "message": "ok", "encoded_dimension": 32}
 
     monkeypatch.setattr(kernel_module, "run_embedding_runtime_self_check", fake_self_check)
-    monkeypatch.setattr(memory_service_module, "get_plugin_runtime_manager", None)
     monkeypatch.setattr(summarizer_module, "_chat_manager", fake_chat_manager)
     monkeypatch.setattr(knowledge_module, "_chat_manager", fake_chat_manager)
     monkeypatch.setattr(person_info_module, "_chat_manager", fake_chat_manager)
@@ -424,7 +420,7 @@ async def benchmark_env(monkeypatch, tmp_path):
         },
     )
     manager = _KernelBackedRuntimeManager(kernel)
-    monkeypatch.setattr(memory_service_module, "get_plugin_runtime_manager", lambda: manager)
+    monkeypatch.setattr(memory_service_module, "a_memorix_host_service", manager)
 
     await kernel.initialize()
     try:

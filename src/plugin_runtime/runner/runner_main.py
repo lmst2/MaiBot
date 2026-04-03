@@ -299,15 +299,16 @@ class PluginRunner:
         if not hasattr(instance, "set_plugin_config"):
             return
 
-        plugin_config = config_data if config_data is not None else self._load_plugin_config(meta.plugin_dir)
+        plugin_config = config_data if config_data is not None else self._load_plugin_config(meta.plugin_dir, meta.plugin_id)
         try:
             instance.set_plugin_config(plugin_config)
         except Exception as exc:
             logger.warning(f"插件 {meta.plugin_id} 配置注入失败: {exc}")
 
     @staticmethod
-    def _load_plugin_config(plugin_dir: str) -> Dict[str, Any]:
+    def _load_plugin_config(plugin_dir: str, plugin_id: str = "") -> Dict[str, Any]:
         """从插件目录读取 config.toml。"""
+        _ = plugin_id
         config_path = Path(plugin_dir) / "config.toml"
         if not config_path.exists():
             return {}

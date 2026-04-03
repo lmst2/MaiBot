@@ -32,21 +32,11 @@ def _load_dialogue_fixture() -> Dict[str, Any]:
 
 
 class _KernelBackedRuntimeManager:
-    is_running = True
-
     def __init__(self, kernel: SDKMemoryKernel) -> None:
         self.kernel = kernel
 
-    async def invoke_plugin(
-        self,
-        *,
-        method: str,
-        plugin_id: str,
-        component_name: str,
-        args: Dict[str, Any] | None,
-        timeout_ms: int,
-    ):
-        del method, plugin_id, timeout_ms
+    async def invoke(self, component_name: str, args: Dict[str, Any] | None, *, timeout_ms: int = 30000):
+        del timeout_ms
         payload = args or {}
         if component_name == "search_memory":
             return await self.kernel.search_memory(
@@ -100,7 +90,6 @@ async def live_dialogue_env(monkeypatch, tmp_path):
         get_session_name=lambda session_id: session_cfg["display_name"] if session_id == session.session_id else session_id,
     )
 
-    monkeypatch.setattr(memory_service_module, "get_plugin_runtime_manager", None)
     monkeypatch.setattr(summarizer_module, "_chat_manager", fake_chat_manager)
     monkeypatch.setattr(knowledge_module, "_chat_manager", fake_chat_manager)
     monkeypatch.setattr(person_info_module, "_chat_manager", fake_chat_manager)
@@ -116,7 +105,7 @@ async def live_dialogue_env(monkeypatch, tmp_path):
         },
     )
     manager = _KernelBackedRuntimeManager(kernel)
-    monkeypatch.setattr(memory_service_module, "get_plugin_runtime_manager", lambda: manager)
+    monkeypatch.setattr(memory_service_module, "a_memorix_host_service", manager)
 
     await kernel.initialize()
     try:

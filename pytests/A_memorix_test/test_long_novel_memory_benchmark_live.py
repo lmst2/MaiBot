@@ -10,7 +10,7 @@ import pytest
 import pytest_asyncio
 
 from A_memorix.core.runtime.sdk_memory_kernel import SDKMemoryKernel
-from pytests.test_long_novel_memory_benchmark import (
+from pytests.A_memorix_test.test_long_novel_memory_benchmark import (
     _evaluate_episode_admin_query,
     _evaluate_episode_generation,
     _evaluate_episode_search_mode,
@@ -58,7 +58,6 @@ async def benchmark_live_env(monkeypatch, tmp_path):
     registry = {item["person_name"]: item["person_id"] for item in dataset["person_writebacks"]}
     reverse_registry = {value: key for key, value in registry.items()}
 
-    monkeypatch.setattr(memory_service_module, "get_plugin_runtime_manager", None)
     monkeypatch.setattr(summarizer_module, "_chat_manager", fake_chat_manager)
     monkeypatch.setattr(knowledge_module, "_chat_manager", fake_chat_manager)
     monkeypatch.setattr(person_info_module, "_chat_manager", fake_chat_manager)
@@ -80,7 +79,7 @@ async def benchmark_live_env(monkeypatch, tmp_path):
         },
     )
     manager = _KernelBackedRuntimeManager(kernel)
-    monkeypatch.setattr(memory_service_module, "get_plugin_runtime_manager", lambda: manager)
+    monkeypatch.setattr(memory_service_module, "a_memorix_host_service", manager)
 
     await kernel.initialize()
     try:

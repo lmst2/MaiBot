@@ -5,14 +5,15 @@ import pytest
 from src.services.memory_service import MemorySearchResult
 from src.webui.dependencies import require_auth
 from src.webui.routers import memory as memory_router_module
-from src.webui.routers.memory import compat_router, router
+from src.webui.routers.memory import compat_router
+from src.webui.routes import router as main_router
 
 
 @pytest.fixture
 def client() -> TestClient:
     app = FastAPI()
     app.dependency_overrides[require_auth] = lambda: "ok"
-    app.include_router(router)
+    app.include_router(main_router)
     app.include_router(compat_router)
     return TestClient(app)
 
@@ -20,7 +21,24 @@ def client() -> TestClient:
 def test_webui_memory_graph_route(client: TestClient, monkeypatch):
     async def fake_graph_admin(*, action: str, **kwargs):
         assert action == "get_graph"
-        return {"success": True, "nodes": [], "edges": [], "total_nodes": 0, "limit": kwargs.get("limit")}
+        return {
+            "success": True,
+            "nodes": [],
+            "edges": [
+                {
+                    "source": "alice",
+                    "target": "map",
+                    "weight": 1.5,
+                    "relation_hashes": ["rel-1"],
+                    "predicates": ["持有"],
+                    "relation_count": 1,
+                    "evidence_count": 2,
+                    "label": "持有",
+                }
+            ],
+            "total_nodes": 0,
+            "limit": kwargs.get("limit"),
+        }
 
     monkeypatch.setattr(memory_router_module.memory_service, "graph_admin", fake_graph_admin)
 
@@ -29,6 +47,97 @@ def test_webui_memory_graph_route(client: TestClient, monkeypatch):
     assert response.status_code == 200
     assert response.json()["success"] is True
     assert response.json()["limit"] == 77
+    assert response.json()["edges"][0]["predicates"] == ["持有"]
+    assert response.json()["edges"][0]["relation_count"] == 1
+    assert response.json()["edges"][0]["evidence_count"] == 2
+
+
+def test_webui_memory_graph_node_detail_route(client: TestClient, monkeypatch):
+    async def fake_graph_admin(*, action: str, **kwargs):
+        assert action == "node_detail"
+        assert kwargs["node_id"] == "Alice"
+        return {
+            "success": True,
+            "node": {"id": "Alice", "type": "entity", "content": "Alice", "appearance_count": 3},
+            "relations": [{"hash": "rel-1", "subject": "Alice", "predicate": "持有", "object": "Map", "text": "Alice 持有 Map", "confidence": 0.9, "paragraph_count": 1, "paragraph_hashes": ["p-1"], "source_paragraph": "p-1"}],
+            "paragraphs": [{"hash": "p-1", "content": "Alice 拿着地图。", "preview": "Alice 拿着地图。", "source": "demo", "entity_count": 2, "relation_count": 1, "entities": ["Alice", "Map"], "relations": ["Alice 持有 Map"]}],
+            "evidence_graph": {
+                "nodes": [{"id": "entity:Alice", "type": "entity", "content": "Alice"}],
+                "edges": [],
+                "focus_entities": ["Alice"],
+            },
+        }
+
+    monkeypatch.setattr(memory_router_module.memory_service, "graph_admin", fake_graph_admin)
+
+    response = client.get("/api/webui/memory/graph/node-detail", params={"node_id": "Alice"})
+
+    assert response.status_code == 200
+    assert response.json()["node"]["id"] == "Alice"
+    assert response.json()["relations"][0]["predicate"] == "持有"
+    assert response.json()["evidence_graph"]["focus_entities"] == ["Alice"]
+
+
+def test_webui_memory_graph_node_detail_route_returns_404(client: TestClient, monkeypatch):
+    async def fake_graph_admin(*, action: str, **kwargs):
+        assert action == "node_detail"
+        return {"success": False, "error": "未找到节点: Missing"}
+
+    monkeypatch.setattr(memory_router_module.memory_service, "graph_admin", fake_graph_admin)
+
+    response = client.get("/api/webui/memory/graph/node-detail", params={"node_id": "Missing"})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "未找到节点: Missing"
+
+
+def test_webui_memory_graph_edge_detail_route(client: TestClient, monkeypatch):
+    async def fake_graph_admin(*, action: str, **kwargs):
+        assert action == "edge_detail"
+        assert kwargs["source"] == "Alice"
+        assert kwargs["target"] == "Map"
+        return {
+            "success": True,
+            "edge": {
+                "source": "Alice",
+                "target": "Map",
+                "weight": 1.5,
+                "relation_hashes": ["rel-1"],
+                "predicates": ["持有"],
+                "relation_count": 1,
+                "evidence_count": 1,
+                "label": "持有",
+            },
+            "relations": [{"hash": "rel-1", "subject": "Alice", "predicate": "持有", "object": "Map", "text": "Alice 持有 Map", "confidence": 0.9, "paragraph_count": 1, "paragraph_hashes": ["p-1"], "source_paragraph": "p-1"}],
+            "paragraphs": [{"hash": "p-1", "content": "Alice 拿着地图。", "preview": "Alice 拿着地图。", "source": "demo", "entity_count": 2, "relation_count": 1, "entities": ["Alice", "Map"], "relations": ["Alice 持有 Map"]}],
+            "evidence_graph": {
+                "nodes": [{"id": "relation:rel-1", "type": "relation", "content": "Alice 持有 Map"}],
+                "edges": [{"source": "paragraph:p-1", "target": "relation:rel-1", "kind": "supports", "label": "支撑", "weight": 1.0}],
+                "focus_entities": ["Alice", "Map"],
+            },
+        }
+
+    monkeypatch.setattr(memory_router_module.memory_service, "graph_admin", fake_graph_admin)
+
+    response = client.get("/api/webui/memory/graph/edge-detail", params={"source": "Alice", "target": "Map"})
+
+    assert response.status_code == 200
+    assert response.json()["edge"]["predicates"] == ["持有"]
+    assert response.json()["paragraphs"][0]["source"] == "demo"
+    assert response.json()["evidence_graph"]["edges"][0]["kind"] == "supports"
+
+
+def test_webui_memory_graph_edge_detail_route_returns_404(client: TestClient, monkeypatch):
+    async def fake_graph_admin(*, action: str, **kwargs):
+        assert action == "edge_detail"
+        return {"success": False, "error": "未找到边: Alice -> Missing"}
+
+    monkeypatch.setattr(memory_router_module.memory_service, "graph_admin", fake_graph_admin)
+
+    response = client.get("/api/webui/memory/graph/edge-detail", params={"source": "Alice", "target": "Missing"})
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "未找到边: Alice -> Missing"
 
 
 def test_compat_aggregate_route(client: TestClient, monkeypatch):
@@ -42,7 +151,13 @@ def test_compat_aggregate_route(client: TestClient, monkeypatch):
     response = client.get("/api/query/aggregate", params={"query": "mai"})
 
     assert response.status_code == 200
-    assert response.json() == {"success": True, "summary": "summary:mai", "hits": [], "filtered": False}
+    assert response.json() == {
+        "success": True,
+        "summary": "summary:mai",
+        "hits": [],
+        "filtered": False,
+        "error": "",
+    }
 
 
 def test_auto_save_routes(client: TestClient, monkeypatch):
@@ -62,6 +177,80 @@ def test_auto_save_routes(client: TestClient, monkeypatch):
     assert get_response.json() == {"success": True, "auto_save": True}
     assert post_response.status_code == 200
     assert post_response.json() == {"success": True, "auto_save": False}
+
+
+def test_memory_config_routes(client: TestClient, monkeypatch):
+    monkeypatch.setattr(
+        memory_router_module.a_memorix_host_service,
+        "get_config_schema",
+        lambda: {"layout": {"type": "tabs"}, "sections": {"plugin": {"fields": {}}}},
+    )
+    monkeypatch.setattr(
+        memory_router_module.a_memorix_host_service,
+        "get_config_path",
+        lambda: memory_router_module.Path("/tmp/config/a_memorix.toml"),
+    )
+    monkeypatch.setattr(
+        memory_router_module.a_memorix_host_service,
+        "get_config",
+        lambda: {"plugin": {"enabled": True}},
+    )
+    monkeypatch.setattr(
+        memory_router_module.a_memorix_host_service,
+        "get_raw_config",
+        lambda: "[plugin]\nenabled = true\n",
+    )
+
+    schema_response = client.get("/api/webui/memory/config/schema")
+    config_response = client.get("/api/webui/memory/config")
+    raw_response = client.get("/api/webui/memory/config/raw")
+
+    assert schema_response.status_code == 200
+    assert schema_response.json()["path"] == "/tmp/config/a_memorix.toml"
+    assert schema_response.json()["schema"]["layout"]["type"] == "tabs"
+
+    assert config_response.status_code == 200
+    assert config_response.json() == {
+        "success": True,
+        "config": {"plugin": {"enabled": True}},
+        "path": "/tmp/config/a_memorix.toml",
+    }
+
+    assert raw_response.status_code == 200
+    assert raw_response.json() == {
+        "success": True,
+        "config": "[plugin]\nenabled = true\n",
+        "path": "/tmp/config/a_memorix.toml",
+    }
+
+
+def test_memory_config_update_routes(client: TestClient, monkeypatch):
+    async def fake_update_config(config):
+        assert config == {"plugin": {"enabled": False}}
+        return {"success": True, "config_path": "config/a_memorix.toml"}
+
+    async def fake_update_raw(raw_config):
+        assert raw_config == "[plugin]\nenabled = false\n"
+        return {"success": True, "config_path": "config/a_memorix.toml"}
+
+    monkeypatch.setattr(memory_router_module.a_memorix_host_service, "update_config", fake_update_config)
+    monkeypatch.setattr(memory_router_module.a_memorix_host_service, "update_raw_config", fake_update_raw)
+
+    config_response = client.put("/api/webui/memory/config", json={"config": {"plugin": {"enabled": False}}})
+    raw_response = client.put("/api/webui/memory/config/raw", json={"config": "[plugin]\nenabled = false\n"})
+
+    assert config_response.status_code == 200
+    assert config_response.json() == {"success": True, "config_path": "config/a_memorix.toml"}
+
+    assert raw_response.status_code == 200
+    assert raw_response.json() == {"success": True, "config_path": "config/a_memorix.toml"}
+
+
+def test_memory_config_raw_rejects_invalid_toml(client: TestClient):
+    response = client.put("/api/webui/memory/config/raw", json={"config": "[plugin\nenabled = true"})
+
+    assert response.status_code == 400
+    assert "TOML 格式错误" in response.json()["detail"]
 
 
 def test_recycle_bin_route(client: TestClient, monkeypatch):
@@ -152,6 +341,85 @@ def test_delete_preview_route(client: TestClient, monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"success": True, "counts": {"paragraphs": 1}, "dry_run": True}
+
+
+def test_delete_preview_route_supports_mixed_mode(client: TestClient, monkeypatch):
+    async def fake_delete_admin(*, action: str, **kwargs):
+        assert action == "preview"
+        assert kwargs["mode"] == "mixed"
+        assert kwargs["selector"] == {
+            "entity_hashes": ["entity-1"],
+            "paragraph_hashes": ["p-1"],
+            "relation_hashes": ["rel-1"],
+            "sources": ["demo"],
+        }
+        return {"success": True, "mode": "mixed", "counts": {"entities": 1, "paragraphs": 1, "relations": 1, "sources": 1}}
+
+    monkeypatch.setattr(memory_router_module.memory_service, "delete_admin", fake_delete_admin)
+
+    response = client.post(
+        "/api/webui/memory/delete/preview",
+        json={
+            "mode": "mixed",
+            "selector": {
+                "entity_hashes": ["entity-1"],
+                "paragraph_hashes": ["p-1"],
+                "relation_hashes": ["rel-1"],
+                "sources": ["demo"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "mixed"
+    assert response.json()["counts"]["entities"] == 1
+
+
+def test_delete_execute_route_supports_mixed_mode(client: TestClient, monkeypatch):
+    async def fake_delete_admin(*, action: str, **kwargs):
+        assert action == "execute"
+        assert kwargs["mode"] == "mixed"
+        assert kwargs["selector"] == {
+            "entity_hashes": ["entity-1"],
+            "paragraph_hashes": ["p-1"],
+            "relation_hashes": ["rel-1"],
+            "sources": ["demo"],
+        }
+        assert kwargs["reason"] == "knowledge_graph_delete_entity"
+        assert kwargs["requested_by"] == "knowledge_graph"
+        return {
+            "success": True,
+            "mode": "mixed",
+            "operation_id": "op-mixed-1",
+            "deleted_count": 4,
+            "deleted_entity_count": 1,
+            "deleted_relation_count": 1,
+            "deleted_paragraph_count": 1,
+            "deleted_source_count": 1,
+            "counts": {"entities": 1, "paragraphs": 1, "relations": 1, "sources": 1},
+        }
+
+    monkeypatch.setattr(memory_router_module.memory_service, "delete_admin", fake_delete_admin)
+
+    response = client.post(
+        "/api/webui/memory/delete/execute",
+        json={
+            "mode": "mixed",
+            "selector": {
+                "entity_hashes": ["entity-1"],
+                "paragraph_hashes": ["p-1"],
+                "relation_hashes": ["rel-1"],
+                "sources": ["demo"],
+            },
+            "reason": "knowledge_graph_delete_entity",
+            "requested_by": "knowledge_graph",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["mode"] == "mixed"
+    assert response.json()["operation_id"] == "op-mixed-1"
 
 
 def test_episode_process_pending_route(client: TestClient, monkeypatch):
@@ -256,6 +524,20 @@ def test_delete_execute_route(client: TestClient, monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"success": True, "operation_id": "del-1"}
+
+
+def test_sources_route(client: TestClient, monkeypatch):
+    async def fake_source_admin(*, action: str, **kwargs):
+        assert action == "list"
+        assert kwargs == {}
+        return {"success": True, "items": [{"source": "demo", "paragraph_count": 2}], "count": 1}
+
+    monkeypatch.setattr(memory_router_module.memory_service, "source_admin", fake_source_admin)
+
+    response = client.get("/api/webui/memory/sources")
+
+    assert response.status_code == 200
+    assert response.json()["items"] == [{"source": "demo", "paragraph_count": 2}]
 
 
 def test_delete_operation_routes(client: TestClient, monkeypatch):

@@ -13,6 +13,7 @@ from .support import (
     coerce_types,
     find_plugin_instance,
     find_plugin_path_by_id,
+    get_plugin_config_path,
     normalize_dotted_keys,
     require_plugin_token,
     resolve_plugin_file_path,
@@ -21,6 +22,20 @@ from .support import (
 logger = get_logger("webui.plugin_routes")
 
 router = APIRouter()
+
+
+def _to_builtin_data(obj: Any) -> Any:
+    if hasattr(obj, "unwrap"):
+        try:
+            obj = obj.unwrap()
+        except Exception:
+            pass
+
+    if isinstance(obj, dict):
+        return {str(key): _to_builtin_data(value) for key, value in obj.items()}
+    if isinstance(obj, list):
+        return [_to_builtin_data(value) for value in obj]
+    return obj
 
 
 def _build_schema_from_current_config(plugin_id: str, current_config: Any) -> Dict[str, Any]:
@@ -142,7 +157,7 @@ async def get_plugin_config_schema(plugin_id: str, maibot_session: Optional[str]
                 logger.warning(f"读取 config_schema.json 失败，回退到自动推断: {e}")
 
         current_config: Any = {}
-        config_path = resolve_plugin_file_path(plugin_path, "config.toml")
+        config_path = get_plugin_config_path(plugin_id, plugin_path)
         if config_path.exists():
             with open(config_path, "r", encoding="utf-8") as file_obj:
                 current_config = tomlkit.load(file_obj)
@@ -165,7 +180,7 @@ async def get_plugin_config_raw(plugin_id: str, maibot_session: Optional[str] = 
         if plugin_path is None:
             raise HTTPException(status_code=404, detail=f"未找到插件: {plugin_id}")
 
-        config_path = resolve_plugin_file_path(plugin_path, "config.toml")
+        config_path = get_plugin_config_path(plugin_id, plugin_path)
         if not config_path.exists():
             return {"success": True, "config": "", "message": "配置文件不存在"}
 
@@ -192,7 +207,7 @@ async def update_plugin_config_raw(
         if plugin_path is None:
             raise HTTPException(status_code=404, detail=f"未找到插件: {plugin_id}")
 
-        config_path = resolve_plugin_file_path(plugin_path, "config.toml")
+        config_path = get_plugin_config_path(plugin_id, plugin_path)
         try:
             tomlkit.loads(request.config)
         except Exception as e:
@@ -202,6 +217,7 @@ async def update_plugin_config_raw(
         if backup_path is not None:
             logger.info(f"已备份配置文件: {backup_path}")
 
+        config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w", encoding="utf-8") as file_obj:
             file_obj.write(request.config)
 
@@ -224,13 +240,13 @@ async def get_plugin_config(plugin_id: str, maibot_session: Optional[str] = Cook
         if plugin_path is None:
             raise HTTPException(status_code=404, detail=f"未找到插件: {plugin_id}")
 
-        config_path = resolve_plugin_file_path(plugin_path, "config.toml")
+        config_path = get_plugin_config_path(plugin_id, plugin_path)
         if not config_path.exists():
             return {"success": True, "config": {}, "message": "配置文件不存在"}
 
         with open(config_path, "r", encoding="utf-8") as file_obj:
             config = tomlkit.load(file_obj)
-        return {"success": True, "config": dict(config)}
+        return {"success": True, "config": _to_builtin_data(config)}
     except HTTPException:
         raise
     except Exception as e:
@@ -259,11 +275,12 @@ async def update_plugin_config(
         if plugin_path is None:
             raise HTTPException(status_code=404, detail=f"未找到插件: {plugin_id}")
 
-        config_path = resolve_plugin_file_path(plugin_path, "config.toml")
+        config_path = get_plugin_config_path(plugin_id, plugin_path)
         backup_path = backup_file(config_path, "backup")
         if backup_path is not None:
             logger.info(f"已备份配置文件: {backup_path}")
 
+        config_path.parent.mkdir(parents=True, exist_ok=True)
         save_toml_with_format(config_data, str(config_path))
         logger.info(f"已更新插件配置: {plugin_id}")
         return {"success": True, "message": "配置已保存", "note": "配置更改将自动热更新到对应插件"}
@@ -284,7 +301,7 @@ async def reset_plugin_config(plugin_id: str, maibot_session: Optional[str] = Co
         if plugin_path is None:
             raise HTTPException(status_code=404, detail=f"未找到插件: {plugin_id}")
 
-        config_path = resolve_plugin_file_path(plugin_path, "config.toml")
+        config_path = get_plugin_config_path(plugin_id, plugin_path)
         if not config_path.exists():
             return {"success": True, "message": "配置文件不存在，无需重置"}
 
@@ -308,7 +325,7 @@ async def toggle_plugin(plugin_id: str, maibot_session: Optional[str] = Cookie(N
         if plugin_path is None:
             raise HTTPException(status_code=404, detail=f"未找到插件: {plugin_id}")
 
-        config_path = resolve_plugin_file_path(plugin_path, "config.toml")
+        config_path = get_plugin_config_path(plugin_id, plugin_path)
         config = tomlkit.document()
         if config_path.exists():
             with open(config_path, "r", encoding="utf-8") as file_obj:
@@ -321,6 +338,7 @@ async def toggle_plugin(plugin_id: str, maibot_session: Optional[str] = Cookie(N
         current_enabled = bool(plugin_config.get("enabled", True))
         new_enabled = not current_enabled
         plugin_config["enabled"] = new_enabled
+        config_path.parent.mkdir(parents=True, exist_ok=True)
         save_toml_with_format(config, str(config_path))
 
         status = "启用" if new_enabled else "禁用"

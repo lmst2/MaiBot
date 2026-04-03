@@ -64,7 +64,7 @@ def test_init_all_tools_registers_long_term_memory_tool():
 
 
 @pytest.mark.asyncio
-async def test_query_long_term_memory_search_mode_maps_to_hybrid(monkeypatch):
+async def test_query_long_term_memory_search_mode_keeps_search(monkeypatch):
     captured = {}
 
     async def fake_search(query, **kwargs):
@@ -83,7 +83,7 @@ async def test_query_long_term_memory_search_mode_maps_to_hybrid(monkeypatch):
         "query": "Alice 喜欢什么",
         "kwargs": {
             "limit": 5,
-            "mode": "hybrid",
+            "mode": "search",
             "chat_id": "stream-1",
             "person_id": "person-1",
             "time_start": None,
