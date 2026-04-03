@@ -6,7 +6,6 @@ from base64 import b64decode
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from src.chat.message_receive.message import SessionMessage
 from src.chat.utils.utils import process_llm_response
 from src.common.data_models.message_component_data_model import EmojiComponent, MessageSequence, TextComponent
 from src.config.config import global_config

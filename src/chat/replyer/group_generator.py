@@ -35,7 +35,7 @@ from src.services import llm_service as llm_api
 
 from src.chat.logger.plan_reply_logger import PlanReplyLogger
 from src.memory_system.memory_retrieval import init_memory_retrieval_sys, build_memory_retrieval_prompt
-from src.learners.jargon_explainer_old import explain_jargon_in_context, retrieve_concepts_with_jargon
+from src.learners.jargon_explainer_old import explain_jargon_in_context
 from src.chat.utils.common_utils import TempMethodsExpression
 
 init_memory_retrieval_sys()

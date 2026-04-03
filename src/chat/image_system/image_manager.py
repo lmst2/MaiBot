@@ -44,6 +44,12 @@ class ImageManager:
 
         logger.info("图片管理器初始化完成")
 
+    def _get_image_record(self, image_hash: str) -> Optional[Images]:
+        """根据哈希获取图片记录。"""
+        with get_db_session() as session:
+            statement = select(Images).filter_by(image_hash=image_hash, image_type=ImageType.IMAGE).limit(1)
+            return session.exec(statement).first()
+
     async def get_image_description(
         self,
         *,
@@ -76,9 +82,8 @@ class ImageManager:
             hash_str = hashlib.sha256(image_bytes).hexdigest()
 
         try:
-            with get_db_session() as session:
-                statement = select(Images).filter_by(image_hash=hash_str, image_type=ImageType.IMAGE).limit(1)
-                if record := session.exec(statement).first():
+            if record := self._get_image_record(hash_str):
+                if record.vlm_processed and record.description:
                     return record.description
         except Exception as e:
             logger.error(f"查询图片描述时发生错误: {e}")
@@ -86,12 +91,17 @@ class ImageManager:
         if not image_bytes:
             logger.warning("图片哈希值未找到，且未提供图片字节数据，返回无描述")
             return ""
+        try:
+            await self.ensure_image_saved(image_bytes)
+        except Exception as e:
+            logger.error(f"保存图片文件时发生错误: {e}")
+            return ""
         if not wait_for_build:
             self._schedule_description_build(hash_str, image_bytes)
             return ""
         logger.info(f"图片描述未找到，哈希值: {hash_str}，准备生成新描述")
         try:
-            image = await self.save_image_and_process(image_bytes)
+            image = await self.build_image_description(image_bytes)
             return image.description
         except Exception as e:
             logger.error(f"生成图片描述时发生错误: {e}")
@@ -120,7 +130,7 @@ class ImageManager:
         """
         try:
             logger.info(f"图片描述后台构建已开始，哈希值: {image_hash}")
-            await self.save_image_and_process(image_bytes)
+            await self.build_image_description(image_bytes)
             logger.info(f"图片描述后台构建完成，哈希值: {image_hash}")
         except Exception as exc:
             logger.warning(f"图片描述后台构建失败，哈希值: {image_hash}，错误: {exc}")
@@ -201,6 +211,7 @@ class ImageManager:
                     return False
                 record.description = image.description
                 record.last_used_time = datetime.now()
+                record.vlm_processed = image.vlm_processed
                 session.add(record)
                 logger.info(f"成功更新图片描述: {image.file_hash}，新描述: {image.description}")
         except Exception as e:
@@ -239,22 +250,13 @@ class ImageManager:
             return False
         return True
 
-    async def save_image_and_process(self, image_bytes: bytes) -> MaiImage:
-        """
-        保存图片并生成描述
-
-        Args:
-            image_bytes (bytes): 图片的字节数据
-        Returns:
-            return (MaiImage): 包含图片信息的 MaiImage 对象
-        Raises:
-            Exception: 如果在保存或处理过程中发生错误
-        """
+    async def ensure_image_saved(self, image_bytes: bytes) -> MaiImage:
+        """先保存图片记录，确保后续可以按哈希回填图片内容。"""
         hash_str = hashlib.sha256(image_bytes).hexdigest()
 
         try:
             with get_db_session() as session:
-                statement = select(Images).filter_by(image_hash=hash_str).limit(1)
+                statement = select(Images).filter_by(image_hash=hash_str, image_type=ImageType.IMAGE).limit(1)
                 if record := session.exec(statement).first():
                     logger.info(f"图片已存在于数据库中，哈希值: {hash_str}")
                     record.last_used_time = datetime.now()
@@ -270,17 +272,37 @@ class ImageManager:
         tmp_file_path = IMAGE_DIR / f"{hash_str}.tmp"
         with tmp_file_path.open("wb") as f:
             f.write(image_bytes)
-        mai_image = MaiImage(full_path=(IMAGE_DIR / f"{hash_str}.tmp"), image_bytes=image_bytes)
+        mai_image = MaiImage(full_path=tmp_file_path, image_bytes=image_bytes)
         await mai_image.calculate_hash_format()
+        if not self.register_image_to_db(mai_image):
+            raise RuntimeError(f"保存图片记录到数据库失败: {hash_str}")
+        return mai_image
+
+    async def build_image_description(self, image_bytes: bytes) -> MaiImage:
+        """在图片已保存的前提下生成或补齐图片描述。"""
+        mai_image = await self.ensure_image_saved(image_bytes)
+        if mai_image.vlm_processed and mai_image.description:
+            return mai_image
+
         desc = await self._generate_image_description(image_bytes, mai_image.image_format)
         mai_image.description = desc
         mai_image.vlm_processed = True
-        try:
-            self.register_image_to_db(mai_image)
-        except Exception as e:
-            logger.error(f"保存新图片记录到数据库时发生错误: {e}")
-            raise e
+        if not self.update_image_description(mai_image):
+            raise RuntimeError(f"更新图片描述失败: {mai_image.file_hash}")
         return mai_image
+
+    async def save_image_and_process(self, image_bytes: bytes) -> MaiImage:
+        """
+        保存图片并生成描述
+
+        Args:
+            image_bytes (bytes): 图片的字节数据
+        Returns:
+            return (MaiImage): 包含图片信息的 MaiImage 对象
+        Raises:
+            Exception: 如果在保存或处理过程中发生错误
+        """
+        return await self.build_image_description(image_bytes)
 
     def cleanup_invalid_descriptions_in_db(self):
         """

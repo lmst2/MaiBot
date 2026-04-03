@@ -15,7 +15,6 @@ from src.common.database.database import get_db_session
 from src.common.database.database_model import Messages, ModelUsage, OnlineTime, ToolRecord
 from src.manager.async_task_manager import AsyncTask
 from src.manager.local_store_manager import local_storage
-from src.config.config import global_config
 
 logger = get_logger("maibot_statistic")
 

@@ -15,7 +15,6 @@ from rich.panel import Panel
 
 from src.cli.console import console
 from src.common.data_models.llm_service_data_models import LLMGenerationOptions
-from src.common.data_models.message_component_data_model import MessageSequence, TextComponent
 from src.common.logger import get_logger
 from src.common.prompt_i18n import load_prompt
 from src.common.utils.utils_session import SessionUtils
@@ -38,9 +37,7 @@ from src.plugin_runtime.host.hook_spec_registry import HookSpec, HookSpecRegistr
 from src.services.llm_service import LLMServiceClient
 
 from .builtin_tool import get_builtin_tools
-from .context_messages import AssistantMessage, LLMContextMessage, SessionBackedMessage, ToolResultMessage
-from .message_adapter import format_speaker_content
-from .planner_message_utils import build_session_backed_text_message
+from .context_messages import AssistantMessage, LLMContextMessage, ToolResultMessage
 from .prompt_cli_renderer import PromptCLIVisualizer
 
 
@@ -324,7 +321,7 @@ class MaisakaChatLoopService:
         if not prompt_lines:
             return ""
 
-        return f"在该聊天中的注意事项：\n" + "\n\n".join(prompt_lines) + "\n"
+        return "在该聊天中的注意事项：\n" + "\n\n".join(prompt_lines) + "\n"
 
     @staticmethod
     def _get_chat_prompt_for_chat(chat_id: str, is_group_chat: Optional[bool]) -> str:

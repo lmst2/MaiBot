@@ -11,7 +11,13 @@ import base64
 from PIL import Image as PILImage
 
 from src.chat.message_receive.message import SessionMessage
-from src.common.data_models.message_component_data_model import EmojiComponent, ImageComponent, MessageSequence, TextComponent
+from src.common.data_models.message_component_data_model import (
+    EmojiComponent,
+    ImageComponent,
+    MessageSequence,
+    ReplyComponent,
+    TextComponent,
+)
 from src.llm_models.payload_content.message import Message, MessageBuilder, RoleType
 from src.llm_models.payload_content.tool_option import ToolCall
 
@@ -27,11 +33,42 @@ def _guess_image_format(image_bytes: bytes) -> Optional[str]:
         return None
 
 
-def _build_binary_component_type_text(component: EmojiComponent | ImageComponent) -> str:
-    """为图片类消息组件构造显式的消息类型标记。"""
-    if isinstance(component, EmojiComponent):
-        return "[消息类型]表情包"
-    return "[消息类型]图片"
+def _append_emoji_component(builder: MessageBuilder, component: EmojiComponent) -> bool:
+    """将表情组件追加到 LLM 消息构建器。"""
+    image_format = _guess_image_format(component.binary_data)
+    if image_format and component.binary_data:
+        builder.add_text_content("[消息类型]表情包")
+        builder.add_image_content(image_format, base64.b64encode(component.binary_data).decode("utf-8"))
+        return True
+
+    if component.content:
+        builder.add_text_content(component.content)
+        return True
+    return False
+
+
+def _append_image_component(builder: MessageBuilder, component: ImageComponent) -> bool:
+    """将图片组件追加到 LLM 消息构建器。"""
+    image_format = _guess_image_format(component.binary_data)
+    if image_format and component.binary_data:
+        builder.add_text_content("[消息类型]图片")
+        builder.add_image_content(image_format, base64.b64encode(component.binary_data).decode("utf-8"))
+        return True
+
+    if component.content:
+        builder.add_text_content(component.content)
+        return True
+    return False
+
+
+def _append_reply_component(builder: MessageBuilder, component: ReplyComponent) -> bool:
+    """将回复组件追加到 LLM 消息构建器。"""
+    target_message_id = component.target_message_id.strip()
+    if not target_message_id:
+        return False
+
+    builder.add_text_content(f"[引用回复]({target_message_id})")
+    return True
 
 
 def _build_message_from_sequence(
@@ -57,17 +94,17 @@ def _build_message_from_sequence(
                 has_content = True
             continue
 
-        if isinstance(component, (EmojiComponent, ImageComponent)):
-            image_format = _guess_image_format(component.binary_data)
-            if image_format and component.binary_data:
-                builder.add_text_content(_build_binary_component_type_text(component))
-                builder.add_image_content(image_format, base64.b64encode(component.binary_data).decode("utf-8"))
-                has_content = True
-                continue
+        if isinstance(component, EmojiComponent):
+            has_content = _append_emoji_component(builder, component) or has_content
+            continue
 
-            if component.content:
-                builder.add_text_content(component.content)
-                has_content = True
+        if isinstance(component, ImageComponent):
+            has_content = _append_image_component(builder, component) or has_content
+            continue
+
+        if isinstance(component, ReplyComponent):
+            has_content = _append_reply_component(builder, component) or has_content
+            continue
 
     if not has_content and fallback_text:
         builder.add_text_content(fallback_text)

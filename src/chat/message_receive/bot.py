@@ -1,7 +1,6 @@
 """聊天消息入口与主链路调度。"""
 
 from contextlib import suppress
-from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 import os
@@ -550,9 +549,9 @@ class ChatBot:
             # if await self.handle_notice_message(message):
             #     pass
 
-            # 处理消息内容，识别表情包等二进制数据并转化为文本描述
-            if global_config.maisaka.direct_image_input:
-                message.maisaka_original_raw_message = deepcopy(message.raw_message)  # type: ignore[attr-defined]
+            # 处理消息内容，识别表情包等二进制数据并转化为文本描述。
+            # 如果 Maisaka 需要直接消费图片，会在后续构建 prompt 时按需回填图片二进制数据，
+            # 这里不再复制整条原始消息。
             # 入站主链优先保证消息尽快入队，避免图片、表情包、语音分析阻塞适配器超时。
             await message.process(
                 enable_heavy_media_analysis=False,

@@ -12,7 +12,7 @@ import traceback
 from src.chat.heart_flow.heartFC_utils import CycleDetail
 from src.chat.message_receive.message import SessionMessage
 from src.chat.utils.utils import process_llm_response
-from src.common.data_models.message_component_data_model import MessageSequence, TextComponent
+from src.common.data_models.message_component_data_model import EmojiComponent, ImageComponent, MessageSequence, TextComponent
 from src.common.logger import get_logger
 from src.config.config import global_config
 from src.core.tooling import ToolExecutionContext, ToolExecutionResult, ToolInvocation, ToolSpec
@@ -230,12 +230,10 @@ class MaisakaReasoningEngine:
         planner_prefix = build_planner_user_prefix_from_session_message(message)
 
         appended_component = False
-        if global_config.maisaka.direct_image_input:
-            source_sequence = getattr(message, "maisaka_original_raw_message", message.raw_message)
-        else:
-            source_sequence = message.raw_message
-
+        source_sequence = message.raw_message
         planner_components = clone_message_sequence(source_sequence).components
+        if global_config.maisaka.direct_image_input:
+            await self._hydrate_visual_components(planner_components)
         if planner_components and isinstance(planner_components[0], TextComponent):
             planner_components[0].text = planner_prefix + planner_components[0].text
         else:
@@ -255,6 +253,24 @@ class MaisakaReasoningEngine:
                 legacy_visible_text = self._build_legacy_visible_text_from_text(message, content)
 
         return message_sequence, legacy_visible_text
+
+    async def _hydrate_visual_components(self, planner_components: list[object]) -> None:
+        """在 Maisaka 真正需要图片或表情时，按需回填二进制数据。"""
+        load_tasks: list[asyncio.Task[None]] = []
+        for component in planner_components:
+            if isinstance(component, ImageComponent) and not component.binary_data:
+                load_tasks.append(asyncio.create_task(component.load_image_binary()))
+                continue
+            if isinstance(component, EmojiComponent) and not component.binary_data:
+                load_tasks.append(asyncio.create_task(component.load_emoji_binary()))
+
+        if not load_tasks:
+            return
+
+        results = await asyncio.gather(*load_tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning(f"{self._runtime.log_prefix} 回填图片或表情二进制数据失败，Maisaka 将退化为文本占位: {result}")
 
     def _build_legacy_visible_text(self, message: SessionMessage, source_sequence: MessageSequence) -> str:
         user_info = message.message_info.user_info

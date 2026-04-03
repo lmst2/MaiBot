@@ -1,10 +1,9 @@
+import asyncio
 from asyncio import Task
 from typing import Dict, List, Sequence, Tuple
 
 from rich.traceback import install
 from sqlmodel import select
-
-import asyncio
 
 from src.common.logger import get_logger
 from src.common.database.database import get_db_session
@@ -36,6 +35,102 @@ class MsgIDMapping:
 
 
 class SessionMessage(MaiMessage):
+    
+    #便于调试的打印函数
+    def __str__(self) -> str:
+        """返回适合日志输出的消息摘要。"""
+        return self.to_debug_string()
+
+    def __repr__(self) -> str:
+        """返回适合调试场景的消息摘要。"""
+        return self.to_debug_string()
+
+    def to_debug_string(self) -> str:
+        """构建包含引用信息的调试字符串。
+
+        Returns:
+            str: 适合记录日志的消息摘要。
+        """
+        user_info = self.message_info.user_info
+        group_info = self.message_info.group_info
+        chat_type = "group" if group_info else "private"
+        group_id = group_info.group_id if group_info else None
+        group_name = group_info.group_name if group_info else None
+        component_summaries = [self._summarize_component(component) for component in self.raw_message.components]
+        raw_components = ", ".join(component_summaries) if component_summaries else "empty"
+
+        return (
+            "SessionMessage("
+            f"message_id={self.message_id!r}, "
+            f"platform={self.platform!r}, "
+            f"chat_type={chat_type!r}, "
+            f"group_id={group_id!r}, "
+            f"group_name={group_name!r}, "
+            f"user_id={user_info.user_id!r}, "
+            f"user_nickname={user_info.user_nickname!r}, "
+            f"user_cardname={user_info.user_cardname!r}, "
+            f"reply_to={self.reply_to!r}, "
+            f"processed_plain_text={self._truncate_text(self.processed_plain_text)}, "
+            f"raw_components=[{raw_components}]"
+            ")"
+        )
+
+    @staticmethod
+    def _truncate_text(text: str | None, max_length: int = 120) -> str:
+        """截断较长文本，避免日志过长。
+
+        Args:
+            text: 原始文本。
+            max_length: 最大保留长度。
+
+        Returns:
+            str: 截断后的文本表示。
+        """
+        if text is None:
+            return "None"
+        normalized_text = text.replace("\r", "\\r").replace("\n", "\\n")
+        if len(normalized_text) <= max_length:
+            return repr(normalized_text)
+        return repr(f"{normalized_text[:max_length]}...")
+
+    def _summarize_component(self, component: StandardMessageComponents) -> str:
+        """生成单个消息组件的调试摘要。
+
+        Args:
+            component: 消息组件对象。
+
+        Returns:
+            str: 组件摘要文本。
+        """
+        if isinstance(component, TextComponent):
+            return f"Text(text={self._truncate_text(component.text, 80)})"
+        if isinstance(component, ImageComponent):
+            return f"Image(content={self._truncate_text(component.content or None, 60)})"
+        if isinstance(component, EmojiComponent):
+            return f"Emoji(content={self._truncate_text(component.content or None, 60)})"
+        if isinstance(component, AtComponent):
+            target_name = component.target_user_cardname or component.target_user_nickname or component.target_user_id
+            return f"At(target={target_name!r})"
+        if isinstance(component, VoiceComponent):
+            return f"Voice(content={self._truncate_text(component.content or None, 60)})"
+        if isinstance(component, ReplyComponent):
+            sender_name = (
+                component.target_message_sender_cardname
+                or component.target_message_sender_nickname
+                or component.target_message_sender_id
+            )
+            return (
+                "Reply("
+                f"target_message_id={component.target_message_id!r}, "
+                f"target_sender={sender_name!r}, "
+                f"target_content={self._truncate_text(component.target_message_content, 80)}"
+                ")"
+            )
+        if isinstance(component, ForwardNodeComponent):
+            return f"ForwardNode(count={len(component.forward_components)})"
+        return f"{component.__class__.__name__}"
+    #便于调试的打印函数end
+
     async def process(
         self,
         *,
