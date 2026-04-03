@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
-
 import random
 import time
 
@@ -9,6 +8,7 @@ from sqlmodel import select
 
 from src.chat.message_receive.chat_manager import BotChatSession
 from src.common.database.database import get_db_session
+from src.common.data_models.message_component_data_model import MessageSequence, TextComponent
 from src.common.database.database_model import Expression
 from src.common.data_models.reply_generation_data_models import (
     GenerationMetrics,
@@ -19,12 +19,12 @@ from src.common.logger import get_logger
 from src.common.prompt_i18n import load_prompt
 from src.config.config import global_config
 from src.core.types import ActionInfo
+from src.llm_models.payload_content.message import ImageMessagePart, Message, MessageBuilder, RoleType, TextMessagePart
 from src.services.llm_service import LLMServiceClient
 
 from src.chat.message_receive.message import SessionMessage
-from src.llm_models.payload_content.message import Message, MessageBuilder, RoleType
 from src.maisaka.context_messages import AssistantMessage, LLMContextMessage, ReferenceMessage, SessionBackedMessage, ToolResultMessage
-from src.maisaka.message_adapter import parse_speaker_content
+from src.maisaka.message_adapter import clone_message_sequence, parse_speaker_content
 
 logger = get_logger("replyer")
 
@@ -159,6 +159,34 @@ class MaisakaReplyGenerator:
         """构建追加在上下文末尾的回复指令。"""
         return "请基于以上逐条对话消息，自然地继续回复。直接输出你要说的话，不要额外解释。"
 
+    def _build_multimodal_user_message(
+        self,
+        message: SessionBackedMessage,
+        default_user_name: str,
+    ) -> Optional[Message]:
+        """构建保留图片等多模态片段的用户消息。"""
+        speaker_name, _ = parse_speaker_content(message.processed_plain_text.strip())
+        visible_speaker = speaker_name or default_user_name
+
+        raw_message = clone_message_sequence(message.raw_message)
+        if not raw_message.components:
+            raw_message = MessageSequence([TextComponent(f"[{visible_speaker}]")])
+        elif isinstance(raw_message.components[0], TextComponent):
+            first_text = raw_message.components[0].text or ""
+            raw_message.components[0] = TextComponent(f"[{visible_speaker}]{first_text}")
+        else:
+            raw_message.components.insert(0, TextComponent(f"[{visible_speaker}]"))
+
+        multimodal_message = SessionBackedMessage(
+            raw_message=raw_message,
+            visible_text=f"[{visible_speaker}]{message.processed_plain_text}",
+            timestamp=message.timestamp,
+            message_id=message.message_id,
+            original_message=message.original_message,
+            source_kind=message.source_kind,
+        )
+        return multimodal_message.to_llm_message()
+
     def _build_history_messages(self, chat_history: List[LLMContextMessage]) -> List[Message]:
         """将 replyer 上下文拆成多条 LLM 消息。"""
         bot_nickname = global_config.bot.nickname.strip() or "Bot"
@@ -175,6 +203,11 @@ class MaisakaReplyGenerator:
                     messages.append(
                         MessageBuilder().set_role(RoleType.Assistant).add_text_content(guided_reply).build()
                     )
+                    continue
+
+                multimodal_message = self._build_multimodal_user_message(message, default_user_name)
+                if multimodal_message is not None:
+                    messages.append(multimodal_message)
                     continue
 
                 for speaker_name, content_body in self._split_user_message_segments(message.processed_plain_text):
@@ -227,7 +260,14 @@ class MaisakaReplyGenerator:
         preview_lines: List[str] = []
         for message in messages:
             role_name = message.role.value.capitalize()
-            preview_lines.append(f"{role_name}: {message.get_text_content()}")
+            part_previews: List[str] = []
+            for part in message.parts:
+                if isinstance(part, TextMessagePart):
+                    part_previews.append(part.text)
+                    continue
+                if isinstance(part, ImageMessagePart):
+                    part_previews.append(f"[图片:{part.normalized_image_format}]")
+            preview_lines.append(f"{role_name}: {''.join(part_previews)}")
         return "\n\n".join(preview_lines)
 
     def _resolve_session_id(self, stream_id: Optional[str]) -> str:

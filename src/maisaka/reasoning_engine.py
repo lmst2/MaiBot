@@ -266,7 +266,7 @@ class MaisakaReasoningEngine:
         source_sequence = message.raw_message
 
         planner_components = clone_message_sequence(source_sequence).components
-        if global_config.chat.direct_image_input:
+        if global_config.chat.multimodal_planner:
             await self._hydrate_visual_components(planner_components)
         if planner_components and isinstance(planner_components[0], TextComponent):
             planner_components[0].text = planner_prefix + planner_components[0].text

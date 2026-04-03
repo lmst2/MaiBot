@@ -16,8 +16,6 @@ class ExampleConfig(ConfigBase):
     \"""This is an example field\"""
     - 注释前面增加_warp_标记可以实现配置文件中注释在配置项前面单独一行显示
 """
-
-
 class BotConfig(ConfigBase):
     """机器人配置类"""
 
@@ -283,7 +281,7 @@ class ChatConfig(ConfigBase):
         },
     )
 
-    direct_image_input: bool = Field(
+    multimodal_planner: bool = Field(
         default=True,
         json_schema_extra={
             "x-widget": "switch",
@@ -292,14 +290,14 @@ class ChatConfig(ConfigBase):
     )
     """是否直接输入图片"""
 
-    replyer_generator_type: Literal["legacy", "multi"] = Field(
+    replyer_generator_type: Literal["legacy", "multimodal"] = Field(
         default="legacy",
         json_schema_extra={
             "x-widget": "select",
             "x-icon": "git-branch",
         },
     )
-    """Maisaka replyer 生成器类型：legacy（旧版单 prompt）/ multi（多消息版）"""
+    """Maisaka replyer 生成器类型：legacy（旧版单 prompt）/ multimodal（多模态版，适合主循环直接展示图片）"""
 
     enable_talk_value_rules: bool = Field(
         default=True,
