@@ -1528,6 +1528,15 @@ class MaiSakaConfig(ConfigBase):
     )
     """是否将新接收的用户发言合并为单个用户消息"""
 
+    replyer_generator_type: Literal["legacy", "multi"] = Field(
+        default="legacy",
+        json_schema_extra={
+            "x-widget": "select",
+            "x-icon": "git-branch",
+        },
+    )
+    """Maisaka replyer 生成器类型：legacy（旧版单 prompt）/ multi（多消息版）"""
+
     max_internal_rounds: int = Field(
         default=6,
         ge=1,

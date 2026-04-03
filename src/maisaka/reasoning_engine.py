@@ -2,7 +2,7 @@
 
 from base64 import b64decode
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional
 
 import asyncio
 import difflib
@@ -1385,9 +1385,6 @@ class MaisakaReasoningEngine:
                 "Maisaka 回复生成器当前不可用。",
             )
 
-        from src.chat.replyer.maisaka_generator import MaisakaReplyGenerator
-
-        replyer = cast(MaisakaReplyGenerator, replyer)
         logger.info(f"{self._runtime.log_prefix} 已成功获取 Maisaka 回复生成器")
 
         logger.info(f"{self._runtime.log_prefix} 正在调用回复生成接口: 目标消息编号={target_message_id}")

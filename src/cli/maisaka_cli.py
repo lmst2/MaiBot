@@ -17,7 +17,7 @@ from rich.text import Text
 from src.know_u.knowledge import KnowledgeLearner, retrieve_relevant_knowledge
 from src.know_u.knowledge_store import get_knowledge_store
 from src.chat.message_receive.message import SessionMessage
-from src.chat.replyer.maisaka_generator import MaisakaReplyGenerator
+from src.chat.replyer.maisaka_replyer_factory import get_maisaka_replyer_class
 from src.config.config import config_manager, global_config
 from src.mcp_module import MCPManager
 from src.mcp_module.host_llm_bridge import MCPHostLLMBridge
@@ -46,7 +46,7 @@ class BufferCLI:
 
     def __init__(self) -> None:
         self._chat_loop_service: Optional[MaisakaChatLoopService] = None
-        self._reply_generator = MaisakaReplyGenerator()
+        self._reply_generator = get_maisaka_replyer_class()()
         self._reader = InputReader()
         self._chat_history: Optional[list[LLMContextMessage]] = None
         self._knowledge_store = get_knowledge_store()
