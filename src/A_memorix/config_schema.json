@@ -98,7 +98,7 @@
         "data_dir": {
           "name": "data_dir",
           "type": "string",
-          "default": "data/plugins/a-dawn.a-memorix",
+          "default": "data/a-memorix",
           "description": "数据目录",
           "label": "数据目录",
           "ui_type": "text",
@@ -107,7 +107,7 @@
           "disabled": false,
           "order": 1,
           "hint": "相对路径按 MaiBot 仓库根目录解析，建议保持默认外置目录。",
-          "placeholder": "data/plugins/a-dawn.a-memorix",
+          "placeholder": "data/a-memorix",
           "choices": null
         }
       }

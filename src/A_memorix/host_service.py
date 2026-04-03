@@ -88,11 +88,59 @@ class AMemorixHostService:
     def get_config(self) -> Dict[str, Any]:
         return dict(self._read_config())
 
-    def get_raw_config(self) -> str:
+    def _build_default_config(self) -> Dict[str, Any]:
+        schema = self.get_config_schema()
+        sections = schema.get("sections") if isinstance(schema, dict) else None
+        if not isinstance(sections, dict):
+            return {}
+
+        defaults: Dict[str, Any] = {}
+        for section_name, section_payload in sections.items():
+            if not isinstance(section_payload, dict):
+                continue
+            fields = section_payload.get("fields")
+            if not isinstance(fields, dict):
+                continue
+
+            section_parts = [part for part in str(section_name or "").split(".") if part]
+            if not section_parts:
+                continue
+
+            section_target: Dict[str, Any] = defaults
+            for part in section_parts:
+                nested = section_target.get(part)
+                if not isinstance(nested, dict):
+                    nested = {}
+                    section_target[part] = nested
+                section_target = nested
+
+            for field_name, field_payload in fields.items():
+                if not isinstance(field_payload, dict) or "default" not in field_payload:
+                    continue
+                section_target[str(field_name)] = _to_builtin_data(field_payload.get("default"))
+
+        return defaults
+
+    def get_raw_config_with_meta(self) -> Dict[str, Any]:
         path = self.get_config_path()
-        if not path.exists():
-            return ""
-        return path.read_text(encoding="utf-8")
+        if path.exists():
+            return {
+                "config": path.read_text(encoding="utf-8"),
+                "exists": True,
+                "using_default": False,
+            }
+
+        default_config = self._build_default_config()
+        default_raw = tomlkit.dumps(default_config) if default_config else ""
+        return {
+            "config": default_raw,
+            "exists": False,
+            "using_default": True,
+        }
+
+    def get_raw_config(self) -> str:
+        payload = self.get_raw_config_with_meta()
+        return str(payload.get("config", "") or "")
 
     async def update_raw_config(self, raw_config: str) -> Dict[str, Any]:
         tomlkit.loads(raw_config)
@@ -231,16 +279,18 @@ class AMemorixHostService:
 
         path = self.get_config_path()
         if not path.exists():
-            self._config_cache = {}
-            return {}
+            defaults = self._build_default_config()
+            self._config_cache = defaults
+            return dict(defaults)
 
         try:
             with path.open("r", encoding="utf-8") as handle:
                 loaded = tomlkit.load(handle)
         except Exception as exc:
             logger.warning("读取 A_Memorix 配置失败 %s: %s", path, exc)
-            self._config_cache = {}
-            return {}
+            defaults = self._build_default_config()
+            self._config_cache = defaults
+            return dict(defaults)
 
         self._config_cache = _to_builtin_data(loaded) if isinstance(loaded, dict) else {}
         return dict(self._config_cache)

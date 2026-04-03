@@ -560,11 +560,18 @@ Chat paragraph:
     )
     async def _llm_call(self, prompt: str, model_config: Any) -> Dict:
         """Generic LLM Caller"""
-        success, response, _, _ = await llm_api.generate_with_model(
-            prompt=prompt,
-            model_config=model_config,
-            request_type="Script.ProcessKnowledge"
+        task_name = llm_api.resolve_task_name_from_model_config(model_config)
+        result = await llm_api.generate(
+            llm_api.LLMServiceRequest(
+                task_name=task_name,
+                request_type="Script.ProcessKnowledge",
+                prompt=prompt,
+                temperature=getattr(model_config, "temperature", None),
+                max_tokens=getattr(model_config, "max_tokens", None),
+            )
         )
+        success = bool(result.success)
+        response = str(result.completion.response or "")
         if success:
             txt = response.strip()
             if "```" in txt:

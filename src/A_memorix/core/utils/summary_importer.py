@@ -280,15 +280,22 @@ class SummaryImporter:
             model_config_to_use = self._resolve_summary_model_config()
             if model_config_to_use is None:
                 return False, "未找到可用的总结模型配置"
+            task_name_to_use = llm_api.resolve_task_name_from_model_config(model_config_to_use)
 
             logger.info(f"正在为流 {stream_id} 执行总结，消息条数: {len(messages)}")
             logger.info(f"总结模型候选列表: {model_config_to_use.model_list}")
 
-            success, response, _, _ = await llm_api.generate_with_model(
-                prompt=prompt,
-                model_config=model_config_to_use,
-                request_type="A_Memorix.ChatSummarization"
+            result = await llm_api.generate(
+                llm_api.LLMServiceRequest(
+                    task_name=task_name_to_use,
+                    request_type="A_Memorix.ChatSummarization",
+                    prompt=prompt,
+                    temperature=getattr(model_config_to_use, "temperature", None),
+                    max_tokens=getattr(model_config_to_use, "max_tokens", None),
+                )
             )
+            success = bool(result.success)
+            response = str(result.completion.response or "")
 
             if not success or not response:
                 return False, "LLM 生成总结失败"

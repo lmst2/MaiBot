@@ -1306,6 +1306,7 @@ class RetrievalTuningManager:
         model_cfg = await self._select_llm_model()
         if model_cfg is None:
             raise RuntimeError("no_llm_model")
+        task_name = llm_api.resolve_task_name_from_model_config(model_cfg)
 
         retry = self._llm_retry_cfg()
         max_attempts = int(retry["max_attempts"])
@@ -1316,11 +1317,17 @@ class RetrievalTuningManager:
         last_error: Optional[Exception] = None
         for idx in range(max_attempts):
             try:
-                success, response, _, _ = await llm_api.generate_with_model(
-                    prompt=prompt,
-                    model_config=model_cfg,
-                    request_type=request_type,
+                result = await llm_api.generate(
+                    llm_api.LLMServiceRequest(
+                        task_name=task_name,
+                        request_type=request_type,
+                        prompt=prompt,
+                        temperature=getattr(model_cfg, "temperature", None),
+                        max_tokens=getattr(model_cfg, "max_tokens", None),
+                    )
                 )
+                success = bool(result.success)
+                response = str(result.completion.response or "")
                 if not success:
                     raise RuntimeError("llm_generation_failed")
                 text = str(response or "").strip()

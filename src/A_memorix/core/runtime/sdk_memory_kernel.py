@@ -1317,6 +1317,11 @@ class SDKMemoryKernel:
         act = str(action or "").strip().lower()
         if act == "get_graph":
             return {"success": True, **self._serialize_graph(limit=max(1, int(kwargs.get("limit", 200) or 200)))}
+        if act == "search":
+            return self._search_graph(
+                query=str(kwargs.get("query", "") or "").strip(),
+                limit=max(1, min(200, int(kwargs.get("limit", 50) or 50))),
+            )
         if act == "node_detail":
             detail = self._build_graph_node_detail(
                 node_id=str(kwargs.get("node_id", "") or kwargs.get("node", "") or "").strip(),
@@ -2273,6 +2278,179 @@ class SDKMemoryKernel:
             "edges": edge_payload,
             "total_nodes": int(self.graph_store.num_nodes),
             "total_edges": int(self.graph_store.num_edges),
+        }
+
+    @staticmethod
+    def _graph_search_match_rank(value: str, keyword: str) -> Optional[int]:
+        token = str(value or "").strip().lower()
+        if not token or not keyword:
+            return None
+        if token == keyword:
+            return 0
+        if token.startswith(keyword):
+            return 1
+        if keyword in token:
+            return 2
+        return None
+
+    @classmethod
+    def _pick_graph_search_match(
+        cls,
+        fields: Sequence[tuple[str, str]],
+        keyword: str,
+    ) -> Optional[tuple[str, str, int]]:
+        best_match: Optional[tuple[str, str, int]] = None
+        for field, raw_value in fields:
+            value = str(raw_value or "").strip()
+            if not value:
+                continue
+            rank = cls._graph_search_match_rank(value, keyword)
+            if rank is None:
+                continue
+            if best_match is None or rank < best_match[2]:
+                best_match = (field, value, rank)
+        return best_match
+
+    def _search_graph(self, *, query: str, limit: int) -> Dict[str, Any]:
+        assert self.metadata_store is not None
+        token = str(query or "").strip()
+        normalized_query = token.lower()
+        safe_limit = max(1, int(limit or 50))
+        if not token:
+            return {
+                "success": False,
+                "query": token,
+                "limit": safe_limit,
+                "count": 0,
+                "items": [],
+                "error": "query 不能为空",
+            }
+
+        like_keyword = f"%{normalized_query}%"
+        entity_rows = self.metadata_store.query(
+            """
+            SELECT hash, name, appearance_count, created_at
+            FROM entities
+            WHERE (is_deleted IS NULL OR is_deleted = 0)
+              AND (
+                LOWER(COALESCE(name, '')) LIKE ?
+                OR LOWER(COALESCE(hash, '')) LIKE ?
+              )
+            """,
+            (like_keyword, like_keyword),
+        )
+
+        relation_rows = self.metadata_store.query(
+            """
+            SELECT hash, subject, predicate, object, confidence, created_at
+            FROM relations
+            WHERE (is_inactive IS NULL OR is_inactive = 0)
+              AND (
+                LOWER(COALESCE(subject, '')) LIKE ?
+                OR LOWER(COALESCE(object, '')) LIKE ?
+                OR LOWER(COALESCE(predicate, '')) LIKE ?
+                OR LOWER(COALESCE(hash, '')) LIKE ?
+              )
+            """,
+            (like_keyword, like_keyword, like_keyword, like_keyword),
+        )
+
+        entity_items: List[Dict[str, Any]] = []
+        seen_entity_keys: set[str] = set()
+        for row in entity_rows:
+            name = str(row.get("name", "") or "").strip()
+            hash_value = str(row.get("hash", "") or "").strip()
+            match = self._pick_graph_search_match(
+                [("name", name), ("hash", hash_value)],
+                normalized_query,
+            )
+            if match is None:
+                continue
+            dedupe_key = hash_value or f"name:{name.lower()}"
+            if dedupe_key in seen_entity_keys:
+                continue
+            seen_entity_keys.add(dedupe_key)
+            matched_field, matched_value, rank = match
+            entity_items.append(
+                {
+                    "type": "entity",
+                    "title": name or hash_value,
+                    "matched_field": matched_field,
+                    "matched_value": matched_value,
+                    "entity_name": name or hash_value,
+                    "entity_hash": hash_value,
+                    "appearance_count": int(row.get("appearance_count", 0) or 0),
+                    "_rank": rank,
+                }
+            )
+
+        relation_items: List[Dict[str, Any]] = []
+        seen_relation_keys: set[str] = set()
+        for row in relation_rows:
+            subject = str(row.get("subject", "") or "").strip()
+            predicate = str(row.get("predicate", "") or "").strip()
+            obj = str(row.get("object", "") or "").strip()
+            relation_hash = str(row.get("hash", "") or "").strip()
+            match = self._pick_graph_search_match(
+                [
+                    ("subject", subject),
+                    ("object", obj),
+                    ("predicate", predicate),
+                    ("hash", relation_hash),
+                ],
+                normalized_query,
+            )
+            if match is None:
+                continue
+            dedupe_key = relation_hash or f"{subject.lower()}|{predicate.lower()}|{obj.lower()}"
+            if dedupe_key in seen_relation_keys:
+                continue
+            seen_relation_keys.add(dedupe_key)
+            matched_field, matched_value, rank = match
+            relation_items.append(
+                {
+                    "type": "relation",
+                    "title": self._format_relation_text(subject, predicate, obj),
+                    "matched_field": matched_field,
+                    "matched_value": matched_value,
+                    "subject": subject,
+                    "predicate": predicate,
+                    "object": obj,
+                    "relation_hash": relation_hash,
+                    "confidence": float(row.get("confidence", 0.0) or 0.0),
+                    "created_at": float(row.get("created_at", 0.0) or 0.0),
+                    "_rank": rank,
+                }
+            )
+
+        items = entity_items + relation_items
+        items.sort(
+            key=lambda item: (
+                int(item["_rank"]) if item.get("_rank") is not None else 99,
+                0 if str(item.get("type", "") or "") == "entity" else 1,
+                -int(item.get("appearance_count", 0) or 0)
+                if str(item.get("type", "") or "") == "entity"
+                else -float(item.get("confidence", 0.0) or 0.0),
+                0.0 if str(item.get("type", "") or "") == "entity" else -float(item.get("created_at", 0.0) or 0.0),
+                str(item.get("entity_name", item.get("subject", "")) or "").lower(),
+                str(item.get("predicate", "") or "").lower(),
+                str(item.get("object", "") or "").lower(),
+                str(item.get("entity_hash", item.get("relation_hash", "")) or "").lower(),
+            )
+        )
+
+        normalized_items: List[Dict[str, Any]] = []
+        for item in items[:safe_limit]:
+            normalized = dict(item)
+            normalized.pop("_rank", None)
+            normalized_items.append(normalized)
+
+        return {
+            "success": True,
+            "query": token,
+            "limit": safe_limit,
+            "count": len(normalized_items),
+            "items": normalized_items,
         }
 
     @staticmethod

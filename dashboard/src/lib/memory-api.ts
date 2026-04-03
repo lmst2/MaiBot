@@ -53,6 +53,31 @@ export interface MemoryGraphPayload {
   total_edges: number
 }
 
+export interface MemoryGraphSearchItem {
+  type: 'entity' | 'relation'
+  title: string
+  matched_field: string
+  matched_value: string
+  entity_name?: string
+  entity_hash?: string
+  appearance_count?: number
+  subject?: string
+  predicate?: string
+  object?: string
+  relation_hash?: string
+  confidence?: number
+  created_at?: number
+}
+
+export interface MemoryGraphSearchPayload {
+  success: boolean
+  query: string
+  limit: number
+  count: number
+  items: MemoryGraphSearchItem[]
+  error?: string
+}
+
 export interface MemoryGraphRelationDetailPayload {
   hash: string
   subject: string
@@ -185,6 +210,8 @@ export interface MemoryRawConfigPayload {
   success: boolean
   config: string
   path: string
+  exists?: boolean
+  using_default?: boolean
 }
 
 export interface MemoryConfigSchemaPayload {
@@ -198,7 +225,7 @@ export interface MemoryImportGuidePayload {
   content: string
   source?: string
   path?: string
-  settings?: Record<string, unknown>
+  settings?: MemoryImportSettings
 }
 
 export interface MemoryTaskPayload {
@@ -215,6 +242,158 @@ export interface MemoryTaskListPayload {
   items: MemoryTaskPayload[]
   count?: number
   settings?: Record<string, unknown>
+}
+
+export type MemoryImportInputMode = 'text' | 'json'
+
+export type MemoryImportTaskKind =
+  | 'upload'
+  | 'paste'
+  | 'raw_scan'
+  | 'lpmm_openie'
+  | 'lpmm_convert'
+  | 'temporal_backfill'
+  | 'maibot_migration'
+
+export interface MemoryImportSettings {
+  max_queue_size?: number
+  max_files_per_task?: number
+  max_file_size_mb?: number
+  max_paste_chars?: number
+  default_file_concurrency?: number
+  default_chunk_concurrency?: number
+  max_file_concurrency?: number
+  max_chunk_concurrency?: number
+  poll_interval_ms?: number
+  maibot_source_db_default?: string
+  maibot_target_data_dir?: string
+  path_aliases?: Record<string, string>
+  llm_retry?: Record<string, number>
+  convert_enable_staging_switch?: boolean
+  convert_keep_backup_count?: number
+}
+
+export interface MemoryImportSettingsPayload {
+  success: boolean
+  settings: MemoryImportSettings
+}
+
+export interface MemoryImportPathAliasesPayload {
+  success: boolean
+  path_aliases: Record<string, string>
+}
+
+export interface MemoryImportResolvePathPayload {
+  success?: boolean
+  alias: string
+  relative_path: string
+  resolved_path: string
+  exists: boolean
+  is_file: boolean
+  is_dir: boolean
+  error?: string
+}
+
+export interface MemoryImportChunkPayload {
+  chunk_id: string
+  index: number
+  chunk_type: string
+  status: string
+  step: string
+  failed_at: string
+  retryable: boolean
+  error: string
+  progress: number
+  content_preview: string
+  updated_at: number
+}
+
+export interface MemoryImportFilePayload {
+  file_id: string
+  name: string
+  source_kind: string
+  input_mode: MemoryImportInputMode
+  status: string
+  current_step: string
+  detected_strategy_type: string
+  total_chunks: number
+  done_chunks: number
+  failed_chunks: number
+  cancelled_chunks: number
+  progress: number
+  error: string
+  created_at: number
+  updated_at: number
+  source_path?: string
+  content_hash?: string
+  retry_chunk_indexes?: number[]
+  retry_mode?: string
+  chunks?: MemoryImportChunkPayload[]
+}
+
+export interface MemoryImportRetrySummary {
+  chunk_retry_files?: number
+  chunk_retry_chunks?: number
+  file_fallback_files?: number
+  skipped_files?: number
+  parent_task_id?: string
+  skipped_details?: Array<Record<string, string>>
+}
+
+export interface MemoryImportTaskPayload extends MemoryTaskPayload {
+  task_id: string
+  source: string
+  status: string
+  current_step: string
+  total_chunks: number
+  done_chunks: number
+  failed_chunks: number
+  cancelled_chunks: number
+  progress: number
+  error: string
+  file_count: number
+  created_at: number
+  started_at?: number | null
+  finished_at?: number | null
+  updated_at: number
+  task_kind?: MemoryImportTaskKind | string
+  schema_detected?: string
+  artifact_paths?: Record<string, string>
+  rollback_info?: Record<string, unknown>
+  retry_parent_task_id?: string
+  retry_summary?: MemoryImportRetrySummary
+  params?: Record<string, unknown>
+  files?: MemoryImportFilePayload[]
+}
+
+export interface MemoryImportTaskListPayload {
+  success: boolean
+  items: MemoryImportTaskPayload[]
+  count?: number
+  settings?: MemoryImportSettings
+}
+
+export interface MemoryImportTaskDetailPayload {
+  success: boolean
+  task?: MemoryImportTaskPayload
+  error?: string
+}
+
+export interface MemoryImportChunkListPayload {
+  success: boolean
+  task_id?: string
+  file_id?: string
+  offset?: number
+  limit?: number
+  total?: number
+  items?: MemoryImportChunkPayload[]
+  error?: string
+}
+
+export interface MemoryImportActionPayload {
+  success: boolean
+  task?: MemoryImportTaskPayload
+  error?: string
 }
 
 export interface MemoryTuningProfilePayload {
@@ -333,6 +512,17 @@ export interface MemorySourceListPayload {
 
 export async function getMemoryGraph(limit: number = 120): Promise<MemoryGraphPayload> {
   return requestJson<MemoryGraphPayload>(`/graph?limit=${limit}`)
+}
+
+export async function getMemoryGraphSearch(
+  query: string,
+  limit: number = 50,
+): Promise<MemoryGraphSearchPayload> {
+  const params = new URLSearchParams({
+    query,
+    limit: String(limit),
+  })
+  return requestJson<MemoryGraphSearchPayload>(`/graph/search?${params.toString()}`)
 }
 
 export async function getMemoryGraphNodeDetail(
@@ -466,16 +656,120 @@ export async function getMemoryImportGuide(): Promise<MemoryImportGuidePayload> 
   return requestJson<MemoryImportGuidePayload>('/import/guide')
 }
 
-export async function getMemoryImportSettings(): Promise<Record<string, unknown>> {
-  return requestJson('/import/settings')
+export async function getMemoryImportSettings(): Promise<MemoryImportSettingsPayload> {
+  return requestJson<MemoryImportSettingsPayload>('/import/settings')
 }
 
-export async function getMemoryImportTasks(limit: number = 20): Promise<MemoryTaskListPayload> {
-  return requestJson<MemoryTaskListPayload>(`/import/tasks?limit=${limit}`)
+export async function getMemoryImportPathAliases(): Promise<MemoryImportPathAliasesPayload> {
+  return requestJson<MemoryImportPathAliasesPayload>('/import/path-aliases')
 }
 
-export async function createMemoryPasteImport(payload: Record<string, unknown>): Promise<{ success: boolean; task?: MemoryTaskPayload }> {
-  return requestJson('/import/paste', {
+export async function resolveMemoryImportPath(payload: {
+  alias: string
+  relative_path?: string
+  must_exist?: boolean
+}): Promise<MemoryImportResolvePathPayload> {
+  return requestJson<MemoryImportResolvePathPayload>('/import/resolve-path', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function getMemoryImportTasks(limit: number = 20): Promise<MemoryImportTaskListPayload> {
+  return requestJson<MemoryImportTaskListPayload>(`/import/tasks?limit=${limit}`)
+}
+
+export async function getMemoryImportTask(taskId: string, includeChunks: boolean = false): Promise<MemoryImportTaskDetailPayload> {
+  return requestJson<MemoryImportTaskDetailPayload>(
+    `/import/tasks/${encodeURIComponent(taskId)}?include_chunks=${includeChunks ? 'true' : 'false'}`,
+  )
+}
+
+export async function getMemoryImportTaskChunks(
+  taskId: string,
+  fileId: string,
+  offset: number = 0,
+  limit: number = 50,
+): Promise<MemoryImportChunkListPayload> {
+  return requestJson<MemoryImportChunkListPayload>(
+    `/import/tasks/${encodeURIComponent(taskId)}/chunks/${encodeURIComponent(fileId)}?offset=${offset}&limit=${limit}`,
+  )
+}
+
+export async function createMemoryUploadImport(files: File[], payload: Record<string, unknown>): Promise<MemoryImportActionPayload> {
+  const formData = new FormData()
+  files.forEach((file) => {
+    formData.append('files', file)
+  })
+  formData.append('payload_json', JSON.stringify(payload))
+  return requestJson<MemoryImportActionPayload>('/import/upload', {
+    method: 'POST',
+    body: formData,
+  })
+}
+
+export async function createMemoryPasteImport(payload: Record<string, unknown>): Promise<MemoryImportActionPayload> {
+  return requestJson<MemoryImportActionPayload>('/import/paste', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function createMemoryRawScanImport(payload: Record<string, unknown>): Promise<MemoryImportActionPayload> {
+  return requestJson<MemoryImportActionPayload>('/import/raw-scan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function createMemoryLpmmOpenieImport(payload: Record<string, unknown>): Promise<MemoryImportActionPayload> {
+  return requestJson<MemoryImportActionPayload>('/import/lpmm-openie', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function createMemoryLpmmConvertImport(payload: Record<string, unknown>): Promise<MemoryImportActionPayload> {
+  return requestJson<MemoryImportActionPayload>('/import/lpmm-convert', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function createMemoryTemporalBackfillImport(payload: Record<string, unknown>): Promise<MemoryImportActionPayload> {
+  return requestJson<MemoryImportActionPayload>('/import/temporal-backfill', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function createMemoryMaibotMigrationImport(payload: Record<string, unknown>): Promise<MemoryImportActionPayload> {
+  return requestJson<MemoryImportActionPayload>('/import/maibot-migration', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function cancelMemoryImportTask(taskId: string): Promise<MemoryImportActionPayload> {
+  return requestJson<MemoryImportActionPayload>(`/import/tasks/${encodeURIComponent(taskId)}/cancel`, {
+    method: 'POST',
+  })
+}
+
+export async function retryMemoryImportTask(
+  taskId: string,
+  payload: {
+    overrides?: Record<string, unknown>
+  } = {},
+): Promise<MemoryImportActionPayload> {
+  return requestJson<MemoryImportActionPayload>(`/import/tasks/${encodeURIComponent(taskId)}/retry`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

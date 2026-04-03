@@ -168,6 +168,10 @@ async def _graph_get(limit: int) -> dict:
     return await memory_service.graph_admin(action="get_graph", limit=limit)
 
 
+async def _graph_search(query: str, limit: int) -> dict:
+    return await memory_service.graph_admin(action="search", query=query, limit=limit)
+
+
 async def _graph_get_node_detail(
     node_id: str,
     *,
@@ -390,9 +394,20 @@ async def _memory_config_get() -> dict:
 
 
 async def _memory_config_get_raw() -> dict:
+    raw_payload_getter = getattr(a_memorix_host_service, "get_raw_config_with_meta", None)
+    if callable(raw_payload_getter):
+        raw_payload = raw_payload_getter()
+    else:
+        raw_payload = {
+            "config": a_memorix_host_service.get_raw_config(),
+            "exists": bool(a_memorix_host_service.get_config_path().exists()),
+            "using_default": False,
+        }
     return {
         "success": True,
-        "config": a_memorix_host_service.get_raw_config(),
+        "config": str(raw_payload.get("config", "") or ""),
+        "exists": bool(raw_payload.get("exists", False)),
+        "using_default": bool(raw_payload.get("using_default", False)),
         "path": str(a_memorix_host_service.get_config_path()),
     }
 
@@ -647,6 +662,14 @@ async def _stage_upload_files(files: list[UploadFile]) -> tuple[Path, list[dict[
 @router.get("/graph")
 async def get_memory_graph(limit: int = Query(200, ge=1, le=5000)):
     return await _graph_get(limit)
+
+
+@router.get("/graph/search")
+async def search_memory_graph(
+    query: str = Query(..., min_length=1),
+    limit: int = Query(50, ge=1, le=200),
+):
+    return await _graph_search(query, limit)
 
 
 @router.get("/graph/node-detail")

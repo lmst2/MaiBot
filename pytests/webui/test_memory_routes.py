@@ -52,6 +52,54 @@ def test_webui_memory_graph_route(client: TestClient, monkeypatch):
     assert response.json()["edges"][0]["evidence_count"] == 2
 
 
+def test_webui_memory_graph_search_route(client: TestClient, monkeypatch):
+    async def fake_graph_admin(*, action: str, **kwargs):
+        assert action == "search"
+        assert kwargs["query"] == "Alice"
+        assert kwargs["limit"] == 33
+        return {
+            "success": True,
+            "query": kwargs["query"],
+            "limit": kwargs["limit"],
+            "count": 1,
+            "items": [
+                {
+                    "type": "entity",
+                    "title": "Alice",
+                    "matched_field": "name",
+                    "matched_value": "Alice",
+                    "entity_name": "Alice",
+                    "entity_hash": "entity-1",
+                    "appearance_count": 3,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(memory_router_module.memory_service, "graph_admin", fake_graph_admin)
+
+    response = client.get("/api/webui/memory/graph/search", params={"query": "Alice", "limit": 33})
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["query"] == "Alice"
+    assert response.json()["limit"] == 33
+    assert response.json()["items"][0]["type"] == "entity"
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"query": "", "limit": 50},
+        {"query": "Alice", "limit": 0},
+        {"query": "Alice", "limit": 201},
+    ],
+)
+def test_webui_memory_graph_search_route_validation(client: TestClient, params):
+    response = client.get("/api/webui/memory/graph/search", params=params)
+
+    assert response.status_code == 422
+
+
 def test_webui_memory_graph_node_detail_route(client: TestClient, monkeypatch):
     async def fake_graph_admin(*, action: str, **kwargs):
         assert action == "node_detail"
@@ -200,28 +248,59 @@ def test_memory_config_routes(client: TestClient, monkeypatch):
         "get_raw_config",
         lambda: "[plugin]\nenabled = true\n",
     )
+    monkeypatch.setattr(
+        memory_router_module.a_memorix_host_service,
+        "get_raw_config_with_meta",
+        lambda: {
+            "config": "[plugin]\nenabled = true\n",
+            "exists": True,
+            "using_default": False,
+        },
+    )
 
     schema_response = client.get("/api/webui/memory/config/schema")
     config_response = client.get("/api/webui/memory/config")
     raw_response = client.get("/api/webui/memory/config/raw")
+    expected_path = memory_router_module.Path("/tmp/config/a_memorix.toml").as_posix()
 
     assert schema_response.status_code == 200
-    assert schema_response.json()["path"] == "/tmp/config/a_memorix.toml"
+    assert memory_router_module.Path(schema_response.json()["path"]).as_posix() == expected_path
     assert schema_response.json()["schema"]["layout"]["type"] == "tabs"
 
     assert config_response.status_code == 200
-    assert config_response.json() == {
-        "success": True,
-        "config": {"plugin": {"enabled": True}},
-        "path": "/tmp/config/a_memorix.toml",
-    }
+    assert config_response.json()["success"] is True
+    assert config_response.json()["config"] == {"plugin": {"enabled": True}}
+    assert memory_router_module.Path(config_response.json()["path"]).as_posix() == expected_path
 
     assert raw_response.status_code == 200
-    assert raw_response.json() == {
-        "success": True,
-        "config": "[plugin]\nenabled = true\n",
-        "path": "/tmp/config/a_memorix.toml",
-    }
+    assert raw_response.json()["success"] is True
+    assert raw_response.json()["config"] == "[plugin]\nenabled = true\n"
+    assert memory_router_module.Path(raw_response.json()["path"]).as_posix() == expected_path
+
+
+def test_memory_config_raw_returns_default_template_when_file_missing(client: TestClient, monkeypatch):
+    monkeypatch.setattr(
+        memory_router_module.a_memorix_host_service,
+        "get_config_path",
+        lambda: memory_router_module.Path("/tmp/config/a_memorix.toml"),
+    )
+    monkeypatch.setattr(
+        memory_router_module.a_memorix_host_service,
+        "get_raw_config_with_meta",
+        lambda: {
+            "config": "[plugin]\nenabled = true\n",
+            "exists": False,
+            "using_default": True,
+        },
+    )
+
+    response = client.get("/api/webui/memory/config/raw")
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert response.json()["config"] == "[plugin]\nenabled = true\n"
+    assert response.json()["exists"] is False
+    assert response.json()["using_default"] is True
 
 
 def test_memory_config_update_routes(client: TestClient, monkeypatch):

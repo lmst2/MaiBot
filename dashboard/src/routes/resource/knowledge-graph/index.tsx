@@ -22,6 +22,7 @@ import {
   getMemoryGraph,
   getMemoryGraphEdgeDetail,
   getMemoryGraphNodeDetail,
+  getMemoryGraphSearch,
   previewMemoryDelete,
   restoreMemoryDelete,
   type MemoryDeleteExecutePayload,
@@ -34,6 +35,7 @@ import {
   type MemoryGraphParagraphDetailPayload,
   type MemoryGraphPayload,
   type MemoryGraphRelationDetailPayload,
+  type MemoryGraphSearchItem,
 } from '@/lib/memory-api'
 
 import {
@@ -211,6 +213,9 @@ export function KnowledgeGraphPage() {
   const [nodeLimit, setNodeLimit] = useState('120')
   const [searchInput, setSearchInput] = useState('')
   const [appliedSearchQuery, setAppliedSearchQuery] = useState('')
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchResults, setSearchResults] = useState<MemoryGraphSearchItem[]>([])
+  const [searchFallbackMode, setSearchFallbackMode] = useState(false)
   const [viewMode, setViewMode] = useState<GraphViewMode>('entity')
   const [fullGraph, setFullGraph] = useState<GraphData>({ nodes: [], edges: [] })
   const [graphData, setGraphData] = useState<GraphData>({ nodes: [], edges: [] })
@@ -258,9 +263,12 @@ export function KnowledgeGraphPage() {
       setLoading(true)
       const payload = await getMemoryGraph(Number(nodeLimit))
       const nextGraph = toEntityGraphData(payload)
+      const visibleGraph = searchFallbackMode && appliedSearchQuery
+        ? filterGraphData(nextGraph, appliedSearchQuery)
+        : nextGraph
       setGraphMeta(payload)
       setFullGraph(nextGraph)
-      setGraphData(filterGraphData(nextGraph, appliedSearchQuery))
+      setGraphData(visibleGraph)
       setEvidenceGraph({ nodes: [], edges: [] })
       resetDetailSelections()
       if (!options?.silent) {
@@ -278,21 +286,54 @@ export function KnowledgeGraphPage() {
     } finally {
       setLoading(false)
     }
-  }, [appliedSearchQuery, nodeLimit, resetDetailSelections, toast])
+  }, [appliedSearchQuery, nodeLimit, resetDetailSelections, searchFallbackMode, toast])
 
   useEffect(() => {
     void loadGraph({ silent: true })
   }, [loadGraph])
 
-  const handleSearch = useCallback(() => {
+  const handleSearch = useCallback(async () => {
     const nextQuery = searchInput.trim()
+    if (!nextQuery) {
+      setAppliedSearchQuery('')
+      setSearchFallbackMode(false)
+      setSearchResults([])
+      setGraphData(fullGraph)
+      toast({
+        title: '已重置筛选',
+        description: `当前显示 ${fullGraph.nodes.length} 个节点、${fullGraph.edges.length} 条关系`,
+      })
+      return
+    }
+
+    setSearchLoading(true)
     setAppliedSearchQuery(nextQuery)
-    const filtered = filterGraphData(fullGraph, nextQuery)
-    setGraphData(filtered)
-    toast({
-      title: nextQuery ? '筛选完成' : '已重置筛选',
-      description: `当前显示 ${filtered.nodes.length} 个节点、${filtered.edges.length} 条关系`,
-    })
+    try {
+      const payload = await getMemoryGraphSearch(nextQuery, 50)
+      if (!payload.success) {
+        throw new Error(payload.error || '图谱检索失败')
+      }
+      const items = Array.isArray(payload.items) ? payload.items : []
+      setSearchResults(items)
+      setSearchFallbackMode(false)
+      setGraphData(fullGraph)
+      toast({
+        title: '全库检索完成',
+        description: `命中 ${payload.count ?? items.length} 条结果`,
+      })
+    } catch (error) {
+      const filtered = filterGraphData(fullGraph, nextQuery)
+      setSearchResults([])
+      setSearchFallbackMode(true)
+      setGraphData(filtered)
+      toast({
+        title: '后端检索失败，已回退本地筛选',
+        description: `仅当前已加载范围（${filtered.nodes.length} 个节点、${filtered.edges.length} 条关系）`,
+        variant: 'destructive',
+      })
+    } finally {
+      setSearchLoading(false)
+    }
   }, [fullGraph, searchInput, toast])
 
   const stats = useMemo(
@@ -397,21 +438,41 @@ export function KnowledgeGraphPage() {
     }
   }, [closeDeleteDialog, deleteResult?.operation_id, loadGraph, toast])
 
-  const handleNodeClick = useCallback(async (_: React.MouseEvent, node: Node) => {
-    const selected = graphData.nodes.find((item) => item.id === node.id)
-    setSelectedNodeData(selected ?? null)
+  const openNodeDetail = useCallback(async (
+    nodeId: string,
+    options?: { locateInEvidence?: boolean },
+  ) => {
+    const nodeToken = String(nodeId || '').trim()
+    if (!nodeToken) {
+      return
+    }
+    const selected = graphData.nodes.find((item) => item.id === nodeToken)
+    if (options?.locateInEvidence) {
+      setSelectedNodeData(null)
+    } else {
+      setSelectedNodeData(
+        selected ?? {
+          id: nodeToken,
+          type: 'entity',
+          content: nodeToken,
+          metadata: {},
+        },
+      )
+    }
     setSelectedEdgeData(null)
     setEdgeDetail(null)
     setSelectedRelationDetail(null)
+    setSelectedRelationMetadata(null)
     setSelectedParagraphDetail(null)
-    if (!selected) {
-      return
-    }
+    setSelectedParagraphMetadata(null)
     try {
       setDetailLoading(true)
-      const detail = await getMemoryGraphNodeDetail(selected.id)
+      const detail = await getMemoryGraphNodeDetail(nodeToken)
       setNodeDetail(detail)
       setEvidenceGraph(toEvidenceGraphData(detail.evidence_graph))
+      if (options?.locateInEvidence) {
+        setViewMode('evidence')
+      }
     } catch (error) {
       toast({
         title: '加载节点详情失败',
@@ -423,27 +484,62 @@ export function KnowledgeGraphPage() {
     }
   }, [graphData.nodes, toast])
 
-  const handleEdgeClick = useCallback(async (_: React.MouseEvent, edge: Edge) => {
-    const sourceNode = graphData.nodes.find((nodeItem) => nodeItem.id === edge.source)
-    const targetNode = graphData.nodes.find((nodeItem) => nodeItem.id === edge.target)
-    const edgeData = graphData.edges.find((item) => item.source === edge.source && item.target === edge.target)
-    if (!sourceNode || !targetNode || !edgeData) {
+  const openEdgeDetail = useCallback(async (
+    source: string,
+    target: string,
+    options?: { locateInEvidence?: boolean },
+  ) => {
+    const sourceToken = String(source || '').trim()
+    const targetToken = String(target || '').trim()
+    if (!sourceToken || !targetToken) {
       return
     }
     setSelectedNodeData(null)
     setNodeDetail(null)
     setSelectedRelationDetail(null)
+    setSelectedRelationMetadata(null)
     setSelectedParagraphDetail(null)
-    setSelectedEdgeData({
-      source: sourceNode,
-      target: targetNode,
-      edge: edgeData,
-    })
+    setSelectedParagraphMetadata(null)
+    if (options?.locateInEvidence) {
+      setSelectedEdgeData(null)
+    } else {
+      const sourceNode = graphData.nodes.find((nodeItem) => nodeItem.id === sourceToken) ?? {
+        id: sourceToken,
+        type: 'entity' as const,
+        content: sourceToken,
+        metadata: {},
+      }
+      const targetNode = graphData.nodes.find((nodeItem) => nodeItem.id === targetToken) ?? {
+        id: targetToken,
+        type: 'entity' as const,
+        content: targetToken,
+        metadata: {},
+      }
+      const edgeData = graphData.edges.find((item) => item.source === sourceToken && item.target === targetToken) ?? {
+        source: sourceToken,
+        target: targetToken,
+        weight: 1,
+        kind: 'relation' as const,
+        label: '',
+        relationHashes: [],
+        predicates: [],
+        relationCount: 0,
+        evidenceCount: 0,
+      }
+      setSelectedEdgeData({
+        source: sourceNode,
+        target: targetNode,
+        edge: edgeData,
+      })
+    }
     try {
       setDetailLoading(true)
-      const detail = await getMemoryGraphEdgeDetail(edge.source, edge.target)
+      const detail = await getMemoryGraphEdgeDetail(sourceToken, targetToken)
       setEdgeDetail(detail)
       setEvidenceGraph(toEvidenceGraphData(detail.evidence_graph))
+      if (options?.locateInEvidence) {
+        setViewMode('evidence')
+      }
     } catch (error) {
       toast({
         title: '加载关系详情失败',
@@ -454,6 +550,36 @@ export function KnowledgeGraphPage() {
       setDetailLoading(false)
     }
   }, [graphData.edges, graphData.nodes, toast])
+
+  const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+    void openNodeDetail(node.id)
+  }, [openNodeDetail])
+
+  const handleEdgeClick = useCallback((_: React.MouseEvent, edge: Edge) => {
+    void openEdgeDetail(edge.source, edge.target)
+  }, [openEdgeDetail])
+
+  const handleSearchResultClick = useCallback((item: MemoryGraphSearchItem) => {
+    if (item.type === 'entity') {
+      const entityName = String(item.entity_name ?? item.title ?? '').trim()
+      if (!entityName) {
+        return
+      }
+      void openNodeDetail(entityName, { locateInEvidence: true })
+      return
+    }
+    const source = String(item.subject ?? '').trim()
+    const target = String(item.object ?? '').trim()
+    if (!source || !target) {
+      toast({
+        title: '结果缺少定位信息',
+        description: '该关系记录没有可用的 subject/object，无法定位。',
+        variant: 'destructive',
+      })
+      return
+    }
+    void openEdgeDetail(source, target, { locateInEvidence: true })
+  }, [openEdgeDetail, openNodeDetail, toast])
 
   const handleEvidenceNodeClick = useCallback(async (_: React.MouseEvent, node: Node) => {
     const selected = evidenceGraph.nodes.find((item) => item.id === node.id)
@@ -640,12 +766,12 @@ export function KnowledgeGraphPage() {
               <Input
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
-                onKeyDown={(event) => event.key === 'Enter' && handleSearch()}
-                placeholder="筛选实体名称、节点 ID 或边标签"
+                onKeyDown={(event) => event.key === 'Enter' && void handleSearch()}
+                placeholder="搜索实体、关系、hash（后端全库）"
               />
-              <Button onClick={handleSearch} variant="secondary">
+              <Button onClick={() => void handleSearch()} variant="secondary" disabled={searchLoading}>
                 <Search className="mr-2 h-4 w-4" />
-                筛选
+                {searchLoading ? '检索中' : '搜索'}
               </Button>
             </div>
 
@@ -678,6 +804,48 @@ export function KnowledgeGraphPage() {
               <TabsTrigger value="evidence">证据视图</TabsTrigger>
             </TabsList>
           </Tabs>
+
+          {appliedSearchQuery ? (
+            <div className="rounded-lg border bg-background/80 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-medium">
+                  搜索词：{appliedSearchQuery}
+                </div>
+                <Badge variant={searchFallbackMode ? 'destructive' : 'secondary'}>
+                  {searchFallbackMode ? '仅当前已加载范围' : `全库命中 ${searchResults.length} 条`}
+                </Badge>
+              </div>
+              {searchFallbackMode ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  后端检索不可用，当前结果来自已加载图谱范围。请先刷新图谱或稍后重试。
+                </p>
+              ) : searchResults.length <= 0 ? (
+                <p className="mt-2 text-sm text-muted-foreground">未命中实体或关系。</p>
+              ) : (
+                <div className="mt-3 max-h-56 space-y-2 overflow-auto pr-1">
+                  {searchResults.map((item, index) => (
+                    <button
+                      key={`${item.type}-${item.entity_hash ?? item.relation_hash ?? `${item.title}-${index}`}`}
+                      type="button"
+                      className="w-full rounded-md border bg-card px-3 py-2 text-left transition hover:bg-accent/40"
+                      onClick={() => handleSearchResultClick(item)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{item.type === 'entity' ? '实体' : '关系'}</Badge>
+                        <span className="truncate text-sm font-medium">{item.title || '(无标题结果)'}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        命中字段：{item.matched_field} = {item.matched_value}
+                        {item.type === 'entity'
+                          ? ` · appearance=${item.appearance_count ?? 0}`
+                          : ` · confidence=${Number(item.confidence ?? 0).toFixed(2)}`}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
 

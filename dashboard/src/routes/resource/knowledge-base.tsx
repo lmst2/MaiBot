@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 
 import {
+  ChevronLeft,
+  ChevronRight,
   Database,
-  FileDown,
   Gauge,
+  Loader2,
   RefreshCw,
   RotateCcw,
   Save,
@@ -14,7 +16,7 @@ import {
   Upload,
 } from 'lucide-react'
 
-import { CodeEditor, MarkdownRenderer } from '@/components'
+import { CodeEditor } from '@/components'
 import { MemoryDeleteDialog } from '@/components/memory/MemoryDeleteDialog'
 import { MemoryConfigEditor } from '@/components/memory/MemoryConfigEditor'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -24,6 +26,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Progress } from '@/components/ui/progress'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -36,26 +40,42 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import {
+  cancelMemoryImportTask,
+  createMemoryLpmmConvertImport,
+  createMemoryLpmmOpenieImport,
+  createMemoryMaibotMigrationImport,
+  createMemoryRawScanImport,
+  createMemoryTemporalBackfillImport,
   executeMemoryDelete,
+  getMemoryImportPathAliases,
+  getMemoryImportSettings,
+  getMemoryImportTask,
+  getMemoryImportTaskChunks,
   applyBestMemoryTuningProfile,
   createMemoryPasteImport,
   createMemoryTuningTask,
+  createMemoryUploadImport,
   getMemoryConfig,
   getMemoryConfigRaw,
   getMemoryConfigSchema,
   getMemoryDeleteOperation,
   getMemoryDeleteOperations,
-  getMemoryImportGuide,
   getMemoryImportTasks,
   getMemoryRuntimeConfig,
   getMemorySources,
   getMemoryTuningProfile,
   getMemoryTuningTasks,
   type MemoryDeleteRequestPayload,
+  type MemoryImportChunkListPayload,
+  type MemoryImportInputMode,
+  type MemoryImportSettings,
+  type MemoryImportTaskKind,
+  type MemoryImportTaskPayload,
   previewMemoryDelete,
   refreshMemoryRuntimeSelfCheck,
+  resolveMemoryImportPath,
+  retryMemoryImportTask,
   restoreMemoryDelete,
   updateMemoryConfig,
   updateMemoryConfigRaw,
@@ -70,6 +90,138 @@ import {
 const DELETE_OPERATION_FETCH_LIMIT = 100
 const DELETE_OPERATION_PAGE_SIZE = 6
 const DELETE_OPERATION_ITEM_PAGE_SIZE = 8
+const IMPORT_CHUNK_PAGE_SIZE = 50
+
+const RUNNING_IMPORT_STATUS = new Set(['preparing', 'running', 'cancel_requested'])
+const QUEUED_IMPORT_STATUS = new Set(['queued'])
+
+const IMPORT_STATUS_TEXT: Record<string, string> = {
+  queued: '排队中',
+  preparing: '准备中',
+  running: '运行中',
+  cancel_requested: '取消中',
+  cancelled: '已取消',
+  completed: '已完成',
+  completed_with_errors: '完成（有错误）',
+  failed: '失败',
+}
+
+const IMPORT_STEP_TEXT: Record<string, string> = {
+  queued: '排队中',
+  preparing: '准备中',
+  running: '运行中',
+  splitting: '分块中',
+  extracting: '抽取中',
+  writing: '写入中',
+  saving: '保存中',
+  backfilling: '回填中',
+  converting: '转换中',
+  verifying: '校验中',
+  switching: '切换中',
+  cancel_requested: '取消中',
+  cancelled: '已取消',
+  completed: '已完成',
+  completed_with_errors: '完成（有错误）',
+  failed: '失败',
+}
+
+const IMPORT_KIND_OPTIONS: Array<{ value: MemoryImportTaskKind; label: string; description: string }> = [
+  { value: 'upload', label: '上传文件', description: '从本地批量上传文本文件' },
+  { value: 'paste', label: '粘贴导入', description: '直接粘贴文本或 JSON 内容创建任务' },
+  { value: 'raw_scan', label: '本地扫描', description: '按路径别名和匹配规则批量扫描导入' },
+  { value: 'lpmm_openie', label: 'LPMM OpenIE', description: '读取 LPMM 数据并抽取关系' },
+  { value: 'lpmm_convert', label: 'LPMM 转换', description: '将 LPMM 数据转换到目标目录' },
+  { value: 'temporal_backfill', label: '时序回填', description: '对既有数据执行时间字段回填' },
+  { value: 'maibot_migration', label: 'MaiBot 迁移', description: '从 MaiBot 历史库迁移长期记忆数据' },
+]
+
+function normalizeProgress(value: number | string | null | undefined): number {
+  const numeric = Number(value ?? 0)
+  if (!Number.isFinite(numeric)) {
+    return 0
+  }
+  if (numeric < 0) {
+    return 0
+  }
+  if (numeric > 100) {
+    return 100
+  }
+  return numeric
+}
+
+function parseOptionalPositiveInt(input: string): number | undefined {
+  const value = input.trim()
+  if (!value) {
+    return undefined
+  }
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return undefined
+  }
+  return parsed
+}
+
+function parseCommaSeparatedList(input: string): string[] {
+  return input
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function normalizeImportInputMode(value: string): MemoryImportInputMode {
+  return value === 'json' ? 'json' : 'text'
+}
+
+function getImportStatusLabel(status: string): string {
+  const normalized = String(status ?? '').trim()
+  if (!normalized) {
+    return '-'
+  }
+  return IMPORT_STATUS_TEXT[normalized] ?? normalized
+}
+
+function getImportStepLabel(step: string): string {
+  const normalized = String(step ?? '').trim()
+  if (!normalized) {
+    return '-'
+  }
+  return IMPORT_STEP_TEXT[normalized] ?? normalized
+}
+
+function getImportStatusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+  if (status === 'failed') {
+    return 'destructive'
+  }
+  if (status === 'completed') {
+    return 'default'
+  }
+  if (status === 'completed_with_errors' || status === 'cancelled') {
+    return 'secondary'
+  }
+  if (RUNNING_IMPORT_STATUS.has(status) || QUEUED_IMPORT_STATUS.has(status)) {
+    return 'outline'
+  }
+  return 'secondary'
+}
+
+function formatImportTime(timestamp?: number | null): string {
+  if (!timestamp) {
+    return '-'
+  }
+  const normalized = timestamp > 1_000_000_000_000 ? timestamp : timestamp * 1000
+  const value = new Date(normalized)
+  if (Number.isNaN(value.getTime())) {
+    return '-'
+  }
+  return value.toLocaleString('zh-CN', {
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
 
 function formatDeleteOperationMode(mode: string): string {
   switch (mode) {
@@ -213,10 +365,85 @@ export function KnowledgeBasePage() {
   const [schemaPayload, setSchemaPayload] = useState<MemoryConfigSchemaPayload | null>(null)
   const [visualConfig, setVisualConfig] = useState<Record<string, unknown>>({})
   const [rawConfig, setRawConfig] = useState('')
+  const [rawConfigExists, setRawConfigExists] = useState(true)
+  const [rawConfigUsingDefault, setRawConfigUsingDefault] = useState(false)
   const [runtimeConfig, setRuntimeConfig] = useState<MemoryRuntimeConfigPayload | null>(null)
   const [selfCheckReport, setSelfCheckReport] = useState<Record<string, unknown> | null>(null)
-  const [importGuide, setImportGuide] = useState('')
-  const [importTasks, setImportTasks] = useState<MemoryTaskPayload[]>([])
+  const [importSettings, setImportSettings] = useState<MemoryImportSettings>({})
+  const [importPathAliases, setImportPathAliases] = useState<Record<string, string>>({})
+  const [importTasks, setImportTasks] = useState<MemoryImportTaskPayload[]>([])
+  const [selectedImportTaskId, setSelectedImportTaskId] = useState('')
+  const [selectedImportTask, setSelectedImportTask] = useState<MemoryImportTaskPayload | null>(null)
+  const [selectedImportTaskLoading, setSelectedImportTaskLoading] = useState(false)
+  const [selectedImportFileId, setSelectedImportFileId] = useState('')
+  const [importChunkOffset, setImportChunkOffset] = useState(0)
+  const [importChunksPayload, setImportChunksPayload] = useState<MemoryImportChunkListPayload | null>(null)
+  const [importChunksLoading, setImportChunksLoading] = useState(false)
+  const [importCreateMode, setImportCreateMode] = useState<MemoryImportTaskKind>('upload')
+  const [importAutoPolling, setImportAutoPolling] = useState(true)
+  const [importErrorText, setImportErrorText] = useState('')
+  const [importCommonFileConcurrency, setImportCommonFileConcurrency] = useState('2')
+  const [importCommonChunkConcurrency, setImportCommonChunkConcurrency] = useState('4')
+  const [importCommonLlmEnabled, setImportCommonLlmEnabled] = useState(true)
+  const [importCommonStrategyOverride, setImportCommonStrategyOverride] = useState('auto')
+  const [importCommonDedupePolicy, setImportCommonDedupePolicy] = useState('content_hash')
+  const [importCommonChatLog, setImportCommonChatLog] = useState(false)
+  const [importCommonChatReferenceTime, setImportCommonChatReferenceTime] = useState('')
+  const [importCommonForce, setImportCommonForce] = useState(false)
+  const [importCommonClearManifest, setImportCommonClearManifest] = useState(false)
+
+  const [uploadInputMode, setUploadInputMode] = useState<MemoryImportInputMode>('text')
+  const [uploadFiles, setUploadFiles] = useState<File[]>([])
+
+  const [pasteName, setPasteName] = useState('')
+  const [pasteMode, setPasteMode] = useState<MemoryImportInputMode>('text')
+  const [pasteContent, setPasteContent] = useState('')
+
+  const [rawAlias, setRawAlias] = useState('raw')
+  const [rawRelativePath, setRawRelativePath] = useState('')
+  const [rawGlob, setRawGlob] = useState('*')
+  const [rawInputMode, setRawInputMode] = useState<MemoryImportInputMode>('text')
+  const [rawRecursive, setRawRecursive] = useState(true)
+
+  const [openieAlias, setOpenieAlias] = useState('lpmm')
+  const [openieRelativePath, setOpenieRelativePath] = useState('')
+  const [openieIncludeAllJson, setOpenieIncludeAllJson] = useState(false)
+
+  const [convertAlias, setConvertAlias] = useState('lpmm')
+  const [convertRelativePath, setConvertRelativePath] = useState('')
+  const [convertTargetAlias, setConvertTargetAlias] = useState('plugin_data')
+  const [convertTargetRelativePath, setConvertTargetRelativePath] = useState('')
+  const [convertDimension, setConvertDimension] = useState('')
+  const [convertBatchSize, setConvertBatchSize] = useState('1024')
+
+  const [backfillAlias, setBackfillAlias] = useState('plugin_data')
+  const [backfillRelativePath, setBackfillRelativePath] = useState('')
+  const [backfillLimit, setBackfillLimit] = useState('100000')
+  const [backfillDryRun, setBackfillDryRun] = useState(false)
+  const [backfillNoCreatedFallback, setBackfillNoCreatedFallback] = useState(false)
+
+  const [maibotSourceDb, setMaibotSourceDb] = useState('')
+  const [maibotTimeFrom, setMaibotTimeFrom] = useState('')
+  const [maibotTimeTo, setMaibotTimeTo] = useState('')
+  const [maibotStartId, setMaibotStartId] = useState('')
+  const [maibotEndId, setMaibotEndId] = useState('')
+  const [maibotStreamIds, setMaibotStreamIds] = useState('')
+  const [maibotGroupIds, setMaibotGroupIds] = useState('')
+  const [maibotUserIds, setMaibotUserIds] = useState('')
+  const [maibotReadBatchSize, setMaibotReadBatchSize] = useState('2000')
+  const [maibotCommitWindowRows, setMaibotCommitWindowRows] = useState('20000')
+  const [maibotEmbedWorkers, setMaibotEmbedWorkers] = useState('')
+  const [maibotNoResume, setMaibotNoResume] = useState(false)
+  const [maibotResetState, setMaibotResetState] = useState(false)
+  const [maibotDryRun, setMaibotDryRun] = useState(false)
+  const [maibotVerifyOnly, setMaibotVerifyOnly] = useState(false)
+
+  const [pathResolveAlias, setPathResolveAlias] = useState('raw')
+  const [pathResolveRelativePath, setPathResolveRelativePath] = useState('')
+  const [pathResolveMustExist, setPathResolveMustExist] = useState(true)
+  const [pathResolveOutput, setPathResolveOutput] = useState('')
+  const [resolvingPath, setResolvingPath] = useState(false)
+
   const [tuningTasks, setTuningTasks] = useState<MemoryTaskPayload[]>([])
   const [tuningProfile, setTuningProfile] = useState<Record<string, unknown>>({})
   const [tuningProfileToml, setTuningProfileToml] = useState('')
@@ -244,10 +471,6 @@ export function KnowledgeBasePage() {
   const [deleteRestoring, setDeleteRestoring] = useState(false)
   const [deleteResult, setDeleteResult] = useState<MemoryDeleteExecutePayload | null>(null)
   const [pendingDeleteRequest, setPendingDeleteRequest] = useState<MemoryDeleteRequestPayload | null>(null)
-
-  const [pasteName, setPasteName] = useState('')
-  const [pasteMode, setPasteMode] = useState('text')
-  const [pasteContent, setPasteContent] = useState('')
   const [tuningObjective, setTuningObjective] = useState('precision_priority')
   const [tuningIntensity, setTuningIntensity] = useState('standard')
   const [tuningSampleSize, setTuningSampleSize] = useState('24')
@@ -261,7 +484,8 @@ export function KnowledgeBasePage() {
         configPayload,
         rawPayload,
         runtimePayload,
-        guidePayload,
+        importSettingsPayload,
+        pathAliasPayload,
         importTaskPayload,
         tuningProfilePayload,
         tuningTaskPayload,
@@ -272,7 +496,8 @@ export function KnowledgeBasePage() {
         getMemoryConfig(),
         getMemoryConfigRaw(),
         getMemoryRuntimeConfig(),
-        getMemoryImportGuide(),
+        getMemoryImportSettings(),
+        getMemoryImportPathAliases(),
         getMemoryImportTasks(20),
         getMemoryTuningProfile(),
         getMemoryTuningTasks(20),
@@ -283,14 +508,32 @@ export function KnowledgeBasePage() {
       setSchemaPayload(schema)
       setVisualConfig(configPayload.config ?? {})
       setRawConfig(rawPayload.config ?? '')
+      setRawConfigExists(rawPayload.exists ?? true)
+      setRawConfigUsingDefault(rawPayload.using_default ?? false)
       setRuntimeConfig(runtimePayload)
-      setImportGuide(guidePayload.content ?? '')
+      setImportSettings(importSettingsPayload.settings ?? {})
+      setImportPathAliases(pathAliasPayload.path_aliases ?? {})
       setImportTasks(importTaskPayload.items ?? [])
       setTuningProfile(tuningProfilePayload.profile ?? {})
       setTuningProfileToml(tuningProfilePayload.toml ?? '')
       setTuningTasks(tuningTaskPayload.items ?? [])
       setMemorySources(sourcePayload.items ?? [])
       setDeleteOperations(deleteOperationPayload.items ?? [])
+      if (!selectedImportTaskId && (importTaskPayload.items ?? []).length > 0) {
+        const initialTaskId = String(importTaskPayload.items?.[0]?.task_id ?? '')
+        if (initialTaskId) {
+          setSelectedImportTaskId(initialTaskId)
+        }
+      }
+      if (!maibotSourceDb && String(importSettingsPayload.settings?.maibot_source_db_default ?? '').trim()) {
+        setMaibotSourceDb(String(importSettingsPayload.settings?.maibot_source_db_default ?? '').trim())
+      }
+      if (!pathResolveAlias) {
+        const aliasKeys = Object.keys(pathAliasPayload.path_aliases ?? {})
+        if (aliasKeys.length > 0) {
+          setPathResolveAlias(aliasKeys[0])
+        }
+      }
     } catch (error) {
       toast({
         title: '加载长期记忆控制台失败',
@@ -300,7 +543,7 @@ export function KnowledgeBasePage() {
     } finally {
       setLoading(false)
     }
-  }, [toast])
+  }, [maibotSourceDb, pathResolveAlias, selectedImportTaskId, toast])
 
   useEffect(() => {
     void loadPage()
@@ -320,6 +563,706 @@ export function KnowledgeBasePage() {
       { label: '数据目录', value: runtimeConfig.data_dir },
     ]
   }, [runtimeConfig])
+
+  const importPollInterval = useMemo(
+    () => Math.max(200, Number(importSettings.poll_interval_ms ?? 1000)),
+    [importSettings.poll_interval_ms],
+  )
+
+  const importAliasKeys = useMemo(
+    () => Object.keys(importPathAliases).sort((left, right) => left.localeCompare(right)),
+    [importPathAliases],
+  )
+
+  const runningImportTasks = useMemo(
+    () => importTasks.filter((task) => RUNNING_IMPORT_STATUS.has(String(task.status ?? '').trim())),
+    [importTasks],
+  )
+  const queuedImportTasks = useMemo(
+    () => importTasks.filter((task) => QUEUED_IMPORT_STATUS.has(String(task.status ?? '').trim())),
+    [importTasks],
+  )
+  const recentImportTasks = useMemo(
+    () =>
+      importTasks.filter((task) => {
+        const status = String(task.status ?? '').trim()
+        return !RUNNING_IMPORT_STATUS.has(status) && !QUEUED_IMPORT_STATUS.has(status)
+      }),
+    [importTasks],
+  )
+  const selectedImportTaskSummary = useMemo(() => {
+    if (!selectedImportTaskId) {
+      return null
+    }
+    return importTasks.find((task) => task.task_id === selectedImportTaskId) ?? null
+  }, [importTasks, selectedImportTaskId])
+
+  const selectedImportFiles = useMemo(() => {
+    return Array.isArray(selectedImportTask?.files) ? selectedImportTask.files : []
+  }, [selectedImportTask?.files])
+
+  const selectedImportChunks = useMemo(() => {
+    return Array.isArray(importChunksPayload?.items) ? importChunksPayload.items : []
+  }, [importChunksPayload?.items])
+
+  const selectedImportTaskResolved = selectedImportTask ?? selectedImportTaskSummary
+  const selectedImportTaskErrorText = String(selectedImportTaskResolved?.error ?? '').trim()
+  const selectedImportRetrySummary = selectedImportTaskResolved?.retry_summary
+
+  const importChunkTotal = Number(importChunksPayload?.total ?? 0)
+  const canImportChunkPrev = importChunkOffset > 0
+  const canImportChunkNext = importChunkOffset + IMPORT_CHUNK_PAGE_SIZE < importChunkTotal
+
+  const buildCommonImportPayload = useCallback((): Record<string, unknown> => {
+    const payload: Record<string, unknown> = {
+      llm_enabled: importCommonLlmEnabled,
+      strategy_override: importCommonStrategyOverride,
+      dedupe_policy: importCommonDedupePolicy,
+      chat_log: importCommonChatLog,
+      force: importCommonForce,
+      clear_manifest: importCommonClearManifest,
+    }
+
+    const fileConcurrency = parseOptionalPositiveInt(importCommonFileConcurrency)
+    const chunkConcurrency = parseOptionalPositiveInt(importCommonChunkConcurrency)
+    if (fileConcurrency !== undefined) {
+      payload.file_concurrency = fileConcurrency
+    }
+    if (chunkConcurrency !== undefined) {
+      payload.chunk_concurrency = chunkConcurrency
+    }
+    if (importCommonChatReferenceTime.trim()) {
+      payload.chat_reference_time = importCommonChatReferenceTime.trim()
+    }
+    return payload
+  }, [
+    importCommonChatLog,
+    importCommonChatReferenceTime,
+    importCommonChunkConcurrency,
+    importCommonClearManifest,
+    importCommonDedupePolicy,
+    importCommonFileConcurrency,
+    importCommonForce,
+    importCommonLlmEnabled,
+    importCommonStrategyOverride,
+  ])
+
+  const refreshImportQueue = useCallback(async (silent: boolean = false) => {
+    try {
+      const [taskPayload, settingsPayload, pathAliasPayload] = await Promise.all([
+        getMemoryImportTasks(20),
+        getMemoryImportSettings(),
+        getMemoryImportPathAliases(),
+      ])
+      const nextTasks = taskPayload.items ?? []
+      setImportTasks(nextTasks)
+      setImportSettings(settingsPayload.settings ?? {})
+      setImportPathAliases(pathAliasPayload.path_aliases ?? {})
+      setImportErrorText('')
+
+      if (nextTasks.length <= 0) {
+        setSelectedImportTaskId('')
+        setSelectedImportTask(null)
+        setSelectedImportFileId('')
+        setImportChunksPayload(null)
+        return
+      }
+
+      if (!selectedImportTaskId || !nextTasks.some((item) => item.task_id === selectedImportTaskId)) {
+        setSelectedImportTaskId(nextTasks[0].task_id)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '刷新导入任务失败'
+      setImportErrorText(message)
+      if (!silent) {
+        toast({
+          title: '刷新导入任务失败',
+          description: message,
+          variant: 'destructive',
+        })
+      }
+    }
+  }, [selectedImportTaskId, toast])
+
+  const loadImportChunks = useCallback(
+    async (
+      taskId: string,
+      fileId: string,
+      offset: number = 0,
+      silent: boolean = false,
+    ) => {
+      if (!taskId || !fileId) {
+        setImportChunksPayload(null)
+        return
+      }
+      try {
+        setImportChunksLoading(true)
+        const payload = await getMemoryImportTaskChunks(taskId, fileId, offset, IMPORT_CHUNK_PAGE_SIZE)
+        if (!payload.success) {
+          throw new Error(payload.error || '加载分块详情失败')
+        }
+        setImportChunksPayload(payload)
+        setImportErrorText('')
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '加载分块详情失败'
+        setImportChunksPayload(null)
+        setImportErrorText(message)
+        if (!silent) {
+          toast({
+            title: '加载分块详情失败',
+            description: message,
+            variant: 'destructive',
+          })
+        }
+      } finally {
+        setImportChunksLoading(false)
+      }
+    },
+    [toast],
+  )
+
+  const loadImportTaskDetail = useCallback(
+    async (taskId: string, silent: boolean = false) => {
+      if (!taskId) {
+        setSelectedImportTask(null)
+        setSelectedImportFileId('')
+        setImportChunksPayload(null)
+        return
+      }
+      try {
+        if (!silent) {
+          setSelectedImportTaskLoading(true)
+        }
+        const payload = await getMemoryImportTask(taskId, false)
+        if (!payload.success || !payload.task) {
+          throw new Error(payload.error || '任务不存在')
+        }
+        const task = payload.task
+        setSelectedImportTask(task)
+        setImportErrorText('')
+        const files = Array.isArray(task.files) ? task.files : []
+        const keepCurrentFile = files.some((file) => file.file_id === selectedImportFileId)
+        const nextFileId = keepCurrentFile ? selectedImportFileId : String(files[0]?.file_id ?? '')
+        const nextOffset = keepCurrentFile ? importChunkOffset : 0
+        if (!keepCurrentFile) {
+          setImportChunkOffset(0)
+        }
+        setSelectedImportFileId(nextFileId)
+        if (nextFileId) {
+          await loadImportChunks(taskId, nextFileId, nextOffset, silent)
+        } else {
+          setImportChunksPayload(null)
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '加载导入任务详情失败'
+        setSelectedImportTask(null)
+        setSelectedImportFileId('')
+        setImportChunksPayload(null)
+        setImportErrorText(message)
+        if (!silent) {
+          toast({
+            title: '加载导入任务详情失败',
+            description: message,
+            variant: 'destructive',
+          })
+        }
+      } finally {
+        if (!silent) {
+          setSelectedImportTaskLoading(false)
+        }
+      }
+    },
+    [importChunkOffset, loadImportChunks, selectedImportFileId, toast],
+  )
+
+  const afterImportTaskCreated = useCallback(
+    async (taskId: string, successTitle: string) => {
+      await refreshImportQueue(true)
+      if (taskId) {
+        setSelectedImportTaskId(taskId)
+        await loadImportTaskDetail(taskId, true)
+      }
+      toast({
+        title: successTitle,
+        description: taskId ? `任务 ${taskId.slice(0, 12)} 已加入导入队列` : '导入任务已加入队列',
+      })
+    },
+    [loadImportTaskDetail, refreshImportQueue, toast],
+  )
+
+  const submitUploadImport = useCallback(async () => {
+    if (uploadFiles.length <= 0) {
+      toast({
+        title: '请选择上传文件',
+        description: '至少选择一个 txt/md/json 文件后再提交',
+        variant: 'destructive',
+      })
+      return
+    }
+    try {
+      setCreatingImport(true)
+      const payload = {
+        ...buildCommonImportPayload(),
+        input_mode: uploadInputMode,
+      }
+      const result = await createMemoryUploadImport(uploadFiles, payload)
+      if (!result.success) {
+        throw new Error(result.error || '创建上传导入任务失败')
+      }
+      const taskId = String(result.task?.task_id ?? '')
+      setUploadFiles([])
+      await afterImportTaskCreated(taskId, '上传导入任务已创建')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '创建上传导入任务失败'
+      setImportErrorText(message)
+      toast({
+        title: '创建上传导入任务失败',
+        description: message,
+        variant: 'destructive',
+      })
+    } finally {
+      setCreatingImport(false)
+    }
+  }, [afterImportTaskCreated, buildCommonImportPayload, toast, uploadFiles, uploadInputMode])
+
+  const submitPasteImport = useCallback(async () => {
+    if (!pasteContent.trim()) {
+      toast({
+        title: '粘贴内容不能为空',
+        description: '请填写导入内容后再提交',
+        variant: 'destructive',
+      })
+      return
+    }
+    try {
+      setCreatingImport(true)
+      const result = await createMemoryPasteImport({
+        ...buildCommonImportPayload(),
+        name: pasteName || undefined,
+        content: pasteContent,
+        input_mode: pasteMode,
+      })
+      if (!result.success) {
+        throw new Error(result.error || '创建粘贴导入任务失败')
+      }
+      const taskId = String(result.task?.task_id ?? '')
+      setPasteContent('')
+      setPasteName('')
+      await afterImportTaskCreated(taskId, '粘贴导入任务已创建')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '创建粘贴导入任务失败'
+      setImportErrorText(message)
+      toast({
+        title: '创建粘贴导入任务失败',
+        description: message,
+        variant: 'destructive',
+      })
+    } finally {
+      setCreatingImport(false)
+    }
+  }, [afterImportTaskCreated, buildCommonImportPayload, pasteContent, pasteMode, pasteName, toast])
+
+  const submitRawScanImport = useCallback(async () => {
+    try {
+      setCreatingImport(true)
+      const result = await createMemoryRawScanImport({
+        ...buildCommonImportPayload(),
+        alias: rawAlias,
+        relative_path: rawRelativePath,
+        glob: rawGlob,
+        recursive: rawRecursive,
+        input_mode: rawInputMode,
+      })
+      if (!result.success) {
+        throw new Error(result.error || '创建本地扫描任务失败')
+      }
+      await afterImportTaskCreated(String(result.task?.task_id ?? ''), '本地扫描任务已创建')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '创建本地扫描任务失败'
+      setImportErrorText(message)
+      toast({
+        title: '创建本地扫描任务失败',
+        description: message,
+        variant: 'destructive',
+      })
+    } finally {
+      setCreatingImport(false)
+    }
+  }, [
+    afterImportTaskCreated,
+    buildCommonImportPayload,
+    rawAlias,
+    rawGlob,
+    rawInputMode,
+    rawRecursive,
+    rawRelativePath,
+    toast,
+  ])
+
+  const submitOpenieImport = useCallback(async () => {
+    try {
+      setCreatingImport(true)
+      const result = await createMemoryLpmmOpenieImport({
+        ...buildCommonImportPayload(),
+        alias: openieAlias,
+        relative_path: openieRelativePath,
+        include_all_json: openieIncludeAllJson,
+      })
+      if (!result.success) {
+        throw new Error(result.error || '创建 LPMM OpenIE 任务失败')
+      }
+      await afterImportTaskCreated(String(result.task?.task_id ?? ''), 'LPMM OpenIE 任务已创建')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '创建 LPMM OpenIE 任务失败'
+      setImportErrorText(message)
+      toast({
+        title: '创建 LPMM OpenIE 任务失败',
+        description: message,
+        variant: 'destructive',
+      })
+    } finally {
+      setCreatingImport(false)
+    }
+  }, [
+    afterImportTaskCreated,
+    buildCommonImportPayload,
+    openieAlias,
+    openieIncludeAllJson,
+    openieRelativePath,
+    toast,
+  ])
+
+  const submitConvertImport = useCallback(async () => {
+    try {
+      setCreatingImport(true)
+      const result = await createMemoryLpmmConvertImport({
+        alias: convertAlias,
+        relative_path: convertRelativePath,
+        target_alias: convertTargetAlias,
+        target_relative_path: convertTargetRelativePath,
+        dimension: parseOptionalPositiveInt(convertDimension),
+        batch_size: parseOptionalPositiveInt(convertBatchSize),
+      })
+      if (!result.success) {
+        throw new Error(result.error || '创建 LPMM 转换任务失败')
+      }
+      await afterImportTaskCreated(String(result.task?.task_id ?? ''), 'LPMM 转换任务已创建')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '创建 LPMM 转换任务失败'
+      setImportErrorText(message)
+      toast({
+        title: '创建 LPMM 转换任务失败',
+        description: message,
+        variant: 'destructive',
+      })
+    } finally {
+      setCreatingImport(false)
+    }
+  }, [
+    afterImportTaskCreated,
+    convertAlias,
+    convertBatchSize,
+    convertDimension,
+    convertRelativePath,
+    convertTargetAlias,
+    convertTargetRelativePath,
+    toast,
+  ])
+
+  const submitBackfillImport = useCallback(async () => {
+    try {
+      setCreatingImport(true)
+      const result = await createMemoryTemporalBackfillImport({
+        alias: backfillAlias,
+        relative_path: backfillRelativePath,
+        limit: parseOptionalPositiveInt(backfillLimit),
+        dry_run: backfillDryRun,
+        no_created_fallback: backfillNoCreatedFallback,
+      })
+      if (!result.success) {
+        throw new Error(result.error || '创建时序回填任务失败')
+      }
+      await afterImportTaskCreated(String(result.task?.task_id ?? ''), '时序回填任务已创建')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '创建时序回填任务失败'
+      setImportErrorText(message)
+      toast({
+        title: '创建时序回填任务失败',
+        description: message,
+        variant: 'destructive',
+      })
+    } finally {
+      setCreatingImport(false)
+    }
+  }, [
+    afterImportTaskCreated,
+    backfillAlias,
+    backfillDryRun,
+    backfillLimit,
+    backfillNoCreatedFallback,
+    backfillRelativePath,
+    toast,
+  ])
+
+  const submitMaibotMigrationImport = useCallback(async () => {
+    try {
+      setCreatingImport(true)
+      const result = await createMemoryMaibotMigrationImport({
+        source_db: maibotSourceDb || undefined,
+        time_from: maibotTimeFrom || undefined,
+        time_to: maibotTimeTo || undefined,
+        start_id: parseOptionalPositiveInt(maibotStartId),
+        end_id: parseOptionalPositiveInt(maibotEndId),
+        stream_ids: parseCommaSeparatedList(maibotStreamIds),
+        group_ids: parseCommaSeparatedList(maibotGroupIds),
+        user_ids: parseCommaSeparatedList(maibotUserIds),
+        read_batch_size: parseOptionalPositiveInt(maibotReadBatchSize),
+        commit_window_rows: parseOptionalPositiveInt(maibotCommitWindowRows),
+        embed_workers: parseOptionalPositiveInt(maibotEmbedWorkers),
+        no_resume: maibotNoResume,
+        reset_state: maibotResetState,
+        dry_run: maibotDryRun,
+        verify_only: maibotVerifyOnly,
+      })
+      if (!result.success) {
+        throw new Error(result.error || '创建 MaiBot 迁移任务失败')
+      }
+      await afterImportTaskCreated(String(result.task?.task_id ?? ''), 'MaiBot 迁移任务已创建')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '创建 MaiBot 迁移任务失败'
+      setImportErrorText(message)
+      toast({
+        title: '创建 MaiBot 迁移任务失败',
+        description: message,
+        variant: 'destructive',
+      })
+    } finally {
+      setCreatingImport(false)
+    }
+  }, [
+    afterImportTaskCreated,
+    maibotCommitWindowRows,
+    maibotDryRun,
+    maibotEmbedWorkers,
+    maibotEndId,
+    maibotGroupIds,
+    maibotNoResume,
+    maibotReadBatchSize,
+    maibotResetState,
+    maibotSourceDb,
+    maibotStartId,
+    maibotStreamIds,
+    maibotTimeFrom,
+    maibotTimeTo,
+    maibotUserIds,
+    maibotVerifyOnly,
+    toast,
+  ])
+
+  const cancelSelectedImportTask = useCallback(async () => {
+    if (!selectedImportTaskId) {
+      return
+    }
+    try {
+      const payload = await cancelMemoryImportTask(selectedImportTaskId)
+      if (!payload.success) {
+        throw new Error(payload.error || '取消导入任务失败')
+      }
+      await refreshImportQueue(true)
+      await loadImportTaskDetail(selectedImportTaskId, true)
+      toast({
+        title: '已请求取消任务',
+        description: `任务 ${selectedImportTaskId.slice(0, 12)} 正在取消`,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '取消导入任务失败'
+      setImportErrorText(message)
+      toast({
+        title: '取消导入任务失败',
+        description: message,
+        variant: 'destructive',
+      })
+    }
+  }, [loadImportTaskDetail, refreshImportQueue, selectedImportTaskId, toast])
+
+  const retrySelectedImportTask = useCallback(async () => {
+    if (!selectedImportTaskId) {
+      return
+    }
+    try {
+      const payload = await retryMemoryImportTask(selectedImportTaskId, {
+        overrides: buildCommonImportPayload(),
+      })
+      if (!payload.success) {
+        throw new Error(payload.error || '重试失败项失败')
+      }
+      const nextTaskId = String(payload.task?.task_id ?? '')
+      await refreshImportQueue(true)
+      if (nextTaskId) {
+        setSelectedImportTaskId(nextTaskId)
+        await loadImportTaskDetail(nextTaskId, true)
+      } else {
+        await loadImportTaskDetail(selectedImportTaskId, true)
+      }
+      toast({
+        title: '重试任务已创建',
+        description: nextTaskId ? `重试任务 ${nextTaskId.slice(0, 12)} 已进入队列` : '失败项已提交重试',
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '重试失败项失败'
+      setImportErrorText(message)
+      toast({
+        title: '重试失败项失败',
+        description: message,
+        variant: 'destructive',
+      })
+    }
+  }, [buildCommonImportPayload, loadImportTaskDetail, refreshImportQueue, selectedImportTaskId, toast])
+
+  const resolveImportPath = useCallback(async () => {
+    if (!pathResolveAlias.trim()) {
+      return
+    }
+    try {
+      setResolvingPath(true)
+      const payload = await resolveMemoryImportPath({
+        alias: pathResolveAlias,
+        relative_path: pathResolveRelativePath,
+        must_exist: pathResolveMustExist,
+      })
+      const lines = [
+        `路径别名: ${payload.alias}`,
+        `相对路径: ${payload.relative_path || '(空)'}`,
+        `解析结果: ${payload.resolved_path}`,
+        `是否存在: ${String(payload.exists)}`,
+        `是否文件: ${String(payload.is_file)}`,
+        `是否目录: ${String(payload.is_dir)}`,
+      ]
+      setPathResolveOutput(lines.join('\n'))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '路径解析失败'
+      setPathResolveOutput(`解析失败：${message}`)
+    } finally {
+      setResolvingPath(false)
+    }
+  }, [pathResolveAlias, pathResolveMustExist, pathResolveRelativePath])
+
+  const selectImportTask = useCallback(
+    async (taskId: string) => {
+      setSelectedImportTaskId(taskId)
+      setImportChunkOffset(0)
+      await loadImportTaskDetail(taskId)
+    },
+    [loadImportTaskDetail],
+  )
+
+  const selectImportFile = useCallback(
+    async (fileId: string) => {
+      if (!selectedImportTaskId) {
+        return
+      }
+      setSelectedImportFileId(fileId)
+      setImportChunkOffset(0)
+      await loadImportChunks(selectedImportTaskId, fileId, 0)
+    },
+    [loadImportChunks, selectedImportTaskId],
+  )
+
+  const moveImportChunkPage = useCallback(
+    async (direction: -1 | 1) => {
+      if (!selectedImportTaskId || !selectedImportFileId) {
+        return
+      }
+      const nextOffset =
+        direction < 0
+          ? Math.max(0, importChunkOffset - IMPORT_CHUNK_PAGE_SIZE)
+          : importChunkOffset + IMPORT_CHUNK_PAGE_SIZE
+      if (nextOffset === importChunkOffset) {
+        return
+      }
+      setImportChunkOffset(nextOffset)
+      await loadImportChunks(selectedImportTaskId, selectedImportFileId, nextOffset)
+    },
+    [importChunkOffset, loadImportChunks, selectedImportFileId, selectedImportTaskId],
+  )
+
+  useEffect(() => {
+    if (importAliasKeys.length <= 0) {
+      return
+    }
+    const pickAlias = (current: string, preferred: string): string => {
+      if (current && importAliasKeys.includes(current)) {
+        return current
+      }
+      if (importAliasKeys.includes(preferred)) {
+        return preferred
+      }
+      return importAliasKeys[0]
+    }
+    setRawAlias((current) => pickAlias(current, 'raw'))
+    setOpenieAlias((current) => pickAlias(current, 'lpmm'))
+    setConvertAlias((current) => pickAlias(current, 'lpmm'))
+    setConvertTargetAlias((current) => pickAlias(current, 'plugin_data'))
+    setBackfillAlias((current) => pickAlias(current, 'plugin_data'))
+    setPathResolveAlias((current) => pickAlias(current, 'raw'))
+  }, [importAliasKeys])
+
+  useEffect(() => {
+    const defaultFileConcurrency = String(importSettings.default_file_concurrency ?? '').trim()
+    const defaultChunkConcurrency = String(importSettings.default_chunk_concurrency ?? '').trim()
+    if (defaultFileConcurrency && importCommonFileConcurrency === '2') {
+      setImportCommonFileConcurrency(defaultFileConcurrency)
+    }
+    if (defaultChunkConcurrency && importCommonChunkConcurrency === '4') {
+      setImportCommonChunkConcurrency(defaultChunkConcurrency)
+    }
+    const defaultSourceDb = String(importSettings.maibot_source_db_default ?? '').trim()
+    if (defaultSourceDb && !maibotSourceDb.trim()) {
+      setMaibotSourceDb(defaultSourceDb)
+    }
+  }, [
+    importCommonChunkConcurrency,
+    importCommonFileConcurrency,
+    importSettings.default_chunk_concurrency,
+    importSettings.default_file_concurrency,
+    importSettings.maibot_source_db_default,
+    maibotSourceDb,
+  ])
+
+  useEffect(() => {
+    if (!selectedImportTaskId && importTasks.length > 0) {
+      void selectImportTask(importTasks[0].task_id)
+    }
+  }, [importTasks, selectImportTask, selectedImportTaskId])
+
+  useEffect(() => {
+    if (!selectedImportTaskId) {
+      setSelectedImportTask(null)
+      setSelectedImportFileId('')
+      setImportChunksPayload(null)
+      return
+    }
+    if (!importTasks.some((task) => task.task_id === selectedImportTaskId) && importTasks.length > 0) {
+      void selectImportTask(importTasks[0].task_id)
+      return
+    }
+    void loadImportTaskDetail(selectedImportTaskId, true)
+  }, [importTasks, loadImportTaskDetail, selectImportTask, selectedImportTaskId])
+
+  useEffect(() => {
+    if (!importAutoPolling) {
+      return
+    }
+    const timerId = window.setInterval(() => {
+      void refreshImportQueue(true)
+      if (selectedImportTaskId) {
+        void loadImportTaskDetail(selectedImportTaskId, true)
+      }
+    }, importPollInterval)
+    return () => {
+      window.clearInterval(timerId)
+    }
+  }, [importAutoPolling, importPollInterval, loadImportTaskDetail, refreshImportQueue, selectedImportTaskId])
 
   const filteredSources = useMemo(() => {
     const keyword = sourceSearch.trim().toLowerCase()
@@ -450,7 +1393,7 @@ export function KnowledgeBasePage() {
     if (selectedSources.length <= 0) {
       toast({
         title: '请选择来源',
-        description: '至少选择一个来源后再进行删除预览。',
+        description: '至少选择一个来源后再进行删除预览',
         variant: 'destructive',
       })
       return
@@ -462,7 +1405,7 @@ export function KnowledgeBasePage() {
       requested_by: 'knowledge_base',
     }
     setDeleteDialogTitle('批量删除来源')
-    setDeleteDialogDescription('删除来源只会删除该来源下的段落，以及失去全部证据的关系，不会自动删除实体。')
+    setDeleteDialogDescription('删除来源只会删除该来源下的段落，以及失去全部证据的关系，不会自动删除实体')
     setPendingDeleteRequest(request)
     setDeletePreview(null)
     setDeleteResult(null)
@@ -619,8 +1562,10 @@ export function KnowledgeBasePage() {
       ])
       setVisualConfig(nextConfig.config)
       setRawConfig(nextRaw.config)
+      setRawConfigExists(nextRaw.exists ?? true)
+      setRawConfigUsingDefault(nextRaw.using_default ?? false)
       setRuntimeConfig(nextRuntime)
-      toast({ title: '配置已保存', description: '长期记忆配置已经应用到运行时。' })
+      toast({ title: '配置已保存', description: '长期记忆配置已经应用到运行时' })
     } catch (error) {
       toast({
         title: '保存配置失败',
@@ -636,10 +1581,17 @@ export function KnowledgeBasePage() {
     try {
       setSaving(true)
       await updateMemoryConfigRaw(rawConfig)
-      const [nextConfig, nextRuntime] = await Promise.all([getMemoryConfig(), getMemoryRuntimeConfig()])
+      const [nextConfig, nextRaw, nextRuntime] = await Promise.all([
+        getMemoryConfig(),
+        getMemoryConfigRaw(),
+        getMemoryRuntimeConfig(),
+      ])
       setVisualConfig(nextConfig.config)
+      setRawConfig(nextRaw.config ?? '')
+      setRawConfigExists(nextRaw.exists ?? true)
+      setRawConfigUsingDefault(nextRaw.using_default ?? false)
       setRuntimeConfig(nextRuntime)
-      toast({ title: '原始 TOML 已保存', description: '长期记忆配置已经重新加载。' })
+      toast({ title: '原始 TOML 已保存', description: '长期记忆配置已经重新加载' })
     } catch (error) {
       toast({
         title: '保存原始配置失败',
@@ -660,7 +1612,7 @@ export function KnowledgeBasePage() {
       setRuntimeConfig(nextRuntime)
       toast({
         title: payload.success ? '自检通过' : '自检未通过',
-        description: payload.success ? '运行时状态正常。' : '请检查 embedding 配置和外部服务连通性。',
+        description: payload.success ? '运行时状态正常' : '请检查 embedding 配置和外部服务连通性',
         variant: payload.success ? 'default' : 'destructive',
       })
     } catch (error) {
@@ -674,29 +1626,46 @@ export function KnowledgeBasePage() {
     }
   }, [toast])
 
-  const submitPasteImport = useCallback(async () => {
-    try {
-      setCreatingImport(true)
-      await createMemoryPasteImport({
-        name: pasteName || undefined,
-        content: pasteContent,
-        input_mode: pasteMode,
-      })
-      const tasks = await getMemoryImportTasks(20)
-      setImportTasks(tasks.items ?? [])
-      setPasteContent('')
-      setPasteName('')
-      toast({ title: '导入任务已创建', description: '粘贴内容已经进入 A_Memorix 导入队列。' })
-    } catch (error) {
-      toast({
-        title: '创建导入任务失败',
-        description: error instanceof Error ? error.message : '未知错误',
-        variant: 'destructive',
-      })
-    } finally {
-      setCreatingImport(false)
+  const submitImportByMode = useCallback(async () => {
+    if (creatingImport) {
+      return
     }
-  }, [pasteContent, pasteMode, pasteName, toast])
+    switch (importCreateMode) {
+      case 'upload':
+        await submitUploadImport()
+        break
+      case 'paste':
+        await submitPasteImport()
+        break
+      case 'raw_scan':
+        await submitRawScanImport()
+        break
+      case 'lpmm_openie':
+        await submitOpenieImport()
+        break
+      case 'lpmm_convert':
+        await submitConvertImport()
+        break
+      case 'temporal_backfill':
+        await submitBackfillImport()
+        break
+      case 'maibot_migration':
+        await submitMaibotMigrationImport()
+        break
+      default:
+        break
+    }
+  }, [
+    creatingImport,
+    importCreateMode,
+    submitBackfillImport,
+    submitConvertImport,
+    submitMaibotMigrationImport,
+    submitOpenieImport,
+    submitPasteImport,
+    submitRawScanImport,
+    submitUploadImport,
+  ])
 
   const submitTuningTask = useCallback(async () => {
     try {
@@ -709,7 +1678,7 @@ export function KnowledgeBasePage() {
       })
       const tasks = await getMemoryTuningTasks(20)
       setTuningTasks(tasks.items ?? [])
-      toast({ title: '调优任务已创建', description: '新的检索调优任务已经进入队列。' })
+      toast({ title: '调优任务已创建', description: '新的检索调优任务已经进入队列' })
     } catch (error) {
       toast({
         title: '创建调优任务失败',
@@ -733,7 +1702,7 @@ export function KnowledgeBasePage() {
       setTuningProfileToml(profilePayload.toml ?? '')
       setRuntimeConfig(runtimePayload)
       setTuningTasks(tuningTaskPayload.items ?? [])
-      toast({ title: '最佳参数已应用', description: `任务 ${taskId} 的最佳轮次已经写入运行时。` })
+      toast({ title: '最佳参数已应用', description: `任务 ${taskId} 的最佳轮次已经写入运行时` })
     } catch (error) {
       toast({
         title: '应用最佳参数失败',
@@ -760,7 +1729,7 @@ export function KnowledgeBasePage() {
           <div>
             <h1 className="text-2xl font-bold">长期记忆控制台</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              统一管理 A_Memorix 的配置、自检、导入和检索调优，替代旧 LPMM 知识库管理入口。
+              A_Memorix 的配置、自检、导入和检索调优，都在这里！
             </p>
           </div>
 
@@ -778,7 +1747,7 @@ export function KnowledgeBasePage() {
       </div>
 
       <div className="flex-1 overflow-auto p-6">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6">
+        <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-6">
           <div className="grid gap-4 xl:grid-cols-4">
             {runtimeBadges.map((item) => (
               <Card key={item.label}>
@@ -790,13 +1759,23 @@ export function KnowledgeBasePage() {
             ))}
           </div>
 
-          <Tabs defaultValue="overview" className="space-y-4">
-            <TabsList className="h-auto flex-wrap justify-start">
-              <TabsTrigger value="overview">概览</TabsTrigger>
-              <TabsTrigger value="config">配置</TabsTrigger>
-              <TabsTrigger value="import">导入</TabsTrigger>
-              <TabsTrigger value="tuning">调优</TabsTrigger>
-              <TabsTrigger value="delete">删除</TabsTrigger>
+          <Tabs defaultValue="overview" className="space-y-5">
+            <TabsList className="h-auto flex-wrap justify-start gap-1 rounded-xl border bg-muted/30 p-1">
+              <TabsTrigger value="overview" className="rounded-lg px-4 py-1.5">
+                概览
+              </TabsTrigger>
+              <TabsTrigger value="config" className="rounded-lg px-4 py-1.5">
+                配置
+              </TabsTrigger>
+              <TabsTrigger value="import" className="rounded-lg px-4 py-1.5">
+                导入
+              </TabsTrigger>
+              <TabsTrigger value="tuning" className="rounded-lg px-4 py-1.5">
+                调优
+              </TabsTrigger>
+              <TabsTrigger value="delete" className="rounded-lg px-4 py-1.5">
+                删除
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="overview" className="space-y-4">
@@ -808,7 +1787,7 @@ export function KnowledgeBasePage() {
                         <Gauge className="h-4 w-4" />
                         运行时自检
                       </CardTitle>
-                      <CardDescription>用于确认 embedding、向量库与运行时状态是否一致。</CardDescription>
+                      <CardDescription>用于确认 embedding、向量库与运行时状态是否一致</CardDescription>
                     </div>
                     <Button size="sm" onClick={() => void refreshSelfCheck()} disabled={refreshingCheck}>
                       <RefreshCw className={`mr-2 h-4 w-4 ${refreshingCheck ? 'animate-spin' : ''}`} />
@@ -836,7 +1815,7 @@ export function KnowledgeBasePage() {
                       <Sparkles className="h-4 w-4" />
                       当前运行态摘要
                     </CardTitle>
-                    <CardDescription>这里展示运行态重点指标，方便先判断是否需要导入或调优。</CardDescription>
+                    <CardDescription>这里展示运行态重点指标，方便先判断是否需要导入或调优</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4 text-sm">
                     <div className="flex flex-wrap gap-2">
@@ -877,7 +1856,7 @@ export function KnowledgeBasePage() {
                       长期记忆配置
                     </CardTitle>
                     <CardDescription>
-                      常用字段可视化编辑，长尾高级项继续通过原始 TOML 维护。
+                      常用字段可视化编辑，长尾高级项继续通过原始 TOML 维护
                     </CardDescription>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -900,6 +1879,16 @@ export function KnowledgeBasePage() {
                       {schema?._note ? `；${schema._note}` : ''}
                     </AlertDescription>
                   </Alert>
+                  {!rawConfigExists || rawConfigUsingDefault ? (
+                    <Alert>
+                      <AlertDescription>
+                        检测到配置文件尚未保存，当前展示的是默认模板内容点击“保存”后相关配置文件会自动创建
+                        {' '}
+                        <code>{configPath}</code>
+                        
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
 
                   {rawMode ? (
                     <CodeEditor
@@ -917,103 +1906,915 @@ export function KnowledgeBasePage() {
                     />
                   ) : (
                     <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
-                      当前未能加载配置 schema，请先刷新页面或检查后端日志。
+                      当前未能加载配置 schema，请先刷新页面或检查后端日志
                     </div>
                   )}
                 </CardContent>
               </Card>
             </TabsContent>
 
-            <TabsContent value="import" className="space-y-4">
-              <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Upload className="h-4 w-4" />
-                      粘贴导入
-                    </CardTitle>
-                    <CardDescription>先提供一个主线内可用的轻量导入入口，避免用户只能回到旧静态页。</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>名称</Label>
-                        <Input value={pasteName} onChange={(event) => setPasteName(event.target.value)} placeholder="可选：如 private_alice_weekend.txt" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>输入模式</Label>
-                        <Select value={pasteMode} onValueChange={setPasteMode}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="text">text</SelectItem>
-                            <SelectItem value="json">json</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>粘贴内容</Label>
-                      <Textarea
-                        value={pasteContent}
-                        onChange={(event) => setPasteContent(event.target.value)}
-                        rows={12}
-                        placeholder="将聊天整理结果、文档片段或结构化 JSON 直接粘贴到这里。"
-                      />
-                    </div>
-                    <Button onClick={() => void submitPasteImport()} disabled={creatingImport || !pasteContent.trim()}>
-                      <Upload className="mr-2 h-4 w-4" />
-                      创建导入任务
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                <div className="space-y-4">
-                  <Card>
+            <TabsContent
+              value="import"
+              className="space-y-7 [&_input]:h-10 [&_[role=combobox]]:h-10 [&_textarea]:min-h-[96px]"
+            >
+              <div className="mx-auto w-full max-w-5xl space-y-6">
+                <div className="space-y-6">
+                  <Card className="rounded-2xl border-border/70 shadow-sm">
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
-                        <FileDown className="h-4 w-4" />
-                        导入指南
+                        <Upload className="h-4 w-4" />
+                        创建导入任务
                       </CardTitle>
+                      <CardDescription>同页完成模式选择、参数设置与任务创建，不再切换到旧导入页</CardDescription>
                     </CardHeader>
-                    <CardContent>
-                      <MarkdownRenderer content={importGuide || '暂无导入指南内容。'} />
+                    <CardContent className="space-y-6">
+                      <Tabs
+                        value={importCreateMode}
+                        onValueChange={(value) => setImportCreateMode(value as MemoryImportTaskKind)}
+                        className="space-y-4"
+                      >
+                        <div className="space-y-2">
+                          <Label>导入子功能</Label>
+                          <TabsList className="h-auto w-full flex-wrap justify-start gap-1 rounded-xl border bg-muted/20 p-1">
+                            {IMPORT_KIND_OPTIONS.map((item) => (
+                              <TabsTrigger
+                                key={item.value}
+                                value={item.value}
+                                className="rounded-lg px-3 py-1.5 text-xs"
+                              >
+                                {item.label}
+                              </TabsTrigger>
+                            ))}
+                          </TabsList>
+                        </div>
+
+                        <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                        <div className="space-y-1">
+                          <div className="text-sm font-medium">公共参数</div>
+                          <div className="text-xs text-muted-foreground">所有导入模式共用，创建任务时会自动并入请求参数</div>
+                        </div>
+                        <div className="grid gap-3">
+                          <div className="space-y-1">
+                            <Label>文件并发数</Label>
+                            <div className="text-xs text-muted-foreground">同时处理的文件数量</div>
+                            <Input
+                              type="number"
+                              min={1}
+                              max={Number(importSettings.max_file_concurrency ?? 128)}
+                              value={importCommonFileConcurrency}
+                              onChange={(event) => setImportCommonFileConcurrency(event.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label>分块并发数</Label>
+                            <div className="text-xs text-muted-foreground">单文件内并行分块数量</div>
+                            <Input
+                              type="number"
+                              min={1}
+                              max={Number(importSettings.max_chunk_concurrency ?? 256)}
+                              value={importCommonChunkConcurrency}
+                              onChange={(event) => setImportCommonChunkConcurrency(event.target.value)}
+                            />
+                          </div>
+                          <div className="flex items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={importCommonLlmEnabled}
+                              onCheckedChange={(value) => setImportCommonLlmEnabled(Boolean(value))}
+                            />
+                            启用 LLM 抽取
+                          </div>
+                          <div className="flex items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={importCommonChatLog}
+                              onCheckedChange={(value) => setImportCommonChatLog(Boolean(value))}
+                            />
+                            按聊天日志解析
+                          </div>
+                        </div>
+
+                        <details className="rounded-md border bg-background/70 p-3 text-sm">
+                          <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                            高级参数
+                          </summary>
+                          <div className="mt-3 grid gap-3">
+                            <div className="space-y-1">
+                              <Label>抽取策略覆盖</Label>
+                              <Input
+                                value={importCommonStrategyOverride}
+                                onChange={(event) => setImportCommonStrategyOverride(event.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>去重策略</Label>
+                              <Input
+                                value={importCommonDedupePolicy}
+                                onChange={(event) => setImportCommonDedupePolicy(event.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>聊天参考时间</Label>
+                              <Input
+                                value={importCommonChatReferenceTime}
+                                onChange={(event) => setImportCommonChatReferenceTime(event.target.value)}
+                              />
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <Checkbox
+                                checked={importCommonForce}
+                                onCheckedChange={(value) => setImportCommonForce(Boolean(value))}
+                              />
+                              强制导入
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <Checkbox
+                                checked={importCommonClearManifest}
+                                onCheckedChange={(value) => setImportCommonClearManifest(Boolean(value))}
+                              />
+                              清空任务清单
+                            </div>
+                          </div>
+                        </details>
+                      </div>
+
+                      <TabsContent value="upload" className="mt-0">
+                        <div className="space-y-3 rounded-xl border bg-background/70 p-4">
+                          <div className="text-xs text-muted-foreground">上传本地文件，适合批量导入</div>
+                          <div className="grid gap-3">
+                            <div className="space-y-1">
+                              <Label>输入模式</Label>
+                              <Select
+                                value={uploadInputMode}
+                                onValueChange={(value) => setUploadInputMode(normalizeImportInputMode(value))}
+                              >
+                                <SelectTrigger aria-label="upload-input-mode">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="text">文本</SelectItem>
+                                  <SelectItem value="json">结构化 JSON</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label>文件选择</Label>
+                              <Input
+                                type="file"
+                                multiple
+                                accept=".txt,.md,.json,.jsonl,.csv,.log,.html,.htm,.xml"
+                                onChange={(event) => setUploadFiles(Array.from(event.target.files ?? []))}
+                              />
+                            </div>
+                          </div>
+                          <div className="text-xs text-muted-foreground">已选择 {uploadFiles.length} 个文件</div>
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="paste" className="mt-0">
+                        <div className="space-y-3 rounded-xl border bg-background/70 p-4">
+                          <div className="text-xs text-muted-foreground">粘贴少量文本，适合临时导入</div>
+                          <div className="grid gap-3">
+                            <div className="space-y-1">
+                              <Label>内容名称</Label>
+                              <Input value={pasteName} onChange={(event) => setPasteName(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>输入模式</Label>
+                              <Select
+                                value={pasteMode}
+                                onValueChange={(value) => setPasteMode(normalizeImportInputMode(value))}
+                              >
+                                <SelectTrigger aria-label="paste-input-mode">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="text">文本</SelectItem>
+                                  <SelectItem value="json">结构化 JSON</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label>粘贴内容</Label>
+                              <Textarea
+                                value={pasteContent}
+                                onChange={(event) => setPasteContent(event.target.value)}
+                                rows={8}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="raw_scan" className="mt-0">
+                        <div className="space-y-3 rounded-xl border bg-background/70 p-4">
+                          <div className="text-xs text-muted-foreground">扫描目录文件，适合本地批处理</div>
+                          <div className="grid gap-3">
+                            <div className="space-y-1">
+                              <Label>路径别名</Label>
+                              <Input value={rawAlias} onChange={(event) => setRawAlias(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>输入模式</Label>
+                              <Select
+                                value={rawInputMode}
+                                onValueChange={(value) => setRawInputMode(normalizeImportInputMode(value))}
+                              >
+                                <SelectTrigger aria-label="raw-input-mode">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="text">文本</SelectItem>
+                                  <SelectItem value="json">结构化 JSON</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label>相对路径</Label>
+                              <Input value={rawRelativePath} onChange={(event) => setRawRelativePath(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>匹配规则（Glob）</Label>
+                              <Input value={rawGlob} onChange={(event) => setRawGlob(event.target.value)} />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm">
+                            <Checkbox checked={rawRecursive} onCheckedChange={(value) => setRawRecursive(Boolean(value))} />
+                            递归扫描
+                          </div>
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="lpmm_openie" className="mt-0">
+                        <div className="space-y-3 rounded-xl border bg-background/70 p-4">
+                          <div className="text-xs text-muted-foreground">读取 LPMM 内容并抽取关系</div>
+                          <div className="grid gap-3">
+                            <div className="space-y-1">
+                              <Label>路径别名</Label>
+                              <Input value={openieAlias} onChange={(event) => setOpenieAlias(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>相对路径</Label>
+                              <Input value={openieRelativePath} onChange={(event) => setOpenieRelativePath(event.target.value)} />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={openieIncludeAllJson}
+                              onCheckedChange={(value) => setOpenieIncludeAllJson(Boolean(value))}
+                            />
+                            包含全部 JSON 文件
+                          </div>
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="lpmm_convert" className="mt-0">
+                        <div className="space-y-3 rounded-xl border bg-background/70 p-4">
+                          <div className="text-xs text-muted-foreground">将 LPMM 数据转换到目标目录</div>
+                          <div className="grid gap-3">
+                            <div className="space-y-1">
+                              <Label>源路径别名</Label>
+                              <Input value={convertAlias} onChange={(event) => setConvertAlias(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>目标路径别名</Label>
+                              <Input value={convertTargetAlias} onChange={(event) => setConvertTargetAlias(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>源相对路径</Label>
+                              <Input value={convertRelativePath} onChange={(event) => setConvertRelativePath(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>目标相对路径</Label>
+                              <Input
+                                value={convertTargetRelativePath}
+                                onChange={(event) => setConvertTargetRelativePath(event.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>向量维度</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={convertDimension}
+                                onChange={(event) => setConvertDimension(event.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>批处理大小</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={convertBatchSize}
+                                onChange={(event) => setConvertBatchSize(event.target.value)}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="temporal_backfill" className="mt-0">
+                        <div className="space-y-3 rounded-xl border bg-background/70 p-4">
+                          <div className="text-xs text-muted-foreground">为已有数据补齐时间字段</div>
+                          <div className="grid gap-3">
+                            <div className="space-y-1">
+                              <Label>路径别名</Label>
+                              <Input value={backfillAlias} onChange={(event) => setBackfillAlias(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>处理上限</Label>
+                              <Input type="number" min={1} value={backfillLimit} onChange={(event) => setBackfillLimit(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>相对路径</Label>
+                              <Input value={backfillRelativePath} onChange={(event) => setBackfillRelativePath(event.target.value)} />
+                            </div>
+                          </div>
+                          <div className="grid gap-2">
+                            <div className="flex items-center gap-2 text-sm">
+                              <Checkbox checked={backfillDryRun} onCheckedChange={(value) => setBackfillDryRun(Boolean(value))} />
+                              仅演练（不落盘）
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <Checkbox
+                                checked={backfillNoCreatedFallback}
+                                onCheckedChange={(value) => setBackfillNoCreatedFallback(Boolean(value))}
+                              />
+                              禁用创建时间回退
+                            </div>
+                          </div>
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="maibot_migration" className="mt-0">
+                        <div className="space-y-3 rounded-xl border bg-background/70 p-4">
+                          <div className="text-xs text-muted-foreground">迁移 MaiBot 历史长期记忆</div>
+                          <div className="grid gap-3">
+                            <div className="space-y-1">
+                              <Label>源数据库路径</Label>
+                              <Input value={maibotSourceDb} onChange={(event) => setMaibotSourceDb(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>起始时间</Label>
+                              <Input value={maibotTimeFrom} onChange={(event) => setMaibotTimeFrom(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>结束时间</Label>
+                              <Input value={maibotTimeTo} onChange={(event) => setMaibotTimeTo(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>起始 ID</Label>
+                              <Input type="number" min={1} value={maibotStartId} onChange={(event) => setMaibotStartId(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>结束 ID</Label>
+                              <Input type="number" min={1} value={maibotEndId} onChange={(event) => setMaibotEndId(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>会话 ID 列表</Label>
+                              <Input value={maibotStreamIds} onChange={(event) => setMaibotStreamIds(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>群组 ID 列表</Label>
+                              <Input value={maibotGroupIds} onChange={(event) => setMaibotGroupIds(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>用户 ID 列表</Label>
+                              <Input value={maibotUserIds} onChange={(event) => setMaibotUserIds(event.target.value)} />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>读取批大小</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={maibotReadBatchSize}
+                                onChange={(event) => setMaibotReadBatchSize(event.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>提交窗口行数</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={maibotCommitWindowRows}
+                                onChange={(event) => setMaibotCommitWindowRows(event.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>向量线程数</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={maibotEmbedWorkers}
+                                onChange={(event) => setMaibotEmbedWorkers(event.target.value)}
+                              />
+                            </div>
+                          </div>
+                          <div className="grid gap-2">
+                            <div className="flex items-center gap-2 text-sm">
+                              <Checkbox checked={maibotNoResume} onCheckedChange={(value) => setMaibotNoResume(Boolean(value))} />
+                              不续跑
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <Checkbox checked={maibotResetState} onCheckedChange={(value) => setMaibotResetState(Boolean(value))} />
+                              重置迁移状态
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <Checkbox checked={maibotDryRun} onCheckedChange={(value) => setMaibotDryRun(Boolean(value))} />
+                              仅演练（不落盘）
+                            </div>
+                            <div className="flex items-center gap-2 text-sm">
+                              <Checkbox checked={maibotVerifyOnly} onCheckedChange={(value) => setMaibotVerifyOnly(Boolean(value))} />
+                              仅校验
+                            </div>
+                          </div>
+                        </div>
+                      </TabsContent>
+
+                      </Tabs>
+
+                      <Button onClick={() => void submitImportByMode()} disabled={creatingImport}>
+                        {creatingImport ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                        创建导入任务
+                      </Button>
                     </CardContent>
                   </Card>
 
-                  <Card>
+                  <Card className="rounded-2xl border-border/70 bg-card/85 shadow-sm">
                     <CardHeader>
-                      <CardTitle>最近导入任务</CardTitle>
+                      <CardTitle>路径预检</CardTitle>
+                      <CardDescription>基于路径别名解析目标路径，提前发现路径越界或不存在问题</CardDescription>
                     </CardHeader>
-                    <CardContent>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>任务</TableHead>
-                            <TableHead>状态</TableHead>
-                            <TableHead>模式</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {importTasks.length > 0 ? importTasks.map((task) => (
-                            <TableRow key={String(task.task_id ?? Math.random())}>
-                              <TableCell className="font-mono text-xs">{String(task.task_id ?? '-')}</TableCell>
-                              <TableCell>{String(task.status ?? '-')}</TableCell>
-                              <TableCell>{String(task.mode ?? task.source ?? '-')}</TableCell>
-                            </TableRow>
-                          )) : (
-                            <TableRow>
-                              <TableCell colSpan={3} className="text-center text-muted-foreground">
-                                还没有导入任务
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </TableBody>
-                      </Table>
+                    <CardContent className="space-y-4">
+                      <div className="grid gap-3">
+                        <div className="space-y-1">
+                          <Label>路径别名</Label>
+                          <div className="text-xs text-muted-foreground">选择预设的数据根目录</div>
+                          <Select value={pathResolveAlias} onValueChange={setPathResolveAlias}>
+                            <SelectTrigger aria-label="import-path-alias">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {importAliasKeys.length > 0 ? importAliasKeys.map((alias) => (
+                                <SelectItem key={alias} value={alias}>{alias}</SelectItem>
+                              )) : (
+                                <SelectItem value="raw">raw</SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label>相对路径</Label>
+                          <div className="text-xs text-muted-foreground">填写要拼接的子路径</div>
+                          <Input
+                            value={pathResolveRelativePath}
+                            onChange={(event) => setPathResolveRelativePath(event.target.value)}
+                            placeholder="例如 exports/weekly"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm">
+                        <Checkbox checked={pathResolveMustExist} onCheckedChange={(value) => setPathResolveMustExist(Boolean(value))} />
+                        要求路径已存在
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={() => void resolveImportPath()}
+                        disabled={resolvingPath || !pathResolveAlias.trim()}
+                      >
+                        {resolvingPath ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        解析路径
+                      </Button>
+                      <Textarea value={pathResolveOutput} readOnly rows={6} placeholder="解析结果会显示在这里" />
                     </CardContent>
                   </Card>
                 </div>
+
+                <div className="space-y-6">
+                  <Card className="rounded-2xl border-border/70 bg-card/90 shadow-sm">
+                    <CardHeader className="space-y-4 pb-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <CardTitle>导入队列</CardTitle>
+                        <Button variant="outline" size="sm" onClick={() => void refreshImportQueue()}>
+                          <RefreshCw className="mr-2 h-4 w-4" />
+                          刷新
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <CardDescription className="text-sm">
+                          运行中 {runningImportTasks.length}，排队中 {queuedImportTasks.length}，最近完成 {recentImportTasks.length}
+                        </CardDescription>
+                        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Checkbox checked={importAutoPolling} onCheckedChange={(value) => setImportAutoPolling(Boolean(value))} />
+                          自动轮询 {importPollInterval}ms
+                        </label>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      {importErrorText ? (
+                        <Alert variant="destructive">
+                          <AlertDescription>{importErrorText}</AlertDescription>
+                        </Alert>
+                      ) : null}
+
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-sm font-medium">运行中</div>
+                          <Badge variant="outline">{runningImportTasks.length}</Badge>
+                        </div>
+                        {runningImportTasks.length > 0 ? (
+                          <ScrollArea className="h-[208px] rounded-xl border bg-muted/10">
+                            <div className="space-y-2.5 p-2.5">
+                              {runningImportTasks.map((task) => {
+                                const isSelected = task.task_id === selectedImportTaskId
+                                return (
+                                  <button
+                                    key={task.task_id}
+                                    type="button"
+                                    onClick={() => void selectImportTask(task.task_id)}
+                                    className={cn(
+                                      'w-full rounded-xl border p-4 text-left transition-all',
+                                      isSelected
+                                        ? 'border-primary/70 bg-primary/5 shadow-sm'
+                                        : 'bg-background/80 hover:border-muted-foreground/40 hover:bg-muted/20',
+                                    )}
+                                  >
+                                    <div className="flex flex-wrap items-start justify-between gap-2">
+                                      <div className="min-w-0 space-y-1">
+                                        <div className="break-all font-mono text-[11px] leading-relaxed text-muted-foreground">
+                                          {task.task_id}
+                                        </div>
+                                        <div className="text-sm font-medium">{String(task.task_kind ?? task.mode ?? '-')}</div>
+                                      </div>
+                                      <Badge variant={getImportStatusVariant(String(task.status ?? ''))}>
+                                        {getImportStatusLabel(String(task.status ?? ''))}
+                                      </Badge>
+                                    </div>
+                                    <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                                      <span>{getImportStepLabel(String(task.current_step ?? 'running'))}</span>
+                                      <span>{Number(task.progress ?? 0).toFixed(1)}%</span>
+                                    </div>
+                                    <Progress value={normalizeProgress(task.progress)} className="mt-2 h-1.5" />
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </ScrollArea>
+                        ) : (
+                          <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">当前没有运行中任务</div>
+                        )}
+                      </div>
+
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-sm font-medium">排队中</div>
+                          <Badge variant="outline">{queuedImportTasks.length}</Badge>
+                        </div>
+                        {queuedImportTasks.length > 0 ? (
+                          <ScrollArea className="h-[188px] rounded-xl border bg-muted/10">
+                            <div className="space-y-2.5 p-2.5">
+                              {queuedImportTasks.map((task) => {
+                                const isSelected = task.task_id === selectedImportTaskId
+                                return (
+                                  <button
+                                    key={task.task_id}
+                                    type="button"
+                                    onClick={() => void selectImportTask(task.task_id)}
+                                    className={cn(
+                                      'w-full rounded-xl border p-4 text-left transition-all',
+                                      isSelected
+                                        ? 'border-primary/70 bg-primary/5 shadow-sm'
+                                        : 'bg-background/80 hover:border-muted-foreground/40 hover:bg-muted/20',
+                                    )}
+                                  >
+                                    <div className="flex flex-wrap items-start justify-between gap-2">
+                                      <div className="min-w-0 space-y-1">
+                                        <div className="break-all font-mono text-[11px] leading-relaxed text-muted-foreground">
+                                          {task.task_id}
+                                        </div>
+                                        <div className="text-sm font-medium">{String(task.task_kind ?? task.mode ?? '-')}</div>
+                                      </div>
+                                      <Badge variant={getImportStatusVariant(String(task.status ?? ''))}>
+                                        {getImportStatusLabel(String(task.status ?? ''))}
+                                      </Badge>
+                                    </div>
+                                    <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                                      <span>创建时间</span>
+                                      <span>{formatImportTime(task.created_at)}</span>
+                                    </div>
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </ScrollArea>
+                        ) : (
+                          <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">当前没有排队任务</div>
+                        )}
+                      </div>
+
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-sm font-medium">最近完成</div>
+                          <Badge variant="secondary">{recentImportTasks.length}</Badge>
+                        </div>
+                        {recentImportTasks.length > 0 ? (
+                          <ScrollArea className="h-[260px] rounded-xl border bg-muted/10">
+                            <div className="space-y-2.5 p-2.5">
+                              {recentImportTasks.map((task) => {
+                                const isSelected = task.task_id === selectedImportTaskId
+                                return (
+                                  <button
+                                    key={task.task_id}
+                                    type="button"
+                                    onClick={() => void selectImportTask(task.task_id)}
+                                    className={cn(
+                                      'w-full rounded-xl border p-4 text-left transition-all',
+                                      isSelected
+                                        ? 'border-primary/70 bg-primary/5 shadow-sm'
+                                        : 'bg-background/80 hover:border-muted-foreground/40 hover:bg-muted/20',
+                                    )}
+                                  >
+                                    <div className="flex flex-wrap items-start justify-between gap-2">
+                                      <div className="min-w-0 space-y-1">
+                                        <div className="break-all font-mono text-[11px] leading-relaxed text-muted-foreground">
+                                          {task.task_id}
+                                        </div>
+                                        <div className="text-sm font-medium">{String(task.task_kind ?? task.mode ?? '-')}</div>
+                                      </div>
+                                      <Badge variant={getImportStatusVariant(String(task.status ?? ''))}>
+                                        {getImportStatusLabel(String(task.status ?? ''))}
+                                      </Badge>
+                                    </div>
+                                    <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                                      <span>完成进度</span>
+                                      <span>{Number(task.progress ?? 0).toFixed(1)}%</span>
+                                    </div>
+                                    <Progress value={normalizeProgress(task.progress)} className="mt-2 h-1.5" />
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </ScrollArea>
+                        ) : (
+                          <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">暂时没有历史任务</div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                </div>
+
+                <Card className="rounded-2xl border-border/70 bg-card/90 shadow-sm">
+                  <CardHeader className="space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <CardTitle>任务详情</CardTitle>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          aria-label="取消选中导入任务"
+                          onClick={() => void cancelSelectedImportTask()}
+                          disabled={!selectedImportTaskId}
+                        >
+                          取消任务
+                        </Button>
+                        <Button
+                          size="sm"
+                          aria-label="重试选中导入任务"
+                          onClick={() => void retrySelectedImportTask()}
+                          disabled={!selectedImportTaskId}
+                        >
+                          重试失败项
+                        </Button>
+                      </div>
+                    </div>
+                    <CardDescription>支持文件级和分块级状态观察，可直接在当前页面定位失败原因</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    {selectedImportTaskLoading ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        正在加载任务详情...
+                      </div>
+                    ) : null}
+
+                    {!selectedImportTaskResolved ? (
+                      <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">
+                        请选择一个导入任务查看详情
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium">任务摘要</div>
+                          <div className="overflow-auto rounded-xl border bg-muted/10">
+                            <Table className="min-w-[680px]">
+                              <TableBody>
+                                <TableRow>
+                                  <TableCell className="w-[140px] text-muted-foreground">任务 ID</TableCell>
+                                  <TableCell className="break-all font-mono text-xs leading-relaxed">
+                                    {selectedImportTaskResolved.task_id}
+                                  </TableCell>
+                                </TableRow>
+                                <TableRow>
+                                  <TableCell className="text-muted-foreground">任务类型</TableCell>
+                                  <TableCell>{String(selectedImportTaskResolved.task_kind ?? selectedImportTaskResolved.mode ?? '-')}</TableCell>
+                                </TableRow>
+                                <TableRow>
+                                  <TableCell className="text-muted-foreground">状态 / 步骤</TableCell>
+                                  <TableCell>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Badge variant={getImportStatusVariant(String(selectedImportTaskResolved.status ?? ''))}>
+                                        {getImportStatusLabel(String(selectedImportTaskResolved.status ?? ''))}
+                                      </Badge>
+                                      <span className="text-xs text-muted-foreground">
+                                        {getImportStepLabel(String(selectedImportTaskResolved.current_step ?? ''))}
+                                      </span>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                                <TableRow>
+                                  <TableCell className="text-muted-foreground">进度</TableCell>
+                                  <TableCell>
+                                    <div className="space-y-2">
+                                      <div className="text-sm">
+                                        {Number(selectedImportTaskResolved.progress ?? 0).toFixed(1)}% · 块
+                                        {' '}
+                                        {Number(selectedImportTaskResolved.done_chunks ?? 0)}
+                                        {' / '}
+                                        {Number(selectedImportTaskResolved.total_chunks ?? 0)}
+                                      </div>
+                                      <Progress value={normalizeProgress(selectedImportTaskResolved.progress)} className="h-1.5" />
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                                <TableRow>
+                                  <TableCell className="text-muted-foreground">创建时间</TableCell>
+                                  <TableCell>{formatImportTime(selectedImportTaskResolved.created_at)}</TableCell>
+                                </TableRow>
+                                <TableRow>
+                                  <TableCell className="text-muted-foreground">更新时间</TableCell>
+                                  <TableCell>{formatImportTime(selectedImportTaskResolved.updated_at)}</TableCell>
+                                </TableRow>
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </div>
+
+                        {selectedImportRetrySummary ? (
+                          <div className="space-y-2">
+                            <div className="text-sm font-medium">重试摘要</div>
+                            <div className="overflow-auto rounded-xl border bg-muted/10">
+                              <Table>
+                                <TableBody>
+                                  <TableRow>
+                                    <TableCell className="w-[220px] text-muted-foreground">按分块重试的文件数</TableCell>
+                                    <TableCell>{Number(selectedImportRetrySummary.chunk_retry_files ?? 0)}</TableCell>
+                                  </TableRow>
+                                  <TableRow>
+                                    <TableCell className="text-muted-foreground">按分块重试的分块数</TableCell>
+                                    <TableCell>{Number(selectedImportRetrySummary.chunk_retry_chunks ?? 0)}</TableCell>
+                                  </TableRow>
+                                  <TableRow>
+                                    <TableCell className="text-muted-foreground">回退整文件重试数</TableCell>
+                                    <TableCell>{Number(selectedImportRetrySummary.file_fallback_files ?? 0)}</TableCell>
+                                  </TableRow>
+                                  <TableRow>
+                                    <TableCell className="text-muted-foreground">跳过文件数</TableCell>
+                                    <TableCell>{Number(selectedImportRetrySummary.skipped_files ?? 0)}</TableCell>
+                                  </TableRow>
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {selectedImportTaskErrorText ? (
+                          <Alert variant="destructive">
+                            <AlertDescription>{selectedImportTaskErrorText}</AlertDescription>
+                          </Alert>
+                        ) : null}
+
+                        <div className="space-y-2.5">
+                          <div className="text-sm font-medium">文件状态</div>
+                          {selectedImportFiles.length > 0 ? (
+                            <ScrollArea className="h-[260px] rounded-xl border bg-muted/10">
+                              <div className="space-y-2.5 p-2.5">
+                                {selectedImportFiles.map((file) => {
+                                  const isSelected = file.file_id === selectedImportFileId
+                                  return (
+                                    <button
+                                      key={file.file_id}
+                                      type="button"
+                                      onClick={() => void selectImportFile(file.file_id)}
+                                      className={cn(
+                                        'w-full rounded-xl border p-4 text-left transition-all',
+                                        isSelected
+                                          ? 'border-primary/70 bg-primary/5 shadow-sm'
+                                          : 'bg-background/80 hover:border-muted-foreground/40 hover:bg-muted/20',
+                                      )}
+                                    >
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <span className="truncate text-sm font-medium">{file.name || file.file_id}</span>
+                                        <Badge variant={getImportStatusVariant(String(file.status ?? ''))}>
+                                          {getImportStatusLabel(String(file.status ?? ''))}
+                                        </Badge>
+                                      </div>
+                                      <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                                        <span>{getImportStepLabel(String(file.current_step ?? ''))}</span>
+                                        <span>{Number(file.progress ?? 0).toFixed(1)}%</span>
+                                      </div>
+                                      <Progress value={normalizeProgress(file.progress)} className="mt-2 h-1.5" />
+                                      <div className="mt-2 text-xs text-muted-foreground">
+                                        {Number(file.progress ?? 0).toFixed(1)}% · {Number(file.done_chunks ?? 0)} / {Number(file.total_chunks ?? 0)}
+                                      </div>
+                                      {file.error ? (
+                                        <div className="mt-2 truncate text-xs text-destructive">{file.error}</div>
+                                      ) : null}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </ScrollArea>
+                          ) : (
+                            <div className="rounded-xl border bg-muted/20 p-4 text-sm text-muted-foreground">当前任务没有文件明细</div>
+                          )}
+                        </div>
+
+                        <div className="space-y-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-sm font-medium">分块状态</div>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                aria-label="上一页分块"
+                                onClick={() => void moveImportChunkPage(-1)}
+                                disabled={!canImportChunkPrev}
+                              >
+                                <ChevronLeft className="h-4 w-4" />
+                              </Button>
+                              <span>
+                                {importChunkTotal > 0
+                                  ? `${importChunkOffset + 1}-${Math.min(importChunkOffset + IMPORT_CHUNK_PAGE_SIZE, importChunkTotal)}`
+                                  : '0-0'}
+                                {' / '}
+                                {importChunkTotal}
+                              </span>
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                aria-label="下一页分块"
+                                onClick={() => void moveImportChunkPage(1)}
+                                disabled={!canImportChunkNext}
+                              >
+                                <ChevronRight className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+
+                          <div className="overflow-auto rounded-xl border bg-background/80">
+                            <Table className="min-w-[700px]">
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="w-[72px]">序号</TableHead>
+                                  <TableHead className="w-[108px]">状态</TableHead>
+                                  <TableHead className="w-[108px]">步骤</TableHead>
+                                  <TableHead className="w-[84px]">进度</TableHead>
+                                  <TableHead>错误 / 预览</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {importChunksLoading ? (
+                                  <TableRow>
+                                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                                      正在加载分块详情...
+                                    </TableCell>
+                                  </TableRow>
+                                ) : selectedImportChunks.length > 0 ? (
+                                  selectedImportChunks.map((chunk) => (
+                                    <TableRow key={chunk.chunk_id}>
+                                      <TableCell>{chunk.index}</TableCell>
+                                      <TableCell>{getImportStatusLabel(String(chunk.status ?? ''))}</TableCell>
+                                      <TableCell>{getImportStepLabel(String(chunk.step ?? ''))}</TableCell>
+                                      <TableCell>{Number(chunk.progress ?? 0).toFixed(1)}%</TableCell>
+                                      <TableCell className="max-w-[360px]">
+                                      <div className="truncate text-sm">{String(chunk.error ?? '') || String(chunk.content_preview ?? '-')}</div>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))
+                                ) : (
+                                  <TableRow>
+                                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                                      当前页没有分块数据
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             </TabsContent>
 
@@ -1025,7 +2826,7 @@ export function KnowledgeBasePage() {
                       <Sparkles className="h-4 w-4" />
                       调优任务
                     </CardTitle>
-                    <CardDescription>先把创建、查看、应用最佳结果这条调优闭环接到主线控制台。</CardDescription>
+                    <CardDescription>先把创建、查看、应用最佳结果这条调优闭环接到主线控制台</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid gap-4 md:grid-cols-2">
@@ -1144,12 +2945,12 @@ export function KnowledgeBasePage() {
                         来源批量删除
                       </CardTitle>
                       <CardDescription>
-                        用于按来源批量清理测试数据或指定导入批次。不会自动删除实体，只会删除来源段落和失去全部证据的关系。
+                        用于按来源批量清理测试数据或指定导入批次不会自动删除实体，只会删除来源段落和失去全部证据的关系
                       </CardDescription>
                     </div>
                     <Alert>
                       <AlertDescription>
-                        建议先在图谱里确认影响范围，再在这里做批量来源删除。所有删除都会先经过预览，并支持按 operation 恢复。
+                        建议先在图谱里确认影响范围，再在这里做批量来源删除所有删除都会先经过预览，并支持按 operation 恢复
                       </AlertDescription>
                     </Alert>
                   </CardHeader>
@@ -1225,7 +3026,7 @@ export function KnowledgeBasePage() {
                       <RotateCcw className="h-4 w-4" />
                       删除操作恢复
                     </CardTitle>
-                    <CardDescription>按列表浏览最近的删除操作，先选中记录，再在下方确认影响范围并执行恢复。</CardDescription>
+                    <CardDescription>按列表浏览最近的删除操作，先选中记录，再在下方确认影响范围并执行恢复</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_180px]">
@@ -1311,7 +3112,7 @@ export function KnowledgeBasePage() {
                           )
                         }) : (
                           <div className="rounded-lg border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-                            当前筛选条件下没有删除操作。
+                            当前筛选条件下没有删除操作
                           </div>
                         )}
                       </div>
@@ -1474,7 +3275,7 @@ export function KnowledgeBasePage() {
                                     )
                                   }) : (
                                     <div className="rounded-lg border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-                                      {selectedOperationItems.length > 0 ? '当前筛选条件下没有明细项。' : '当前操作没有记录明细项。'}
+                                      {selectedOperationItems.length > 0 ? '当前筛选条件下没有明细项' : '当前操作没有记录明细项'}
                                     </div>
                                   )}
                                 </div>
@@ -1505,7 +3306,7 @@ export function KnowledgeBasePage() {
                         </div>
                       ) : (
                         <div className="flex min-h-[320px] items-center justify-center rounded-lg border border-dashed bg-background/40 p-6 text-center text-sm text-muted-foreground">
-                          当前没有可查看的删除操作详情。
+                          当前没有可查看的删除操作详情
                         </div>
                       )}
                     </div>

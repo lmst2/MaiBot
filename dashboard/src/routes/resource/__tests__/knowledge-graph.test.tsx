@@ -107,6 +107,7 @@ vi.mock('../knowledge-graph/GraphDialogs', () => ({
 
 vi.mock('@/lib/memory-api', () => ({
   getMemoryGraph: vi.fn(),
+  getMemoryGraphSearch: vi.fn(),
   getMemoryGraphNodeDetail: vi.fn(),
   getMemoryGraphEdgeDetail: vi.fn(),
   previewMemoryDelete: vi.fn(),
@@ -138,6 +139,13 @@ describe('KnowledgeGraphPage', () => {
       ],
       total_nodes: 2,
       total_edges: 1,
+    })
+    vi.mocked(memoryApi.getMemoryGraphSearch).mockResolvedValue({
+      success: true,
+      query: 'alpha',
+      limit: 50,
+      count: 0,
+      items: [],
     })
     vi.mocked(memoryApi.getMemoryGraphNodeDetail).mockResolvedValue({
       success: true,
@@ -255,7 +263,7 @@ describe('KnowledgeGraphPage', () => {
     vi.mocked(memoryApi.restoreMemoryDelete).mockResolvedValue({ success: true } as never)
   })
 
-  it('renders graph summary and supports empty-result filtering', async () => {
+  it('calls backend graph search and renders no-hit state', async () => {
     const user = userEvent.setup()
 
     render(<KnowledgeGraphPage />)
@@ -264,11 +272,102 @@ describe('KnowledgeGraphPage', () => {
     expect(screen.getByText(/总节点 2/)).toBeInTheDocument()
     expect(screen.getByTestId('graph-visualization')).toHaveTextContent('nodes:2,edges:1')
 
-    await user.type(screen.getByPlaceholderText('筛选实体名称、节点 ID 或边标签'), 'missing')
+    await user.type(screen.getByPlaceholderText('搜索实体、关系、hash（后端全库）'), 'missing')
     expect(memoryApi.getMemoryGraph).toHaveBeenCalledTimes(1)
-    await user.click(screen.getByRole('button', { name: '筛选' }))
+    await user.click(screen.getByRole('button', { name: '搜索' }))
+
+    await waitFor(() => {
+      expect(memoryApi.getMemoryGraphSearch).toHaveBeenCalledWith('missing', 50)
+    })
+    expect(await screen.findByText('未命中实体或关系。')).toBeInTheDocument()
+  })
+
+  it('supports clicking entity search result to locate evidence', async () => {
+    const user = userEvent.setup()
+    vi.mocked(memoryApi.getMemoryGraphSearch).mockResolvedValue({
+      success: true,
+      query: 'alpha',
+      limit: 50,
+      count: 1,
+      items: [
+        {
+          type: 'entity',
+          title: 'Alpha',
+          matched_field: 'name',
+          matched_value: 'Alpha',
+          entity_name: 'alpha',
+          entity_hash: 'entity-1',
+          appearance_count: 3,
+        },
+      ],
+    })
+
+    render(<KnowledgeGraphPage />)
+
+    await screen.findByTestId('graph-visualization')
+    await user.type(screen.getByPlaceholderText('搜索实体、关系、hash（后端全库）'), 'alpha')
+    await user.click(screen.getByRole('button', { name: '搜索' }))
+
+    await screen.findByText('搜索词：alpha')
+    await user.click(screen.getByRole('button', { name: /Alpha/ }))
+
+    await waitFor(() => {
+      expect(memoryApi.getMemoryGraphNodeDetail).toHaveBeenCalledWith('alpha')
+    })
+    expect(screen.getByRole('tab', { name: '证据视图' })).toHaveAttribute('data-state', 'active')
+  })
+
+  it('supports clicking relation search result to locate evidence', async () => {
+    const user = userEvent.setup()
+    vi.mocked(memoryApi.getMemoryGraphSearch).mockResolvedValue({
+      success: true,
+      query: '关联',
+      limit: 50,
+      count: 1,
+      items: [
+        {
+          type: 'relation',
+          title: 'alpha 关联 beta',
+          matched_field: 'predicate',
+          matched_value: '关联',
+          subject: 'alpha',
+          predicate: '关联',
+          object: 'beta',
+          relation_hash: 'rel-1',
+          confidence: 0.9,
+        },
+      ],
+    })
+
+    render(<KnowledgeGraphPage />)
+
+    await screen.findByTestId('graph-visualization')
+    await user.type(screen.getByPlaceholderText('搜索实体、关系、hash（后端全库）'), '关联')
+    await user.click(screen.getByRole('button', { name: '搜索' }))
+    await user.click(screen.getByRole('button', { name: /alpha 关联 beta/ }))
+
+    await waitFor(() => {
+      expect(memoryApi.getMemoryGraphEdgeDetail).toHaveBeenCalledWith('alpha', 'beta')
+    })
+    expect(screen.getByRole('tab', { name: '证据视图' })).toHaveAttribute('data-state', 'active')
+  })
+
+  it('falls back to local filtering when backend search fails', async () => {
+    const user = userEvent.setup()
+    vi.mocked(memoryApi.getMemoryGraphSearch).mockRejectedValue(new Error('search unavailable'))
+
+    render(<KnowledgeGraphPage />)
+
+    await screen.findByTestId('graph-visualization')
+    await user.type(screen.getByPlaceholderText('搜索实体、关系、hash（后端全库）'), 'missing')
+    await user.click(screen.getByRole('button', { name: '搜索' }))
 
     expect(await screen.findByText('还没有可展示的长期记忆图谱')).toBeInTheDocument()
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: '后端检索失败，已回退本地筛选',
+      }),
+    )
   })
 
   it('shows empty state when switching to evidence view without a selection', async () => {

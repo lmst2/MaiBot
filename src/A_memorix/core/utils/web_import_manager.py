@@ -3165,14 +3165,21 @@ class ImportTaskManager:
     async def _llm_call(self, prompt: str, model_config: Any) -> Dict[str, Any]:
         cfg = self._llm_retry_config()
         retries = int(cfg["retries"])
+        task_name = llm_api.resolve_task_name_from_model_config(model_config)
         last_error: Optional[Exception] = None
         for attempt in range(retries + 1):
             try:
-                success, response, _, _ = await llm_api.generate_with_model(
-                    prompt=prompt,
-                    model_config=model_config,
-                    request_type="A_Memorix.WebImport",
+                result = await llm_api.generate(
+                    llm_api.LLMServiceRequest(
+                        task_name=task_name,
+                        request_type="A_Memorix.WebImport",
+                        prompt=prompt,
+                        temperature=getattr(model_config, "temperature", None),
+                        max_tokens=getattr(model_config, "max_tokens", None),
+                    )
                 )
+                success = bool(result.success)
+                response = str(result.completion.response or "")
                 if not success or not response:
                     raise RuntimeError("LLM 生成失败")
 
