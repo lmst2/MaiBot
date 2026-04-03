@@ -24,10 +24,8 @@ from src.config.official_configs import (
     ChineseTypoConfig,
     DebugConfig,
     EmojiConfig,
-    ExperimentalConfig,
     ExpressionConfig,
     KeywordReactionConfig,
-    LPMMKnowledgeConfig,
     MaimMessageConfig,
     MemoryConfig,
     MessageReceiveConfig,
@@ -109,9 +107,7 @@ async def get_config_section_schema(section_name: str):
     - response_post_process: ResponsePostProcessConfig
     - response_splitter: ResponseSplitterConfig
     - telemetry: TelemetryConfig
-    - experimental: ExperimentalConfig
     - maim_message: MaimMessageConfig
-    - lpmm_knowledge: LPMMKnowledgeConfig
     - memory: MemoryConfig
     - debug: DebugConfig
     - voice: VoiceConfig
@@ -133,9 +129,7 @@ async def get_config_section_schema(section_name: str):
         "response_post_process": ResponsePostProcessConfig,
         "response_splitter": ResponseSplitterConfig,
         "telemetry": TelemetryConfig,
-        "experimental": ExperimentalConfig,
         "maim_message": MaimMessageConfig,
-        "lpmm_knowledge": LPMMKnowledgeConfig,
         "memory": MemoryConfig,
         "debug": DebugConfig,
         "voice": VoiceConfig,

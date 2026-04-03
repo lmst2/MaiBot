@@ -244,15 +244,45 @@ class ChatConfig(ConfigBase):
         },
     )
     """每个聊天流最大保存的Plan/Reply日志数量，超过此数量时会自动删除最老的日志"""
-
-    llm_quote: bool = Field(
-        default=False,
+    private_plan_style: str = Field(
+        default=(
+            "1.思考**所有**的可用的action中的**每个动作**是否符合当下条件，如果动作使用条件符合聊天内容就使用\n"
+            "2.如果相同的内容已经被执行，请不要重复执行\n"
+            "3.某句话如果已经被回复过，不要重复回复"
+        ),
         json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "quote",
+            "x-widget": "textarea",
+            "x-icon": "user",
         },
     )
-    """是否在 reply action 中启用 quote 参数，启用后 LLM 可以控制是否引用消息"""
+    """_wrap_私聊说话规则，行为风格"""
+
+    group_chat_prompt: str = Field(
+        default="不要回复的太频繁！控制回复的频率，不要每个人的消息都回复，只回复你感兴趣的或者主动提及你的。",
+        json_schema_extra={
+            "x-widget": "textarea",
+            "x-icon": "users",
+        },
+    )
+    """_wrap_群聊通用注意事项"""
+
+    private_chat_prompts: str = Field(
+        default="",
+        json_schema_extra={
+            "x-widget": "textarea",
+            "x-icon": "user",
+        },
+    )
+    """_wrap_私聊通用注意事项"""
+
+    chat_prompts: list["ExtraPromptItem"] = Field(
+        default_factory=lambda: [],
+        json_schema_extra={
+            "x-widget": "custom",
+            "x-icon": "list",
+        },
+    )
+    """_wrap_为指定聊天添加额外的 prompt 配置列表"""
 
     enable_talk_value_rules: bool = Field(
         default=True,
@@ -356,43 +386,6 @@ class MemoryConfig(ConfigBase):
 
     __ui_parent__ = "emoji"
 
-    max_agent_iterations: int = Field(
-        default=5,
-        ge=1,
-        json_schema_extra={
-            "x-widget": "input",
-            "x-icon": "layers",
-        },
-    )
-    """记忆思考深度（最低为1）"""
-
-    agent_timeout_seconds: float = Field(
-        default=120.0,
-        json_schema_extra={
-            "x-widget": "input",
-            "x-icon": "clock",
-        },
-    )
-    """最长回忆时间（秒）"""
-
-    global_memory: bool = Field(
-        default=False,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "globe",
-        },
-    )
-    """是否允许记忆检索在聊天记录中进行全局查询（忽略当前chat_id，仅对 search_chat_history 等工具生效）"""
-
-    global_memory_blacklist: list[TargetItem] = Field(
-        default_factory=lambda: [],
-        json_schema_extra={
-            "x-widget": "custom",
-            "x-icon": "shield-off",
-        },
-    )
-    """_wrap_全局记忆黑名单，当启用全局记忆时，不将特定聊天流纳入检索"""
-
     chat_history_topic_check_message_threshold: int = Field(
         default=80,
         ge=1,
@@ -444,10 +437,6 @@ class MemoryConfig(ConfigBase):
 
     def model_post_init(self, context: Optional[dict] = None) -> None:
         """验证配置值"""
-        if self.max_agent_iterations < 1:
-            raise ValueError(f"max_agent_iterations 必须至少为1，当前值: {self.max_agent_iterations}")
-        if self.agent_timeout_seconds <= 0:
-            raise ValueError(f"agent_timeout_seconds 必须大于0，当前值: {self.agent_timeout_seconds}")
         if self.chat_history_topic_check_message_threshold < 1:
             raise ValueError(
                 f"chat_history_topic_check_message_threshold 必须至少为1，当前值: {self.chat_history_topic_check_message_threshold}"
@@ -1052,55 +1041,11 @@ class ExtraPromptItem(ConfigBase):
     """额外的prompt内容"""
 
     def model_post_init(self, context: Optional[dict] = None) -> None:
+        if not self.platform and not self.item_id and not self.prompt:
+            return super().model_post_init(context)
         if not self.platform or not self.item_id or not self.prompt:
             raise ValueError("ExtraPromptItem 中 platform, id 和 prompt 不能为空")
         return super().model_post_init(context)
-
-
-class ExperimentalConfig(ConfigBase):
-    """实验功能配置类"""
-
-    __ui_parent__ = "debug"
-
-    private_plan_style: str = Field(
-        default=(
-            "1.思考**所有**的可用的action中的**每个动作**是否符合当下条件，如果动作使用条件符合聊天内容就使用"
-            "2.如果相同的内容已经被执行，请不要重复执行"
-            "3.某句话如果已经被回复过，不要重复回复"
-        ),
-        json_schema_extra={
-            "x-widget": "textarea",
-            "x-icon": "user",
-        },
-    )
-    """_wrap_私聊说话规则，行为风格（实验性功能）"""
-
-    group_chat_prompt: str = Field(
-        default="",
-        json_schema_extra={
-            "x-widget": "textarea",
-            "x-icon": "users",
-        },
-    )
-    """_wrap_群聊通用注意事项（实验性功能）"""
-
-    private_chat_prompts: str = Field(
-        default="",
-        json_schema_extra={
-            "x-widget": "textarea",
-            "x-icon": "user",
-        },
-    )
-    """_wrap_私聊通用注意事项（实验性功能）"""
-
-    chat_prompts: list[ExtraPromptItem] = Field(
-        default_factory=lambda: [],
-        json_schema_extra={
-            "x-widget": "custom",
-            "x-icon": "list",
-        },
-    )
-    """_wrap_为指定聊天添加额外的prompt配置列表"""
 
 
 class MaimMessageConfig(ConfigBase):
@@ -1482,16 +1427,6 @@ class MaiSakaConfig(ConfigBase):
         },
     )
     """启用知识库模块"""
-
-    show_analyze_cognition_prompt: bool = Field(
-        default=False,
-        json_schema_extra={
-            "x-widget": "switch",
-            "x-icon": "terminal",
-        },
-    )
-    """是否在 CLI 中显示 analyze_cognition 的 Prompt"""
-
     show_thinking: bool = Field(
         default=True,
         json_schema_extra={

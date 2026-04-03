@@ -21,7 +21,6 @@ from .official_configs import (
     DatabaseConfig,
     DebugConfig,
     EmojiConfig,
-    ExperimentalConfig,
     ExpressionConfig,
     KeywordReactionConfig,
     LPMMKnowledgeConfig,
@@ -56,7 +55,7 @@ CONFIG_DIR: Path = PROJECT_ROOT / "config"
 BOT_CONFIG_PATH: Path = (CONFIG_DIR / "bot_config.toml").resolve().absolute()
 MODEL_CONFIG_PATH: Path = (CONFIG_DIR / "model_config.toml").resolve().absolute()
 MMC_VERSION: str = "1.0.0"
-CONFIG_VERSION: str = "8.2.1"
+CONFIG_VERSION: str = "8.3.0"
 MODEL_CONFIG_VERSION: str = "1.13.1"
 
 logger = get_logger("config")
@@ -113,13 +112,10 @@ class Config(ConfigBase):
     debug: DebugConfig = Field(default_factory=DebugConfig)
     """调试配置类"""
 
-    experimental: ExperimentalConfig = Field(default_factory=ExperimentalConfig)
-    """实验性功能配置类"""
-
     maim_message: MaimMessageConfig = Field(default_factory=MaimMessageConfig)
     """maim_message配置类"""
 
-    lpmm_knowledge: LPMMKnowledgeConfig = Field(default_factory=LPMMKnowledgeConfig)
+    lpmm_knowledge: LPMMKnowledgeConfig = Field(default_factory=LPMMKnowledgeConfig, repr=False)
     """LPMM知识库配置类"""
 
     webui: WebUIConfig = Field(default_factory=WebUIConfig)

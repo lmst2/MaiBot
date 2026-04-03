@@ -37,7 +37,7 @@ from src.plugin_runtime.hook_schema_utils import build_object_schema
 from src.plugin_runtime.host.hook_spec_registry import HookSpec, HookSpecRegistry
 from src.services.llm_service import LLMServiceClient
 
-from .builtin_tools import get_builtin_tools
+from .builtin_tool import get_builtin_tools
 from .context_messages import AssistantMessage, LLMContextMessage, SessionBackedMessage, ToolResultMessage
 from .message_adapter import format_speaker_content
 from .prompt_cli_renderer import PromptCLIVisualizer
@@ -290,14 +290,7 @@ class MaisakaChatLoopService:
         Args:
             tools_section: 额外注入到提示词中的工具说明片段。
         """
-
-        if self._prompts_loaded:
-            return
-
         async with self._prompt_load_lock:
-            if self._prompts_loaded:
-                return
-
             try:
                 self._chat_system_prompt = load_prompt(
                     "maisaka_chat",
@@ -317,29 +310,29 @@ class MaisakaChatLoopService:
         prompt_lines: List[str] = []
 
         if self._is_group_chat is True:
-            if group_chat_prompt := str(global_config.experimental.group_chat_prompt or "").strip():
-                prompt_lines.append(group_chat_prompt)
+            if group_chat_prompt := str(global_config.chat.group_chat_prompt or "").strip():
+                prompt_lines.append(f"通用注意事项：\n{group_chat_prompt}")
         elif self._is_group_chat is False:
-            if private_chat_prompt := str(global_config.experimental.private_chat_prompts or "").strip():
-                prompt_lines.append(private_chat_prompt)
+            if private_chat_prompt := str(global_config.chat.private_chat_prompts or "").strip():
+                prompt_lines.append(f"通用注意事项：\n{private_chat_prompt}")
 
         if self._session_id:
             if chat_prompt := self._get_chat_prompt_for_chat(self._session_id, self._is_group_chat).strip():
-                prompt_lines.append(chat_prompt)
+                prompt_lines.append(f"当前聊天额外注意事项：\n{chat_prompt}")
 
         if not prompt_lines:
             return ""
 
-        return f"在该聊天中的注意事项：\n" + "\n".join(prompt_lines) + "\n"
+        return f"在该聊天中的注意事项：\n" + "\n\n".join(prompt_lines) + "\n"
 
     @staticmethod
     def _get_chat_prompt_for_chat(chat_id: str, is_group_chat: Optional[bool]) -> str:
         """根据聊天流 ID 获取匹配的额外提示。"""
 
-        if not global_config.experimental.chat_prompts:
+        if not global_config.chat.chat_prompts:
             return ""
 
-        for chat_prompt_item in global_config.experimental.chat_prompts:
+        for chat_prompt_item in global_config.chat.chat_prompts:
             if hasattr(chat_prompt_item, "platform"):
                 platform = str(chat_prompt_item.platform or "").strip()
                 item_id = str(chat_prompt_item.item_id or "").strip()

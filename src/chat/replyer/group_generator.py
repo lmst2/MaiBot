@@ -688,39 +688,41 @@ class DefaultReplyer:
             return None
 
     def get_chat_prompt_for_chat(self, chat_id: str) -> str:
-        """
-        根据聊天流ID获取匹配的额外prompt（仅匹配group类型）
-
-        Args:
-            chat_id: 聊天流ID（哈希值）
-
-        Returns:
-            str: 匹配的额外prompt内容，如果没有匹配则返回空字符串
-        """
-        if not global_config.experimental.chat_prompts:
+        """根据聊天流 ID 获取匹配的额外 prompt。"""
+        if not global_config.chat.chat_prompts:
             return ""
 
-        for chat_prompt_str in global_config.experimental.chat_prompts:
-            if not isinstance(chat_prompt_str, str):
+        for chat_prompt_item in global_config.chat.chat_prompts:
+            if hasattr(chat_prompt_item, "rule_type") and hasattr(chat_prompt_item, "prompt"):
+                if str(chat_prompt_item.rule_type or "").strip() != "group":
+                    continue
+
+                config_chat_id = self._build_chat_uid(
+                    str(chat_prompt_item.platform or "").strip(),
+                    str(chat_prompt_item.item_id or "").strip(),
+                    True,
+                )
+                prompt_content = str(chat_prompt_item.prompt or "").strip()
+                if config_chat_id == chat_id and prompt_content:
+                    logger.debug(f"匹配到群聊 prompt 配置，chat_id: {chat_id}, prompt: {prompt_content[:50]}...")
+                    return prompt_content
                 continue
 
-            # 解析配置字符串，检查类型是否为group
-            parts = chat_prompt_str.split(":", 3)
-            if len(parts) != 4:
+            if not isinstance(chat_prompt_item, str):
                 continue
 
-            stream_type = parts[2]
-            # 只匹配group类型
-            if stream_type != "group":
+            # 兼容旧格式的 platform:id:type:prompt 配置字符串。
+            parts = chat_prompt_item.split(":", 3)
+            if len(parts) != 4 or parts[2] != "group":
                 continue
 
-            result = self._parse_chat_prompt_config_to_chat_id(chat_prompt_str)
+            result = self._parse_chat_prompt_config_to_chat_id(chat_prompt_item)
             if result is None:
                 continue
 
             config_chat_id, prompt_content = result
             if config_chat_id == chat_id:
-                logger.debug(f"匹配到群聊prompt配置，chat_id: {chat_id}, prompt: {prompt_content[:50]}...")
+                logger.debug(f"匹配到群聊 prompt 配置，chat_id: {chat_id}, prompt: {prompt_content[:50]}...")
                 return prompt_content
 
         return ""
