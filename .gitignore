@@ -1,4 +1,10 @@
 data/
+!pytests/A_memorix_test/data/
+!pytests/A_memorix_test/data/benchmarks/
+!pytests/A_memorix_test/data/benchmarks/long_novel_memory_benchmark.json
+!pytests/A_memorix_test/data/real_dialogues/
+!pytests/A_memorix_test/data/real_dialogues/private_alice_weekend.json
+pytests/A_memorix_test/data/benchmarks/results/
 data1/
 mai_knowledge/knowledge.json
 mongodb/
@@ -343,6 +349,7 @@ run_pet.bat
 
 /plugins/*
 !/plugins
+!/plugins/A_memorix
 !/plugins/hello_world_plugin
 !/plugins/emoji_manage_plugin
 !/plugins/take_picture_plugin
@@ -364,3 +371,4 @@ packages/
 ## Claude Code and OMC data
 .claude/
 .omc/
+/.venv312

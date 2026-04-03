@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { css } from '@codemirror/lang-css'
 import { json, jsonParseLinter } from '@codemirror/lang-json'
+import { linter } from '@codemirror/lint'
 import { python } from '@codemirror/lang-python'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { EditorView } from '@codemirror/view'
@@ -29,7 +30,7 @@ interface CodeEditorProps {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const languageExtensions: Record<Language, any[]> = {
   python: [python()],
-  json: [json(), jsonParseLinter()],
+  json: [json(), linter(jsonParseLinter())],
   toml: [StreamLanguage.define(tomlMode)],
   css: [css()],
   text: [],

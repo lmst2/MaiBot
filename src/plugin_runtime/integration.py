@@ -1256,7 +1256,8 @@ class PluginRuntimeManager(
         desired_plugin_paths = dict(self._iter_watchable_plugin_paths())
         self._plugin_path_cache = desired_plugin_paths.copy()
         desired_config_paths = {
-            plugin_id: plugin_path / "config.toml" for plugin_id, plugin_path in desired_plugin_paths.items()
+            plugin_id: self._resolve_plugin_config_path(plugin_id, plugin_path)
+            for plugin_id, plugin_path in desired_plugin_paths.items()
         }
 
         for plugin_id, (_old_path, subscription_id) in list(self._plugin_config_watcher_subscriptions.items()):
@@ -1310,7 +1311,11 @@ class PluginRuntimeManager(
     def _get_plugin_config_path_for_supervisor(self, supervisor: Any, plugin_id: str) -> Optional[Path]:
         """从指定 Supervisor 的插件目录中定位某个插件的 config.toml。"""
         plugin_path = self._get_plugin_path_for_supervisor(supervisor, plugin_id)
-        return None if plugin_path is None else plugin_path / "config.toml"
+        return None if plugin_path is None else self._resolve_plugin_config_path(plugin_id, plugin_path)
+
+    @staticmethod
+    def _resolve_plugin_config_path(plugin_id: str, plugin_path: Path) -> Path:
+        return plugin_path / "config.toml"
 
     async def _handle_plugin_config_changes(self, plugin_id: str, changes: Sequence[FileChange]) -> None:
         """处理单个插件配置文件变化，并定向派发自配置热更新。
@@ -1445,7 +1450,7 @@ class PluginRuntimeManager(
         if plugin_path is None:
             return {}
 
-        config_path = plugin_path / "config.toml"
+        config_path = self._resolve_plugin_config_path(plugin_id, plugin_path)
         if not config_path.exists():
             return {}
 

@@ -671,13 +671,33 @@ class RuntimeDataCapabilityMixin:
         except (TypeError, ValueError):
             limit_value = 5
 
+        mode = str(args.get("mode", "search") or "search").strip() or "search"
+        chat_id = str(args.get("chat_id", "") or "").strip()
+        person_id = str(args.get("person_id", "") or "").strip()
+        user_id = str(args.get("user_id", "") or "").strip()
+        group_id = str(args.get("group_id", "") or "").strip()
+        respect_filter = bool(args.get("respect_filter", True))
+        time_start = args.get("time_start")
+        time_end = args.get("time_end")
+
         try:
-            from src.chat.knowledge import qa_manager
+            from src.services.memory_service import memory_service
 
-            if qa_manager is None:
-                return {"success": True, "content": "LPMM知识库已禁用"}
-
-            knowledge_info = await qa_manager.get_knowledge(query, limit=limit_value)
+            result = await memory_service.search(
+                query,
+                limit=limit_value,
+                mode=mode,
+                chat_id=chat_id,
+                person_id=person_id,
+                time_start=time_start,
+                time_end=time_end,
+                respect_filter=respect_filter,
+                user_id=user_id,
+                group_id=group_id,
+            )
+            if not result.success:
+                return {"success": False, "error": result.error or "长期记忆检索失败"}
+            knowledge_info = result.to_text(limit=limit_value)
             content = f"你知道这些知识: {knowledge_info}" if knowledge_info else f"你不太了解有关{query}的知识"
             return {"success": True, "content": content}
         except Exception as e:

@@ -500,8 +500,9 @@ class PluginRunner:
             handle.write(tomlkit.dumps(config_data))
 
     @staticmethod
-    def _load_plugin_config(plugin_dir: str) -> Dict[str, Any]:
+    def _load_plugin_config(plugin_dir: str, plugin_id: str = "") -> Dict[str, Any]:
         """从插件目录读取 config.toml。"""
+        _ = plugin_id
         config_path = Path(plugin_dir) / "config.toml"
         if not config_path.exists():
             return {}
